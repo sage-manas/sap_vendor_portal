@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
 const tenantPlugin = require('./plugins/tenantPlugin');
+const credentialsPlugin = require('./plugins/credentialsPlugin');
+const { SUPPLIER_ROLES, ROLES } = require('../config/roles');
 const Schema = mongoose.Schema;
 
 // vendorId is the link between user and our MongoDB vendor
@@ -8,10 +9,11 @@ const Schema = mongoose.Schema;
 const vendorSchema = new Schema({
   vendorId:       { type: String, required: true, unique: true }, // ← Local unique user/vendor ID
   clerkId:        { type: String },                               // ← Deprecated, kept for backward compatibility
-  password:       { type: String, select: false },                // ← Hashed password (not returned by default)
-  resetPasswordToken:   { type: String, select: false },
-  resetPasswordExpires: { type: Date, select: false },
-  role:           { type: String, enum: ['vendor', 'admin'], default: 'vendor' },
+  // Credentials (password, reset tokens, mustChangePassword) come from
+  // credentialsPlugin so all three identity collections behave identically.
+  // Vendor is the supplier plane only: tenant staff live in the User
+  // collection (ADR-0007), so 'admin' is no longer a Vendor role.
+  role:           { type: String, enum: SUPPLIER_ROLES, default: ROLES.VENDOR },
   companyName:    { type: String, required: true, trim: true },
   tradeName:      { type: String, trim: true },
   businessType:   { type: String },
@@ -64,20 +66,14 @@ const vendorSchema = new Schema({
   approvedAt:     { type: Date }
 }, { timestamps: true });
 
-// Hash password before saving
-vendorSchema.pre('save', async function() {
-  if (!this.isModified('password') || !this.password) return;
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password, salt);
-});
-
-// Compare password helper method
-vendorSchema.methods.comparePassword = async function(candidatePassword) {
-  if (!this.password) return false;
-  return bcrypt.compare(candidatePassword, this.password);
-};
-
+vendorSchema.plugin(credentialsPlugin);
 vendorSchema.plugin(tenantPlugin);
+
+// Suppliers may sign in from Draft onwards — the portal is where they finish
+// onboarding. Only an explicit rejection closes the door.
+vendorSchema.methods.canAuthenticate = function canAuthenticate() {
+  return this.status !== 'Rejected';
+};
 
 // Indexes.
 // vendorId / email / gstin stay GLOBALLY unique: login resolves an account
