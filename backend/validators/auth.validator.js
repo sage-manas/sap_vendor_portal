@@ -43,9 +43,34 @@ const resetPasswordSchema = z.object({
   password: z.string().min(6, { message: "Password must be at least 6 characters long" })
 });
 
+// Passwords chosen through an invitation, a forced first-login change or the
+// platform console all obey the same minimum. One schema fragment, so raising
+// the bar is a one-line change.
+const passwordField = z.string().min(6, { message: "Password must be at least 6 characters long" });
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, { message: "Current password is required" }),
+  newPassword: passwordField
+});
+
+const acceptInvitationSchema = z.object({
+  token: z.string().min(1, { message: "Invitation token is required" }),
+  password: passwordField,
+  name: z.string().min(2).max(120).optional()
+});
+
+const platformLoginSchema = z.object({
+  email: z.string().email({ message: "Invalid email format" }),
+  password: z.string().min(1, { message: "Password is required" })
+});
+
 module.exports = {
   registerSchema,
   loginSchema,
   forgotPasswordSchema,
-  resetPasswordSchema
+  resetPasswordSchema,
+  changePasswordSchema,
+  acceptInvitationSchema,
+  platformLoginSchema,
+  passwordField
 };

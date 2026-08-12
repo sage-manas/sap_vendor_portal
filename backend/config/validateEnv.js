@@ -18,6 +18,25 @@ const validateEnv = () => {
     process.exit(1);
   }
 
+  // Sessions are signed with this; the 'secret' fallback in code is a
+  // development convenience and must never reach production.
+  if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+    const msg = '❌ Server crash in Production: JWT_SECRET is required';
+    logger.error(msg);
+    console.error(`\n${msg}\n`);
+    process.exit(1);
+  }
+
+  // Removed in Phase 2 (ADR-0009): it granted an admin role from a public
+  // endpoint. Fail loudly rather than silently ignoring a stale deployment
+  // config that an operator still believes is doing something.
+  if (process.env.ADMIN_BOOTSTRAP_EMAILS) {
+    const msg = '❌ ADMIN_BOOTSTRAP_EMAILS is no longer supported — provision staff with scripts/seed-platform-admin.js and the invitation flow. Remove it from the environment.';
+    logger.error(msg);
+    console.error(`\n${msg}\n`);
+    process.exit(1);
+  }
+
   const missingClerk = [];
   clerkKeys.forEach(key => {
     if (!process.env[key]) {

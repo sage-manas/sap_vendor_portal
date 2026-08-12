@@ -18,11 +18,17 @@ router.get('/test-error', (req, res, next) => {
   next(ApiError.badRequest('This is a test error to verify errorHandler'));
 });
 
-// Auth routes (public)
+// Auth routes. The public arms establish identity; /me and /change-password
+// carry their own guard.
 router.use('/auth', require('./auth.routes'));
 
-// Transactional routes (secured by JWT)
+// Platform plane — its own guard, and deliberately no tenant binding.
+router.use('/platform', require('./platform.routes'));
+
+// Tenant + supplier planes. `protect` binds the tenant; every route inside
+// declares the permission it needs (config/permissions.js decides who holds it).
 router.use('/vendors', require('./vendor.routes'));
+router.use('/users', protect, require('./user.routes'));
 router.use('/rfqs', protect, require('./rfq.routes'));
 router.use('/pos', protect, require('./po.routes'));
 router.use('/grns', protect, require('./grn.routes'));

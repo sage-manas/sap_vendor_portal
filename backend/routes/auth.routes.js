@@ -1,13 +1,28 @@
 const router = require('express').Router();
 const authController = require('../controllers/auth.controller');
+const invitationController = require('../controllers/invitation.controller');
 const validate = require('../middleware/validate');
-const { registerSchema, loginSchema, forgotPasswordSchema, resetPasswordSchema } = require('../validators/auth.validator');
-const { protect } = require('../middleware/auth');
+const {
+  registerSchema,
+  loginSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+  changePasswordSchema,
+  acceptInvitationSchema
+} = require('../validators/auth.validator');
+const { protect, requirePermission } = require('../middleware/auth');
+const { PERMISSIONS } = require('../config/permissions');
 
+// Public: identity is being established, so there is no principal to authorize.
 router.post('/register', validate(registerSchema), authController.register);
 router.post('/login', validate(loginSchema), authController.login);
-router.get('/me', protect, authController.getMe);
 router.post('/forgot-password', validate(forgotPasswordSchema), authController.forgotPassword);
 router.post('/reset-password', validate(resetPasswordSchema), authController.resetPassword);
+router.get('/invitations/:token', invitationController.getInvitation);
+router.post('/invitations/accept', validate(acceptInvitationSchema), invitationController.acceptInvitation);
+
+// Authenticated: every principal holds self:read.
+router.get('/me', protect, requirePermission(PERMISSIONS.SELF_READ), authController.getMe);
+router.post('/change-password', protect, requirePermission(PERMISSIONS.SELF_READ), validate(changePasswordSchema), authController.changePassword);
 
 module.exports = router;

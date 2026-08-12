@@ -5,10 +5,12 @@ const {
   createPayment,
   updatePaymentStatus
 } = require('../controllers/payment.controller');
+const { requirePermission } = require('../middleware/auth');
+const { PERMISSIONS } = require('../config/permissions');
 
-router.get('/', getPayments);
-router.post('/', createPayment);
-router.get('/:id', getPaymentById);
-router.put('/:id/status', updatePaymentStatus);
+router.get('/', requirePermission(PERMISSIONS.PAYMENT_READ), getPayments);
+router.post('/', requirePermission(PERMISSIONS.PAYMENT_CREATE), createPayment);
+router.get('/:id', requirePermission(PERMISSIONS.PAYMENT_READ), getPaymentById);
+router.put('/:id/status', requirePermission(PERMISSIONS.PAYMENT_MANAGE), updatePaymentStatus);
 
 module.exports = router;
