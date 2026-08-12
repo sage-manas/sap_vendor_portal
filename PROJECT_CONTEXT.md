@@ -100,10 +100,14 @@ Frontend talks to backend via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
 | `PORT` | API port (default 5000) |
 | `MONGO_URI` | MongoDB connection string |
 | `FRONTEND_URL`, `ALLOWED_ORIGINS` | CORS allowlist (localhost:3000-3002/5173 always allowed) |
-| `NODE_ENV` | `development` \| `test` \| `production`. Gates rate limiting, the `x-vendor-id` dev auth fallback, and the dev-only "Reset ERP Database" UI. |
-| `JWT_SECRET` | JWT signing key (falls back to `'secret'` if unset — **set in prod**) |
+| `NODE_ENV` | `development` \| `test` \| `production`. Gates rate limiting, mailer transport selection, and the dev-only "Reset ERP Database" UI. |
+| `JWT_SECRET` | JWT signing key (falls back to `'secret'` outside production; **required** in production or boot fails) |
 | `JWT_EXPIRES_IN` | default `30d` |
-| `ADMIN_BOOTSTRAP_EMAILS` | comma-separated emails that get `role: 'admin'` on first registration. **Only path to admin.** Unset it after the admin signs up. Removed in SaaS Phase 2. |
+| `ADMIN_BOOTSTRAP_EMAILS` | **Removed (ADR-0009).** If it is still set, the server refuses to start. Provision staff with `npm run seed:platform-admin` + the invitation flow. |
+| `MAIL_TRANSPORT` | `smtp` \| `log` \| `memory`. Defaults: smtp in production, memory under test, log in development. Production accepts only `smtp`. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_SECURE`, `MAIL_FROM` | nodemailer SMTP config. `SMTP_HOST` is required whenever the transport is smtp. |
+| `MAIL_DEBUG_BODY` | `true` prints email bodies to the log. Development only — bodies carry reset tokens and temporary passwords. |
+| `PLATFORM_ADMIN_EMAIL` / `_NAME` / `_PASSWORD` | optional inputs to `scripts/seed-platform-admin.js` (CLI flags take precedence). |
 | `DEFAULT_CLIENT_SLUG` | tenant an unauthenticated request registers into when no subdomain/`x-client-slug` says otherwise. Defaults to `legacy` (= `CLT-0001`). |
 | `SAP_MOCK_MODE` | `true` (always mock; real RFC not implemented) |
 | `GSTIN_PAN_VERIFY_MOCK_MODE` + `_API_URL` / `_API_KEY` | KYC verification mock vs live (see `services/verification.service.js`) |
@@ -252,16 +256,28 @@ All string business IDs (`id`, `vendorId`, `poId`, …) are human-readable and u
 
 **Routing (`routes/index.js`):** everything under `/api`.
 - `/api/health`, `/api/test-error` — public.
-- `/api/auth` — public.
-- **All other route groups are mounted behind `protect`** (JWT): `vendors, rfqs, pos, grns, invoices, payments, chats, uploads, reports, asns, logs, dashboard`. (Note `vendor.routes.js` applies `protect` per-route rather than at mount, and adds `authorize('admin')` on admin routes.)
+- `/api/auth` — public arms (register, login, forgot/reset password, invitation preview + accept); `/me` and `/change-password` carry their own guard.
+- `/api/platform` — the platform plane, behind `protectPlatform`. **No tenant is bound here.** Phase 2 ships identity only (login, me, change/forgot/reset password); Phase 3 adds the console's routes.
+- **All other route groups are mounted behind `protect`** (JWT): `vendors, users, rfqs, pos, grns, invoices, payments, chats, uploads, reports, asns, logs, dashboard`. Inside each group **every route declares one permission** with `requirePermission(...)`; `config/permissions.js` decides which roles hold it (ADR-0012). `vendor.routes.js` applies `protect` per-route because `POST /vendors/profile` is public.
+
+**Identity (three collections, three planes — ADR-0007/0008):**
+- `Vendor` — supplier plane. Supplier master record *and* supplier login. Role enum is `vendor` only.
+- `User` — tenant plane (`client_admin`, `buyer`, `finance`). Tenant-scoped. Created by invitation or tenant provisioning, never by public registration.
+- `PlatformUser` — platform plane (`super_admin`, `sap_manager`). Not tenant-scoped; its own login surface under `/api/platform/auth`.
+- All three share `models/plugins/credentialsPlugin.js` (bcrypt hashing, single-use hashed reset tokens, `mustChangePassword`, `lastLoginAt`).
+- `Invitation` — tenant-scoped, covers staff *and* supplier invites; only the token hash is stored, 7-day expiry, one live invite per email per tenant.
 
 **Auth middleware (`middleware/auth.js`):**
-- `protect` — extracts `Bearer` token, verifies, loads `Vendor` (via `withoutTenantScope`, since identity precedes tenancy), sets `req.vendor / req.vendorId / req.clerkUserId / req.clientId / req.roleScope / req.client`, rejects platform-plane accounts and non-operational tenants, then **binds the tenant context for the rest of the request**. Everything behind `protect` therefore runs bound. **Dev/test-only** fallback: with no token and `NODE_ENV !== 'production'`, an `x-vendor-id` header matching a vendor authenticates. Inert in production.
-- `authorize(...roles)` — runs after `protect`, checks `req.vendor.role`.
+- `protect` — verifies the `Bearer` token, loads the account from the collection its `accountType` names (unscoped, since identity precedes tenancy), **401s if the account's role no longer matches the token** (ADR-0013), rejects platform accounts with 403, then sets `req.auth` (`accountType/id/role/plane/email/clientId/permissions`) plus `req.client`, `req.clientId`, and either `req.vendor`/`req.vendorId`/`req.scopeVendorId` (suppliers) or `req.user` with a null `req.scopeVendorId` (staff), and **binds the tenant context for the rest of the request**. There is no `x-vendor-id` fallback in any environment (ADR-0010).
+- `protectPlatform` — the same resolution for `/api/platform/*`, but binds **no** tenant, and answers **404** to a tenant-plane account so the console's existence is never confirmed.
+- `requirePermission(permission)` — the only route guard. Reads `config/permissions.js`; the declaration is discoverable as `fn.permission`, which `tests/route-role-matrix.test.js` walks.
+- `requirePlane(...planes)` — plane assertion for permissions held on more than one plane.
 
 **Other middleware:** `errorHandler` (central, uses `ApiError`), `rateLimiter` (`apiLimiter`), `requestLogger`, `validate(schema)` (zod), `upload` (multer).
 
-**Utils:** `ApiError` (badRequest/unauthorized/forbidden/notFound/conflict factories), `asyncHandler`, `logger` (winston), `sapLogger.createSapLog(...)` (writes `SapLog`), `socketEmitter` (`EVENTS` map + `emitToVendor` / `emitToProcurement`).
+**Utils:** `ApiError` (badRequest/unauthorized/forbidden/notFound/conflict factories), `asyncHandler`, `logger` (winston), `sapLogger.createSapLog(...)` (writes `SapLog`), `socketEmitter` (`EVENTS` map + `emitToVendor` / `emitToProcurement`), `authToken` (signs/verifies session tokens for all three planes), `requestScope` (`vendorScope` / `requireVendorScope` / `withVendorScope` — the one answer to "whose rows is this request about"), `mailer` (smtp/log/memory transports; `assertMailerConfigured()` runs at boot).
+
+**Registries — one module each, read everywhere, duplicated nowhere:** `config/roles.js` (roles → planes → account collection), `config/permissions.js` (role → permissions), `config/emailTemplates.js` (all outbound copy).
 
 **Socket events** (`utils/socketEmitter.js` `EVENTS`): `po:new`, `grn:received`, `payment:cleared`, `rfq:awarded`, `rfq:bid_received`, `chat:message`, `vendor:approved`, `log:new`. Emitters take `clientId` as a required first argument after `io`.
 
@@ -271,7 +287,7 @@ All string business IDs (`id`, `vendorId`, `poId`, …) are human-readable and u
 
 ### 7.1 Complete API Endpoint Map
 
-Base path `/api`. Auth column: **Public** / **JWT** (`protect`) / **Admin** (`protect`+`authorize('admin')`).
+Base path `/api`. Auth column: **Public** / the permission the route declares (see `config/permissions.js` for who holds it). Phase 2 additions: `/api/users` (staff + invitations), `/api/vendors/invitations`, `/api/auth/invitations/:token`, `/api/auth/invitations/accept`, `/api/auth/change-password`, `/api/platform/auth/*`.
 
 **Auth** (`auth.routes.js`, public):
 | Method | Path | Controller | Notes |

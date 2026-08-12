@@ -5,6 +5,153 @@ Each entry: the call, why, and what it costs.
 
 ---
 
+## ADR-0013 — A role change invalidates every token that account already holds
+**Phase 2 · 2026-08-12 · Accepted**
+
+**Context.** Tokens live for 30 days and carry the role they were minted with. A
+client_admin demoted to buyer — or suspended outright — would otherwise keep administrator
+permissions until their token expired.
+
+**Decision.** `protect` compares the token's `role` claim against the account's current
+role and answers 401 ("session is stale — sign in again") when they differ. `canAuthenticate()`
+is re-checked on every request, not only at login.
+
+**Consequences.** Demotion and suspension take effect on the next request, with no
+revocation list or session store. The cost is one extra failure mode for clients: a role
+change forces a re-login, which the UI must handle as "sign in again" rather than as an
+error. Legacy tokens minted before Phase 2 carry no role claim and are accepted as
+supplier tokens, re-validated against the account.
+
+---
+
+## ADR-0012 — Routes declare a permission; the registry decides who holds it
+**Phase 2 · 2026-08-12 · Accepted**
+
+**Context.** Authorization was `authorize('admin')` inline in three route files, and
+everything else was open to any authenticated account. Six roles across three planes makes
+that unworkable, and the plan forbids duplicated role lists.
+
+**Decision.** `config/permissions.js` is the single map of role → permissions. Every route
+declares exactly one permission via `requirePermission(PERMISSIONS.X)`; no route names a
+role. The declaration is readable off the middleware function (`fn.permission`), and
+`tests/route-role-matrix.test.js` walks the real Express router and fails when a route
+declares nothing, declares an unknown permission, or declares one no role holds. Public
+endpoints are an explicit allow-list inside that test.
+
+**Consequences.** Adding a role is a one-file change; adding a route without thinking about
+authorization breaks CI on the same commit. The matrix test also asserts the plan's hard
+rule directly: platform roles hold no tenant-business permission and tenant/supplier roles
+hold no platform permission. The cost is one permission per route — coarser than per-field
+rules, which is deliberate for now.
+
+---
+
+## ADR-0011 — Reset links and invitations are emailed, and never logged
+**Phase 2 · 2026-08-12 · Accepted**
+
+**Context.** `forgotPassword` wrote the reset URL to the application log because no mail
+service existed. That put a working credential-reset token into log files, log shipping and
+anyone's `grep`.
+
+**Decision.** `utils/mailer.js` with three transports: `smtp` (nodemailer), `log`
+(development — prints recipient, subject and template name, never the body) and `memory`
+(tests assert against it). Selection is `MAIL_TRANSPORT`, else smtp in production, memory
+under test, log in development. `assertMailerConfigured()` runs at boot and refuses to start
+a production server on anything but SMTP. All copy lives in `config/emailTemplates.js`.
+
+**Consequences.** A production deployment now needs `SMTP_HOST` (and normally
+`SMTP_USER`/`SMTP_PASSWORD`/`MAIL_FROM`) or it will not start — deliberate, since
+invitations and resets are the only way staff accounts are created. `MAIL_DEBUG_BODY=true`
+restores body logging in development only.
+
+---
+
+## ADR-0010 — The `x-vendor-id` header is gone from every environment
+**Phase 2 · 2026-08-12 · Accepted**
+
+**Context.** `protect` authenticated a tokenless request from an `x-vendor-id` header
+whenever `NODE_ENV !== 'production'`, and eleven controllers independently resolved "whose
+data is this" as `req.clerkUserId || req.headers['x-vendor-id'] || 'mock_vendor_id'`. The
+header path meant any caller could name any supplier — and, in the last fallback, a
+fictional one — with the production guard sitting in one place and the header reads in
+another.
+
+**Decision.** Removed entirely: from `protect`, from every controller, from the upload
+middleware's storage path, and from the CORS allow-list (`x-client-slug` replaces it there).
+Scope now comes from the principal via `utils/requestScope.js` — a supplier is pinned to
+their own `vendorId` whatever the request says, and tenant staff see their whole tenant
+unless they narrow it with `?vendorId=`.
+
+**Consequences.** One rule, one file, no environment-dependent auth. The `'mock_vendor_id'`
+literal is gone from the backend. Tests and dev tools must sign a token; anything that
+relied on the header now gets a 401. Actions that need a supplier and are performed by staff
+(raising a payment, uploading on a supplier's behalf) must name the `vendorId` in the
+request body, and get a 400 if they do not.
+
+---
+
+## ADR-0009 — `ADMIN_BOOTSTRAP_EMAILS` is removed, and its presence fails boot
+**Phase 2 · 2026-08-12 · Accepted**
+
+**Context.** An email listed in that env var received `role: 'admin'` on registration — a
+public, unauthenticated endpoint minting an administrator, with the safety property being
+"remember to unset the variable afterwards".
+
+**Decision.** Deleted. Staff accounts come from an invitation or from tenant provisioning;
+the first platform operator comes from `scripts/seed-platform-admin.js`. `validateEnv()`
+exits with an explanatory message if `ADMIN_BOOTSTRAP_EMAILS` is still set anywhere.
+
+**Consequences.** Self-registration can only ever produce a supplier, which the test suite
+asserts. Existing deployments must remove the variable before the server will start —
+loud, on purpose, because silently ignoring it would leave operators believing a
+provisioning path still exists.
+
+---
+
+## ADR-0008 — Platform operators are a separate collection with a separate login
+**Phase 2 · 2026-08-12 · Accepted**
+
+**Context.** The platform plane holds no tenant, so its accounts cannot live in a
+tenant-scoped collection. They could have been `User` documents with a null `clientId`.
+
+**Decision.** `PlatformUser` is its own collection, not tenant-scoped, reachable only
+through `/api/platform/auth/*` behind `protectPlatform`. Operator credentials are rejected
+at `/api/auth/login` and tenant credentials at the platform login. A tenant account calling
+a platform endpoint gets **404**, not 403 — the same "never confirm what you may not see"
+rule the plan sets for cross-tenant reads, applied to the console itself.
+
+**Consequences.** A tenant query can never surface an operator, whatever goes wrong with
+scoping, because there is no operator in that collection to surface. MFA fields live on
+`PlatformUser` now and Phase 3 makes enrolment mandatory before the console loads. The cost
+is a second login surface and a second reset flow, which is the point.
+
+---
+
+## ADR-0007 — Tenant staff live in a new `User` collection, not a widened `Vendor`
+**Phase 2 · 2026-08-12 · Accepted**
+
+**Context.** Today's tenant administrator is a `Vendor` document with `role: 'admin'` —
+carrying GSTIN, PAN, bank details, compliance uploads and an onboarding status, none of
+which mean anything for a buyer or a finance user. Phase 2 needs three tenant roles.
+
+**Decision.** A separate `User` collection for `client_admin`/`buyer`/`finance`, tenant-scoped
+by the same plugin. `Vendor` stays exactly what it is: the supplier master record plus
+supplier login, and its role enum narrows to `vendor` alone. Password and reset-token
+behaviour is shared by all three identity collections through `models/plugins/credentialsPlugin.js`
+so the rules cannot drift apart. Email remains globally unique in both collections, because
+login resolves an account before any tenant is known. `scripts/migrate-identity.js` moves
+existing admin vendors across, carrying their password hash so their credentials keep
+working, and refuses to touch any admin vendor that also has business documents.
+
+**Consequences.** `protect` now resolves three account kinds, and `req.vendor` is set only
+for suppliers — tenant staff get `req.user` and a null `req.scopeVendorId`, which is what
+makes them see the whole tenant instead of one supplier's rows. The login response returns
+`user` rather than `vendor` for staff; the current `/admin` screen still speaks the old
+shape and is rebuilt in Phase 5. Two collections must be searched at login and on password
+reset — an acceptable cost for not carrying a compliance record around every buyer.
+
+---
+
 ## ADR-0006 — Anonymous socket connections are no longer possible
 **Phase 1 · 2026-08-12 · Accepted**
 
