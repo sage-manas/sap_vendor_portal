@@ -141,7 +141,7 @@ const protect = asyncHandler(async (req, res, next) => {
  * explicit withoutTenantScope() or runWithTenant().
  */
 const protectPlatform = asyncHandler(async (req, res, next) => {
-  const { account, plane } = await resolveAccount(req);
+  const { account, claims, plane } = await resolveAccount(req);
 
   if (plane !== PLANES.PLATFORM) {
     // Do not confirm that the platform console exists to tenant accounts.
@@ -150,8 +150,32 @@ const protectPlatform = asyncHandler(async (req, res, next) => {
 
   attachPrincipal(req, account, plane);
   req.platformUser = account;
+  // The second factor's state, for `requireMfa` below. Enrolment is a property
+  // of the account; verification is a property of this particular token.
+  req.mfa = { enrolled: Boolean(account.mfaEnabled), verified: claims.mfa === true };
   return next();
 });
+
+/**
+ * The platform plane's second gate: MFA is mandatory on the console (ADR-0016).
+ * Mounted on everything except the handful of endpoints an operator needs in
+ * order to enrol — /auth/me, /auth/change-password and /auth/mfa/*.
+ *
+ * The two refusals are distinguishable on purpose: the client has to know
+ * whether to show an enrolment screen or a code prompt.
+ */
+const requireMfa = (req, res, next) => {
+  if (!req.mfa) {
+    return next(ApiError.unauthorized('Not authorized to access this route'));
+  }
+  if (!req.mfa.enrolled) {
+    return next(ApiError.forbidden('Multi-factor authentication must be enrolled before using the platform console', { reason: 'mfa_enrolment_required' }));
+  }
+  if (!req.mfa.verified) {
+    return next(ApiError.forbidden('This session has not cleared multi-factor authentication', { reason: 'mfa_verification_required' }));
+  }
+  return next();
+};
 
 /**
  * Route-level authorization. Every protected route declares exactly one
@@ -188,4 +212,4 @@ const requirePlane = (...planes) => {
   return guard;
 };
 
-module.exports = { protect, protectPlatform, requirePermission, requirePlane };
+module.exports = { protect, protectPlatform, requireMfa, requirePermission, requirePlane };

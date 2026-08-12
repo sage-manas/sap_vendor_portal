@@ -24,8 +24,12 @@ const secret = () => process.env.JWT_SECRET || 'secret';
 
 /**
  * @param {object} account a Vendor, User or PlatformUser document
+ * @param {object} [options]
+ * @param {boolean} [options.mfa] whether the holder has cleared a second factor.
+ *   Platform tokens minted at password check carry `mfa: false` and open only
+ *   the enrolment and verification endpoints; the console itself needs `true`.
  */
-const signToken = (account) => {
+const signToken = (account, { mfa = false } = {}) => {
   const plane = planeOf(account.role);
   const accountType = PLANE_ACCOUNT_TYPE[plane];
   if (!accountType) {
@@ -40,6 +44,7 @@ const signToken = (account) => {
       roleScope: plane,
       email: account.email,
       clientId: account.clientId || null,
+      ...(accountType === ACCOUNT_TYPES.PLATFORM ? { mfa: Boolean(mfa) } : {}),
       // Suppliers keep their business identity in the token: controllers scope
       // supplier reads by vendorId, and it saves a lookup on every request.
       ...(accountType === ACCOUNT_TYPES.VENDOR ? { vendorId: account.vendorId, id: account._id } : {}),

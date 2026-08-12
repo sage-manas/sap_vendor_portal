@@ -68,6 +68,7 @@ const P = {
   TENANT_MANAGE: 'tenant:manage',
   OPERATOR_MANAGE: 'operator:manage',
   PLATFORM_AUDIT_READ: 'platform:audit:read',
+  PLATFORM_HEALTH_READ: 'platform:health:read',
   SAP_CONFIGURE: 'sap:configure',
 };
 
@@ -161,12 +162,16 @@ const SUPER_ADMIN = [
   P.TENANT_MANAGE,
   P.OPERATOR_MANAGE,
   P.PLATFORM_AUDIT_READ,
+  P.PLATFORM_HEALTH_READ,
   P.SAP_CONFIGURE,
 ];
 
+// Watches every tenant's SAP and can read the trail, but cannot create a
+// tenant, change a plan, or make another operator.
 const SAP_MANAGER = [
   P.TENANT_READ,
   P.PLATFORM_AUDIT_READ,
+  P.PLATFORM_HEALTH_READ,
   P.SAP_CONFIGURE,
 ];
 
