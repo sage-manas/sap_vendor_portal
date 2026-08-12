@@ -8,10 +8,7 @@ const { verifyGstinPan } = require('../services/verification.service');
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
 const { resolveClientForRequest } = require('../utils/resolveClient');
 
-// Helper to determine vendor ID from header (for dev) or JWT auth
-const getVendorId = (req) => {
-  return req.vendorId || req.clerkUserId || req.headers['x-vendor-id'] || 'mock_vendor_id';
-};  
+const { requireVendorScope } = require('../utils/requestScope');
 
 // Helper to map flat or nested fields into flat Vendor model fields
 const mapIncomingBody = (body) => {
@@ -88,7 +85,7 @@ const runGstinPanVerification = async (vendor) => {
 // @route   GET /api/vendors/profile
 // @access  Private
 const getProfile = asyncHandler(async (req, res, next) => {
-  const vendorId = getVendorId(req);
+  const vendorId = requireVendorScope(req);
   const vendor = await Vendor.findOne({ vendorId });
   if (!vendor) {
     return next(ApiError.notFound('Vendor profile not found'));
@@ -140,7 +137,7 @@ const createProfile = asyncHandler(async (req, res, next) => {
 // @route   PUT /api/vendors/profile
 // @access  Private
 const updateProfile = asyncHandler(async (req, res, next) => {
-  const vendorId = getVendorId(req);
+  const vendorId = requireVendorScope(req);
   const vendor = await Vendor.findOne({ vendorId });
   if (!vendor) {
     return next(ApiError.notFound('Vendor profile not found'));
@@ -163,7 +160,7 @@ const updateProfile = asyncHandler(async (req, res, next) => {
 // @route   POST /api/vendors/profile/submit
 // @access  Private
 const submitRegistration = asyncHandler(async (req, res, next) => {
-  const vendorId = getVendorId(req);
+  const vendorId = requireVendorScope(req);
   const vendor = await Vendor.findOne({ vendorId });
   if (!vendor) {
     return next(ApiError.notFound('Vendor profile not found'));
@@ -344,7 +341,7 @@ const listVendors = asyncHandler(async (req, res, next) => {
 // @route   GET /api/vendors/performance
 // @access  Private
 const getPerformance = asyncHandler(async (req, res, next) => {
-  const vendorId = getVendorId(req);
+  const vendorId = requireVendorScope(req);
   const vendor = await Vendor.findOne({ vendorId });
   if (!vendor) {
     return next(ApiError.notFound('Vendor profile not found'));

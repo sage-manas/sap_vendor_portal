@@ -9,22 +9,15 @@ const { createSapLog } = require('../utils/sapLogger');
 const { EVENTS, emitToVendor } = require('../utils/socketEmitter');
 const { runWithTenant } = require('../utils/tenantContext');
 
-// Helper to determine vendor ID
-const getVendorId = (req) => {
-  return req.clerkUserId || req.headers['x-vendor-id'] || 'mock_vendor_id';
-};
+const { requireVendorScope, withVendorScope } = require('../utils/requestScope');
 
 // @desc    Get Invoices
 // @route   GET /api/invoices
 // @access  Public
 const getInvoices = asyncHandler(async (req, res, next) => {
-  const vendorId = req.clerkUserId || req.headers['x-vendor-id'];
   const { status, page = 1, limit = 10 } = req.query;
 
-  let query = {};
-  if (vendorId) {
-    query.vendorId = vendorId;
-  }
+  const query = withVendorScope(req);
   if (status) {
     query.status = status;
   }
@@ -63,7 +56,7 @@ const getInvoiceById = asyncHandler(async (req, res, next) => {
 // @route   POST /api/invoices
 // @access  Public
 const submitInvoice = asyncHandler(async (req, res, next) => {
-  const vendorId = getVendorId(req);
+  const vendorId = requireVendorScope(req);
   const { grnId, invoiceNumber, invoiceDate, subTotal, taxAmount, totalAmount, items } = req.body;
 
   if (!grnId || !invoiceNumber || !invoiceDate || !items || !items.length) {

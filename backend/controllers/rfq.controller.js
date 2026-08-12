@@ -5,10 +5,7 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { createSapLog } = require('../utils/sapLogger');
 
-// Helper to determine vendor ID
-const getVendorId = (req) => {
-  return req.clerkUserId || req.headers['x-vendor-id'] || 'mock_vendor_id';
-};
+const { requireVendorScope, vendorScope } = require('../utils/requestScope');
 
 // Helper for tax codes
 const gstToTaxCode = (gstRate) => {
@@ -24,9 +21,10 @@ const gstToTaxCode = (gstRate) => {
 // @route   GET /api/rfqs
 // @access  Public (unauth development)
 const getRFQs = asyncHandler(async (req, res, next) => {
-  const vendorId = req.clerkUserId || req.headers['x-vendor-id'];
   const { status, page = 1, limit = 20 } = req.query;
 
+  // A supplier only ever sees RFQs they were invited to.
+  const vendorId = vendorScope(req);
   let query = {};
   if (vendorId && req.query.all !== 'true') {
     query = { 'invitedVendors.id': vendorId };
@@ -191,7 +189,7 @@ const reissueRFQ = asyncHandler(async (req, res, next) => {
 // @route   POST /api/rfqs/:id/bid
 // @access  Public
 const submitBid = asyncHandler(async (req, res, next) => {
-  const vendorId = getVendorId(req);
+  const vendorId = requireVendorScope(req);
   const { unitPrices, gstRate, freight, deliveryLeadTimeDays, validityDate, remarks, uploadedDocs } = req.body;
 
   if (!unitPrices) {

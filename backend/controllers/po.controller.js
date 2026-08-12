@@ -8,22 +8,15 @@ const { createSapLog } = require('../utils/sapLogger');
 const { EVENTS, emitToVendor } = require('../utils/socketEmitter');
 const { runWithTenant } = require('../utils/tenantContext');
 
-// Helper to determine vendor ID
-const getVendorId = (req) => {
-  return req.clerkUserId || req.headers['x-vendor-id'] || 'mock_vendor_id';
-};
+const { requireVendorScope, withVendorScope } = require('../utils/requestScope');
 
 // @desc    Get POs
 // @route   GET /api/pos
 // @access  Public
 const getPOs = asyncHandler(async (req, res, next) => {
-  const vendorId = req.clerkUserId || req.headers['x-vendor-id'];
   const { status, page = 1, limit = 10 } = req.query;
 
-  let query = {};
-  if (vendorId) {
-    query.vendorId = vendorId;
-  }
+  const query = withVendorScope(req);
   if (status) {
     query.status = status;
   }
@@ -95,7 +88,7 @@ const acknowledgePO = asyncHandler(async (req, res, next) => {
 // @route   POST /api/pos/simulate
 // @access  Public
 const simulatePO = asyncHandler(async (req, res, next) => {
-  const vendorId = getVendorId(req);
+  const vendorId = requireVendorScope(req);
   const vendor = await Vendor.findOne({ $or: [{ vendorId }, { clerkId: vendorId }] });
 
   const year = new Date().getFullYear();
@@ -164,7 +157,7 @@ const simulatePO = asyncHandler(async (req, res, next) => {
 // @route   POST /api/pos/:id/asn
 // @access  Public
 const submitASN = asyncHandler(async (req, res, next) => {
-  const vendorId = getVendorId(req);
+  const vendorId = requireVendorScope(req);
   const { carrierName, trackingNumber, vehicleNumber, invoiceReference, ewayBillNo, shipDate, estimatedDeliveryDate, items, documentIds } = req.body;
 
   if (!items || !items.length) {
@@ -356,7 +349,7 @@ const getASNForPO = asyncHandler(async (req, res, next) => {
 // @route   GET /api/asns
 // @access  Public
 const getASNs = asyncHandler(async (req, res, next) => {
-  const vendorId = getVendorId(req);
+  const vendorId = requireVendorScope(req);
   const asns = await ASN.find({ vendorId }).sort({ createdAt: -1 });
   res.json(asns);
 });

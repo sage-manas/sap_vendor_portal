@@ -1,18 +1,15 @@
 const Payment = require('../models/Payment');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
+const { withVendorScope, requireVendorScope } = require('../utils/requestScope');
 
 // @desc    Get Payments
 // @route   GET /api/payments
 // @access  Public
 const getPayments = asyncHandler(async (req, res, next) => {
-  const vendorId = req.clerkUserId || req.headers['x-vendor-id'];
   const { page = 1, limit = 10 } = req.query;
 
-  let query = {};
-  if (vendorId) {
-    query.vendorId = vendorId;
-  }
+  const query = withVendorScope(req);
 
   const skip = (page - 1) * limit;
   const payments = await Payment.find(query)
@@ -48,7 +45,7 @@ const getPaymentById = asyncHandler(async (req, res, next) => {
 // @route   POST /api/payments
 // @access  Public
 const createPayment = asyncHandler(async (req, res, next) => {
-  const vendorId = req.clerkUserId || req.headers['x-vendor-id'] || 'mock_vendor_id';
+  const vendorId = requireVendorScope(req);
   const paymentData = { ...req.body, vendorId };
 
   if (!paymentData.id) {

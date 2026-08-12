@@ -6,6 +6,9 @@ const logger = require('./utils/logger');
 const validateEnv = require('./config/validateEnv');
 validateEnv(); // Validate environment before startup
 
+// Invitations and password resets are only useful if they can be delivered.
+require('./utils/mailer').assertMailerConfigured();
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -76,8 +79,9 @@ io.use((socket, next) => {
       return next(new Error('Authentication error: token carries no tenant'));
     }
     socket.clientId = decoded.clientId;
-    socket.clerkUserId = decoded.vendorId;
+    socket.clerkUserId = decoded.vendorId; // suppliers only; staff tokens carry none
     socket.roleScope = decoded.roleScope;
+    socket.role = decoded.role;
     return next();
   } catch (err) {
     return next(new Error('Authentication error: Invalid token'));
@@ -155,7 +159,8 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-vendor-id'],
+  // x-vendor-id is gone (ADR-0010): the JWT is the only identity the API accepts.
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-client-slug'],
 }));
 
 // Limit JSON body size (except upload routes)

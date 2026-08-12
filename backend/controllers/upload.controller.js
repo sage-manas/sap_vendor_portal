@@ -4,15 +4,13 @@ const fs = require('fs');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 
-const getVendorId = (req) => {
-  return req.clerkUserId || req.headers['x-vendor-id'] || 'mock_vendor_id';
-};
+const { requireVendorScope, vendorScope, isSupplier } = require('../utils/requestScope');
 
 // @desc    Upload file and save document details
 // @route   POST /api/uploads
 // @access  Public
 const uploadFile = asyncHandler(async (req, res, next) => {
-  const vendorId = getVendorId(req);
+  const vendorId = requireVendorScope(req);
   
   if (!req.file) {
     return next(ApiError.badRequest('No file uploaded'));
@@ -52,15 +50,16 @@ const uploadFile = asyncHandler(async (req, res, next) => {
 // @access  Public
 const downloadFile = asyncHandler(async (req, res, next) => {
   const { id } = req.params;
-  const vendorId = getVendorId(req);
+  const vendorId = vendorScope(req);
 
   const doc = await Document.findById(id);
   if (!doc) {
     return next(ApiError.notFound('Document not found'));
   }
 
-  // Strict ownership check (Week 7 locks down clerkUserId, pre-auth allows dev fallback)
-  if (doc.vendorId !== vendorId && vendorId !== 'admin') {
+  // A supplier reaches only their own documents. Tenant staff reach any
+  // document in their tenant — the tenant plugin has already scoped the read.
+  if (isSupplier(req) && doc.vendorId !== vendorId) {
     return next(ApiError.forbidden('You do not have permission to view this document'));
   }
 
@@ -79,10 +78,9 @@ const downloadFile = asyncHandler(async (req, res, next) => {
 // @route   GET /api/uploads
 // @access  Public
 const listDocuments = asyncHandler(async (req, res, next) => {
-  const vendorId = getVendorId(req);
   const { linkedTo } = req.query;
 
-  const query = { vendorId };
+  const query = vendorScope(req) ? { vendorId: vendorScope(req) } : {};
   if (linkedTo) {
     query.linkedTo = linkedTo;
   }
@@ -96,14 +94,16 @@ const listDocuments = asyncHandler(async (req, res, next) => {
 // @access  Public
 const deleteDocument = asyncHandler(async (req, res, next) => {
   const { id } = req.params;
-  const vendorId = getVendorId(req);
+  const vendorId = vendorScope(req);
 
   const doc = await Document.findById(id);
   if (!doc) {
     return next(ApiError.notFound('Document not found'));
   }
 
-  if (doc.vendorId !== vendorId && vendorId !== 'admin') {
+  // A supplier reaches only their own documents. Tenant staff reach any
+  // document in their tenant — the tenant plugin has already scoped the read.
+  if (isSupplier(req) && doc.vendorId !== vendorId) {
     return next(ApiError.forbidden('You do not have permission to delete this document'));
   }
 

@@ -4,15 +4,13 @@ const ApiError = require('../utils/ApiError');
 const { EVENTS, emitToVendor } = require('../utils/socketEmitter');
 const { runWithTenant } = require('../utils/tenantContext');
 
-const getVendorId = (req) => {
-  return req.clerkUserId || req.headers['x-vendor-id'] || 'mock_vendor_id';
-};
+const { requireVendorScope } = require('../utils/requestScope');
 
 // @desc    Get all chat messages for the current vendor
 // @route   GET /api/chats
 // @access  Public (Will be secured later)
 const getMessages = asyncHandler(async (req, res, next) => {
-  const vendorId = getVendorId(req);
+  const vendorId = requireVendorScope(req);
   
   // Find all messages for the vendor
   const messages = await ChatMessage.find({ vendorId }).sort({ timestamp: 1 });
@@ -30,7 +28,7 @@ const getMessages = asyncHandler(async (req, res, next) => {
 // @route   POST /api/chats
 // @access  Public
 const sendMessage = asyncHandler(async (req, res, next) => {
-  const vendorId = getVendorId(req);
+  const vendorId = requireVendorScope(req);
   const { clientId } = req;
   const { message, linkedPoId, linkedRfqId } = req.body;
 

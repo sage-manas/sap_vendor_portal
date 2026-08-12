@@ -11,7 +11,10 @@ if (!fs.existsSync(uploadDirBase)) {
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     // Dynamically store by vendor ID
-    const vendorId = req.clerkUserId || req.headers['x-vendor-id'] || 'mock_vendor_id';
+    // The authenticated principal decides the folder — never a request header.
+    // Sanitised because a tenant user may name the supplier in the body.
+    const rawVendorId = req.scopeVendorId || req.body?.vendorId || 'shared';
+    const vendorId = String(rawVendorId).replace(/[^a-zA-Z0-9_-]/g, '_');
     const finalDir = path.join(uploadDirBase, vendorId);
     
     if (!fs.existsSync(finalDir)) {
