@@ -5,6 +5,101 @@ Each entry: the call, why, and what it costs.
 
 ---
 
+## ADR-0017 — Secrets at rest go through one box, and the TOTP is ours
+**Phase 3 · 2026-08-12 · Accepted**
+
+**Context.** Mandatory MFA needs a shared TOTP secret stored per operator. It is the
+first true secret the application holds, and Phase 4 adds SAP credentials behind the same
+requirement: stored, never returned, never logged.
+
+**Decision.** `utils/secretBox.js` — AES-256-GCM, random 12-byte IV per message, stored as
+a versioned self-describing string `v1:<iv>:<tag>:<ciphertext>`. The key comes from
+`MASTER_KEY`; production refuses to start without it, while development and test derive a
+stable key from `JWT_SECRET` so nobody has to configure two secrets to run the app.
+`utils/totp.js` implements RFC 6238 on node's crypto rather than adding a dependency, and
+is tested against the RFC's own published vectors plus drift and constant-time comparison.
+
+**Consequences.** The version prefix is the seam Phase 4 needs: per-client data keys wrapped
+by this master key become `v2`, with `v1` still readable. Two costs. The derived
+development key means a dev database's MFA secrets are decryptable by anyone holding
+`JWT_SECRET` — acceptable because production cannot use that path. And we own ~60 lines of
+crypto arithmetic; the RFC vectors are what make that defensible, and they are in
+`tests/crypto-primitives.test.js`.
+
+---
+
+## ADR-0016 — MFA is mandatory on the platform plane, and the token carries the proof
+**Phase 3 · 2026-08-12 · Accepted**
+
+**Context.** The console can create, suspend and terminate every tenant on the platform.
+A stolen operator password cannot be allowed to be sufficient, and "MFA is available in
+settings" is not a control.
+
+**Decision.** Sign-in is always two steps. The password check mints a token carrying
+`mfa: false`; it opens `/api/platform/auth/*` and nothing else. `verifyMfa` mints the only
+token `requireMfa` accepts. `requireMfa` guards the whole console via a single
+`router.use(protectPlatform, requireMfa)`, and distinguishes its two refusals with a
+machine-readable `reason` — `mfa_enrolment_required` versus `mfa_verification_required` —
+because "set up an authenticator" and "type your code" are different screens. Enrolment
+cannot be skipped and there is no endpoint that turns MFA off; a lost device is recovered
+by a super admin clearing the enrolment (`operator:manage`), which forces a fresh one.
+
+**Consequences.** An operator with no authenticator cannot use the console at all, including
+the operator who bootstrapped the platform — deliberate. Clearing enrolment immediately
+demotes every session that account holds, since `requireMfa` re-reads `mfaEnabled` on each
+request. `ApiError` gained an options bag to carry `reason`; the response's existing `code`
+field still means the HTTP status, so nothing downstream changed.
+
+---
+
+## ADR-0015 — Termination is soft, and the export is the one place the platform reads tenant data
+**Phase 3 · 2026-08-12 · Accepted**
+
+**Context.** The plan's hard rule is that platform roles hold no tenant business data. But
+offboarding a tenant means handing back everything they put in, and a tenant that can be
+deleted through an API is a tenant that can be deleted by mistake.
+
+**Decision.** `terminate` is a status change plus a timestamp; no endpoint deletes a
+tenant's documents, and destruction after the retention period is a deliberate out-of-band
+job. `GET /tenants/:clientId/export` is the single exception to the no-tenant-data rule: it
+requires `tenant:manage`, produces a whole-tenant archive in one audited action, and is not
+a browsing surface — there is no endpoint that returns one tenant's RFQs, invoices or
+messages to an operator. Everything else the console shows about a tenant is counts and
+totals, produced by `countDocuments` inside `runWithTenant`. `config/tenantModels.js` is the
+registry both the export and those counts iterate, and the test suite asserts the two agree.
+
+**Consequences.** An exit right that only the tenant can exercise is worthless when their
+own admin has left, so this is the shape the right has to take; the price is one operator
+capability that must be watched, which is why it is audited with per-collection counts.
+Suspension and termination both take effect on the next request, because `protect` already
+re-checks `client.isOperational()` every time.
+
+---
+
+## ADR-0014 — `AuditLog` is not tenant-scoped, and is append-only
+**Phase 3 · 2026-08-12 · Accepted**
+
+**Context.** Every other collection carrying a `clientId` gets the tenant plugin. The audit
+trail cannot: creating an operator concerns no tenant at all, and reading across tenants is
+the console's entire purpose. Applying the plugin would mean either a `required` clientId
+that platform actions cannot supply, or a `withoutTenantScope()` on every read — the escape
+hatch as the normal path, which is how escape hatches stop being noticed.
+
+**Decision.** `clientId` is an ordinary optional indexed field, and `utils/audit.js` is the
+only way anything is written: it stamps the bound tenant automatically, derives actor,
+plane and IP from the request, redacts secret-shaped keys, and rejects any action not in
+`config/auditActions.js`. The model refuses updates and deletes outright.
+
+**Consequences.** A tenant-plane action cannot be recorded without its `clientId`, because
+the recorder reads it from the context rather than from the call site. The trade is that
+Phase 5's tenant-facing audit view must filter explicitly rather than being filtered for it
+— that view will go through a helper that requires a `clientId`, and it is the one place
+this decision has to be remembered. A typo'd action throws rather than logging, because an
+unlisted action would be invisible to every filter in the explorer; a failed audit *write*
+only logs an error, since losing the trail must not also lose the operation it described.
+
+---
+
 ## ADR-0013 — A role change invalidates every token that account already holds
 **Phase 2 · 2026-08-12 · Accepted**
 

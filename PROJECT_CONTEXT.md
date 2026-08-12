@@ -103,6 +103,7 @@ Frontend talks to backend via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
 | `NODE_ENV` | `development` \| `test` \| `production`. Gates rate limiting, mailer transport selection, and the dev-only "Reset ERP Database" UI. |
 | `JWT_SECRET` | JWT signing key (falls back to `'secret'` outside production; **required** in production or boot fails) |
 | `JWT_EXPIRES_IN` | default `30d` |
+| `MASTER_KEY` | encrypts secrets at rest via `utils/secretBox.js` (operator MFA secrets now, SAP credentials in Phase 4). 32 bytes as hex/base64, or any passphrase. **Required in production**; dev/test derive one from `JWT_SECRET`. Rotating it makes existing ciphertext unreadable. |
 | `ADMIN_BOOTSTRAP_EMAILS` | **Removed (ADR-0009).** If it is still set, the server refuses to start. Provision staff with `npm run seed:platform-admin` + the invitation flow. |
 | `MAIL_TRANSPORT` | `smtp` \| `log` \| `memory`. Defaults: smtp in production, memory under test, log in development. Production accepts only `smtp`. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_SECURE`, `MAIL_FROM` | nodemailer SMTP config. `SMTP_HOST` is required whenever the transport is smtp. |
@@ -243,6 +244,9 @@ All string business IDs (`id`, `vendorId`, `poId`, …) are human-readable and u
 ### SapLog (`SapLog.js`) — the BAPI/RFC audit trail (drives the console)
 - `vendorId`, `type` (`BAPI`|`RFC`|`OData`|`IDoc`|`SYS`|`KYC`), `direction` (`OUTBOUND`|`INBOUND`), `name` (e.g. `BAPI_RFQ_CREATE`), `payload` (JSON string), `status` (`SUCCESS`|`PENDING`|`FAILED`), `errorMessage`, `documentRef`, `timestamp`. **TTL index auto-purges after 30 days.**
 
+### AuditLog (`AuditLog.js`) — the platform + tenant action trail. **Not** tenant-scoped (ADR-0014)
+- `clientId` (optional — null for platform actions concerning no tenant), `actorId`, `actorRole`, `actorEmail`, `plane`, `action` (enum from `config/auditActions.js`), `target{type,id,label}`, `meta` (secrets redacted), `ip`, `at`. Indexes: `{at:-1}`, `{clientId,at:-1}`, `{action,at:-1}`, `{actorId,at:-1}`. **Append-only** — update/delete hooks throw. Written only through `utils/audit.js`.
+
 ### Document (`Document.js`) — uploaded files metadata
 - `vendorId`, `fileName`, `originalName`, `mimeType`, `size`, `filePath`, `linkedTo` (`ASN`|`RFQ`|`Profile`|`Invoice`). Actual files land in `backend/uploads/`.
 
@@ -257,7 +261,7 @@ All string business IDs (`id`, `vendorId`, `poId`, …) are human-readable and u
 **Routing (`routes/index.js`):** everything under `/api`.
 - `/api/health`, `/api/test-error` — public.
 - `/api/auth` — public arms (register, login, forgot/reset password, invitation preview + accept); `/me` and `/change-password` carry their own guard.
-- `/api/platform` — the platform plane, behind `protectPlatform`. **No tenant is bound here.** Phase 2 ships identity only (login, me, change/forgot/reset password); Phase 3 adds the console's routes.
+- `/api/platform` — the platform plane, behind `protectPlatform`. **No tenant is bound here.** The `/auth/*` arm carries `protectPlatform` alone (it is how an operator reaches a full session); **everything else sits behind `router.use(protectPlatform, requireMfa)`** — tenants, operators, audit, health.
 - **All other route groups are mounted behind `protect`** (JWT): `vendors, users, rfqs, pos, grns, invoices, payments, chats, uploads, reports, asns, logs, dashboard`. Inside each group **every route declares one permission** with `requirePermission(...)`; `config/permissions.js` decides which roles hold it (ADR-0012). `vendor.routes.js` applies `protect` per-route because `POST /vendors/profile` is public.
 
 **Identity (three collections, three planes — ADR-0007/0008):**
@@ -270,6 +274,7 @@ All string business IDs (`id`, `vendorId`, `poId`, …) are human-readable and u
 **Auth middleware (`middleware/auth.js`):**
 - `protect` — verifies the `Bearer` token, loads the account from the collection its `accountType` names (unscoped, since identity precedes tenancy), **401s if the account's role no longer matches the token** (ADR-0013), rejects platform accounts with 403, then sets `req.auth` (`accountType/id/role/plane/email/clientId/permissions`) plus `req.client`, `req.clientId`, and either `req.vendor`/`req.vendorId`/`req.scopeVendorId` (suppliers) or `req.user` with a null `req.scopeVendorId` (staff), and **binds the tenant context for the rest of the request**. There is no `x-vendor-id` fallback in any environment (ADR-0010).
 - `protectPlatform` — the same resolution for `/api/platform/*`, but binds **no** tenant, and answers **404** to a tenant-plane account so the console's existence is never confirmed.
+- `requireMfa` — the platform plane's second gate (ADR-0016). Requires that the operator has enrolled an authenticator **and** that this token cleared it (`mfa: true` claim, minted only by `POST /platform/auth/mfa/verify`). Its two refusals are distinguishable via the response's `reason`: `mfa_enrolment_required` vs `mfa_verification_required`.
 - `requirePermission(permission)` — the only route guard. Reads `config/permissions.js`; the declaration is discoverable as `fn.permission`, which `tests/route-role-matrix.test.js` walks.
 - `requirePlane(...planes)` — plane assertion for permissions held on more than one plane.
 
@@ -277,7 +282,11 @@ All string business IDs (`id`, `vendorId`, `poId`, …) are human-readable and u
 
 **Utils:** `ApiError` (badRequest/unauthorized/forbidden/notFound/conflict factories), `asyncHandler`, `logger` (winston), `sapLogger.createSapLog(...)` (writes `SapLog`), `socketEmitter` (`EVENTS` map + `emitToVendor` / `emitToProcurement`), `authToken` (signs/verifies session tokens for all three planes), `requestScope` (`vendorScope` / `requireVendorScope` / `withVendorScope` — the one answer to "whose rows is this request about"), `mailer` (smtp/log/memory transports; `assertMailerConfigured()` runs at boot).
 
-**Registries — one module each, read everywhere, duplicated nowhere:** `config/roles.js` (roles → planes → account collection), `config/permissions.js` (role → permissions), `config/emailTemplates.js` (all outbound copy).
+**Registries — one module each, read everywhere, duplicated nowhere:** `config/roles.js` (roles → planes → account collection), `config/permissions.js` (role → permissions), `config/emailTemplates.js` (all outbound copy), `config/auditActions.js` (every auditable action; `recordAudit` rejects anything else), `config/tenantModels.js` (the tenant-scoped collections, iterated by the export and the per-tenant counts), and on the frontend `src/lib/platformNav.js` (console nav → permission).
+
+**Secrets and MFA (Phase 3):** `utils/secretBox.js` — AES-256-GCM with a versioned envelope (`v1:iv:tag:ciphertext`), keyed by `MASTER_KEY`; production refuses to boot without it, dev/test derive one from `JWT_SECRET`. Phase 4's per-client SAP data keys extend the same format. `utils/totp.js` — RFC 6238, hand-rolled on node crypto, verified against the RFC vectors in `tests/crypto-primitives.test.js`. `utils/audit.js` — the only writer of `AuditLog`: stamps actor/plane/tenant, redacts secret-shaped keys, throws on an unregistered action.
+
+**Services:** `tenantProvisioning.service.js` — creates a `Client` **and** its first `client_admin` as one operation (generated password, emailed once, `mustChangePassword`), rolling the Client back if the admin cannot be created. Also owns slug rules (reserved list, format) and `CLT-####` allocation.
 
 **Socket events** (`utils/socketEmitter.js` `EVENTS`): `po:new`, `grn:received`, `payment:cleared`, `rfq:awarded`, `rfq:bid_received`, `chat:message`, `vendor:approved`, `log:new`. Emitters take `clientId` as a required first argument after `io`.
 
@@ -344,6 +353,30 @@ Base path `/api`. Auth column: **Public** / the permission the route declares (s
 
 **Dashboard** (`dashboard.routes.js`, JWT): `GET /dashboard/summary`.
 
+**Platform console** (`platform.routes.js`). `/auth/*` needs an operator token; **everything below it also needs `requireMfa`**. A tenant or supplier token gets **404** anywhere here.
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| POST | `/platform/auth/login` | Public | returns a half-session (`mfa:false`) + `next`: `change_password` \| `enrol_mfa` \| `verify_mfa` |
+| POST | `/platform/auth/forgot-password` · `/reset-password` | Public | generic response; link points at `/platform/reset-password` |
+| GET | `/platform/auth/me` | `self:read` | adds `mfa: {enrolled, verified}` so the console knows which step to show |
+| POST | `/platform/auth/change-password` | `self:read` | returns a fresh token keeping its MFA standing |
+| POST | `/platform/auth/mfa/enrol` | `self:read` | returns the secret + `otpauth://` URI **once**; stored encrypted |
+| POST | `/platform/auth/mfa/verify` | `self:read` | completes enrolment or clears the factor; mints the only token `requireMfa` accepts |
+| GET | `/platform/tenants` | `tenant:read` | `?status`, `?plan`, `?q`, paginated |
+| POST | `/platform/tenants` | `tenant:manage` | **creates the tenant and its first `client_admin`**; credentials emailed, never returned |
+| GET | `/platform/tenants/:clientId` | `tenant:read` | configuration + administrators + per-collection counts |
+| PUT | `/platform/tenants/:clientId` | `tenant:manage` | `companyName/plan/limits/branding/featureFlags` only — `clientId` and `slug` are immutable |
+| POST | `/platform/tenants/:clientId/suspend` · `/reactivate` · `/terminate` | `tenant:manage` | termination is **soft** (ADR-0015); takes effect on the tenant's next request |
+| GET | `/platform/tenants/:clientId/export` | `tenant:manage` | the one place an operator sees tenant documents; one audited action |
+| POST | `/platform/tenants/:clientId/administrators/:userId/credentials` | `tenant:manage` | re-issues a temporary password by email |
+| GET/POST | `/platform/operators` | `operator:manage` | super_admin only; new operators get emailed credentials + must enrol MFA |
+| PUT | `/platform/operators/:id` | `operator:manage` | name/role; cannot change your own role |
+| POST | `/platform/operators/:id/suspend` · `/reactivate` | `operator:manage` | cannot suspend yourself or the last active super admin |
+| POST | `/platform/operators/:id/mfa/reset` | `operator:manage` | lost-device recovery; kills their sessions' console access |
+| GET | `/platform/audit` | `platform:audit:read` | `?clientId,?action,?subject,?actorId,?plane,?from,?to`, paginated |
+| GET | `/platform/audit/filters` | `platform:audit:read` | filter values from the registries, not from the data |
+| GET | `/platform/health` | `platform:health:read` | per-tenant SAP status, error rate, usage vs limits, active users |
+
 ---
 
 ## 8. Frontend Architecture (`src/`)
@@ -364,6 +397,7 @@ This *is* a real multi-route App Router app (the older `workflow/` docs describi
 | `/analytics` | `ReportsAnalyticsView` | dashboard |
 | `/admin` | admin console (inline) | admin-only, redirects non-admins |
 | `/sign-in`, `/sign-up`, `/forgot-password`, `/reset-password` | auth pages | rendered in a centered "auth-mode" layout, no shell |
+| `/platform`, `/platform/tenants`, `/platform/tenants/[clientId]`, `/platform/operators`, `/platform/audit`, `/platform/reset-password` | the platform console | **a different plane** — see §8.8 |
 
 `activeTab` is derived from `pathname`; `setActiveTab(id)` does `router.push`.
 
@@ -407,7 +441,17 @@ Each domain follows **`components/` + `hooks/` + `services/`** (+ sometimes `con
 `api-client.js` (fetch wrapper: attaches `Bearer` JWT, 401→clears storage+redirect to `/sign-in` unless on a public auth page, network errors return `null`), `socket.js` (singleton socket init/close), `portal-context.js`, `shell-context.js`, `theme-context.js`, `statusColors.js`, `chartTheme.js`, `utils.ts` (`cn()`).
 
 ### 8.7 Client-side persistence (localStorage keys)
-`jwt_token`, `clerk_user_id` (legacy), `sap_vendor_profile_data`, `sap_vendor_portal_logs`, `vc-theme`, `sap_vendor_portal_quote_draft`, `sap_vendor_portal_rfq_draft` (RFQ/quote draft autosave/restore).
+`jwt_token`, `clerk_user_id` (legacy), `sap_vendor_profile_data`, `sap_vendor_portal_logs`, `vc-theme`, `sap_vendor_portal_quote_draft`, `sap_vendor_portal_rfq_draft` (RFQ/quote draft autosave/restore), and — deliberately separate from all of the above — `vc_platform_token` for the platform console.
+
+### 8.8 The platform console (`src/app/platform/`)
+A second plane inside the same Next app, sharing only the design system.
+
+- **`src/lib/planes.js`** — `isPlatformPath(pathname)`. Three places consult it, and they are the whole integration with the supplier portal: `PortalLayout` renders `children` bare under `/platform`, `PortalProvider` does not redirect an operator to `/sign-in`, and `api-client.js` does not hijack a 401 there.
+- **`src/lib/platform-client.js`** — its own fetch wrapper, its own token key (`vc_platform_token`), and `PlatformApiError` carrying `status` / `reason` / field `errors`.
+- **`src/lib/platform-session.js`** — `PlatformSessionProvider` + `usePlatformSession()`. The server decides the flow: `STAGE.SIGNED_OUT → CHANGE_PASSWORD → ENROL_MFA → VERIFY_MFA → CONSOLE`, derived from `/platform/auth/me`. Exposes `can(permission)`.
+- **`src/components/platform/PlatformGate.jsx`** — renders the right step of that flow, or the console. `/platform/reset-password` is its only public route.
+- **`src/lib/platformNav.js`** — the nav registry; the layout filters it by the operator's permissions, so an `sap_manager` never sees Operators.
+- **`src/components/platform/primitives.jsx`** — `PageHeader, Notice, Field, Status, Table, Loading, useResource, formatDate`. `useResource(loader, key)` reloads when `key` changes and exposes `reload`.
 
 ---
 
@@ -424,7 +468,7 @@ Each domain follows **`components/` + `hooks/` + `services/`** (+ sometimes `con
 ## 10. Testing
 
 **Backend** (`backend/`, Jest + Supertest + `mongodb-memory-server`, `NODE_ENV=test`, `--forceExit`):
-`tests/setup.js` (in-memory Mongo), `tests/testApp.js` (real routes + errorHandler, no sockets/CORS/rate-limit), `tests/helpers.js` (`createAdminVendor` etc.). Suites: `auth.test.js`, `auth-middleware.test.js`, `vendor.test.js`, `rfq.test.js` (full lifecycle + scoring math + award), `password-reset.test.js`, **`tenant-plugin.test.js`** (the enforcement layer), **`tenant-isolation.test.js`** (2 tenants × every model × read/update/delete/count, plus API-level 404s), **`migrate-tenancy.test.js`**. ~120 tests.
+`tests/setup.js` (in-memory Mongo), `tests/testApp.js` (real routes + errorHandler, no sockets/CORS/rate-limit), `tests/helpers.js` (`registerVendor`, `createTenantUser`, `createPlatformUser`, `createOperatorSession` — an operator who has already cleared MFA — and `asTenant`). Suites: `auth.test.js`, `auth-middleware.test.js`, `vendor.test.js`, `rfq.test.js` (full lifecycle + scoring math + award), `password-reset.test.js`, `identity.test.js`, **`route-role-matrix.test.js`** (walks the real router; a route with no permission fails CI), **`tenant-plugin.test.js`** (the enforcement layer), **`tenant-isolation.test.js`** (2 tenants × every model × read/update/delete/count, plus API-level 404s), **`migrate-tenancy.test.js`**, **`platform-console.test.js`** (tenant lifecycle, the end-to-end provisioning acceptance test, MFA gating, operator management, audit, health, plane separation), **`crypto-primitives.test.js`** (TOTP against the RFC 6238 vectors; AES-GCM round-trip and tamper rejection). 196 tests.
 
 `tests/setup.js` seeds the `CLT-0001` tenant before each test, because every request path now resolves one. Test code touching models directly must bind a tenant with the `asTenant()` helper — the same rule application code follows.
 
