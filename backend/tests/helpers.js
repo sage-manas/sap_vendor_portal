@@ -1,9 +1,10 @@
 const request = require('supertest');
-const jwt = require('jsonwebtoken');
-const Vendor = require('../models/Vendor');
+const User = require('../models/User');
+const PlatformUser = require('../models/PlatformUser');
 const Client = require('../models/Client');
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
-const { planeOf } = require('../config/roles');
+const { signToken } = require('../utils/authToken');
+const { ROLES } = require('../config/roles');
 
 const baseVendor = {
   vendorId: 'vendor_test_001',
@@ -49,38 +50,49 @@ const registerVendor = async (app, overrides = {}, { clientSlug = 'legacy' } = {
   return { token: res.body.token, vendor: res.body.vendor, payload };
 };
 
-const signTokenFor = (vendor) => jwt.sign(
-  {
-    id: vendor._id,
-    vendorId: vendor.vendorId,
-    email: vendor.email,
-    clientId: vendor.clientId,
-    roleScope: planeOf(vendor.role),
-  },
-  process.env.JWT_SECRET || 'secret',
-  { expiresIn: '30d' }
-);
+const signTokenFor = (account) => signToken(account);
 
-// Creates a vendor with role 'admin' directly via the model (the register
-// endpoint intentionally never accepts a client-supplied role) and signs a
-// token for it the same way auth.controller.js's generateToken does.
-const createAdminVendor = async (overrides = {}) => {
-  const { clientId = 'CLT-0001', ...rest } = overrides;
+// Tenant staff live in the User collection (ADR-0007) and are created by
+// invitation or provisioning, never by the public register endpoint — so tests
+// create them through the model, the same way the invite-accept flow does.
+const createTenantUser = async ({ role = ROLES.CLIENT_ADMIN, clientId = 'CLT-0001', ...rest } = {}) => {
   await seedClient({ clientId, slug: clientId === 'CLT-0001' ? 'legacy' : clientId.toLowerCase() });
-  const vendor = await runWithTenant(clientId, () => Vendor.create({
-    vendorId: 'vendor_admin_001',
-    companyName: 'Portal Admin Ops',
-    gstin: '27AABCA9999F1Z1',
-    pan: 'AABCA9999F',
-    email: 'admin@example.com',
-    role: 'admin',
-    ...rest
+  const user = await runWithTenant(clientId, () => User.create({
+    email: `${role}@example.com`,
+    name: `Test ${role}`,
+    role,
+    status: 'Active',
+    password: 'secret123',
+    ...rest,
   }));
-  return { token: signTokenFor(vendor), vendor };
+  return { token: signTokenFor(user), user };
+};
+
+const createAdminUser = (overrides = {}) => createTenantUser({ role: ROLES.CLIENT_ADMIN, ...overrides });
+
+const createPlatformUser = async ({ role = ROLES.SUPER_ADMIN, ...rest } = {}) => {
+  const operator = await PlatformUser.create({
+    email: `${role}@platform.example.com`,
+    name: `Test ${role}`,
+    role,
+    status: 'Active',
+    password: 'secret123',
+    ...rest,
+  });
+  return { token: signTokenFor(operator), operator };
 };
 
 // Test code that touches models directly is subject to the same rule as
 // application code: bind a tenant, or the query throws.
 const asTenant = (fn, clientId = 'CLT-0001') => runWithTenant(clientId, fn);
 
-module.exports = { baseVendor, registerVendor, createAdminVendor, seedClient, signTokenFor, asTenant };
+module.exports = {
+  baseVendor,
+  registerVendor,
+  createTenantUser,
+  createAdminUser,
+  createPlatformUser,
+  seedClient,
+  signTokenFor,
+  asTenant,
+};

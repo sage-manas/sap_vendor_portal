@@ -1,43 +1,42 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
 const Vendor = require('../models/Vendor');
-const logger = require('../utils/logger');
 const { baseVendor, registerVendor, asTenant } = require('./helpers');
+const { sentMails, lastMailTo, clearMails } = require('../utils/mailer');
 
 const app = buildTestApp();
 
-// forgotPassword logs the reset URL (no email service is configured) — pull
-// the raw token back out of that log line since it's the only place it's
-// ever exposed in plaintext.
-const extractToken = (loggedUrl) => new URL(loggedUrl.split(': ').slice(1).join(': ')).searchParams.get('token');
+// The reset link is emailed and never logged (ADR-0011). Under test the mailer
+// uses its in-memory transport, so the token is read back out of the message.
+const extractToken = (email) => {
+  const match = /token=([a-f0-9]+)/i.exec(email.text);
+  if (!match) throw new Error(`No reset token in email: ${email.subject}`);
+  return match[1];
+};
+
+const tokenSentTo = (address) => extractToken(lastMailTo(address));
 
 describe('POST /api/auth/forgot-password', () => {
-  let infoSpy;
-
-  beforeEach(() => {
-    infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    infoSpy.mockRestore();
-  });
+  beforeEach(() => clearMails());
 
   it('returns a generic success response for an unknown email without setting a token', async () => {
     const res = await request(app).post('/api/auth/forgot-password').send({ email: 'nobody@example.com' });
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(infoSpy).not.toHaveBeenCalled();
+    expect(sentMails()).toHaveLength(0);
   });
 
-  it('sets a hashed reset token and logs the reset link for a known email', async () => {
+  it('sets a hashed reset token and emails the reset link for a known email', async () => {
     await registerVendor(app);
 
     const res = await request(app).post('/api/auth/forgot-password').send({ email: baseVendor.email });
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(infoSpy).toHaveBeenCalledTimes(1);
+    expect(sentMails()).toHaveLength(1);
+    expect(sentMails()[0].to).toBe(baseVendor.email);
+    expect(sentMails()[0].template).toBe('passwordReset');
 
     const vendor = await asTenant(() => Vendor.findOne({ email: baseVendor.email }).select('+resetPasswordToken +resetPasswordExpires'));
     expect(vendor.resetPasswordToken).toEqual(expect.any(String));
@@ -52,22 +51,13 @@ describe('POST /api/auth/forgot-password', () => {
 });
 
 describe('POST /api/auth/reset-password', () => {
-  let infoSpy;
-
-  beforeEach(() => {
-    infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    infoSpy.mockRestore();
-  });
+  beforeEach(() => clearMails());
 
   it('resets the password with a valid token and allows login with the new password', async () => {
     await registerVendor(app);
     await request(app).post('/api/auth/forgot-password').send({ email: baseVendor.email });
 
-    const loggedUrl = infoSpy.mock.calls[0][0];
-    const token = extractToken(loggedUrl);
+    const token = tokenSentTo(baseVendor.email);
 
     const resetRes = await request(app).post('/api/auth/reset-password').send({ token, password: 'newpass456' });
     expect(resetRes.status).toBe(200);
@@ -95,8 +85,7 @@ describe('POST /api/auth/reset-password', () => {
     await registerVendor(app);
     await request(app).post('/api/auth/forgot-password').send({ email: baseVendor.email });
 
-    const loggedUrl = infoSpy.mock.calls[0][0];
-    const token = extractToken(loggedUrl);
+    const token = tokenSentTo(baseVendor.email);
 
     // Force the token to have already expired
     await asTenant(() => Vendor.updateOne({ email: baseVendor.email }, { resetPasswordExpires: new Date(Date.now() - 1000) }));
@@ -109,8 +98,7 @@ describe('POST /api/auth/reset-password', () => {
     await registerVendor(app);
     await request(app).post('/api/auth/forgot-password').send({ email: baseVendor.email });
 
-    const loggedUrl = infoSpy.mock.calls[0][0];
-    const token = extractToken(loggedUrl);
+    const token = tokenSentTo(baseVendor.email);
 
     await request(app).post('/api/auth/reset-password').send({ token, password: 'newpass456' });
     const secondAttempt = await request(app).post('/api/auth/reset-password').send({ token, password: 'anotherpass789' });

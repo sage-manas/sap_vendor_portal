@@ -1,7 +1,7 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
 const Vendor = require('../models/Vendor');
-const { baseVendor, registerVendor, createAdminVendor, asTenant } = require('./helpers');
+const { baseVendor, registerVendor, createAdminUser, asTenant } = require('./helpers');
 
 const app = buildTestApp();
 
@@ -94,7 +94,7 @@ describe('registration approval flow', () => {
 
   it('admin approve sets Approved and assigns a sapVendorCode', async () => {
     const { vendor } = await registerVendor(app);
-    const { token: adminToken } = await createAdminVendor();
+    const { token: adminToken } = await createAdminUser();
     const res = await request(app)
       .put(`/api/vendors/${vendor._id}/approve`)
       .set('Authorization', `Bearer ${adminToken}`);
@@ -106,7 +106,7 @@ describe('registration approval flow', () => {
 
   it('admin reject requires a reason', async () => {
     const { vendor } = await registerVendor(app);
-    const { token: adminToken } = await createAdminVendor();
+    const { token: adminToken } = await createAdminUser();
 
     const noReason = await request(app)
       .put(`/api/vendors/${vendor._id}/reject`)
@@ -123,7 +123,7 @@ describe('registration approval flow', () => {
     expect(rejected.body.vendor.rejectionReason).toBe('Incomplete documents');
   });
 
-  it('a non-admin vendor gets 403 from all three admin endpoints', async () => {
+  it('a supplier gets 403 from all three directory endpoints', async () => {
     const { token, vendor } = await registerVendor(app);
 
     const list = await request(app)
@@ -147,7 +147,7 @@ describe('registration approval flow', () => {
 describe('GET /api/vendors (admin list)', () => {
   it('filters by status and paginates', async () => {
     await registerVendor(app);
-    const { token: adminToken } = await createAdminVendor();
+    const { token: adminToken } = await createAdminUser();
     await asTenant(() => Vendor.create({
       vendorId: 'vendor_approved_1',
       companyName: 'Approved Co Ltd',
@@ -168,22 +168,15 @@ describe('GET /api/vendors (admin list)', () => {
   });
 });
 
-describe('admin bootstrap via ADMIN_BOOTSTRAP_EMAILS', () => {
-  const originalEnv = process.env.ADMIN_BOOTSTRAP_EMAILS;
-
-  afterEach(() => {
-    process.env.ADMIN_BOOTSTRAP_EMAILS = originalEnv;
-  });
-
-  it('assigns admin role on register when the email matches the bootstrap list', async () => {
-    process.env.ADMIN_BOOTSTRAP_EMAILS = 'Owner@Example.com, other@example.com';
-    const { vendor } = await registerVendor(app, { vendorId: 'vendor_bootstrap_1', email: 'owner@example.com' });
-    expect(vendor.role).toBe('admin');
-  });
-
-  it('leaves role as vendor when the email is not in the bootstrap list', async () => {
-    process.env.ADMIN_BOOTSTRAP_EMAILS = 'someone-else@example.com';
-    const { vendor } = await registerVendor(app, { vendorId: 'vendor_bootstrap_2', email: 'random@example.com' });
+// ADMIN_BOOTSTRAP_EMAILS is gone (ADR-0009). Self-registration is a supplier
+// door and nothing else — staff arrive by invitation.
+describe('self-registration cannot mint a staff account', () => {
+  it('always assigns the vendor role, whatever the request asks for', async () => {
+    const { vendor } = await registerVendor(app, {
+      vendorId: 'vendor_bootstrap_1',
+      email: 'owner@example.com',
+      role: 'client_admin'
+    });
     expect(vendor.role).toBe('vendor');
   });
 });

@@ -2,7 +2,7 @@ const request = require('supertest');
 const buildTestApp = require('./testApp');
 const RFQ = require('../models/RFQ');
 const PurchaseOrder = require('../models/PurchaseOrder');
-const { registerVendor, asTenant } = require('./helpers');
+const { registerVendor, createTenantUser, asTenant } = require('./helpers');
 
 const app = buildTestApp();
 
@@ -29,15 +29,20 @@ const bidPayload = (overrides = {}) => ({
 });
 
 let auth;
+let buyerAuth;
 beforeEach(async () => {
   auth = await registerVendor(app);
+  // Sourcing is a buyer's job: suppliers hold rfq:read and rfq:bid, never
+  // rfq:create / rfq:manage / rfq:award (config/permissions.js).
+  buyerAuth = await createTenantUser({ role: 'buyer' });
 });
 
 const asVendor = (req) => req.set('Authorization', `Bearer ${auth.token}`);
+const asBuyer = (req) => req.set('Authorization', `Bearer ${buyerAuth.token}`);
 
 describe('POST /api/rfqs (create)', () => {
   it('creates an RFQ with a sequential RFQ-YYYY-NNN id and defaults', async () => {
-    const res = await asVendor(request(app).post('/api/rfqs')).send(rfqPayload());
+    const res = await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload());
 
     expect(res.status).toBe(201);
     const year = new Date().getFullYear();
@@ -45,20 +50,20 @@ describe('POST /api/rfqs (create)', () => {
     expect(res.body.status).toBe('Bidding Open');
     expect(res.body.items).toHaveLength(2);
 
-    const second = await asVendor(request(app).post('/api/rfqs')).send(rfqPayload());
+    const second = await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload());
     expect(second.body.id).toBe(`RFQ-${year}-002`);
   });
 
   it('rejects missing required fields with 400', async () => {
-    const res = await asVendor(request(app).post('/api/rfqs')).send({ description: 'Too short items', items: [] });
+    const res = await asBuyer(request(app).post('/api/rfqs')).send({ description: 'Too short items', items: [] });
     expect(res.status).toBe(400);
   });
 });
 
 describe('GET /api/rfqs', () => {
   it('returns only RFQs the vendor is invited to by default', async () => {
-    await asVendor(request(app).post('/api/rfqs')).send(rfqPayload());
-    await asVendor(request(app).post('/api/rfqs')).send(
+    await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload());
+    await asBuyer(request(app).post('/api/rfqs')).send(
       rfqPayload({ invitedVendors: [{ id: 'someone_else' }] })
     );
 
@@ -66,14 +71,14 @@ describe('GET /api/rfqs', () => {
     expect(mine.status).toBe(200);
     expect(mine.body.rfqs).toHaveLength(1);
 
-    const all = await asVendor(request(app).get('/api/rfqs?all=true'));
+    const all = await asBuyer(request(app).get('/api/rfqs?all=true'));
     expect(all.body.rfqs).toHaveLength(2);
   });
 });
 
 describe('POST /api/rfqs/:id/bid', () => {
   it('accepts a valid bid from an invited vendor and maps GST to a tax code', async () => {
-    const rfq = (await asVendor(request(app).post('/api/rfqs')).send(rfqPayload())).body;
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload())).body;
     const res = await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bidPayload());
 
     expect(res.status).toBe(200);
@@ -86,7 +91,7 @@ describe('POST /api/rfqs/:id/bid', () => {
   });
 
   it('accepts a bid from a non-invited vendor by dynamically inviting them', async () => {
-    const rfq = (await asVendor(request(app).post('/api/rfqs')).send(
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(
       rfqPayload({ invitedVendors: [{ id: 'someone_else' }] })
     )).body;
 
@@ -98,7 +103,7 @@ describe('POST /api/rfqs/:id/bid', () => {
   });
 
   it('rejects a bid missing a line price with 400', async () => {
-    const rfq = (await asVendor(request(app).post('/api/rfqs')).send(rfqPayload())).body;
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload())).body;
     const res = await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(
       bidPayload({ unitPrices: { 10: 11.5 } })
     );
@@ -107,7 +112,7 @@ describe('POST /api/rfqs/:id/bid', () => {
   });
 
   it('rejects a bid after the deadline has passed', async () => {
-    const rfq = (await asVendor(request(app).post('/api/rfqs')).send(rfqPayload())).body;
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload())).body;
     await asTenant(() => RFQ.updateOne({ id: rfq.id }, { deadlineDate: new Date(Date.now() - 1000) }));
 
     const res = await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bidPayload());
@@ -116,7 +121,7 @@ describe('POST /api/rfqs/:id/bid', () => {
   });
 
   it('rejects a bid when bidding is not open', async () => {
-    const rfq = (await asVendor(request(app).post('/api/rfqs')).send(rfqPayload())).body;
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload())).body;
     await asTenant(() => RFQ.updateOne({ id: rfq.id }, { status: 'Closed' }));
 
     const res = await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bidPayload());
@@ -126,7 +131,7 @@ describe('POST /api/rfqs/:id/bid', () => {
 
 describe('GET /api/rfqs/:id/evaluate', () => {
   it('scores bids: lowest total cost gets priceScore 100 and ranks first', async () => {
-    const rfq = (await asVendor(request(app).post('/api/rfqs')).send(rfqPayload())).body;
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload())).body;
 
     // Seed two competing bids directly (API closes bidding after the first bid)
     await asTenant(() => RFQ.updateOne({ id: rfq.id }, {
@@ -138,7 +143,7 @@ describe('GET /api/rfqs/:id/evaluate', () => {
       }
     }));
 
-    const res = await asVendor(request(app).get(`/api/rfqs/${rfq.id}/evaluate`));
+    const res = await asBuyer(request(app).get(`/api/rfqs/${rfq.id}/evaluate`));
     expect(res.status).toBe(200);
     expect(res.body.evaluation).toHaveLength(2);
 
@@ -151,18 +156,18 @@ describe('GET /api/rfqs/:id/evaluate', () => {
   });
 
   it('returns an empty evaluation when there are no bids', async () => {
-    const rfq = (await asVendor(request(app).post('/api/rfqs')).send(rfqPayload())).body;
-    const res = await asVendor(request(app).get(`/api/rfqs/${rfq.id}/evaluate`));
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload())).body;
+    const res = await asBuyer(request(app).get(`/api/rfqs/${rfq.id}/evaluate`));
     expect(res.body.evaluation).toEqual([]);
   });
 });
 
 describe('POST /api/rfqs/:id/award', () => {
   it('awards the RFQ and creates a PO priced from the winning bid', async () => {
-    const rfq = (await asVendor(request(app).post('/api/rfqs')).send(rfqPayload())).body;
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload())).body;
     await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bidPayload());
 
-    const res = await asVendor(request(app).post(`/api/rfqs/${rfq.id}/award`)).send({ vendorId: 'vendor_test_001' });
+    const res = await asBuyer(request(app).post(`/api/rfqs/${rfq.id}/award`)).send({ vendorId: 'vendor_test_001' });
 
     expect(res.status).toBe(200);
     const year = new Date().getFullYear();
@@ -180,36 +185,36 @@ describe('POST /api/rfqs/:id/award', () => {
   });
 
   it('rejects awarding twice', async () => {
-    const rfq = (await asVendor(request(app).post('/api/rfqs')).send(rfqPayload())).body;
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload())).body;
     await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bidPayload());
-    await asVendor(request(app).post(`/api/rfqs/${rfq.id}/award`)).send({ vendorId: 'vendor_test_001' });
+    await asBuyer(request(app).post(`/api/rfqs/${rfq.id}/award`)).send({ vendorId: 'vendor_test_001' });
 
-    const res = await asVendor(request(app).post(`/api/rfqs/${rfq.id}/award`)).send({ vendorId: 'vendor_test_001' });
+    const res = await asBuyer(request(app).post(`/api/rfqs/${rfq.id}/award`)).send({ vendorId: 'vendor_test_001' });
     expect(res.status).toBe(400);
   });
 
   it('rejects awarding a vendor with no bid', async () => {
-    const rfq = (await asVendor(request(app).post('/api/rfqs')).send(rfqPayload())).body;
-    const res = await asVendor(request(app).post(`/api/rfqs/${rfq.id}/award`)).send({ vendorId: 'ghost_vendor' });
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload())).body;
+    const res = await asBuyer(request(app).post(`/api/rfqs/${rfq.id}/award`)).send({ vendorId: 'ghost_vendor' });
     expect(res.status).toBe(404);
   });
 });
 
 describe('cancel and reissue', () => {
   it('cancel closes the RFQ', async () => {
-    const rfq = (await asVendor(request(app).post('/api/rfqs')).send(rfqPayload())).body;
-    const res = await asVendor(request(app).put(`/api/rfqs/${rfq.id}/cancel`));
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload())).body;
+    const res = await asBuyer(request(app).put(`/api/rfqs/${rfq.id}/cancel`));
 
     expect(res.status).toBe(200);
     expect(res.body.rfq.status).toBe('Closed');
   });
 
   it('reissue reopens bidding with a new deadline', async () => {
-    const rfq = (await asVendor(request(app).post('/api/rfqs')).send(rfqPayload())).body;
-    await asVendor(request(app).put(`/api/rfqs/${rfq.id}/cancel`));
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload())).body;
+    await asBuyer(request(app).put(`/api/rfqs/${rfq.id}/cancel`));
 
     const newDeadline = futureDate(14);
-    const res = await asVendor(request(app).put(`/api/rfqs/${rfq.id}/reissue`)).send({ deadlineDate: newDeadline });
+    const res = await asBuyer(request(app).put(`/api/rfqs/${rfq.id}/reissue`)).send({ deadlineDate: newDeadline });
 
     expect(res.status).toBe(200);
     expect(res.body.rfq.status).toBe('Bidding Open');
@@ -217,7 +222,7 @@ describe('cancel and reissue', () => {
   });
 
   it('404s on an unknown RFQ id', async () => {
-    const res = await asVendor(request(app).put('/api/rfqs/RFQ-9999-999/cancel'));
+    const res = await asBuyer(request(app).put('/api/rfqs/RFQ-9999-999/cancel'));
     expect(res.status).toBe(404);
   });
 });

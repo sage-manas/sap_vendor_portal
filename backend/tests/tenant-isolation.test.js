@@ -18,6 +18,8 @@ const Payment = require('../models/Payment');
 const ChatMessage = require('../models/ChatMessage');
 const SapLog = require('../models/SapLog');
 const DocumentModel = require('../models/Document');
+const User = require('../models/User');
+const Invitation = require('../models/Invitation');
 
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
 const { seedClient, signTokenFor } = require('./helpers');
@@ -100,6 +102,23 @@ const MODEL_CASES = [
     doc: () => ({ vendorId: 'VND-1', type: 'BAPI', direction: 'OUTBOUND', name: 'BAPI_RFQ_CREATE', status: 'SUCCESS' }),
     find: () => ({ name: 'BAPI_RFQ_CREATE' }),
     update: { $set: { status: 'FAILED' } },
+  },
+  {
+    name: 'User',
+    model: User,
+    doc: (t) => ({ email: `staff-${t}@example.com`, name: 'Staff Member', role: 'buyer', password: 'secret123' }),
+    find: (t) => ({ email: `staff-${t}@example.com` }),
+    update: { $set: { role: 'client_admin' } },
+    // Like Vendor, a User's email is a login identity and stays globally
+    // unique — the same address cannot exist in two tenants (ADR-0007).
+    sharedBusinessId: false,
+  },
+  {
+    name: 'Invitation',
+    model: Invitation,
+    doc: () => ({ email: 'invitee@example.com', role: 'buyer', tokenHash: 'a'.repeat(64), expiresAt: soon() }),
+    find: () => ({ email: 'invitee@example.com' }),
+    update: { $set: { status: 'Revoked' } },
   },
   {
     name: 'Document',
