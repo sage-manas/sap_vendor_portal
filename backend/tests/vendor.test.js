@@ -1,7 +1,7 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
 const Vendor = require('../models/Vendor');
-const { baseVendor, registerVendor, createAdminVendor } = require('./helpers');
+const { baseVendor, registerVendor, createAdminVendor, asTenant } = require('./helpers');
 
 const app = buildTestApp();
 
@@ -148,14 +148,14 @@ describe('GET /api/vendors (admin list)', () => {
   it('filters by status and paginates', async () => {
     await registerVendor(app);
     const { token: adminToken } = await createAdminVendor();
-    await Vendor.create({
+    await asTenant(() => Vendor.create({
       vendorId: 'vendor_approved_1',
       companyName: 'Approved Co Ltd',
       gstin: '07AABCA1111B1Z9',
       pan: 'AABCA1111B',
       email: 'approved@example.com',
       status: 'Approved'
-    });
+    }));
 
     const res = await request(app)
       .get('/api/vendors?status=Approved')

@@ -1,8 +1,10 @@
 const mongoose = require('mongoose');
+const tenantPlugin = require('./plugins/tenantPlugin');
 const Schema = mongoose.Schema;
 
 const paymentSchema = new Schema({
-  id:            { type: String, required: true, unique: true },
+  // Unique per tenant — see the compound index below.
+  id:            { type: String, required: true },
   invoiceId:     { type: String, required: true },
   poId:          { type: String, required: true },
   vendorId:      { type: String, required: true },
@@ -27,5 +29,10 @@ const paymentSchema = new Schema({
   deductorTan:   { type: String },
   totalTds:      { type: Number }
 }, { timestamps: true });
+
+paymentSchema.plugin(tenantPlugin);
+paymentSchema.index({ clientId: 1, id: 1 }, { unique: true });
+paymentSchema.index({ clientId: 1, vendorId: 1 });
+paymentSchema.index({ clientId: 1, invoiceId: 1 });
 
 module.exports = mongoose.model('Payment', paymentSchema);

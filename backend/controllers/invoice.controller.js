@@ -7,6 +7,7 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { createSapLog } = require('../utils/sapLogger');
 const { EVENTS, emitToVendor } = require('../utils/socketEmitter');
+const { runWithTenant } = require('../utils/tenantContext');
 
 // Helper to determine vendor ID
 const getVendorId = (req) => {
@@ -175,10 +176,12 @@ const submitInvoice = asyncHandler(async (req, res, next) => {
   });
 
   const io = req.app.get('io');
-  emitToVendor(io, vendorId, EVENTS.LOG_NEW, { type: 'BAPI', name: 'BAPI_INCOMINGINVOICE_CREATE' });
+  const { clientId } = req;
+  emitToVendor(io, clientId, vendorId, EVENTS.LOG_NEW, { type: 'BAPI', name: 'BAPI_INCOMINGINVOICE_CREATE' });
 
-  // Schedule autoPaymentRun after 12 seconds
-  setTimeout(async () => {
+  // Schedule autoPaymentRun after 12 seconds. The timer fires outside the
+  // request, so the tenant context has to be re-bound explicitly.
+  setTimeout(() => runWithTenant(clientId, async () => {
     try {
       console.log(`[SIMULATOR] Starting payment run for Invoice: ${invoice.id}`);
       
@@ -238,15 +241,15 @@ const submitInvoice = asyncHandler(async (req, res, next) => {
           documentRef: payment.id
         });
 
-        emitToVendor(io, latestInvoice.vendorId, EVENTS.PAYMENT_CLEARED, payment);
-        emitToVendor(io, latestInvoice.vendorId, EVENTS.LOG_NEW, { type: 'OData', name: 'FBL1N_RFITEMGL' });
+        emitToVendor(io, clientId, latestInvoice.vendorId, EVENTS.PAYMENT_CLEARED, payment);
+        emitToVendor(io, clientId, latestInvoice.vendorId, EVENTS.LOG_NEW, { type: 'OData', name: 'FBL1N_RFITEMGL' });
 
         console.log(`[SIMULATOR] Auto-payment run completed: ${payment.id} (UTR: ${payment.utrCode})`);
       }
     } catch (err) {
       console.error('[SIMULATOR] Failed to auto-execute payment run:', err);
     }
-  }, 12000);
+  }), 12000);
 
   res.status(201).json({ message: 'Invoice submitted successfully. Payment scheduled in 12 seconds.', invoice });
 });

@@ -1,8 +1,10 @@
 const mongoose = require('mongoose');
+const tenantPlugin = require('./plugins/tenantPlugin');
 const Schema = mongoose.Schema;
 
 const purchaseOrderSchema = new Schema({
-  id:            { type: String, required: true, unique: true }, // unique, e.g. 'PO-2026-0081'
+  // Unique per tenant — see the compound index below.
+  id:            { type: String, required: true }, // e.g. 'PO-2026-0081'
   sapPoNumber:   String,
   vendorId:      { type: String, required: true },        // Clerk user ID
   vendorDbId:    { type: Schema.Types.ObjectId, ref: 'Vendor' },
@@ -28,5 +30,10 @@ const purchaseOrderSchema = new Schema({
     uom: { type: String, default: 'EA' }
   }]
 }, { timestamps: true });
+
+purchaseOrderSchema.plugin(tenantPlugin);
+purchaseOrderSchema.index({ clientId: 1, id: 1 }, { unique: true });
+purchaseOrderSchema.index({ clientId: 1, vendorId: 1 });
+purchaseOrderSchema.index({ clientId: 1, status: 1 });
 
 module.exports = mongoose.model('PurchaseOrder', purchaseOrderSchema);

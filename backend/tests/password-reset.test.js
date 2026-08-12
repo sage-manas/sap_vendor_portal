@@ -2,7 +2,7 @@ const request = require('supertest');
 const buildTestApp = require('./testApp');
 const Vendor = require('../models/Vendor');
 const logger = require('../utils/logger');
-const { baseVendor, registerVendor } = require('./helpers');
+const { baseVendor, registerVendor, asTenant } = require('./helpers');
 
 const app = buildTestApp();
 
@@ -39,7 +39,7 @@ describe('POST /api/auth/forgot-password', () => {
     expect(res.body.success).toBe(true);
     expect(infoSpy).toHaveBeenCalledTimes(1);
 
-    const vendor = await Vendor.findOne({ email: baseVendor.email }).select('+resetPasswordToken +resetPasswordExpires');
+    const vendor = await asTenant(() => Vendor.findOne({ email: baseVendor.email }).select('+resetPasswordToken +resetPasswordExpires'));
     expect(vendor.resetPasswordToken).toEqual(expect.any(String));
     expect(vendor.resetPasswordExpires.getTime()).toBeGreaterThan(Date.now());
   });
@@ -99,7 +99,7 @@ describe('POST /api/auth/reset-password', () => {
     const token = extractToken(loggedUrl);
 
     // Force the token to have already expired
-    await Vendor.updateOne({ email: baseVendor.email }, { resetPasswordExpires: new Date(Date.now() - 1000) });
+    await asTenant(() => Vendor.updateOne({ email: baseVendor.email }, { resetPasswordExpires: new Date(Date.now() - 1000) }));
 
     const res = await request(app).post('/api/auth/reset-password').send({ token, password: 'newpass456' });
     expect(res.status).toBe(400);

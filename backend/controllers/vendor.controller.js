@@ -5,6 +5,8 @@ const Invoice = require('../models/Invoice');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { verifyGstinPan } = require('../services/verification.service');
+const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
+const { resolveClientForRequest } = require('../utils/resolveClient');
 
 // Helper to determine vendor ID from header (for dev) or JWT auth
 const getVendorId = (req) => {
@@ -105,7 +107,20 @@ const createProfile = asyncHandler(async (req, res, next) => {
     return next(ApiError.badRequest('Vendor ID, company name, GSTIN, PAN, and email are required'));
   }
 
-  const existingVendor = await Vendor.findOne({ $or: [{ vendorId }, { email }, { gstin }] });
+  // This route is unauthenticated, so — like registration — it resolves the
+  // workspace from the request rather than from a bound tenant context.
+  const client = await resolveClientForRequest(req);
+  if (!client) {
+    return next(ApiError.badRequest('Unknown workspace'));
+  }
+  if (!client.isOperational()) {
+    return next(ApiError.forbidden('This workspace is not accepting registrations'));
+  }
+
+  // Login identities are global, so this collision check spans all tenants.
+  const existingVendor = await withoutTenantScope(
+    () => Vendor.findOne({ $or: [{ vendorId }, { email }, { gstin }] })
+  );
   if (existingVendor) {
     return next(ApiError.conflict('Vendor with this ID, email, or GSTIN already exists'));
   }
@@ -113,10 +128,10 @@ const createProfile = asyncHandler(async (req, res, next) => {
   // Determine starting status
   const defaultStatus = (vendorId && vendorId.startsWith('mock_vendor_')) ? 'Pending' : 'Draft';
 
-  const vendor = await Vendor.create({
+  const vendor = await runWithTenant(client.clientId, () => Vendor.create({
     ...mappedBody,
     status: mappedBody.status || defaultStatus
-  });
+  }));
 
   res.status(201).json(formatVendorResponse(vendor));
 });
@@ -179,8 +194,9 @@ const submitRegistration = asyncHandler(async (req, res, next) => {
   // Verify GSTIN/PAN as part of submission — approval is blocked until this passes
   await runGstinPanVerification(vendor);
 
-  // Simulate SAP auto-approval in 5 seconds
-  setTimeout(async () => {
+  // Simulate SAP auto-approval in 5 seconds. The timer fires outside the
+  // request, so the tenant context has to be re-bound explicitly.
+  setTimeout(() => runWithTenant(req.clientId, async () => {
     try {
       const updatedVendor = await Vendor.findOne({ vendorId });
       if (updatedVendor && updatedVendor.gstinVerified && updatedVendor.panVerified &&
@@ -212,7 +228,7 @@ const submitRegistration = asyncHandler(async (req, res, next) => {
     } catch (err) {
       console.error('[SIMULATOR] Failed to auto-approve vendor:', err);
     }
-  }, 5000);
+  }), 5000);
 
   res.json({
     message: 'Registration submitted. Awaiting approval (simulated auto-approval in 5 seconds).',

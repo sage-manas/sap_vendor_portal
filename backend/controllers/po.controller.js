@@ -6,6 +6,7 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { createSapLog } = require('../utils/sapLogger');
 const { EVENTS, emitToVendor } = require('../utils/socketEmitter');
+const { runWithTenant } = require('../utils/tenantContext');
 
 // Helper to determine vendor ID
 const getVendorId = (req) => {
@@ -85,7 +86,7 @@ const acknowledgePO = asyncHandler(async (req, res, next) => {
   });
 
   const io = req.app.get('io');
-  emitToVendor(io, po.vendorId, EVENTS.LOG_NEW, { type: 'RFC', name: 'RFC_PO_ACKNOWLEDGE' });
+  emitToVendor(io, req.clientId, po.vendorId, EVENTS.LOG_NEW, { type: 'RFC', name: 'RFC_PO_ACKNOWLEDGE' });
 
   res.json({ message: 'Purchase Order acknowledged successfully', po });
 });
@@ -153,8 +154,8 @@ const simulatePO = asyncHandler(async (req, res, next) => {
   });
 
   const io = req.app.get('io');
-  emitToVendor(io, vendorId, EVENTS.PO_NEW, po);
-  emitToVendor(io, vendorId, EVENTS.LOG_NEW, { type: 'OData', name: '/API_PURCHASEORDER_PROCESS_SRV' });
+  emitToVendor(io, req.clientId, vendorId, EVENTS.PO_NEW, po);
+  emitToVendor(io, req.clientId, vendorId, EVENTS.LOG_NEW, { type: 'OData', name: '/API_PURCHASEORDER_PROCESS_SRV' });
 
   res.status(201).json(po);
 });
@@ -248,10 +249,12 @@ const submitASN = asyncHandler(async (req, res, next) => {
   });
 
   const io = req.app.get('io');
-  emitToVendor(io, vendorId, EVENTS.LOG_NEW, { type: 'RFC', name: 'BAPI_DELIVERYPROCESSING_EXEC' });
+  const { clientId } = req;
+  emitToVendor(io, clientId, vendorId, EVENTS.LOG_NEW, { type: 'RFC', name: 'BAPI_DELIVERYPROCESSING_EXEC' });
 
-  // Schedule autoCreateGRN after 10 seconds
-  setTimeout(async () => {
+  // Schedule autoCreateGRN after 10 seconds. The timer fires outside the
+  // request, so the tenant context has to be re-bound explicitly.
+  setTimeout(() => runWithTenant(clientId, async () => {
     try {
       console.log(`[SIMULATOR] Starting auto GRN receipt creation for PO: ${po.id}, ASN: ${asn.id}`);
       
@@ -327,16 +330,16 @@ const submitASN = asyncHandler(async (req, res, next) => {
           documentRef: grn.id
         });
 
-        emitToVendor(io, latestAsn.vendorId, EVENTS.GRN_RECEIVED, grn);
-        emitToVendor(io, latestAsn.vendorId, EVENTS.LOG_NEW, { type: 'BAPI', name: 'BAPI_GOODSMVT_CREATE' });
-        emitToVendor(io, latestAsn.vendorId, EVENTS.LOG_NEW, { type: 'RFC', name: 'BAPI_GOODSMVT_GETDETAIL' });
+        emitToVendor(io, clientId, latestAsn.vendorId, EVENTS.GRN_RECEIVED, grn);
+        emitToVendor(io, clientId, latestAsn.vendorId, EVENTS.LOG_NEW, { type: 'BAPI', name: 'BAPI_GOODSMVT_CREATE' });
+        emitToVendor(io, clientId, latestAsn.vendorId, EVENTS.LOG_NEW, { type: 'RFC', name: 'BAPI_GOODSMVT_GETDETAIL' });
 
         console.log(`[SIMULATOR] Auto-generated GRN successfully: ${grn.id} for PO ${latestPo.id}`);
       }
     } catch (err) {
       console.error('[SIMULATOR] Failed to auto-generate GRN:', err);
     }
-  }, 10000);
+  }), 10000);
 
   res.status(201).json({ message: 'ASN submitted successfully. Goods receipt simulated in 10 seconds.', asn });
 });

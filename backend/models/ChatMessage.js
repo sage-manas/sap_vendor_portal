@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const tenantPlugin = require('./plugins/tenantPlugin');
 const Schema = mongoose.Schema;
 
 const chatMessageSchema = new Schema({
@@ -11,6 +12,7 @@ const chatMessageSchema = new Schema({
   isRead:      { type: Boolean, default: false }
 }, { timestamps: true });
 
-chatMessageSchema.index({ vendorId: 1, timestamp: 1 });
+chatMessageSchema.plugin(tenantPlugin);
+chatMessageSchema.index({ clientId: 1, vendorId: 1, timestamp: 1 });
 
 module.exports = mongoose.model('ChatMessage', chatMessageSchema);

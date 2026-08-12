@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const tenantPlugin = require('./plugins/tenantPlugin');
 const Schema = mongoose.Schema;
 
 // vendorId is the link between user and our MongoDB vendor
@@ -53,7 +54,9 @@ const vendorSchema = new Schema({
   verificationDetails: { type: Schema.Types.Mixed },
 
   // SAP ERP synchronization metadata
-  sapVendorCode:  { type: String, unique: true, sparse: true }, // e.g. 'VND-40013'
+  // Issued by the tenant's own SAP, so it is unique per tenant, not globally
+  // (see the partial compound index below).
+  sapVendorCode:  { type: String },
   status:         { type: String, enum: ['Draft', 'Pending', 'Pending Approval', 'Under Review', 'Approved', 'Rejected'], default: 'Draft' },
   rejectionReason:{ type: String },
   vendorCategory: { type: String },
@@ -74,7 +77,17 @@ vendorSchema.methods.comparePassword = async function(candidatePassword) {
   return bcrypt.compare(candidatePassword, this.password);
 };
 
-// Indexes
-vendorSchema.index({ status: 1 });
+vendorSchema.plugin(tenantPlugin);
+
+// Indexes.
+// vendorId / email / gstin stay GLOBALLY unique: login resolves an account
+// before any tenant is known, so a supplier's login identity must be
+// unambiguous across the whole platform (ADR-0002 in DECISIONS.md).
+vendorSchema.index({ clientId: 1, status: 1 });
+vendorSchema.index({ clientId: 1, vendorId: 1 });
+vendorSchema.index(
+  { clientId: 1, sapVendorCode: 1 },
+  { unique: true, partialFilterExpression: { sapVendorCode: { $type: 'string' } } }
+);
 
 module.exports = mongoose.model('Vendor', vendorSchema);

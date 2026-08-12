@@ -2,6 +2,7 @@ const ChatMessage = require('../models/ChatMessage');
 const asyncHandler = require('../utils/asyncHandler');
 const ApiError = require('../utils/ApiError');
 const { EVENTS, emitToVendor } = require('../utils/socketEmitter');
+const { runWithTenant } = require('../utils/tenantContext');
 
 const getVendorId = (req) => {
   return req.clerkUserId || req.headers['x-vendor-id'] || 'mock_vendor_id';
@@ -30,6 +31,7 @@ const getMessages = asyncHandler(async (req, res, next) => {
 // @access  Public
 const sendMessage = asyncHandler(async (req, res, next) => {
   const vendorId = getVendorId(req);
+  const { clientId } = req;
   const { message, linkedPoId, linkedRfqId } = req.body;
 
   if (!message || !message.trim()) {
@@ -49,7 +51,7 @@ const sendMessage = asyncHandler(async (req, res, next) => {
 
   // Emit to socket room
   const io = req.app.get('io');
-  emitToVendor(io, vendorId, EVENTS.CHAT_MESSAGE, chatMsg);
+  emitToVendor(io, clientId, vendorId, EVENTS.CHAT_MESSAGE, chatMsg);
 
   // Parse keyword for smart reply
   const lowerText = message.toLowerCase();
@@ -67,8 +69,9 @@ const sendMessage = asyncHandler(async (req, res, next) => {
     senderRole = 'Quality';
   }
 
-  // Simulate auto-reply after 2 seconds
-  setTimeout(async () => {
+  // Simulate auto-reply after 2 seconds. The timer fires outside the request,
+  // so the tenant context has to be re-bound explicitly.
+  setTimeout(() => runWithTenant(clientId, async () => {
     try {
       const replyMsg = await ChatMessage.create({
         vendorId,
@@ -80,12 +83,12 @@ const sendMessage = asyncHandler(async (req, res, next) => {
         isRead: false
       });
 
-      emitToVendor(io, vendorId, EVENTS.CHAT_MESSAGE, replyMsg);
+      emitToVendor(io, clientId, vendorId, EVENTS.CHAT_MESSAGE, replyMsg);
       console.log(`[Socket Chat] Sent auto-reply to vendor ${vendorId}: "${replyText}"`);
     } catch (err) {
       console.error('[Socket Chat] Failed to send auto-reply:', err);
     }
-  }, 2000);
+  }), 2000);
 
   res.status(201).json(chatMsg);
 });

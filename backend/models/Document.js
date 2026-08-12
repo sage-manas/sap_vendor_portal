@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const tenantPlugin = require('./plugins/tenantPlugin');
 const Schema = mongoose.Schema;
 
 const documentSchema = new Schema({
@@ -11,6 +12,7 @@ const documentSchema = new Schema({
   linkedTo:     { type: String, enum: ['ASN', 'RFQ', 'Profile', 'Invoice'], default: 'Profile' }
 }, { timestamps: true });
 
-documentSchema.index({ vendorId: 1 });
+documentSchema.plugin(tenantPlugin);
+documentSchema.index({ clientId: 1, vendorId: 1 });
 
 module.exports = mongoose.model('Document', documentSchema);

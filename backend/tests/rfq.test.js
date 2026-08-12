@@ -2,7 +2,7 @@ const request = require('supertest');
 const buildTestApp = require('./testApp');
 const RFQ = require('../models/RFQ');
 const PurchaseOrder = require('../models/PurchaseOrder');
-const { registerVendor } = require('./helpers');
+const { registerVendor, asTenant } = require('./helpers');
 
 const app = buildTestApp();
 
@@ -79,7 +79,7 @@ describe('POST /api/rfqs/:id/bid', () => {
     expect(res.status).toBe(200);
     expect(res.body.bidsCount).toBe(1);
 
-    const stored = await RFQ.findOne({ id: rfq.id });
+    const stored = await asTenant(() => RFQ.findOne({ id: rfq.id }));
     expect(stored.status).toBe('Submitted');
     expect(stored.bids[0].taxCode).toBe('G1'); // 18% → G1
     expect(stored.bids[0].unitPrices.get('10')).toBe(11.5);
@@ -93,7 +93,7 @@ describe('POST /api/rfqs/:id/bid', () => {
     const res = await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bidPayload());
     expect(res.status).toBe(200);
 
-    const stored = await RFQ.findOne({ id: rfq.id });
+    const stored = await asTenant(() => RFQ.findOne({ id: rfq.id }));
     expect(stored.invitedVendors.map(v => v.id)).toContain('vendor_test_001');
   });
 
@@ -108,7 +108,7 @@ describe('POST /api/rfqs/:id/bid', () => {
 
   it('rejects a bid after the deadline has passed', async () => {
     const rfq = (await asVendor(request(app).post('/api/rfqs')).send(rfqPayload())).body;
-    await RFQ.updateOne({ id: rfq.id }, { deadlineDate: new Date(Date.now() - 1000) });
+    await asTenant(() => RFQ.updateOne({ id: rfq.id }, { deadlineDate: new Date(Date.now() - 1000) }));
 
     const res = await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bidPayload());
     expect(res.status).toBe(400);
@@ -117,7 +117,7 @@ describe('POST /api/rfqs/:id/bid', () => {
 
   it('rejects a bid when bidding is not open', async () => {
     const rfq = (await asVendor(request(app).post('/api/rfqs')).send(rfqPayload())).body;
-    await RFQ.updateOne({ id: rfq.id }, { status: 'Closed' });
+    await asTenant(() => RFQ.updateOne({ id: rfq.id }, { status: 'Closed' }));
 
     const res = await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bidPayload());
     expect(res.status).toBe(400);
@@ -129,14 +129,14 @@ describe('GET /api/rfqs/:id/evaluate', () => {
     const rfq = (await asVendor(request(app).post('/api/rfqs')).send(rfqPayload())).body;
 
     // Seed two competing bids directly (API closes bidding after the first bid)
-    await RFQ.updateOne({ id: rfq.id }, {
+    await asTenant(() => RFQ.updateOne({ id: rfq.id }, {
       $set: {
         bids: [
           { vendorId: 'v_cheap', vendorName: 'Cheap Co', unitPrices: { 10: 10, 20: 3 }, freight: 0, deliveryLeadTimeDays: 5, technicalScore: 80, vendorRating: 90 },
           { vendorId: 'v_costly', vendorName: 'Costly Co', unitPrices: { 10: 20, 20: 6 }, freight: 100, deliveryLeadTimeDays: 10, technicalScore: 80, vendorRating: 90 }
         ]
       }
-    });
+    }));
 
     const res = await asVendor(request(app).get(`/api/rfqs/${rfq.id}/evaluate`));
     expect(res.status).toBe(200);
@@ -171,11 +171,11 @@ describe('POST /api/rfqs/:id/award', () => {
     expect(res.body.po.items[0].unitPrice).toBe(11.5);
     expect(res.body.po.items[0].netValue).toBe(11.5 * 100);
 
-    const storedRfq = await RFQ.findOne({ id: rfq.id });
+    const storedRfq = await asTenant(() => RFQ.findOne({ id: rfq.id }));
     expect(storedRfq.status).toBe('Awarded');
     expect(storedRfq.convertedPoId).toBe(res.body.po.id);
 
-    const po = await PurchaseOrder.findOne({ id: res.body.po.id });
+    const po = await asTenant(() => PurchaseOrder.findOne({ id: res.body.po.id }));
     expect(po).toBeTruthy();
   });
 
