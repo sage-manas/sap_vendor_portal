@@ -4,6 +4,8 @@ const PlatformUser = require('../models/PlatformUser');
 const Client = require('../models/Client');
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
 const { signToken } = require('../utils/authToken');
+const { encrypt } = require('../utils/secretBox');
+const totp = require('../utils/totp');
 const { ROLES } = require('../config/roles');
 
 const baseVendor = {
@@ -82,6 +84,22 @@ const createPlatformUser = async ({ role = ROLES.SUPER_ADMIN, ...rest } = {}) =>
   return { token: signTokenFor(operator), operator };
 };
 
+// An operator who has already enrolled and cleared MFA — the only kind of
+// session the console proper accepts (ADR-0016). `secret` is returned so a test
+// can generate a valid code for itself.
+const createOperatorSession = async ({ role = ROLES.SUPER_ADMIN, ...rest } = {}) => {
+  const secret = totp.generateSecret();
+  const { operator } = await createPlatformUser({
+    role,
+    mfaEnabled: true,
+    mfaSecret: encrypt(secret),
+    mfaEnrolledAt: new Date(),
+    ...rest,
+  });
+
+  return { token: signToken(operator, { mfa: true }), operator, secret };
+};
+
 // Test code that touches models directly is subject to the same rule as
 // application code: bind a tenant, or the query throws.
 const asTenant = (fn, clientId = 'CLT-0001') => runWithTenant(clientId, fn);
@@ -92,6 +110,7 @@ module.exports = {
   createTenantUser,
   createAdminUser,
   createPlatformUser,
+  createOperatorSession,
   seedClient,
   signTokenFor,
   asTenant,
