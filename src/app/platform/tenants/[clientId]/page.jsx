@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { ArrowLeft, Download, Mail, PlugZap } from 'lucide-react';
 import { platformApi } from '@/lib/platform-client';
 import { usePlatformSession } from '@/lib/platform-session';
-import { PageHeader, Notice, Field, Status, Table, Loading, useResource, formatDate } from '@/components/platform/primitives';
+import { PageHeader, Notice, Field, Status, Table, Loading, useResource, formatDate } from '@/components/console/primitives';
 
 // One tenant: its configuration, who administers it, how much of it exists,
 // and the lifecycle actions. Termination is soft and says so — the export

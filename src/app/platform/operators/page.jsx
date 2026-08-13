@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { Plus, ShieldOff } from 'lucide-react';
 import { platformApi } from '@/lib/platform-client';
-import { PageHeader, Notice, Field, Status, Table, Loading, useResource, formatDate } from '@/components/platform/primitives';
+import { PageHeader, Notice, Field, Status, Table, Loading, useResource, formatDate } from '@/components/console/primitives';
 
 // Operator accounts. Reachable only by super_admin — the nav does not show this
 // screen to an sap_manager, and the API refuses it either way.

@@ -4,7 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { RefreshCw } from 'lucide-react';
 import { platformApi } from '@/lib/platform-client';
-import { PageHeader, Notice, Status, Table, Loading, useResource, formatDate } from '@/components/platform/primitives';
+import { PageHeader, Notice, Status, Table, Loading, useResource, formatDate } from '@/components/console/primitives';
 
 // The health board. Every number here is about a tenant's *operation* — is its
 // SAP answering, is it near its plan limits, is anyone signing in — never about

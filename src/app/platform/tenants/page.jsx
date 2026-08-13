@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Plus, Search } from 'lucide-react';
 import { platformApi } from '@/lib/platform-client';
 import { usePlatformSession } from '@/lib/platform-session';
-import { PageHeader, Notice, Field, Status, Table, Loading, useResource, formatDate } from '@/components/platform/primitives';
+import { PageHeader, Notice, Field, Status, Table, Loading, useResource, formatDate } from '@/components/console/primitives';
 
 // The tenant list, and the create flow that is this phase's whole point:
 // creating a workspace issues its first client_admin's credentials by email.

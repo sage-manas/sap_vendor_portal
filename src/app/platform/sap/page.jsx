@@ -4,7 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { RefreshCw } from 'lucide-react';
 import { platformApi } from '@/lib/platform-client';
-import { PageHeader, Notice, Status, Table, Loading, useResource, formatDate } from '@/components/platform/primitives';
+import { PageHeader, Notice, Status, Table, Loading, useResource, formatDate } from '@/components/console/primitives';
 
 // The SAP board: every tenant's connection in one place, which is the screen an
 // sap_manager lives on.

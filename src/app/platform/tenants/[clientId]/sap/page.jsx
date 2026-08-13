@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { ArrowLeft, ArrowUpCircle, CheckCircle2, PlugZap, XCircle } from 'lucide-react';
 import { platformApi } from '@/lib/platform-client';
 import { usePlatformSession } from '@/lib/platform-session';
-import { PageHeader, Notice, Field, Table, Loading, useResource, formatDate } from '@/components/platform/primitives';
+import { PageHeader, Notice, Field, Table, Loading, useResource, formatDate } from '@/components/console/primitives';
 
 // One tenant's SAP configuration, both environments side by side.
 //

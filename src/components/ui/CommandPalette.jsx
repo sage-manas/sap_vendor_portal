@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { usePortal } from '@/lib/portal-context';
 import { useTheme } from '@/lib/theme-context';
+import { useWhoami } from '@/lib/whoami';
 
 // Lightweight subsequence-aware substring match across a record's searchable text.
 const matches = (haystack, needle) =>
@@ -24,8 +25,10 @@ export default function CommandPalette() {
   } = usePortal();
   const { theme, toggleTheme } = useTheme();
 
-  const isInternalAdmin =
-    state?.profile?.email?.endsWith('@enterprise.com') || state?.profile?.role === 'admin';
+  // The back office is the buying organisation's, and the server is the one
+  // that says who that is (ADR-0027) — the old check was an email suffix and a
+  // role that no longer exists.
+  const { isTenantStaff } = useWhoami();
 
   const isOpenRef = useRef(false);
   const open = useCallback(() => {
@@ -47,7 +50,7 @@ export default function CommandPalette() {
       { id: 'performance', name: 'Performance', icon: Activity },
       { id: 'analytics', name: 'Reports & Analytics', icon: BarChart3 },
     ];
-    if (isInternalAdmin) items.push({ id: 'admin', name: 'Admin Console', icon: Database });
+    if (isTenantStaff) items.push({ id: 'workspace', name: 'Workspace Back Office', icon: Database });
     return items.map((n) => ({
       key: `nav-${n.id}`,
       group: 'Navigation',
@@ -57,7 +60,7 @@ export default function CommandPalette() {
       search: n.name,
       perform: () => setActiveTab(n.id),
     }));
-  }, [isInternalAdmin, setActiveTab]);
+  }, [isTenantStaff, setActiveTab]);
 
   // ── Action entries ─────────────────────────────────────────────────────
   const actionItems = useMemo(() => [

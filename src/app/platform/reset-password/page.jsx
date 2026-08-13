@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { CheckCircle2, Loader2 } from 'lucide-react';
 import { platformApi } from '@/lib/platform-client';
-import { Notice, Field } from '@/components/platform/primitives';
+import { Notice, Field } from '@/components/console/primitives';
 
 // Where an operator's reset email lands. No session is involved: the token in
 // the link is the only credential, and it is single-use.

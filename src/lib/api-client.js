@@ -37,7 +37,14 @@ export const apiClient = {
           }
         }
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Request failed with status ${response.status}`);
+        const error = new Error(errorData.error || `Request failed with status ${response.status}`);
+        // The API answers a validation failure with a { field: message } map;
+        // carrying it on the error is what lets a form point at the field
+        // rather than only showing the summary line.
+        error.status = response.status;
+        error.errors = errorData.errors;
+        error.reason = errorData.reason;
+        throw error;
       }
       
       if (response.status === 204) return null;
@@ -66,6 +73,14 @@ export const apiClient = {
   put(endpoint, body, headers = {}) {
     return this.request(endpoint, {
       method: 'PUT',
+      body: JSON.stringify(body),
+      headers,
+    });
+  },
+
+  patch(endpoint, body, headers = {}) {
+    return this.request(endpoint, {
+      method: 'PATCH',
       body: JSON.stringify(body),
       headers,
     });

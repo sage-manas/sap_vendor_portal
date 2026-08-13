@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { platformApi } from '@/lib/platform-client';
-import { PageHeader, Notice, Table, Loading, useResource, formatDate } from '@/components/platform/primitives';
+import { PageHeader, Notice, Table, Loading, useResource, formatDate } from '@/components/console/primitives';
 
 // The audit explorer. Filter values come from the server's registries, not from
 // what happens to be in the data — an action nobody has performed yet is still

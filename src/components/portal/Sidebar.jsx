@@ -17,11 +17,13 @@ import {
   Menu
 } from 'lucide-react';
 import { usePortal } from '@/lib/portal-context';
+import { useWhoami } from '@/lib/whoami';
 
 const isDevEnv = process.env.NODE_ENV !== 'production';
 
 export default function Sidebar({ activeTab, setActiveTab, state, onReset }) {
   const { sidebarCollapsed, setSidebarCollapsed, logout } = usePortal();
+  const { isTenantStaff } = useWhoami();
   const [mounted, setMounted] = React.useState(false);
   const [isHovered, setIsHovered] = React.useState(false);
 
@@ -35,10 +37,10 @@ export default function Sidebar({ activeTab, setActiveTab, state, onReset }) {
     { id: 'dashboard', name: 'Vendor Dashboard', icon: LayoutDashboard }
   ];
 
-  // Only show Admin Console link for internal organisation administrators (hidden from external suppliers)
-  const isInternalAdmin = state.profile?.email?.endsWith('@enterprise.com') || state.profile?.role === 'admin';
-  if (isInternalAdmin) {
-    navigationItems.push({ id: 'admin', name: 'Admin Console', icon: Database });
+  // The back office belongs to the buying organisation's own staff. Which
+  // accounts those are is the server's answer, not an email suffix's (ADR-0027).
+  if (isTenantStaff) {
+    navigationItems.push({ id: 'workspace', name: 'Workspace Back Office', icon: Database });
   }
 
   const moduleItems = [

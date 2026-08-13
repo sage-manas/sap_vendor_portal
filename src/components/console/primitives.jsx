@@ -3,8 +3,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertCircle, Loader2, X } from 'lucide-react';
 
-// The console's small shared vocabulary. Everything obeys DESIGN.md: zero
-// radius, 1px borders, mono for data, no shadows.
+// The back-office vocabulary, shared by the platform console and the tenant
+// workspace. Two planes, two navs, two sessions — but one set of tables,
+// headers and notices, because a second copy would be the place the design
+// system quietly forks.
+//
+// Everything obeys DESIGN.md: zero radius, 1px borders, mono for data, no
+// shadows.
 
 export const PageHeader = ({ title, caption, children }) => (
   <div className="mb-5 flex items-start justify-between gap-4 border-b border-border pb-4">
@@ -50,6 +55,13 @@ const STATUS_TONE = {
   Trial: 'status-badge-trial',
   Suspended: 'status-badge-suspended',
   Terminated: 'status-badge-revoked',
+  // Supplier lifecycle (backend/config/statuses.js)
+  Approved: 'status-badge-active',
+  Rejected: 'status-badge-revoked',
+  'Under Review': 'status-badge-warn',
+  'Pending Approval': 'status-badge-warn',
+  Pending: 'status-badge-pending',
+  Draft: 'status-badge-pending',
   healthy: 'status-badge-active',
   degraded: 'status-badge-warn',
   failing: 'status-badge-suspended',
