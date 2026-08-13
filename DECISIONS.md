@@ -5,6 +5,82 @@ Each entry: the call, why, and what it costs.
 
 ---
 
+## ADR-0030 — A tenant's brand moves one variable, not a palette
+**Phase 6 · 2026-08-13 · Accepted**
+
+**Context.** Suppliers arrive at their buyer's address and should find their buyer's
+workspace, not ours. But `DESIGN.md` says no new colours and no new type scale, and a
+tenant with a colour picker is a tenant who can produce an unreadable console — white text
+on white, or a palette that fails contrast on every surface.
+
+**Decision.** Branding is two things and no more: a logo URL and an accent. The accent
+moves `--color-emerald-default-rgb`, the single variable the Kinetic Industrial Console
+already derives every accented surface from — buttons, focus rings, the sidebar rail, the
+BAPI console — and nothing else changes. `accentVariables()` is a pure function that
+returns `{}` for anything that is not a six-digit hex colour, so a malformed setting is
+the default, never a broken one. The variables go on `<html>`, since accented surfaces are
+not all in one subtree.
+
+**Consequences.** Every tenant's portal is legible by construction: backgrounds, text
+colours and contrast ratios are the ones the design system shipped, and the accent is the
+only thing that travels. A tenant who wants their exact brand colour on a surface the
+accent does not touch cannot have it, which is the intended limit. The platform console
+stays unbranded — it is VendorConnect's own plane, and painting it in a tenant's colour
+would misrepresent whose screen it is.
+
+---
+
+## ADR-0029 — The full-cycle acceptance test goes through the API, not a browser
+**Phase 6 · 2026-08-13 · Accepted**
+
+**Context.** The phase brief asks for a Playwright path proving an RFQ→award→PO→ASN→GRN→
+invoice→payment cycle inside one tenant with a second tenant invisible. Playwright would
+add a browser download, a dev server and a seeded database to CI, and its assertions would
+still be about what the API answered — read through three layers of chrome that can only
+blur the result.
+
+**Decision.** `backend/tests/lifecycle-e2e.test.js` drives the whole cycle over HTTP with
+supertest against the real router and the mock driver, then asks the second tenant for
+every document by id (404 on each) and for every list (empty, not filtered). It runs in
+seven seconds inside the suite that already exists.
+
+**Consequences.** The isolation claim — the one that matters — is asserted at the boundary
+that enforces it, on every commit, with no new infrastructure. What is not covered is the
+browser layer: that the screens render those documents and that the branding lands. Those
+are UI regressions, not tenancy leaks, and they stay a manual check until there is a
+reason to pay for a browser in CI. The mock driver's zero test timings (Phase 4) are what
+make this possible at all; the same test against the 10s/12s demo timings would take half
+a minute per cycle.
+
+---
+
+## ADR-0028 — The subdomain is the front door; a header is only a dev key
+**Phase 6 · 2026-08-13 · Accepted**
+
+**Context.** Since Phase 1 an unauthenticated request found its tenant through
+`x-client-slug`, then the hostname, then a default — a deliberate placeholder, because a
+header any browser can set must not be able to choose a workspace. Phase 6 has to settle
+it, and settle what happens when an account from one tenant signs in at another's address.
+
+**Decision.** The hostname's first label decides the tenant, with `www`/`platform`/`api`/
+`app`/`admin` reserved and a bare IP never read as one. `x-client-slug` still works
+outside production and is ignored outright when `NODE_ENV=production`. The resolver
+returns *how* it decided (`subdomain` / `header` / `default`), and only a real subdomain is
+trusted enough to refuse a login: at `contoso.vendorconnect.io`, a Northwind account gets
+`Invalid credentials` — the same answer as a wrong password, so the door never reports
+that an account exists somewhere else. `GET /api/auth/workspace` serves the realm to
+signed-out screens and answers 404 for both an unknown slug and a suspended tenant.
+
+**Consequences.** A tenant's address is now a real boundary rather than a label, and it
+holds without a session. Local development and the test suite keep working through the
+header, which is the affordance that lets one machine be any tenant. The cost is that the
+deployment now needs wildcard DNS and a wildcard certificate before a second tenant can be
+onboarded, and that a misconfigured proxy which drops `X-Forwarded-Host` sends every
+visitor to `DEFAULT_CLIENT_SLUG` — a loud failure (the wrong company's name on the sign-in
+screen) rather than a silent one, which is the right way round.
+
+---
+
 ## ADR-0027 — The chrome asks the server who is signed in
 **Phase 5 · 2026-08-13 · Accepted**
 
