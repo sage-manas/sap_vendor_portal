@@ -17,6 +17,12 @@ const clientSchema = new Schema({
 
   featureFlags: { type: Schema.Types.Mixed, default: {} },
 
+  // Everything else the tenant configures about itself: thresholds, notification
+  // policy. The shape is not declared here on purpose — config/tenantSettings.js
+  // is the registry that says which keys exist and what a valid value is, and a
+  // second declaration would be a second place to forget (ADR-0023).
+  settings: { type: Schema.Types.Mixed, default: {} },
+
   // Which SapConnection this tenant's traffic actually runs against. A tenant
   // stays on sandbox until an operator promotes it — this field *is* the
   // promotion, and nothing but the promote endpoint writes it.

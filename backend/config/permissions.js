@@ -17,6 +17,7 @@ const P = {
   VENDOR_READ: 'vendor:read',
   VENDOR_APPROVE: 'vendor:approve',
   VENDOR_INVITE: 'vendor:invite',
+  VENDOR_CREATE: 'vendor:create',
   PERFORMANCE_READ: 'performance:read',
 
   // Sourcing
@@ -59,9 +60,15 @@ const P = {
   SAPLOG_READ: 'saplog:read',
 
   // Tenant administration
+  // The back office itself. Deliberately distinct from dashboard:read, which a
+  // supplier holds for their own numbers: this one is whole-tenant.
+  WORKSPACE_READ: 'workspace:read',
   USER_READ: 'user:read',
   USER_INVITE: 'user:invite',
   USER_MANAGE: 'user:manage',
+  SETTINGS_READ: 'settings:read',
+  SETTINGS_MANAGE: 'settings:manage',
+  AUDIT_READ: 'audit:read',
 
   // Platform plane
   TENANT_READ: 'tenant:read',
@@ -92,6 +99,10 @@ const TENANT_READ_ONLY = [
   P.REPORT_METRICS,
   P.DASHBOARD_READ,
   P.SAPLOG_READ,
+  P.WORKSPACE_READ,
+  // Every tenant role reads the workspace's own configuration — branding and
+  // feature flags decide what their screens render. Only client_admin writes it.
+  P.SETTINGS_READ,
 ];
 
 const BUYER = [
@@ -122,10 +133,13 @@ const CLIENT_ADMIN = [
     ...FINANCE,
     P.VENDOR_APPROVE,
     P.VENDOR_INVITE,
+    P.VENDOR_CREATE,
     P.DOCUMENT_DELETE,
     P.USER_READ,
     P.USER_INVITE,
     P.USER_MANAGE,
+    P.SETTINGS_MANAGE,
+    P.AUDIT_READ,
   ]),
 ];
 

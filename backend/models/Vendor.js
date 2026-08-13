@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const tenantPlugin = require('./plugins/tenantPlugin');
 const credentialsPlugin = require('./plugins/credentialsPlugin');
 const { SUPPLIER_ROLES, ROLES } = require('../config/roles');
+const { VENDOR_STATUS, VENDOR_STATUSES } = require('../config/statuses');
 const Schema = mongoose.Schema;
 
 // vendorId is the link between user and our MongoDB vendor
@@ -59,7 +60,7 @@ const vendorSchema = new Schema({
   // Issued by the tenant's own SAP, so it is unique per tenant, not globally
   // (see the partial compound index below).
   sapVendorCode:  { type: String },
-  status:         { type: String, enum: ['Draft', 'Pending', 'Pending Approval', 'Under Review', 'Approved', 'Rejected'], default: 'Draft' },
+  status:         { type: String, enum: VENDOR_STATUSES, default: VENDOR_STATUS.DRAFT },
   rejectionReason:{ type: String },
   vendorCategory: { type: String },
   submittedAt:    { type: Date },
@@ -72,7 +73,7 @@ vendorSchema.plugin(tenantPlugin);
 // Suppliers may sign in from Draft onwards — the portal is where they finish
 // onboarding. Only an explicit rejection closes the door.
 vendorSchema.methods.canAuthenticate = function canAuthenticate() {
-  return this.status !== 'Rejected';
+  return this.status !== VENDOR_STATUS.REJECTED;
 };
 
 // Indexes.
