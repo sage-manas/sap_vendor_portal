@@ -17,7 +17,8 @@
 
 - **Frontend:** Next.js 16 (App Router) + React 19 + Tailwind CSS v4, one client-side SPA shell. `src/`
 - **Backend:** Express 5 REST API + Socket.io + MongoDB (Mongoose). `backend/`
-- **Auth:** JWT (bcrypt password hashing), role-based (`vendor` | `admin`), **tenant-scoped** — the token carries `clientId` + `roleScope`.
+- **Auth:** JWT (bcrypt password hashing), **six roles across three planes** — `super_admin`/`sap_manager` (platform) · `client_admin`/`buyer`/`finance` (tenant) · `vendor` (supplier) — **tenant-scoped**: the token carries `clientId` + `roleScope`. There is no `admin` role any more.
+- **Three front ends, one app:** the supplier portal (`/`), the platform console (`/platform`, §8.8) and the tenant back office (`/workspace`, §8.9). Each has its own layout, session and permission-filtered nav registry; they share the design system.
 - **Multi-tenant:** every business document belongs to a `Client` tenant; isolation is enforced in the ODM, not by convention (§5.5).
 - **SAP is simulated** — no real RFC connection. "SAP sync" = writing `SapLog` records + `setTimeout`-driven fake GRN/payment runs. This is intentional and clearly boundaried in code.
 - **Two separate npm packages** with two separate test suites: root (frontend, Vitest) and `backend/` (Jest + Supertest + mongodb-memory-server).
@@ -241,7 +242,9 @@ globally**: two tenants may both hold `RFQ-2026-001`. The exception is `Vendor`,
 ### Client (`Client.js`) — the tenant. **Not** tenant-scoped; only the platform plane owns it
 - `clientId` (`CLT-0001`, unique), `companyName`, `slug` (subdomain, unique), `status`
   (`Trial|Active|Suspended|Terminated`), `plan`, `branding{logo,primaryColor}`,
-  `featureFlags{}`, `limits{vendors,rfqsPerMonth,storageMb}`, `createdBy`,
+  `featureFlags{}`, `settings{}` (thresholds + notification policy; shape declared by
+  `config/tenantSettings.js`, never here — ADR-0023),
+  `limits{vendors,rfqsPerMonth,storageMb}`, `createdBy`,
   `activatedAt`/`suspendedAt`/`terminatedAt`, `sapEnvironment` (`sandbox|production` —
   which `SapConnection` the tenant's traffic uses; **only** the promote endpoint writes it).
 - `isOperational()` — only `Trial`/`Active` tenants may authenticate or transact.
@@ -313,7 +316,10 @@ All string business IDs (`id`, `vendorId`, `poId`, …) are human-readable and u
 - `/api/health`, `/api/test-error` — public.
 - `/api/auth` — public arms (register, login, forgot/reset password, invitation preview + accept); `/me` and `/change-password` carry their own guard.
 - `/api/platform` — the platform plane, behind `protectPlatform`. **No tenant is bound here.** The `/auth/*` arm carries `protectPlatform` alone (it is how an operator reaches a full session); **everything else sits behind `router.use(protectPlatform, requireMfa)`** — tenants, operators, audit, health.
-- **All other route groups are mounted behind `protect`** (JWT): `vendors, users, rfqs, pos, grns, invoices, payments, chats, uploads, reports, asns, logs, dashboard`. Inside each group **every route declares one permission** with `requirePermission(...)`; `config/permissions.js` decides which roles hold it (ADR-0012). `vendor.routes.js` applies `protect` per-route because `POST /vendors/profile` is public.
+- **All other route groups are mounted behind `protect`** (JWT): `vendors, workspace, users, rfqs, pos, grns, invoices, payments, chats, uploads, reports, asns, logs, dashboard`. Inside each group **every route declares one permission** with `requirePermission(...)`; `config/permissions.js` decides which roles hold it (ADR-0012). `vendor.routes.js` applies `protect` per-route because `POST /vendors/profile` is public.
+- **Feature-gated groups** additionally carry `requireFeature('features.…')` (`middleware/requireFeature.js`), which reads the tenant settings registry and answers **404** when the workspace has switched that module off — `/api/chats` is the first (ADR-0023).
+
+**The registries (one module each, and nothing else may restate them):** `config/roles.js` (roles, planes, descriptions) · `config/permissions.js` (role→permission) · `config/statuses.js` (the supplier lifecycle, served to the directory with the list) · `config/tenantSettings.js` (what a tenant may configure) · `config/auditActions.js` (what may be recorded) · `config/sapTransactions.js` (transaction codes) · `config/emailTemplates.js` · `config/tenantModels.js`.
 
 **Identity (three collections, three planes — ADR-0007/0008):**
 - `Vendor` — supplier plane. Supplier master record *and* supplier login. Role enum is `vendor` only.
@@ -347,15 +353,15 @@ All string business IDs (`id`, `vendorId`, `poId`, …) are human-readable and u
 
 ### 7.1 Complete API Endpoint Map
 
-Base path `/api`. Auth column: **Public** / the permission the route declares (see `config/permissions.js` for who holds it). Phase 2 additions: `/api/users` (staff + invitations), `/api/vendors/invitations`, `/api/auth/invitations/:token`, `/api/auth/invitations/accept`, `/api/auth/change-password`, `/api/platform/auth/*`.
+Base path `/api`. Auth column: **Public** / the permission the route declares (see `config/permissions.js` for who holds it). Phase 2 additions: `/api/users` (staff + invitations, plus `GET /users/roles` — the invitable roles and what each means, served from `config/roles.js`), `/api/vendors/invitations`, `/api/auth/invitations/:token`, `/api/auth/invitations/accept`, `/api/auth/change-password`, `/api/platform/auth/*`. Phase 5 additions: `/api/workspace/*` and `POST /api/vendors`.
 
 **Auth** (`auth.routes.js`, public):
 | Method | Path | Controller | Notes |
 |---|---|---|---|
-| POST | `/auth/register` | register | zod `registerSchema`; assigns `vendorId` server-side if absent (`VND-#####`); `ADMIN_BOOTSTRAP_EMAILS`→admin; self-reg starts `Draft`; returns `{token, vendor}` |
+| POST | `/auth/register` | register | zod `registerSchema`; assigns `vendorId` server-side if absent (`VND-#####`); self-reg starts `Draft`; refused when the workspace has closed self-registration unless the email holds an invitation (ADR-0023); returns `{token, vendor}` |
 | POST | `/auth/login` | login | by email or vendorId; returns `{token, vendor}` |
-| GET | `/auth/me` | getMe | JWT |
-| POST | `/auth/forgot-password` | forgotPassword | generic response (no enumeration); logs reset link (no mailer) |
+| GET | `/auth/me` | getMe | JWT; returns `auth` (role, plane, **permissions**) + `workspace` (identity, branding, feature flags) — the three front ends filter their nav on it |
+| POST | `/auth/forgot-password` | forgotPassword | generic response (no enumeration); the link is **emailed**, never logged (ADR-0011) |
 | POST | `/auth/reset-password` | resetPassword | SHA-256 token, 1h expiry |
 
 **Vendors** (`vendor.routes.js`):
@@ -366,9 +372,19 @@ Base path `/api`. Auth column: **Public** / the permission the route declares (s
 | PUT | `/vendors/profile` | JWT | update (`profileUpdateSchema`); flattens legacy nested address/bank |
 | POST | `/vendors/profile/submit` | JWT | submit registration → 5s auto-approve timer |
 | GET | `/vendors/performance` | JWT | scorecard KPIs |
-| GET | `/vendors` | **Admin** | list vendors (filterable) |
-| PUT | `/vendors/:id/approve` | **Admin** | approve |
-| PUT | `/vendors/:id/reject` | **Admin** | reject (`rejectVendorSchema`) |
+| POST | `/vendors/invitations` | `vendor:invite` | invite a supplier into this workspace |
+| POST | `/vendors` | `vendor:create` | **tenant-side create** (`vendorCreateSchema` = the self-registration schema minus `vendorId`/`status`); random password + emailed set-password link (ADR-0026) |
+| GET | `/vendors` | `vendor:read` | `?status` (validated against the registry) · `?search` (name/ID/email/GSTIN) · paginated; response carries `filters.statuses` |
+| PUT | `/vendors/:id/approve` | `vendor:approve` | approve; audits `vendor.approved`, emails the supplier if the workspace wants that |
+| PUT | `/vendors/:id/reject` | `vendor:approve` | reject (`rejectVendorSchema`); audits `vendor.rejected` |
+
+**Workspace — the tenant back office** (`workspace.routes.js`, behind `protect`; nothing here takes a `clientId`, it comes from the token):
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/workspace/overview` | `workspace:read` | supplier queue + SLA breaches, sourcing/finance counts, staff, usage vs `limits` |
+| GET | `/workspace/settings` | `settings:read` | the registry, grouped, with effective values |
+| PATCH | `/workspace/settings` | `settings:manage` | `{settings:{key:value}}`; rejected whole on any bad key (`errors` map); audits `settings.updated` |
+| GET | `/workspace/audit` | `audit:read` | this tenant's rows only; platform actors anonymised (ADR-0025) |
 
 **RFQs** (`rfq.routes.js`, all JWT):
 | Method | Path | Notes |
@@ -451,7 +467,8 @@ This *is* a real multi-route App Router app (the older `workflow/` docs describi
 | `/chats` | `CommunicationsView` | dashboard |
 | `/performance` | `PerformanceView` | dashboard |
 | `/analytics` | `ReportsAnalyticsView` | dashboard |
-| `/admin` | admin console (inline) | admin-only, redirects non-admins |
+| `/admin` | — | **gone**: redirects to `/workspace` (Phase 5 promoted it, ADR-0024) |
+| `/workspace`, `/workspace/suppliers`, `/workspace/users`, `/workspace/settings`, `/workspace/audit` | the tenant back office | **a different plane** — see §8.9 |
 | `/sign-in`, `/sign-up`, `/forgot-password`, `/reset-password` | auth pages | rendered in a centered "auth-mode" layout, no shell |
 | `/platform`, `/platform/tenants`, `/platform/tenants/[clientId]`, `/platform/operators`, `/platform/audit`, `/platform/reset-password` | the platform console | **a different plane** — see §8.8 |
 
@@ -502,21 +519,30 @@ Each domain follows **`components/` + `hooks/` + `services/`** (+ sometimes `con
 ### 8.8 The platform console (`src/app/platform/`)
 A second plane inside the same Next app, sharing only the design system.
 
-- **`src/lib/planes.js`** — `isPlatformPath(pathname)`. Three places consult it, and they are the whole integration with the supplier portal: `PortalLayout` renders `children` bare under `/platform`, `PortalProvider` does not redirect an operator to `/sign-in`, and `api-client.js` does not hijack a 401 there.
+- **`src/lib/planes.js`** — `isPlatformPath` / `isWorkspacePath` / `hasOwnChrome(pathname)`. Three places consult it, and they are the whole integration with the supplier portal: `PortalLayout` renders `children` bare under `/platform` and `/workspace`, `PortalProvider` does not redirect an operator to `/sign-in`, and `api-client.js` does not hijack a 401 on the platform plane.
 - **`src/lib/platform-client.js`** — its own fetch wrapper, its own token key (`vc_platform_token`), and `PlatformApiError` carrying `status` / `reason` / field `errors`.
 - **`src/lib/platform-session.js`** — `PlatformSessionProvider` + `usePlatformSession()`. The server decides the flow: `STAGE.SIGNED_OUT → CHANGE_PASSWORD → ENROL_MFA → VERIFY_MFA → CONSOLE`, derived from `/platform/auth/me`. Exposes `can(permission)`.
 - **`src/components/platform/PlatformGate.jsx`** — renders the right step of that flow, or the console. `/platform/reset-password` is its only public route.
 - **`src/lib/platformNav.js`** — the nav registry; the layout filters it by the operator's permissions, so an `sap_manager` never sees Operators.
-- **`src/components/platform/primitives.jsx`** — `PageHeader, Notice, Field, Status, Table, Loading, useResource, formatDate`. `useResource(loader, key)` reloads when `key` changes and exposes `reload`.
+- **`src/components/console/primitives.jsx`** — `PageHeader, Notice, Field, Status, Table, Loading, useResource, formatDate`, **shared with the tenant workspace** (it moved out of `components/platform/` in Phase 5). `useResource(loader, key)` reloads when `key` changes and exposes `reload`.
+
+### 8.9 The tenant workspace (`src/app/workspace/`)
+The third plane: the client's own back office, for `client_admin` / `buyer` / `finance`. Same contract as §8.8, different plane — and it shares the supplier portal's token (`jwt_token`) and `api-client.js`, because tenant staff and suppliers authenticate through the same `/api/auth` surface.
+
+- **`src/lib/workspace-session.js`** — `WorkspaceSessionProvider` + `useWorkspaceSession()`. Reads `GET /api/auth/me`; stages are `LOADING → SIGNED_OUT | WRONG_PLANE | WORKSPACE`. Exposes `user`, `workspace` (identity + branding + feature flags), `permissions`, `can()`, `refresh()`.
+- **`src/lib/workspaceNav.js`** — the nav registry, filtered by the permissions the API reports. `workspaceNav.test.js` checks its permission strings against the **real** backend map, so a typo cannot silently hide a tab.
+- **`src/app/workspace/layout.jsx`** — the chrome (tenant name, branding logo, permission-filtered nav) plus the gate: signed-out redirects to `/sign-in`, a supplier gets "not your workspace" rather than a 403 wall.
+- **Screens.** `/workspace` overview (queue, SLA breaches, sourcing/finance counts, usage vs limits — every tile links to the screen that acts on it) · `/suppliers` (directory, search, status filter, approve/decline, invite, and the tenant-side create form that renders from `SUPPLIER_IDENTITY_FIELDS` and runs the supplier form's own `validateField` rules) · `/users` (staff, role changes, suspend/reactivate, invitations; roles come from `GET /users/roles`) · `/settings` (renders entirely from the settings registry the API serves — it knows how to draw a boolean, a number and a string, and nothing about which settings exist) · `/audit`.
+- **`src/lib/whoami.js`** — `useWhoami()`, the one bit of session the supplier portal's sidebar and command palette need in order to show the back-office link (ADR-0027).
 
 ---
 
 ## 9. Authentication & Authorization (current, real)
 
-- **Registration** (`POST /auth/register`): resolves the target workspace first (`utils/resolveClient.js`, ADR-0004) and creates the vendor inside that tenant; bcrypt-hashed password; server assigns `vendorId` (`VND-#####`) unless supplied; email in `ADMIN_BOOTSTRAP_EMAILS` → `role:'admin'` (the *only* way to become admin); self-registered vendors start `Draft`. Returns JWT (30d).
+- **Registration** (`POST /auth/register`): resolves the target workspace first (`utils/resolveClient.js`, ADR-0004) and creates the vendor inside that tenant; bcrypt-hashed password; server assigns `vendorId` (`VND-#####`) unless supplied; self-registered vendors start `Draft`. Self-registration only ever produces a supplier — staff accounts come from an invitation or from tenant provisioning, and `ADMIN_BOOTSTRAP_EMAILS` is gone (ADR-0009). A workspace may close self-registration entirely; an invited supplier still gets in. Returns JWT (30d).
 - **Login**: by email or vendorId; bcrypt compare; JWT. Password hash is stripped from all responses (`formatVendorResponse` deletes it — `select:false` alone doesn't cover `create()`/`+password`).
-- **Password reset**: `forgot-password` issues a SHA-256-hashed 1h token, logs the link (no mail service), returns a generic message (no user enumeration); `reset-password` consumes it.
-- **RBAC**: `authorize('admin')` gates `GET /vendors`, approve, reject. Frontend `/admin` also redirects non-admins client-side (UX only; server is the real boundary).
+- **Password reset**: `forgot-password` issues a SHA-256-hashed 1h token and **emails** the link (ADR-0011), returning a generic message (no user enumeration); `reset-password` consumes it. The same mechanism gives a tenant-created supplier their first password (ADR-0026).
+- **RBAC**: every route declares one permission with `requirePermission(...)`; `config/permissions.js` decides who holds it, and `route-role-matrix.test.js` fails CI on a route that declares none. Nav registries on all three planes filter on the permission list `/auth/me` reports, so a hidden tab and a refused request are the same rule (UX only; the server is the boundary).
 - **Identity is server-derived**: the frontend no longer sends `x-vendor-id`; JWT is the source of truth. The `x-vendor-id` header only works as a **dev/test** fallback and is inert when `NODE_ENV=production`.
 
 ---
@@ -524,11 +550,11 @@ A second plane inside the same Next app, sharing only the design system.
 ## 10. Testing
 
 **Backend** (`backend/`, Jest + Supertest + `mongodb-memory-server`, `NODE_ENV=test`, `--forceExit`):
-`tests/setup.js` (in-memory Mongo), `tests/testApp.js` (real routes + errorHandler, no sockets/CORS/rate-limit), `tests/helpers.js` (`registerVendor`, `createTenantUser`, `createPlatformUser`, `createOperatorSession` — an operator who has already cleared MFA — and `asTenant`). Suites: `auth.test.js`, `auth-middleware.test.js`, `vendor.test.js`, `rfq.test.js` (full lifecycle + scoring math + award), `password-reset.test.js`, `identity.test.js`, **`route-role-matrix.test.js`** (walks the real router; a route with no permission fails CI), **`tenant-plugin.test.js`** (the enforcement layer), **`tenant-isolation.test.js`** (2 tenants × every model × read/update/delete/count, plus API-level 404s), **`migrate-tenancy.test.js`**, **`platform-console.test.js`** (tenant lifecycle, the end-to-end provisioning acceptance test, MFA gating, operator management, audit, health, plane separation), **`crypto-primitives.test.js`** (TOTP against the RFC 6238 vectors; AES-GCM round-trip and tamper rejection). 196 tests.
+`tests/setup.js` (in-memory Mongo), `tests/testApp.js` (real routes + errorHandler, no sockets/CORS/rate-limit), `tests/helpers.js` (`registerVendor`, `createTenantUser`, `createPlatformUser`, `createOperatorSession` — an operator who has already cleared MFA — and `asTenant`). Suites: `auth.test.js`, `auth-middleware.test.js`, `vendor.test.js`, `rfq.test.js` (full lifecycle + scoring math + award), `password-reset.test.js`, `identity.test.js`, **`route-role-matrix.test.js`** (walks the real router; a route with no permission fails CI), **`tenant-plugin.test.js`** (the enforcement layer), **`tenant-isolation.test.js`** (2 tenants × every model × read/update/delete/count, plus API-level 404s), **`migrate-tenancy.test.js`**, **`platform-console.test.js`** (tenant lifecycle, the end-to-end provisioning acceptance test, MFA gating, operator management, audit, health, plane separation), **`crypto-primitives.test.js`** (TOTP against the RFC 6238 vectors; AES-GCM round-trip and tamper rejection), **`sap-adapter.test.js`**, **`workspace.test.js`** (the tenant back office: overview scoping and SLA counting, the settings registry and its whole-or-nothing patch, feature flags closing `/api/chats` for one tenant and not another, self-registration closed but invitations still admitted, tenant-side supplier creation, decision emails, and the audit view's tenant scope and operator anonymisation). 268 passing.
 
 `tests/setup.js` seeds the `CLT-0001` tenant before each test, because every request path now resolves one. Test code touching models directly must bind a tenant with the `asTenant()` helper — the same rule application code follows.
 
-**Frontend** (root, Vitest, `src/**/*.test.{js,jsx}`): currently `src/features/profile/validation.test.js` (15 tests). Route/component smoke tests deferred (need a mocked `PortalProvider` with fetch + socket.io).
+**Frontend** (root, Vitest, `src/**/*.test.{js,jsx}`): `src/features/profile/validation.test.js`, `src/lib/platformNav.test.js` and `src/lib/workspaceNav.test.js` — the two nav registries are checked against the real backend permission map via `createRequire`, so the two languages cannot drift silently. 24 tests. Route/component smoke tests deferred (need a mocked `PortalProvider` with fetch + socket.io).
 
 **Bugs found & fixed by tests (documented in IMPLEMENTATION_PLAN.md):** RFQ `submitBid` TDZ crash on non-invited vendors; password hash leaking in register/login responses.
 

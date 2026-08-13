@@ -5,6 +5,134 @@ Each entry: the call, why, and what it costs.
 
 ---
 
+## ADR-0027 — The chrome asks the server who is signed in
+**Phase 5 · 2026-08-13 · Accepted**
+
+**Context.** The supplier portal decided who was an administrator with
+`email.endsWith('@enterprise.com') || role === 'admin'` — in the sidebar and, separately,
+in the command palette. Phase 2 deleted the `admin` role, so both checks had quietly
+become "does this address end in @enterprise.com", which is not an authorisation rule at
+all. Meanwhile the workspace layout has a full session provider that neither component is
+inside of.
+
+**Decision.** A small `useWhoami()` hook reads `GET /api/auth/me` once, caches the promise
+at module scope so the two components share the request, and answers one question:
+`isTenantStaff`. The back-office link appears when the server says the account is on the
+tenant plane.
+
+**Consequences.** The link is shown by the same fact the API enforces, and the two copies
+of the rule became one. It costs one extra request on portal load for signed-in users, and
+the cache lives until the page reloads — which is what sign-out does anyway. The full
+session provider stays where it belongs, in the workspace layout; lifting it into the
+portal shell to serve one boolean would have been the larger change.
+
+---
+
+## ADR-0026 — A tenant-created supplier gets a record, not a password
+**Phase 5 · 2026-08-13 · Accepted**
+
+**Context.** A tenant needs to add a supplier who will never fill in a registration form
+themselves. That account needs credentials, and the obvious shapes are both wrong: letting
+the tenant choose the supplier's password hands one party the other's login, and creating a
+passwordless document leaves a row that `comparePassword` can never refuse safely.
+
+**Decision.** `POST /api/vendors` creates the supplier with a random password nobody ever
+sees, sets `mustChangePassword`, issues the ordinary reset token and emails a
+`supplierWelcome` link. The record starts as `Draft` — the same place a self-registered
+supplier starts — so the submit-then-approve path that follows is the existing one. The
+route validates with `vendorCreateSchema`, which is `profileCreateSchema.omit({ vendorId,
+status })`: the tenant supplies the same fields minus the two it does not own.
+
+**Consequences.** There is exactly one field list for a supplier's identity, on both sides
+of the wire — the API derives its schema, and the form renders from
+`SUPPLIER_IDENTITY_FIELDS` in `src/features/profile/validation.js`, running the same
+per-field rules the supplier's own form runs. The supplier's banking details and documents
+stay theirs to enter. The cost is that a tenant can create a record for an email that never
+answers, which shows up as a `Draft` in the directory and nothing worse. Plan limits are
+not enforced on this path yet; metering is Phase 7's, and enforcing it here alone would
+have made the two creation routes behave differently.
+
+---
+
+## ADR-0025 — A tenant reads its own trail, and an operator is "VendorConnect operations"
+**Phase 5 · 2026-08-13 · Accepted**
+
+**Context.** `AuditLog` is deliberately not tenant-scoped (ADR-0014), so the tenant audit
+view has to scope itself. Two questions followed: may a tenant see rows a platform operator
+wrote about them, and if so, may they see which operator.
+
+**Decision.** Yes, and no. `GET /api/workspace/audit` filters on `req.clientId` — taken
+from the token, never from the query, so there is no request shape that names another
+tenant — and includes platform-plane rows, because a workspace being suspended is its own
+business. `formatAuditEntry` reduces a platform actor to the label "VendorConnect
+operations" and drops their email and IP for the tenant view. The formatter, the subject
+filter and the pagination now live in `utils/auditView.js`, shared with the platform
+explorer, which reads the same rows whole.
+
+**Consequences.** A tenant can answer "what happened to us, and roughly by whom" without
+learning our staff's names or addresses. One formatter serves both planes, so a field added
+to the trail appears in both views and is redacted in exactly one place. The cost is that a
+tenant investigating an incident may have to ask us who acted — which is the same
+conversation they would have had anyway.
+
+---
+
+## ADR-0024 — The workspace is its own plane, not a tab in the supplier portal
+**Phase 5 · 2026-08-13 · Accepted**
+
+**Context.** The tenant back office was one `/admin` page inside the supplier portal's
+shell: same sidebar, same BAPI console, same session, gated on a role that no longer
+exists. Phase 5 turns it into five screens for three roles.
+
+**Decision.** `/workspace` becomes a route group with its own layout, its own session
+provider over `GET /api/auth/me`, and its own nav registry (`src/lib/workspaceNav.js`)
+filtered by the permissions the API reports — the same contract `/platform` already uses.
+`src/lib/planes.js` grew `hasOwnChrome()`, which is what tells the portal layout to step
+aside. `/admin` is now a redirect. The shared vocabulary — tables, page headers, notices,
+`useResource` — moved from `components/platform/` to `components/console/` and is used by
+both back offices.
+
+**Consequences.** Three planes, three shells, one design system, and a nav item is hidden
+by the same permission that would have refused the request behind it — asserted by
+`workspaceNav.test.js`, which reads the real permission map rather than a copy. Tenant
+staff still use the portal's own RFQ, PO and invoice screens; scoping those properly is
+Phase 6's job, so for now the workspace links across to them.
+
+---
+
+## ADR-0023 — Tenant settings are a registry, and a feature flag closes the API
+**Phase 5 · 2026-08-13 · Accepted**
+
+**Context.** Branding, feature flags, approval thresholds and notification policy are four
+kinds of thing that all want to be "a settings screen". Written the obvious way, each field
+appears in five places: the model, the validator, the screen, the reader, and the default
+it falls back to when nobody set it.
+
+**Decision.** `backend/config/tenantSettings.js` holds one entry per setting — its dot path
+on `Client`, its type, its default, its label and hint, and the note of what reads it. The
+screen renders from `describeSettings()`, the PATCH endpoint validates through
+`applySettings()`, and every consumer asks `settingValue(client, key)`, so "what happens
+when it was never set" is answered once. A patch is rejected whole rather than
+half-applied, with a `{ key: message }` map in the same shape a zod failure returns.
+Branding and feature flags keep the `Client` fields the platform plane already edits;
+thresholds and notifications live under a new `Client.settings`.
+
+**Decision, second half.** A feature flag closes the API, not just the screen.
+`requireFeature('features.supplierChat')` sits on `/api/chats` and answers **404** — to a
+workspace without messaging the endpoint does not exist, and "forbidden" would tell a
+supplier about a feature they do not have. Self-registration is the same flag pattern, with
+one exemption: an invited supplier is not self-service, so a pending or accepted invitation
+reopens the door for that email.
+
+**Consequences.** Adding a setting is one entry, and no screen changes. Every setting in
+the registry is read by something — the `readBy` field is there to keep it that way, and a
+setting nobody reads is a lie the screen tells. The cost is that `Client.settings` is
+`Mixed`, so Mongoose does not validate it; the registry does, and it is the only writer.
+Statuses moved to `config/statuses.js` for the same reason and are served to the directory
+with the list, so the filter dropdown offers the registry's answer rather than its own.
+
+---
+
 ## ADR-0022 — The driver owns *when*, the controller owns *what to persist*
 **Phase 4 · 2026-08-13 · Accepted**
 
