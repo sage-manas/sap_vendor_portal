@@ -5,6 +5,133 @@ Each entry: the call, why, and what it costs.
 
 ---
 
+## ADR-0022 — The driver owns *when*, the controller owns *what to persist*
+**Phase 4 · 2026-08-13 · Accepted**
+
+**Context.** Three of the simulator's behaviours are deferred: a goods receipt ten
+seconds after an ASN, an F110 payment run twelve seconds after an invoice, a vendor
+confirmation five seconds after submission. Each was a `setTimeout` in a controller wrapping
+a `runWithTenant`, a state re-check, two model writes and two log writes. A real SAP would
+deliver the same answers by webhook or poll — the *timing* mechanism differs, everything
+else does not.
+
+**Decision.** Deferred contract methods take a handler: `sap.awaitGoodsReceipt(args,
+handler)`. The driver decides when the answer arrives and what is in it; the wrapper
+re-binds the tenant context and writes the SapLog; the handler — which stays in the
+controller — decides what to store. A handler returns what it persisted, or `null` to
+decline the answer, and a declined answer produces no log entries and leaves any pending
+call open, because as far as our records go it never happened.
+
+**Consequences.** Swapping the mock for a real driver changes when the handler runs and
+nothing else, which is the property Phase 8 needs. `runWithTenant` disappears from three
+controllers; the only place a deferred answer re-binds a tenant is `sap/index.js`. The
+timings become `SapConnection.config.timings`, so a demo runs at ten seconds, a test at
+zero, and a pilot wherever the design partner wants — no code change. The cost is that a
+handler runs outside any request: it has no `res` to fail into, so a thrown error becomes a
+FAILED log line and a logger error, and nothing else. That is the same deal the old
+`catch (err) { console.error(...) }` made, made explicit and in one place.
+
+---
+
+## ADR-0021 — Every SAP result says where it came from
+**Phase 4 · 2026-08-13 · Accepted**
+
+**Context.** With mock, sandbox and production drivers running side by side across tenants,
+a number on a screen has no inherent provenance. "Cleared 12s ago by F110" reads identically
+whether F110 ran in Walldorf or in `mock.driver.js`, and during a pilot both are true for
+different tenants at the same time.
+
+**Decision.** The adapter wrapper stamps `{ source, syncedAt }` on every result, `source`
+being the driver key. `mock` is a truthful answer, not a placeholder. It also stamps
+`transaction: { code, type }` from the registry, so a caller that wants to announce a call
+over a socket reads it from the result instead of retyping the BAPI name — which is how the
+old code ended up with `'BAPI_GOODSMVT_CREATE'` written in four places.
+
+**Consequences.** The health board can distinguish "no traffic" from "no connection", and a
+tenant on the simulator can be shown as such rather than implied to be live. Phase 5 and 6
+screens inherit the guarantee for free. The cost is a slightly larger result object on every
+call, and one rule for driver authors: return `{ data, log }`, never a bare value.
+
+---
+
+## ADR-0020 — Connection config is stored per environment; promotion is a separate act
+**Phase 4 · 2026-08-13 · Accepted**
+
+**Context.** A tenant needs somewhere to prove a connection before their live traffic
+depends on it. Editing one row and hoping nobody transacts during the edit is not that
+place.
+
+**Decision.** `SapConnection` is unique on `{clientId, environment}` with two environments,
+sandbox and production. Which one a tenant's traffic uses is a single field on `Client`,
+`sapEnvironment`, and only `POST /sap/promote` writes it. Promotion *to* production requires
+`lastTest.ok`; going back to sandbox requires nothing, because a rollback you have to
+qualify for is a rollback you cannot use in an incident. Any edit to a connection clears its
+`lastTest`, since a green tick against settings that have since changed is worse than no
+tick at all.
+
+**Consequences.** Configuring and going live are two audited actions with different
+preconditions, and "who put this tenant on production, when, and had it been tested" is one
+query. The mock driver is the default for an unconfigured tenant, so a freshly created
+workspace works before anyone has visited the SAP screen — which is exactly what every
+tenant did before this phase. The cost is that two rows exist per tenant and an operator has
+to understand which one is live; the console marks it and the board lists it.
+
+---
+
+## ADR-0019 — SAP credentials use envelope encryption, and `SapConnection` is not tenant-scoped
+**Phase 4 · 2026-08-13 · Accepted**
+
+**Context.** ADR-0017 left `v2` as the seam for per-client data keys. This phase needs it:
+SAP credentials are long-lived, per tenant, and the kind of secret an auditor asks about
+key rotation for.
+
+**Decision.** A random 32-byte data key per connection encrypts each credential (`v2:` blob);
+the data key is wrapped under the master key (`v1:` blob) and stored beside it. Rotating the
+master key re-wraps N small keys instead of re-encrypting every secret, and a KMS swap
+replaces exactly two functions — `wrapDataKey` and `unwrapDataKey` — because nothing else
+touches the master key. `wrappedDataKey` is `select: false`, so a document loaded for
+display physically cannot decrypt; `decryptSecrets()` is a greppable method with one caller,
+the driver factory. `toJSON` strips both halves.
+
+`SapConnection` and `SapConnectionAudit` do **not** carry the tenant plugin, for the reason
+ADR-0014 gave for `AuditLog`: they are tenant *configuration*, written only from the platform
+plane where no tenant is bound, so the plugin would make `withoutTenantScope()` the normal
+path on these collections. `clientId` is an ordinary required indexed field and every read
+takes it as an argument.
+
+**Consequences.** No endpoint returns a credential — the API answers with the *names* of the
+ones that are set, which is what the console renders, and the test suite asserts the
+plaintext appears in no response, no audit row and no log line. The trade for opting out of
+the plugin is that these two models are not covered by the isolation suite's blanket rule
+and need their own cases; they have them. `SapConnectionAudit` is append-only by the same
+mechanism as `AuditLog`, and records field-level before/after for config while recording
+only *names* for credentials.
+
+---
+
+## ADR-0018 — One registry of SAP transactions, and the adapter writes the log
+**Phase 4 · 2026-08-13 · Accepted**
+
+**Context.** `'BAPI_GOODSMVT_CREATE'` and its two companions `type: 'BAPI'` and
+`direction: 'INBOUND'` were written out at each of twenty-five call sites across five
+controllers. Nothing checked that the three agreed, and a typo produced a `SapLog` row no
+filter would ever match.
+
+**Decision.** `config/sapTransactions.js` declares each transaction once — code, type,
+direction, label — and `transaction(key)` throws on an unknown key, the same bargain
+`config/auditActions.js` makes. Controllers no longer call `createSapLog` at all: the driver
+returns `{ data, log }` and the adapter wrapper writes the entry, so a log row cannot
+disagree with the call it describes. A failed call is logged too, because a log that records
+only successes is the one you cannot debug with.
+
+**Consequences.** `createSapLog` is gone; `recordSapCall`/`resolveSapCall` replace it and
+have one caller. Adding a transaction is one registry entry plus the driver method that
+uses it. Controllers got shorter and stopped knowing what a BAPI is — `po.controller.js`
+lost roughly seventy lines. The cost is one indirection between "we called SAP" and "it was
+logged", which is what makes the log trustworthy.
+
+---
+
 ## ADR-0017 — Secrets at rest go through one box, and the TOTP is ours
 **Phase 3 · 2026-08-12 · Accepted**
 

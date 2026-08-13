@@ -132,10 +132,12 @@ Vendor onboarding → RFQ (bidding) → award → Purchase Order → ASN (dispat
 **SAP transaction-code mapping** (simulated, surfaced in UI/logs):
 ME41 create RFQ · ME47 submit quotation · ME48 evaluate · ME58 award→PO · VL31N ASN/inbound delivery · MIGO/MB01 goods receipt · MIRO invoice verification · F110 payment run · FBL1N ledger clearing · XK01/FI02 vendor master.
 
-**Two simulated async timers drive the "SAP push":**
-- After **ASN submit** → backend fakes MIGO goods receipt via a **~10s `setTimeout`** (`[SIMULATOR]` logs), creating a GRN and emitting `grn:received`.
-- After **invoice submit** → backend fakes F110 payment run via a **~12s `setTimeout`**, creating a Payment and emitting `payment:cleared`.
-- On **registration submit** → a **5s `setTimeout`** auto-approves the vendor (why backend tests need `--forceExit`).
+**Three deferred "SAP pushes" — since Phase 4 they are driver behaviour, not controller timers** (see §5.6):
+- After **ASN submit** → MIGO goods receipt after `timings.goodsReceiptMs` (default 10s), creating a GRN and emitting `grn:received`.
+- After **invoice submit** → F110 payment run after `timings.paymentRunMs` (default 12s), creating a Payment and emitting `payment:cleared`.
+- On **registration submit** → vendor master confirmation after `timings.vendorApprovalMs` (default 5s).
+
+All three default to **0ms under test**, are configurable per tenant on `SapConnection.config.timings`, and live in `sap/drivers/mock.driver.js`. There is no `setTimeout` left in any controller for SAP work.
 
 The frontend `portal-context.js` also sets fallback refresh `setTimeout`s (~11s / ~13s) explicitly commented `// MOCK —` so they aren't mistaken for real polling.
 
@@ -148,8 +150,9 @@ mechanisms enforce it; none of them is optional:
 
 1. **Tenant context** (`utils/tenantContext.js`) — an `AsyncLocalStorage` store.
    `protect` binds the authenticated account's `clientId` for the whole request.
-   Out-of-request work (the simulator `setTimeout`s, scripts, future jobs) must re-bind it
-   itself with `runWithTenant(clientId, fn)`.
+   Out-of-request work (scripts, jobs) must re-bind it itself with
+   `runWithTenant(clientId, fn)`. Deferred SAP answers no longer do this by hand — the
+   adapter wrapper re-binds the tenant before calling the handler (§5.6).
 2. **Tenant plugin** (`models/plugins/tenantPlugin.js`) — applied to all ten tenant-scoped
    schemas. Auto-injects `clientId` into find/findOne/update/delete/count/distinct/
    aggregate, auto-stamps it on save/insertMany, ignores caller-supplied `clientId`,
@@ -186,6 +189,46 @@ new per-tenant compound ones. It is idempotent and covered by `tests/migrate-ten
 
 ---
 
+### 5.6 The SAP adapter (read this before touching anything SAP)
+
+Since Phase 4 there is exactly one way to talk to SAP:
+
+```js
+const sap = await getSapAdapterForClient(req.clientId);   // backend/sap/index.js
+const { sapMiroDoc, transaction } = await sap.invoiceCreate({ invoice, vendorId });
+```
+
+**`backend/sap/`**
+
+| File | What it is |
+|---|---|
+| `contract.js` | the `SapAdapter` method list — every method, the transaction it speaks, whether it is deferred. `assertImplements` fails at load time on an incomplete driver; `notImplementedDriver()` builds one whose every method throws `not_implemented`. |
+| `drivers/index.js` | the driver registry: `mock`, `s4_odata`, `ecc_rfc` — label, description, `implemented`, `validateConfig`, and the `configFields`/`secretFields` the console renders a form from. |
+| `drivers/mock.driver.js` | the simulator, moved here wholesale. Invents SAP's *answers* (document numbers, accepted quantities, TDS, timing) and touches no database. |
+| `drivers/s4odata.driver.js` · `eccrfc.driver.js` | skeletons. Only `testConnection` is real (S/4 checks gateway reachability; ECC honestly reports it has no transport). Everything else throws `not_implemented`. |
+| `circuitBreaker.js` | one breaker per tenant adapter: closed → open after N consecutive failures → half-open after a cooldown. State is computed on read, so an idle tenant costs nothing. |
+| `index.js` | `getSapAdapterForClient` / `invalidateSapAdapter` / `buildTransientAdapter`, and the wrapper described below. |
+
+**What the wrapper does, so no driver has to:** runs the call through the tenant's circuit
+breaker; writes the `SapLog` entry using the transaction registry's own code, type and
+direction; stamps `{ source, syncedAt, transaction }` on every result (ADR-0021); and, for
+deferred methods, re-binds the tenant context before calling the handler (ADR-0022).
+
+**Immediate vs deferred.** An immediate method is `fn(args) -> { data, log }`. A deferred
+one is `fn(args, handler)`: the driver decides *when* SAP answers, the handler — in the
+controller — decides what to persist, and returning `null` declines the answer so no log is
+written and any pending call stays open. Pass `onCall` in `args` to be told about each log
+entry (used to emit `log:new` over sockets without retyping BAPI names).
+
+**Configuration.** `SapConnection` is unique on `{clientId, environment}` with `sandbox` and
+`production`; `Client.sapEnvironment` says which one the tenant's traffic uses, and only the
+promote endpoint writes it. Credentials are envelope-encrypted (ADR-0019) and never
+returned. A tenant with no connection row gets the mock driver on defaults. Adapters are
+cached per client and keyed on the connection's `updatedAt`, so an edit takes effect on the
+next call.
+
+---
+
 ## 6. Database Schemas (Mongoose, `backend/models/`)
 
 **All ten transactional collections carry a required, indexed `clientId`** (added by the
@@ -199,7 +242,8 @@ globally**: two tenants may both hold `RFQ-2026-001`. The exception is `Vendor`,
 - `clientId` (`CLT-0001`, unique), `companyName`, `slug` (subdomain, unique), `status`
   (`Trial|Active|Suspended|Terminated`), `plan`, `branding{logo,primaryColor}`,
   `featureFlags{}`, `limits{vendors,rfqsPerMonth,storageMb}`, `createdBy`,
-  `activatedAt`/`suspendedAt`/`terminatedAt`.
+  `activatedAt`/`suspendedAt`/`terminatedAt`, `sapEnvironment` (`sandbox|production` —
+  which `SapConnection` the tenant's traffic uses; **only** the promote endpoint writes it).
 - `isOperational()` — only `Trial`/`Active` tenants may authenticate or transact.
 
 All string business IDs (`id`, `vendorId`, `poId`, …) are human-readable and unique; `_id` is the Mongo ObjectId. `vendorId` (a string like `VND-40013`) is the cross-collection link to a vendor — **not** the Mongo `_id`. Legacy field `clerkId`/`vendorId` are matched with `$or` in several places.
@@ -247,6 +291,13 @@ All string business IDs (`id`, `vendorId`, `poId`, …) are human-readable and u
 ### AuditLog (`AuditLog.js`) — the platform + tenant action trail. **Not** tenant-scoped (ADR-0014)
 - `clientId` (optional — null for platform actions concerning no tenant), `actorId`, `actorRole`, `actorEmail`, `plane`, `action` (enum from `config/auditActions.js`), `target{type,id,label}`, `meta` (secrets redacted), `ip`, `at`. Indexes: `{at:-1}`, `{clientId,at:-1}`, `{action,at:-1}`, `{actorId,at:-1}`. **Append-only** — update/delete hooks throw. Written only through `utils/audit.js`.
 
+### SapConnection (`SapConnection.js`) — one tenant's SAP config, per environment. **Not** tenant-scoped (ADR-0019)
+- `clientId` (indexed), `environment` (`sandbox|production`), `driver` (`mock|s4_odata|ecc_rfc`), `config` (Mixed, validated by the driver), `secrets` (Map of name → `v2:` ciphertext), `wrappedDataKey` (**`select:false`** — a document loaded for display cannot decrypt), `lastTest{ok,message,latencyMs,driver,detail,at,testedBy}`, `promotedAt`/`promotedBy`, `createdBy`/`updatedBy`. Unique on `{clientId, environment}`.
+- `setSecrets(values)` (empty string clears a name, absent names are left alone), `decryptSecrets()` (one caller: the driver factory), `secretNames()` (what the API returns). `toJSON` strips `secrets` and `wrappedDataKey`.
+
+### SapConnectionAudit (`SapConnectionAudit.js`) — the connection change trail. **Not** tenant-scoped, **append-only**
+- `clientId`, `environment`, `action` (a `sap.*` value from `config/auditActions.js`), `driver`, `changes` (field-level `{from,to}` for **non-secret** config), `secretsChanged` (credential **names** only — never a value, hash or length), `result` (test outcomes), `actorId`/`actorEmail`/`actorRole`/`ip`, `at`. Update/delete hooks throw, same as `AuditLog`.
+
 ### Document (`Document.js`) — uploaded files metadata
 - `vendorId`, `fileName`, `originalName`, `mimeType`, `size`, `filePath`, `linkedTo` (`ASN`|`RFQ`|`Profile`|`Invoice`). Actual files land in `backend/uploads/`.
 
@@ -282,9 +333,9 @@ All string business IDs (`id`, `vendorId`, `poId`, …) are human-readable and u
 
 **Utils:** `ApiError` (badRequest/unauthorized/forbidden/notFound/conflict factories), `asyncHandler`, `logger` (winston), `sapLogger.createSapLog(...)` (writes `SapLog`), `socketEmitter` (`EVENTS` map + `emitToVendor` / `emitToProcurement`), `authToken` (signs/verifies session tokens for all three planes), `requestScope` (`vendorScope` / `requireVendorScope` / `withVendorScope` — the one answer to "whose rows is this request about"), `mailer` (smtp/log/memory transports; `assertMailerConfigured()` runs at boot).
 
-**Registries — one module each, read everywhere, duplicated nowhere:** `config/roles.js` (roles → planes → account collection), `config/permissions.js` (role → permissions), `config/emailTemplates.js` (all outbound copy), `config/auditActions.js` (every auditable action; `recordAudit` rejects anything else), `config/tenantModels.js` (the tenant-scoped collections, iterated by the export and the per-tenant counts), and on the frontend `src/lib/platformNav.js` (console nav → permission).
+**Registries — one module each, read everywhere, duplicated nowhere:** `config/roles.js` (roles → planes → account collection), `config/permissions.js` (role → permissions), `config/emailTemplates.js` (all outbound copy), `config/auditActions.js` (every auditable action; `recordAudit` rejects anything else), `config/tenantModels.js` (the tenant-scoped collections, iterated by the export and the per-tenant counts), `config/sapTransactions.js` (every BAPI/RFC/OData call — code, type, direction, label; `transaction()` throws on anything else), `sap/drivers/index.js` (the driver catalogue, including the form fields the console renders), and on the frontend `src/lib/platformNav.js` (console nav → permission, asserted against the backend map in `platformNav.test.js`).
 
-**Secrets and MFA (Phase 3):** `utils/secretBox.js` — AES-256-GCM with a versioned envelope (`v1:iv:tag:ciphertext`), keyed by `MASTER_KEY`; production refuses to boot without it, dev/test derive one from `JWT_SECRET`. Phase 4's per-client SAP data keys extend the same format. `utils/totp.js` — RFC 6238, hand-rolled on node crypto, verified against the RFC vectors in `tests/crypto-primitives.test.js`. `utils/audit.js` — the only writer of `AuditLog`: stamps actor/plane/tenant, redacts secret-shaped keys, throws on an unregistered action.
+**Secrets (Phase 3, extended in Phase 4):** `utils/secretBox.js` — AES-256-GCM with a versioned envelope, keyed by `MASTER_KEY`; production refuses to boot without it, dev/test derive one from `JWT_SECRET`. Two versions: `v1:iv:tag:ciphertext` encrypted directly under the master key (operator MFA secrets), and `v2:…` encrypted under a random per-connection **data key** which is itself wrapped as a `v1` blob (SAP credentials — ADR-0019). A KMS swap replaces `wrapDataKey`/`unwrapDataKey` and nothing else. `utils/totp.js` — RFC 6238, hand-rolled on node crypto, verified against the RFC vectors in `tests/crypto-primitives.test.js`. `utils/audit.js` — the only writer of `AuditLog`: stamps actor/plane/tenant, redacts secret-shaped keys, throws on an unregistered action.
 
 **Services:** `tenantProvisioning.service.js` — creates a `Client` **and** its first `client_admin` as one operation (generated password, emailed once, `mustChangePassword`), rolling the Client back if the admin cannot be created. Also owns slug rules (reserved list, format) and `CLT-####` allocation.
 
@@ -375,7 +426,12 @@ Base path `/api`. Auth column: **Public** / the permission the route declares (s
 | POST | `/platform/operators/:id/mfa/reset` | `operator:manage` | lost-device recovery; kills their sessions' console access |
 | GET | `/platform/audit` | `platform:audit:read` | `?clientId,?action,?subject,?actorId,?plane,?from,?to`, paginated |
 | GET | `/platform/audit/filters` | `platform:audit:read` | filter values from the registries, not from the data |
-| GET | `/platform/health` | `platform:health:read` | per-tenant SAP status, error rate, usage vs limits, active users |
+| GET | `/platform/health` | `platform:health:read` | per-tenant SAP status, driver, circuit, error rate, usage vs limits, active users |
+| GET | `/platform/tenants/:clientId/sap` | `sap:configure` | both environments + the driver catalogue; credential **names** only |
+| PUT | `/platform/tenants/:clientId/sap/:environment` | `sap:configure` | configure/edit; validated by the driver; clears `lastTest` |
+| POST | `/platform/tenants/:clientId/sap/:environment/test` | `sap:configure` | tests on a transient adapter; never trips the live circuit |
+| POST | `/platform/tenants/:clientId/sap/promote` | `sap:configure` | switches `Client.sapEnvironment`; production requires a passing test |
+| GET | `/platform/tenants/:clientId/sap/audit` | `sap:configure` | the append-only `SapConnectionAudit` for this tenant |
 
 ---
 
@@ -506,7 +562,7 @@ High-density, high-contrast **industrial terminal** aesthetic (think Bloomberg, 
 ## 13. Conventions & Gotchas (read before editing)
 
 1. **Two packages, two test suites.** Backend changes → `cd backend`. Frontend build/test at root.
-2. **SAP is fully simulated.** "Sync" = `createSapLog(...)` + `setTimeout` fake GRN/payment, each wrapped in `runWithTenant` (ADR-0005). Don't add real RFC without a defined SAP contract. Keep the `// MOCK —` comments. SaaS Phase 4 moves all of this behind a `SapAdapter`.
+2. **SAP goes through the adapter, always.** No controller imports a driver or writes a SapLog: it calls `getSapAdapterForClient(req.clientId)` and then a contract method (§5.6). The simulator is the `mock` driver. Adding a call means adding a transaction to `config/sapTransactions.js`, a method to `sap/contract.js`, and an implementation to every driver — the skeletons inherit `not_implemented` automatically.
 3. **`vendorId` (string) is the link, not `_id`.** Many queries use `$or: [{vendorId}, {clerkId: vendorId}]` for legacy compat.
 4. **`clerk*` names are legacy.** Clerk auth was abandoned for local JWT; `clerkUserId`/`clerkId` persist as identifiers only.
 5. **App Router is real** — pages live in `src/app/*/page.jsx`; navigation is `router.push`. Ignore older "activeTab-only SPA" descriptions.
