@@ -5,6 +5,138 @@ Each entry: the call, why, and what it costs.
 
 ---
 
+## ADR-0035 — The offboarding export already existed; it is not re-litigated in Phase 7
+**Phase 7 · 2026-08-13 · Accepted**
+
+**Context.** The Phase 7 brief lists "tenant offboarding export" among its deliverables.
+Phase 3 already built one (`GET /platform/tenants/:clientId/export`, ADR-0015): a whole-
+tenant JSON archive, audited, the one place a platform operator sees tenant documents.
+
+**Decision.** No new export endpoint. `docs/runbooks/tenant-suspension.md` documents the
+existing one as the offboarding deliverable and records the one real gap found while writing
+that runbook: the export bundles database rows, not the files in `backend/uploads/` — a
+tenant's compliance PDFs are not in the archive. That gap is recorded, not fixed, in this
+phase: bundling files means either reading them into the JSON response (memory cost
+proportional to a tenant's total upload size) or switching the endpoint to a streamed zip,
+which is a larger, separately-reviewable change than "add usage metering."
+
+**Consequences.** The offboarding flow works today with a known, documented limitation
+rather than an undocumented one. Whoever picks up file-bundling next has the shape of the
+problem already written down instead of having to rediscover it mid-incident.
+
+---
+
+## ADR-0034 — Plan limits are enforced at the write, counted fresh, and null means unlimited
+**Phase 7 · 2026-08-13 · Accepted**
+
+**Context.** `Client.limits` and `usage.js`'s `against()` helper (vendors, RFQs-this-month)
+existed since Phase 3/5 for *display* — the health board and workspace overview could show a
+tenant it was over its plan, but nothing stopped them from going further over it. Enforcing
+a limit needs a decision the display code never had to make: what does a limit of `0` mean?
+
+**Decision.** `assertCanCreate(client, metric)` counts the metric fresh — no cached counter
+that could drift from the truth — and refuses the write with `402 plan_limit_reached` when
+`used >= limit`. It treats a limit as unlimited only when it is `null`/`undefined`
+(`limit == null`); `0` is a real limit and blocks immediately. This reads differently from
+the pre-existing `against()` display helper, which uses `Boolean(limit && …)` and so shows
+`0` the same as unlimited — a pre-existing quirk in a read path, left alone rather than
+changed as a side effect of adding enforcement. It is called from every place a vendor or an
+RFQ is created: `POST /auth/register`, `POST /vendors/profile` (both self-registration),
+`POST /vendors` (tenant-created), and `POST /rfqs`.
+
+**Consequences.** A tenant cannot exceed its plan by racing the count — the assertion and
+the creation both run inside the same tenant-bound context, and there is no window between
+"checked" and "created" that a second concurrent request widens in practice for this
+workload (a real race under heavy concurrent load could still admit one extra document; a
+hard atomic guard would need a conditional update on a running counter, which is future work
+if plan limits become a real commercial lever rather than today's soft cap). The cost is one
+extra count query per creation — acceptable at this scale, and the same query the health
+board already ran.
+
+---
+
+## ADR-0033 — Billing is an interface with one provider, and it never blocks the request it's attached to
+**Phase 7 · 2026-08-13 · Accepted**
+
+**Context.** "Billing behind an interface, stub first" is explicit in the plan. There is no
+payment processor integrated yet and, per the plan, none is expected until there's a real
+commercial need — this phase has to leave the seam without pretending there's a provider
+behind it.
+
+**Decision.** `services/billing.service.js` mirrors the shape `utils/mailer.js` and
+`sap/index.js` already established for this codebase: a small contract
+(`onTenantCreated`, `onTenantStatusChanged`, `reportUsage`), a provider registry keyed by
+name, and env-var selection (`BILLING_PROVIDER`, default `null`). The `null` provider logs
+every call and returns a stub success — it is a truthful "nothing happened," not a silent
+no-op. Usage reporting is operator-triggered (`POST
+/platform/tenants/:clientId/billing/sync-usage`) rather than scheduled, because there is no
+job runner anywhere in this codebase to schedule it on; adding one would be infrastructure
+this phase doesn't need yet to prove the seam works.
+
+**Consequences.** Wiring a real processor later is one more entry in `PROVIDERS` behind the
+env var — nothing that calls `getBillingProvider()` changes. Tenant creation and every
+lifecycle transition call the provider unconditionally and await it, so a future real
+provider's failure needs its own decision (retry? block the transition? log and proceed?)
+that this phase does not have to make yet because the only provider that exists cannot fail.
+
+---
+
+## ADR-0032 — Rate limiting gets a second axis: the tenant, not just the IP
+**Phase 7 · 2026-08-13 · Accepted**
+
+**Context.** `apiLimiter` (Phase 1 and earlier) is IP-keyed and production-only. On a
+shared deployment, a single noisy tenant — a runaway integration, a buggy poll loop — is
+invisible to it if that tenant's calls come from many addresses (a NAT, a cloud egress
+pool), and one IP-keyed bucket doesn't stop one tenant's traffic from starving every other
+tenant's share of it.
+
+**Decision.** `tenantLimiter` (`middleware/rateLimiter.js`) is keyed on `req.clientId`,
+which only exists once `protect` has bound it — so it is mounted immediately after `protect`
+on every tenant/supplier route (`routes/index.js`'s `protectTenant = [protect,
+tenantLimiter]`, and the same pairing added route-by-route in `vendor.routes.js` for the
+routes that mount `protect` individually). It is independent of `apiLimiter` and always on
+except under `NODE_ENV=test`, where per-tenant throttling would make the test suite's rapid
+sequential requests fail for a reason that has nothing to do with what's being tested.
+
+**Consequences.** A noisy tenant now gets `429`s scoped to itself; every other tenant's
+traffic is unaffected because they don't share a bucket. The cost is one more middleware
+array to remember when adding a new protected route — `protectTenant`, not bare `protect` —
+and a fallback to IP-keying (via `express-rate-limit`'s `ipKeyGenerator`, required by the
+library for correct IPv6 handling) for the sliver of a request that could reach the limiter
+without a bound tenant, which should not happen given the mount order but must not crash if
+it somehow does.
+
+---
+
+## ADR-0031 — `req.log` carries clientId by construction; the sweep of every existing log call is deliberately not done
+**Phase 7 · 2026-08-13 · Accepted**
+
+**Context.** "Structured logging with clientId correlation" could mean either "make the
+correlation available" or "guarantee every log line in the codebase carries it." The second
+is a mechanical sweep of every `logger.info`/`.warn`/`.error` call site across every
+controller — dozens of call sites, most of them unrelated to anything this phase is
+otherwise touching, and each one a chance to introduce an unrelated bug in a change whose
+whole point is operational safety.
+
+**Decision.** `middleware/requestLogger.js` attaches `req.log` once, right where
+`requestId` is generated: `req.log.info/warn/error(message, meta)` stamps `requestId` and,
+once `protect` (or a pre-auth resolver) has set `req.clientId`, `clientId` — automatically,
+for any call site that chooses to use it. The two log lines that already existed for every
+request — the completion line in `requestLogger.js` and the error line in
+`errorHandler.js` — were updated to include `clientId` directly, since those two see every
+request and every error respectively and are the ones an incident actually greps first (see
+`docs/runbooks/incident-response.md` §3). New or touched call sites should use `req.log`;
+existing ones were not swept.
+
+**Consequences.** The two log lines that matter most for tracing an incident to a tenant —
+"this request happened" and "this request failed" — carry the correlation on every request,
+today, with no further work. Deep-in-a-controller `logger.info()` calls that predate this
+phase do not yet carry `clientId` unless and until they're touched and switched to `req.log`;
+that is an accepted, incremental gap rather than a today problem, since the two universal log
+lines already answer "which tenant hit this error."
+
+---
+
 ## ADR-0030 — A tenant's brand moves one variable, not a palette
 **Phase 6 · 2026-08-13 · Accepted**
 

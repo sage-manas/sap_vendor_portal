@@ -2,12 +2,13 @@
 
 > **Purpose of this file.** A single, self-contained reference that gives any developer or AI agent the *complete* mental model of this project — architecture, data model, every module, every API endpoint, the SAP-simulation design, conventions, and known gotchas — **without needing the codebase open**. Read this top to bottom and you can navigate, extend, or debug the system.
 >
-> **Last synced with code:** 2026-08-12. If code and this file disagree, the code wins — but please update this file.
+> **Last synced with code:** 2026-08-13 (SaaS Phase 7 complete). If code and this file disagree, the code wins — but please update this file.
 >
 > ⚠️ **This app is now multi-tenant** (SaaS Phase 1 complete). Every tenant-scoped query
 > runs inside a bound tenant context or it *throws*. Read §5.5 before writing any backend
 > code; the SaaS plan lives in `SAAS_IMPLEMENTATION_PLAN.md` and the decisions in
-> `DECISIONS.md`.
+> `DECISIONS.md`. Operational concerns — plan limits, billing, rate limits, structured
+> logging, backups — are §5.7.
 
 ---
 
@@ -116,6 +117,9 @@ Frontend talks to backend via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
 | `LOG_LEVEL` | winston level |
 | `UPLOAD_DIR`, `MAX_FILE_SIZE_MB` | multer config |
 | `CLERK_*` | **Deprecated/unused** — Clerk was the original auth plan; replaced by local JWT. `clerkId`/`clerkUserId` names survive as legacy identifiers. |
+| `TENANT_RATE_LIMIT_MAX` | per-tenant request cap, default 300/minute (`middleware/rateLimiter.js` `tenantLimiter`, §5.7). Disabled under `NODE_ENV=test`. |
+| `BILLING_PROVIDER` | selects the billing provider, default `null` (logs and no-ops). See `services/billing.service.js`, §5.7. |
+| `BACKUP_DRILL_DIR` | where `scripts/backup-restore-drill.js` writes its JSON dump. Defaults to `backend/backups/drill-<timestamp>/`. |
 
 Frontend uses `NEXT_PUBLIC_API_URL` only.
 
@@ -227,6 +231,28 @@ promote endpoint writes it. Credentials are envelope-encrypted (ADR-0019) and ne
 returned. A tenant with no connection row gets the mock driver on defaults. Adapters are
 cached per client and keyed on the connection's `updatedAt`, so an edit takes effect on the
 next call.
+
+---
+
+### 5.7 Operations & commercial (Phase 7)
+
+| Concern | Where | Notes |
+|---|---|---|
+| **Usage metering** | `utils/usage.js` | `usageAgainstLimits(client)` — vendors and RFQs-this-month against `Client.limits`, shared by the workspace overview, the platform health board, and enforcement. `null` limit = unlimited; `0` is a real limit, not "unset" (they are checked differently — see the gotcha below). |
+| **Plan enforcement** | `usage.js` `assertCanCreate(client, metric)` | Called before the write in `POST /auth/register`, `POST /vendors/profile`, `POST /vendors` and `POST /rfqs`. Throws `402` with `reason: 'plan_limit_reached'` when the tenant is at or over its limit. Counted fresh on every call — no cached counter to drift. |
+| **Billing** | `services/billing.service.js` | `getBillingProvider()` — one interface (`onTenantCreated`, `onTenantStatusChanged`, `reportUsage`), one implementation today (`null`, logs and no-ops), selected by `BILLING_PROVIDER`. Wired into tenant create/suspend/reactivate/terminate; `POST /platform/tenants/:clientId/billing/sync-usage` reports on demand (operator-triggered — there is no job runner in this codebase). |
+| **Structured logging** | `middleware/requestLogger.js` | `req.log.{info,warn,error}` stamps `requestId` and, once bound, `clientId` on every call automatically. The request-completion and error-handler log lines carry `clientId` too, so any log line can be traced to the tenant and request that produced it. |
+| **Per-tenant rate limits** | `middleware/rateLimiter.js` `tenantLimiter` | Keyed on `req.clientId` (falls back to IP), mounted after `protect` on every tenant/supplier route (`routes/index.js` `protectTenant = [protect, tenantLimiter]`). Independent of `apiLimiter`, which is per-IP and production-only — this one guards against one noisy tenant regardless of how many addresses it calls from. Disabled under `NODE_ENV=test`. `TENANT_RATE_LIMIT_MAX` (default 300/min). |
+| **Backup/restore drill** | `scripts/backup-restore-drill.js`, `npm run backup:drill` | Dumps every collection to JSON, restores into a scratch database, asserts counts match, drops the scratch database. No `mongodump` binary required. Talks to the real `MONGO_URI` over the network (read-only against the source) — see `docs/runbooks/backup-restore.md` before running it. |
+| **Status page** | `GET /api/status` (`controllers/status.controller.js`) | Public, unauthenticated, deliberately anonymous — aggregate counts only (DB connectivity, count of operational tenants, summed SAP call/failure rate), never a tenant name, slug or `clientId`. JSON by default; renders a minimal HTML page for a browser (`Accept: text/html`). Per-tenant detail stays behind `GET /platform/health`. |
+| **Runbooks** | `docs/runbooks/` | Incident response, tenant suspension/termination, key rotation (`JWT_SECRET` vs `MASTER_KEY` — very different blast radius), the backup drill, and diagnosing a SAP outage. |
+
+**Gotcha:** `assertCanCreate` treats a limit as unlimited only when it is `null`/`undefined`
+(`limit == null`) — a limit of `0` is enforced. The older `usage.js` `against()` helper (used
+for *display* on the health board and workspace overview, inherited from Phase 3/5) reads
+`0` as falsy and so displays it the same as unlimited; that display quirk was not changed
+alongside enforcement to avoid touching an already-tested read path. Don't copy that
+`Boolean(limit && …)` pattern into new enforcement code — use `limit == null`.
 
 ---
 
@@ -355,7 +381,9 @@ All string business IDs (`id`, `vendorId`, `poId`, …) are human-readable and u
 
 ### 7.1 Complete API Endpoint Map
 
-Base path `/api`. Auth column: **Public** / the permission the route declares (see `config/permissions.js` for who holds it). Phase 2 additions: `/api/users` (staff + invitations, plus `GET /users/roles` — the invitable roles and what each means, served from `config/roles.js`), `/api/vendors/invitations`, `/api/auth/invitations/:token`, `/api/auth/invitations/accept`, `/api/auth/change-password`, `/api/platform/auth/*`. Phase 5 additions: `/api/workspace/*` and `POST /api/vendors`. Phase 6 addition: `GET /api/auth/workspace`.
+Base path `/api`. Auth column: **Public** / the permission the route declares (see `config/permissions.js` for who holds it). Phase 2 additions: `/api/users` (staff + invitations, plus `GET /users/roles` — the invitable roles and what each means, served from `config/roles.js`), `/api/vendors/invitations`, `/api/auth/invitations/:token`, `/api/auth/invitations/accept`, `/api/auth/change-password`, `/api/platform/auth/*`. Phase 5 additions: `/api/workspace/*` and `POST /api/vendors`. Phase 6 addition: `GET /api/auth/workspace`. Phase 7 additions: `GET /api/status` (public), `POST /platform/tenants/:clientId/billing/sync-usage`.
+
+`GET /health` (liveness — DB state, socket count) and `GET /status` (public status page — see §5.7) sit directly on the router, ahead of everything else, with no `clientId`.
 
 **Auth** (`auth.routes.js`, public):
 | Method | Path | Controller | Notes |
@@ -439,6 +467,7 @@ Base path `/api`. Auth column: **Public** / the permission the route declares (s
 | POST | `/platform/tenants/:clientId/suspend` · `/reactivate` · `/terminate` | `tenant:manage` | termination is **soft** (ADR-0015); takes effect on the tenant's next request |
 | GET | `/platform/tenants/:clientId/export` | `tenant:manage` | the one place an operator sees tenant documents; one audited action |
 | POST | `/platform/tenants/:clientId/administrators/:userId/credentials` | `tenant:manage` | re-issues a temporary password by email |
+| POST | `/platform/tenants/:clientId/billing/sync-usage` | `tenant:manage` | computes current usage and reports it to the billing provider (§5.7); operator-triggered |
 | GET/POST | `/platform/operators` | `operator:manage` | super_admin only; new operators get emailed credentials + must enrol MFA |
 | PUT | `/platform/operators/:id` | `operator:manage` | name/role; cannot change your own role |
 | POST | `/platform/operators/:id/suspend` · `/reactivate` | `operator:manage` | cannot suspend yourself or the last active super admin |
