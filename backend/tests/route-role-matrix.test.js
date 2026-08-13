@@ -18,6 +18,7 @@ const {
 const PUBLIC_ROUTES = new Set([
   'GET /health',
   'GET /test-error',
+  'GET /auth/workspace',
   'POST /auth/register',
   'POST /auth/login',
   'POST /auth/forgot-password',
