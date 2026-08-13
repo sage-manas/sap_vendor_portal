@@ -2,6 +2,7 @@ const router = require('express').Router();
 const {
   getProfile,
   createProfile,
+  createVendor,
   updateProfile,
   submitRegistration,
   approveVendor,
@@ -17,6 +18,7 @@ const { PERMISSIONS } = require('../config/permissions');
 const {
   profileCreateSchema,
   profileUpdateSchema,
+  vendorCreateSchema,
   rejectVendorSchema
 } = require('../validators/vendor.validator');
 const { inviteVendorSchema } = require('../validators/user.validator');
@@ -32,6 +34,7 @@ router.get('/performance', protect, requirePermission(PERMISSIONS.PERFORMANCE_RE
 
 // Supplier directory (tenant staff).
 router.post('/invitations', protect, requirePermission(PERMISSIONS.VENDOR_INVITE), validate(inviteVendorSchema), inviteVendor);
+router.post('/', protect, requirePermission(PERMISSIONS.VENDOR_CREATE), validate(vendorCreateSchema), createVendor);
 router.get('/', protect, requirePermission(PERMISSIONS.VENDOR_READ), listVendors);
 router.put('/:id/approve', protect, requirePermission(PERMISSIONS.VENDOR_APPROVE), approveVendor);
 router.put('/:id/reject', protect, requirePermission(PERMISSIONS.VENDOR_APPROVE), validate(rejectVendorSchema), rejectVendor);

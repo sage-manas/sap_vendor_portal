@@ -11,20 +11,9 @@ const { signToken } = require('../utils/authToken');
 const { sendMail } = require('../utils/mailer');
 const { hashResetToken, RESET_TOKEN_TTL_MS } = require('../models/plugins/credentialsPlugin');
 const { frontendUrl } = require('../config/emailTemplates');
-
-// Assigns a vendorId server-side so nothing client-supplied has to be trusted
-// as the account's real identity. Retries on the (extremely unlikely) chance
-// of a collision with an existing document.
-// vendorId is a login identity, so uniqueness is checked across all tenants.
-const generateVendorId = async () => {
-  let vendorId;
-  let exists = true;
-  while (exists) {
-    vendorId = `VND-${Math.floor(10000 + Math.random() * 90000)}`;
-    exists = await withoutTenantScope(() => Vendor.exists({ vendorId }));
-  }
-  return vendorId;
-};
+const { generateVendorId } = require('../utils/vendorIdentity');
+const { settingValue } = require('../config/tenantSettings');
+const { hasSupplierInvitation } = require('./invitation.controller');
 
 // Helper to format flat vendor db document to backwards-compatible format with nested objects
 const formatVendorResponse = (vendor) => {
@@ -75,6 +64,14 @@ const register = asyncHandler(async (req, res, next) => {
   }
   if (!client.isOperational()) {
     return next(ApiError.forbidden('This workspace is not accepting registrations'));
+  }
+
+  // A workspace can close self-service registration and admit suppliers by
+  // invitation only (config/tenantSettings.js). An invited supplier is not
+  // self-service, so their invitation is what reopens the door for them.
+  if (!settingValue(client, 'features.supplierSelfRegistration')
+    && !(await hasSupplierInvitation(client.clientId, email))) {
+    return next(ApiError.forbidden('This workspace admits suppliers by invitation only'));
   }
 
   // Login identities are global and shared across the identity collections, so
@@ -184,6 +181,22 @@ const getMe = asyncHandler(async (req, res) => {
   res.json({
     success: true,
     auth: req.auth,
+    // The workspace the caller is in: its identity and the settings their
+    // screens render from. Values come through the registry, so a screen never
+    // has to know what happens when a setting was never set.
+    workspace: {
+      clientId: req.client.clientId,
+      companyName: req.client.companyName,
+      slug: req.client.slug,
+      branding: {
+        logo: settingValue(req.client, 'branding.logo'),
+        primaryColor: settingValue(req.client, 'branding.primaryColor'),
+      },
+      features: {
+        supplierChat: settingValue(req.client, 'features.supplierChat'),
+        supplierSelfRegistration: settingValue(req.client, 'features.supplierSelfRegistration'),
+      },
+    },
     ...(req.vendor
       ? { vendor: formatVendorResponse(req.vendor) }
       : { user: formatUserResponse(req.user) })

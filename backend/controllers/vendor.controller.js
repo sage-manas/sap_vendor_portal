@@ -4,12 +4,22 @@ const ASN = require('../models/ASN');
 const Invoice = require('../models/Invoice');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
+const logger = require('../utils/logger');
 const { verifyGstinPan } = require('../services/verification.service');
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
 const { resolveClientForRequest } = require('../utils/resolveClient');
 const { getSapAdapterForClient } = require('../sap');
 
 const { requireVendorScope } = require('../utils/requestScope');
+const { recordAudit } = require('../utils/audit');
+const { AUDIT_ACTIONS } = require('../config/auditActions');
+const { settingValue } = require('../config/tenantSettings');
+const { VENDOR_STATUS, VENDOR_STATUSES, VENDOR_AWAITING_DECISION } = require('../config/statuses');
+const { generateVendorId, identityIsTaken, unguessablePassword } = require('../utils/vendorIdentity');
+const { hasSupplierInvitation } = require('./invitation.controller');
+const { sendMail } = require('../utils/mailer');
+const { frontendUrl } = require('../config/emailTemplates');
+const { RESET_TOKEN_TTL_MS } = require('../models/plugins/credentialsPlugin');
 
 // Helper to map flat or nested fields into flat Vendor model fields
 const mapIncomingBody = (body) => {
@@ -73,6 +83,30 @@ const runGstinPanVerification = async (vendor, sap) => {
   return vendor;
 };
 
+// Tells a supplier what was decided about them, if this workspace has said it
+// wants that (config/tenantSettings.js). A mail failure must not undo a
+// decision that has already been taken and logged to SAP, so it is caught here.
+const notifyDecision = async (req, vendor, { approved, reason }) => {
+  if (!settingValue(req.client, 'notifications.supplierDecisionEmail')) return;
+
+  try {
+    await sendMail({
+      to: vendor.email,
+      template: 'supplierDecision',
+      data: {
+        companyName: vendor.companyName,
+        workspaceName: req.client.companyName,
+        approved,
+        reason,
+        sapVendorCode: vendor.sapVendorCode,
+        portalUrl: frontendUrl(),
+      },
+    });
+  } catch (error) {
+    logger.error(`[vendor] decision email to ${vendor.email} failed: ${error.message}`);
+  }
+};
+
 // @desc    Get current vendor profile
 // @route   GET /api/vendors/profile
 // @access  Private
@@ -106,16 +140,22 @@ const createProfile = asyncHandler(async (req, res, next) => {
     return next(ApiError.forbidden('This workspace is not accepting registrations'));
   }
 
+  // Same rule as POST /api/auth/register: a workspace may admit suppliers by
+  // invitation only, and an invited supplier is not self-service.
+  if (!settingValue(client, 'features.supplierSelfRegistration')
+    && !(await hasSupplierInvitation(client.clientId, email))) {
+    return next(ApiError.forbidden('This workspace admits suppliers by invitation only'));
+  }
+
   // Login identities are global, so this collision check spans all tenants.
-  const existingVendor = await withoutTenantScope(
-    () => Vendor.findOne({ $or: [{ vendorId }, { email }, { gstin }] })
-  );
-  if (existingVendor) {
+  if (await identityIsTaken({ vendorId, email, gstin })) {
     return next(ApiError.conflict('Vendor with this ID, email, or GSTIN already exists'));
   }
 
   // Determine starting status
-  const defaultStatus = (vendorId && vendorId.startsWith('mock_vendor_')) ? 'Pending' : 'Draft';
+  const defaultStatus = (vendorId && vendorId.startsWith('mock_vendor_'))
+    ? VENDOR_STATUS.PENDING
+    : VENDOR_STATUS.DRAFT;
 
   const vendor = await runWithTenant(client.clientId, () => Vendor.create({
     ...mappedBody,
@@ -123,6 +163,61 @@ const createProfile = asyncHandler(async (req, res, next) => {
   }));
 
   res.status(201).json(formatVendorResponse(vendor));
+});
+
+// @desc    Create a supplier from the tenant's own directory
+// @route   POST /api/vendors
+// @access  vendor:create
+//
+// The tenant-side mirror of self-registration. It shares the field list, the
+// validation schema and the flat/nested mapping with POST /vendors/profile —
+// the only differences are whose word the record starts on and how the supplier
+// gets in: the tenant never sets a password, so the account is created with one
+// nobody knows and the supplier claims it through an emailed link (ADR-0026).
+const createVendor = asyncHandler(async (req, res, next) => {
+  const mappedBody = mapIncomingBody(req.body);
+  const { companyName, gstin, pan, email } = mappedBody;
+
+  if (await identityIsTaken({ email, gstin })) {
+    return next(ApiError.conflict('A supplier with this email or GSTIN already exists'));
+  }
+
+  const vendorId = await generateVendorId();
+
+  const vendor = await Vendor.create({
+    ...mappedBody,
+    vendorId,
+    password: unguessablePassword(),
+    mustChangePassword: true,
+    // A record the tenant vouches for, but the supplier has not yet confirmed
+    // or documented: it starts where a self-registered draft starts, and the
+    // same submit-then-approve path applies from there.
+    status: VENDOR_STATUS.DRAFT,
+  });
+
+  const rawToken = vendor.issueResetToken();
+  await vendor.save();
+
+  await sendMail({
+    to: vendor.email,
+    template: 'supplierWelcome',
+    data: {
+      companyName,
+      workspaceName: req.client.companyName,
+      vendorId,
+      setPasswordUrl: `${frontendUrl()}/reset-password?token=${rawToken}`,
+      expiresInMinutes: RESET_TOKEN_TTL_MS / 60000,
+    },
+  });
+
+  await recordAudit({
+    action: AUDIT_ACTIONS.VENDOR_CREATED,
+    req,
+    target: { type: 'Vendor', id: vendorId, label: companyName },
+    meta: { email, gstin, pan },
+  });
+
+  res.status(201).json({ success: true, vendor: formatVendorResponse(vendor) });
 });
 
 // @desc    Update current vendor profile
@@ -215,10 +310,19 @@ const approveVendor = asyncHandler(async (req, res, next) => {
   // SAP issues the vendor master code, so the confirmation is what fills it in.
   const { sapVendorCode } = await sap.vendorConfirm({ vendor });
 
-  vendor.status = 'Approved';
+  vendor.status = VENDOR_STATUS.APPROVED;
   vendor.approvedAt = new Date();
   vendor.sapVendorCode = sapVendorCode;
   await vendor.save();
+
+  await notifyDecision(req, vendor, { approved: true });
+
+  await recordAudit({
+    action: AUDIT_ACTIONS.VENDOR_APPROVED,
+    req,
+    target: { type: 'Vendor', id: vendor.vendorId, label: vendor.companyName },
+    meta: { sapVendorCode },
+  });
 
   res.json({ message: 'Vendor approved successfully', vendor: formatVendorResponse(vendor) });
 });
@@ -238,12 +342,21 @@ const rejectVendor = asyncHandler(async (req, res, next) => {
     return next(ApiError.notFound('Vendor not found'));
   }
 
-  vendor.status = 'Rejected';
+  vendor.status = VENDOR_STATUS.REJECTED;
   vendor.rejectionReason = reason;
   await vendor.save();
 
   const sap = await getSapAdapterForClient(req.clientId);
   await sap.vendorReject({ vendor, reason });
+
+  await notifyDecision(req, vendor, { approved: false, reason });
+
+  await recordAudit({
+    action: AUDIT_ACTIONS.VENDOR_REJECTED,
+    req,
+    target: { type: 'Vendor', id: vendor.vendorId, label: vendor.companyName },
+    meta: { reason },
+  });
 
   res.json({ message: 'Vendor rejected successfully', vendor: formatVendorResponse(vendor) });
 });
@@ -252,8 +365,23 @@ const rejectVendor = asyncHandler(async (req, res, next) => {
 // @route   GET /api/vendors
 // @access  Admin/Private
 const listVendors = asyncHandler(async (req, res, next) => {
-  const { status, page = 1, limit = 20 } = req.query;
-  const query = status ? { status } : {};
+  const { status, search, page = 1, limit = 20 } = req.query;
+
+  const query = {};
+  if (status) {
+    // The directory's filter offers the registry's statuses; anything else is
+    // a malformed request rather than an empty page.
+    if (!VENDOR_STATUSES.includes(status)) {
+      return next(ApiError.badRequest(`status must be one of: ${VENDOR_STATUSES.join(', ')}`));
+    }
+    query.status = status;
+  }
+  if (search) {
+    // Escaped: a supplier's name is user input, and an unescaped regex here is
+    // both a wrong answer and a way to make Mongo work very hard.
+    const term = new RegExp(String(search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    query.$or = [{ companyName: term }, { vendorId: term }, { email: term }, { gstin: term }];
+  }
 
   const skip = (page - 1) * limit;
   const vendors = await Vendor.find(query)
@@ -265,6 +393,9 @@ const listVendors = asyncHandler(async (req, res, next) => {
 
   res.json({
     vendors: vendors.map(formatVendorResponse),
+    // The directory's filter is offered by the registry rather than typed into
+    // the screen, so a new status appears in the dropdown by existing.
+    filters: { statuses: VENDOR_STATUSES, awaitingDecision: VENDOR_AWAITING_DECISION },
     pagination: {
       total,
       page: Number(page),
@@ -388,6 +519,7 @@ const getPerformance = asyncHandler(async (req, res, next) => {
 module.exports = {
   getProfile,
   createProfile,
+  createVendor,
   updateProfile,
   submitRegistration,
   approveVendor,

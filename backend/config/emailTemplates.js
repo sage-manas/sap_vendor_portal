@@ -57,6 +57,35 @@ const TEMPLATES = {
     ]),
   }),
 
+  // A supplier a tenant added from its own directory: the record exists, the
+  // account has no password anyone knows, and this link is how they claim it.
+  // { companyName, workspaceName, vendorId, setPasswordUrl, expiresInMinutes }
+  supplierWelcome: ({ companyName, workspaceName, vendorId, setPasswordUrl, expiresInMinutes = 60 }) => ({
+    subject: `${APP_NAME}: ${workspaceName} has added you as a supplier`,
+    ...layout(`${workspaceName} has added you as a supplier`, [
+      `Hello${companyName ? ` ${companyName}` : ''},`,
+      `${workspaceName} has created a supplier record for you on ${APP_NAME}. Your supplier ID is <strong>${vendorId}</strong>.`,
+      `<a href="${setPasswordUrl}">Choose a password</a> to sign in and complete your onboarding details.`,
+      `This link expires in ${expiresInMinutes} minutes. You can request a new one from the sign-in page at any time.`,
+    ]),
+  }),
+
+  // { companyName, workspaceName, approved, reason, sapVendorCode, portalUrl }
+  supplierDecision: ({ companyName, workspaceName, approved, reason, sapVendorCode, portalUrl }) => ({
+    subject: `${APP_NAME}: ${workspaceName} has ${approved ? 'approved' : 'declined'} your registration`,
+    ...layout(
+      approved ? `Your registration was approved` : `Your registration was not approved`,
+      [
+        `Hello${companyName ? ` ${companyName}` : ''},`,
+        approved
+          ? `${workspaceName} has approved your supplier registration${sapVendorCode ? `, and your vendor master code is <strong>${sapVendorCode}</strong>` : ''}.`
+          : `${workspaceName} has not approved your supplier registration.`,
+        ...(approved ? [] : [`Reason given: <em>${reason || 'no reason recorded'}</em>`]),
+        `<a href="${portalUrl}">Open the supplier portal</a>`,
+      ]
+    ),
+  }),
+
   // { name, email, temporaryPassword, loginUrl }
   operatorCredentials: ({ name, email, temporaryPassword, loginUrl }) => ({
     subject: `${APP_NAME}: your operator account`,
