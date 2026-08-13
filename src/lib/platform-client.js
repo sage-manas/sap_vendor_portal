@@ -78,6 +78,14 @@ export const platformApi = {
   operatorLifecycle: (id, action, reason) => request(`/operators/${id}/${action}`, { method: 'POST', body: { ...(reason && { reason }) } }),
   resetOperatorMfa: (id, reason) => request(`/operators/${id}/mfa/reset`, { method: 'POST', body: { ...(reason && { reason }) } }),
 
+  // SAP configuration. `secrets` goes up and never comes back down: the read
+  // endpoint returns the *names* of the credentials that are set, never values.
+  getSap: (clientId) => request(`/tenants/${clientId}/sap`),
+  configureSap: (clientId, environment, body) => request(`/tenants/${clientId}/sap/${environment}`, { method: 'PUT', body }),
+  testSap: (clientId, environment) => request(`/tenants/${clientId}/sap/${environment}/test`, { method: 'POST', body: {} }),
+  promoteSap: (clientId, environment, reason) => request(`/tenants/${clientId}/sap/promote`, { method: 'POST', body: { environment, ...(reason && { reason }) } }),
+  sapAudit: (clientId, query = '') => request(`/tenants/${clientId}/sap/audit${query}`),
+
   // Audit and health
   audit: (query = '') => request(`/audit${query}`),
   auditFilters: () => request('/audit/filters'),

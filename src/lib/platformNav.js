@@ -23,6 +23,12 @@ export const PLATFORM_NAV = [
     permission: 'tenant:read',
   },
   {
+    href: '/platform/sap',
+    label: 'SAP',
+    description: 'Every tenant’s connection, driver and last test',
+    permission: 'sap:configure',
+  },
+  {
     href: '/platform/operators',
     label: 'Operators',
     description: 'Platform accounts and their second factors',

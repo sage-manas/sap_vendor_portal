@@ -2,7 +2,7 @@
 
 import React, { use, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Download, Mail } from 'lucide-react';
+import { ArrowLeft, Download, Mail, PlugZap } from 'lucide-react';
 import { platformApi } from '@/lib/platform-client';
 import { usePlatformSession } from '@/lib/platform-session';
 import { PageHeader, Notice, Field, Status, Table, Loading, useResource, formatDate } from '@/components/platform/primitives';
@@ -96,6 +96,11 @@ export default function TenantDetailPage({ params }) {
         caption={`${tenant.clientId} · ${tenant.slug} · created ${formatDate(tenant.createdAt)}${tenant.createdBy ? ` by ${tenant.createdBy}` : ''}`}
       >
         <Status value={tenant.status} />
+        {can('sap:configure') && (
+          <Link href={`/platform/tenants/${clientId}/sap`} className="btn btn-o h-8">
+            <PlugZap className="size-3.5" /> SAP
+          </Link>
+        )}
         {can('tenant:manage') && (
           <>
             <button type="button" className="btn btn-o h-8" onClick={exportTenant} disabled={busy}>
