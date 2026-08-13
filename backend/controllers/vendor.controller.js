@@ -7,6 +7,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const { verifyGstinPan } = require('../services/verification.service');
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
 const { resolveClientForRequest } = require('../utils/resolveClient');
+const { getSapAdapterForClient } = require('../sap');
 
 const { requireVendorScope } = require('../utils/requestScope');
 
@@ -58,7 +59,7 @@ const formatVendorResponse = (vendor) => {
 // Runs the GSTIN/PAN check for a vendor and persists the result on the
 // document. This is the only place gstinVerified/panVerified get set, so
 // every approval path is guaranteed to go through the same check.
-const runGstinPanVerification = async (vendor) => {
+const runGstinPanVerification = async (vendor, sap) => {
   const result = await verifyGstinPan(vendor.gstin, vendor.pan);
 
   vendor.gstinVerified = result.gstinValid;
@@ -67,16 +68,7 @@ const runGstinPanVerification = async (vendor) => {
   vendor.verificationDetails = result;
   await vendor.save();
 
-  const { createSapLog } = require('../utils/sapLogger');
-  await createSapLog({
-    vendorId: vendor.vendorId,
-    type: 'KYC',
-    direction: 'OUTBOUND',
-    name: 'GSTIN_PAN_VERIFY',
-    payload: { gstin: vendor.gstin, pan: vendor.pan, result },
-    status: (result.gstinValid && result.panValid) ? 'SUCCESS' : 'FAILED',
-    documentRef: vendor._id.toString()
-  });
+  await sap.vendorVerifyKyc({ vendor, result });
 
   return vendor;
 };
@@ -170,65 +162,32 @@ const submitRegistration = asyncHandler(async (req, res, next) => {
   vendor.submittedAt = new Date();
   await vendor.save();
 
-  // Create outbound pending log for BAPI_VENDOR_CREATE
-  const { createSapLog } = require('../utils/sapLogger');
-  const sapLog = await createSapLog({
-    vendorId,
-    type: 'BAPI',
-    direction: 'OUTBOUND',
-    name: 'BAPI_VENDOR_CREATE',
-    payload: {
-      vendorId,
-      companyName: vendor.companyName,
-      gstin: vendor.gstin,
-      pan: vendor.pan,
-      email: vendor.email
-    },
-    status: 'PENDING',
-    documentRef: vendor._id.toString()
-  });
+  const sap = await getSapAdapterForClient(req.clientId);
+
+  // Announced to SAP and left open: the confirmation is what closes it.
+  const { pendingLogId } = await sap.vendorCreate({ vendor });
 
   // Verify GSTIN/PAN as part of submission — approval is blocked until this passes
-  await runGstinPanVerification(vendor);
+  await runGstinPanVerification(vendor, sap);
 
-  // Simulate SAP auto-approval in 5 seconds. The timer fires outside the
-  // request, so the tenant context has to be re-bound explicitly.
-  setTimeout(() => runWithTenant(req.clientId, async () => {
-    try {
-      const updatedVendor = await Vendor.findOne({ vendorId });
-      if (updatedVendor && updatedVendor.gstinVerified && updatedVendor.panVerified &&
-          (updatedVendor.status === 'Under Review' || updatedVendor.status === 'Pending Approval')) {
-        updatedVendor.status = 'Approved';
-        updatedVendor.approvedAt = new Date();
-        updatedVendor.sapVendorCode = 'VND-' + Math.floor(10000 + Math.random() * 90000);
-        await updatedVendor.save();
+  sap.awaitVendorApproval({ vendor, vendorId, pendingLogId }, async (confirmation) => {
+    const updatedVendor = await Vendor.findOne({ vendorId });
 
-        // Update the outbound request status
-        sapLog.status = 'SUCCESS';
-        await sapLog.save();
+    // SAP only confirms a vendor that is still awaiting confirmation and whose
+    // KYC passed; anything else means the record moved on while we waited.
+    if (!updatedVendor || !updatedVendor.gstinVerified || !updatedVendor.panVerified) return null;
+    if (!['Under Review', 'Pending Approval'].includes(updatedVendor.status)) return null;
 
-        // Create inbound success log for OData confirmation
-        await createSapLog({
-          vendorId,
-          type: 'OData',
-          direction: 'INBOUND',
-          name: 'OData_VENDOR_CONFIRM',
-          payload: {
-            sapVendorCode: updatedVendor.sapVendorCode,
-            status: 'Approved'
-          },
-          status: 'SUCCESS',
-          documentRef: updatedVendor._id.toString()
-        });
-        console.log(`[SIMULATOR] Auto-approved vendor: ${vendorId} (${updatedVendor.sapVendorCode})`);
-      }
-    } catch (err) {
-      console.error('[SIMULATOR] Failed to auto-approve vendor:', err);
-    }
-  }), 5000);
+    updatedVendor.status = 'Approved';
+    updatedVendor.approvedAt = new Date();
+    updatedVendor.sapVendorCode = confirmation.sapVendorCode;
+    await updatedVendor.save();
+
+    return updatedVendor;
+  });
 
   res.json({
-    message: 'Registration submitted. Awaiting approval (simulated auto-approval in 5 seconds).',
+    message: 'Registration submitted. Awaiting confirmation from SAP.',
     vendor: formatVendorResponse(vendor)
   });
 });
@@ -243,34 +202,23 @@ const approveVendor = asyncHandler(async (req, res, next) => {
     return next(ApiError.notFound('Vendor not found'));
   }
 
+  const sap = await getSapAdapterForClient(req.clientId);
+
   if (!vendor.verifiedAt) {
-    await runGstinPanVerification(vendor);
+    await runGstinPanVerification(vendor, sap);
   }
 
   if (!vendor.gstinVerified || !vendor.panVerified) {
     return next(ApiError.badRequest('Vendor cannot be approved: GSTIN/PAN verification failed or has not been completed'));
   }
 
+  // SAP issues the vendor master code, so the confirmation is what fills it in.
+  const { sapVendorCode } = await sap.vendorConfirm({ vendor });
+
   vendor.status = 'Approved';
   vendor.approvedAt = new Date();
-  if (!vendor.sapVendorCode) {
-    vendor.sapVendorCode = 'VND-' + Math.floor(10000 + Math.random() * 90000);
-  }
+  vendor.sapVendorCode = sapVendorCode;
   await vendor.save();
-
-  const { createSapLog } = require('../utils/sapLogger');
-  await createSapLog({
-    vendorId: vendor.vendorId,
-    type: 'OData',
-    direction: 'INBOUND',
-    name: 'OData_VENDOR_CONFIRM',
-    payload: {
-      sapVendorCode: vendor.sapVendorCode,
-      status: 'Approved'
-    },
-    status: 'SUCCESS',
-    documentRef: vendor._id.toString()
-  });
 
   res.json({ message: 'Vendor approved successfully', vendor: formatVendorResponse(vendor) });
 });
@@ -294,19 +242,8 @@ const rejectVendor = asyncHandler(async (req, res, next) => {
   vendor.rejectionReason = reason;
   await vendor.save();
 
-  const { createSapLog } = require('../utils/sapLogger');
-  await createSapLog({
-    vendorId: vendor.vendorId,
-    type: 'OData',
-    direction: 'INBOUND',
-    name: 'OData_VENDOR_REJECT',
-    payload: {
-      status: 'Rejected',
-      reason
-    },
-    status: 'SUCCESS',
-    documentRef: vendor._id.toString()
-  });
+  const sap = await getSapAdapterForClient(req.clientId);
+  await sap.vendorReject({ vendor, reason });
 
   res.json({ message: 'Vendor rejected successfully', vendor: formatVendorResponse(vendor) });
 });
