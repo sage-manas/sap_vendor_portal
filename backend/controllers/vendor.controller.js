@@ -16,6 +16,7 @@ const { AUDIT_ACTIONS } = require('../config/auditActions');
 const { settingValue } = require('../config/tenantSettings');
 const { VENDOR_STATUS, VENDOR_STATUSES, VENDOR_AWAITING_DECISION } = require('../config/statuses');
 const { generateVendorId, identityIsTaken, unguessablePassword } = require('../utils/vendorIdentity');
+const { assertCanCreate } = require('../utils/usage');
 const { hasSupplierInvitation } = require('./invitation.controller');
 const { sendMail } = require('../utils/mailer');
 const { frontendUrl } = require('../config/emailTemplates');
@@ -147,6 +148,8 @@ const createProfile = asyncHandler(async (req, res, next) => {
     return next(ApiError.forbidden('This workspace admits suppliers by invitation only'));
   }
 
+  await assertCanCreate(client, 'vendors');
+
   // Login identities are global, so this collision check spans all tenants.
   if (await identityIsTaken({ vendorId, email, gstin })) {
     return next(ApiError.conflict('Vendor with this ID, email, or GSTIN already exists'));
@@ -181,6 +184,8 @@ const createVendor = asyncHandler(async (req, res, next) => {
   if (await identityIsTaken({ email, gstin })) {
     return next(ApiError.conflict('A supplier with this email or GSTIN already exists'));
   }
+
+  await assertCanCreate(req.client, 'vendors');
 
   const vendorId = await generateVendorId();
 

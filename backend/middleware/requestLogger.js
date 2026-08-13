@@ -6,6 +6,16 @@ const requestLogger = (req, res, next) => {
   req.requestId = crypto.randomUUID();
   const startTime = process.hrtime();
 
+  // A per-request logger that stamps requestId, and clientId once the tenant
+  // is known — `protect` and the pre-auth resolvers set `req.clientId` before
+  // any controller runs, so any call site using `req.log` gets the
+  // correlation for free without threading `req` through to `logger` calls.
+  req.log = {
+    info: (message, meta) => logger.info(message, { requestId: req.requestId, clientId: req.clientId, ...meta }),
+    warn: (message, meta) => logger.warn(message, { requestId: req.requestId, clientId: req.clientId, ...meta }),
+    error: (message, meta) => logger.error(message, { requestId: req.requestId, clientId: req.clientId, ...meta }),
+  };
+
   // Log incoming request
   logger.info(`Incoming request`, {
     requestId: req.requestId,
@@ -23,6 +33,10 @@ const requestLogger = (req, res, next) => {
 
     const logData = {
       requestId: req.requestId,
+      // Set by the time the response finishes for any tenant/supplier route,
+      // since `protect` binds it before the handler runs; absent for platform
+      // and pre-auth requests, which is the correct, honest answer.
+      clientId: req.clientId,
       method: req.method,
       url: req.originalUrl || req.url,
       statusCode,

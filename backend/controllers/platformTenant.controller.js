@@ -11,6 +11,8 @@ const {
   provisionTenant,
   reissueAdminCredentials,
 } = require('../services/tenantProvisioning.service');
+const { getBillingProvider } = require('../services/billing.service');
+const { usageAgainstLimits } = require('../utils/usage');
 
 // Tenant administration for the platform console.
 //
@@ -139,6 +141,8 @@ const createTenant = asyncHandler(async (req, res) => {
     meta: { role: clientAdmin.role, delivery: 'email' },
   });
 
+  await getBillingProvider().onTenantCreated({ client });
+
   res.status(201).json({
     success: true,
     tenant: formatClient(client),
@@ -242,6 +246,8 @@ const transition = (name) => asyncHandler(async (req, res, next) => {
     meta: { from, to: rule.to, reason: req.body?.reason },
   });
 
+  await getBillingProvider().onTenantStatusChanged({ client, from, to: rule.to });
+
   res.json({ success: true, tenant: formatClient(client), message: rule.message });
 });
 
@@ -307,6 +313,21 @@ const reissueCredentials = asyncHandler(async (req, res) => {
   res.json({ success: true, message: `New credentials have been emailed to ${admin.email}.` });
 });
 
+// @desc    Report this tenant's current usage to the billing provider
+// @route   POST /api/platform/tenants/:clientId/billing/sync-usage
+// @access  tenant:manage
+//
+// Operator-triggered rather than scheduled: there is no job runner in this
+// codebase yet, and a manual sync is enough to prove the seam works end to
+// end before one exists.
+const syncUsage = asyncHandler(async (req, res) => {
+  const client = await findClientOr404(req.params.clientId);
+  const usage = await usageAgainstLimits(client);
+  const result = await getBillingProvider().reportUsage({ client, usage });
+
+  res.json({ success: true, usage, billing: result });
+});
+
 module.exports = {
   listTenants,
   getTenant,
@@ -317,5 +338,6 @@ module.exports = {
   terminateTenant: transition('terminate'),
   exportTenant,
   reissueCredentials,
+  syncUsage,
   formatClient,
 };

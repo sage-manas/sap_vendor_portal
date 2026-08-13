@@ -14,6 +14,7 @@ const { frontendUrl } = require('../config/emailTemplates');
 const { generateVendorId } = require('../utils/vendorIdentity');
 const { settingValue } = require('../config/tenantSettings');
 const { hasSupplierInvitation } = require('./invitation.controller');
+const { assertCanCreate } = require('../utils/usage');
 
 // Helper to format flat vendor db document to backwards-compatible format with nested objects
 const formatVendorResponse = (vendor) => {
@@ -86,6 +87,8 @@ const register = asyncHandler(async (req, res, next) => {
   if (existingVendor || existingUser) {
     return next(ApiError.conflict('Vendor with this ID, email, or GSTIN already exists'));
   }
+
+  await assertCanCreate(client, 'vendors');
 
   if (!vendorId) {
     vendorId = await generateVendorId();

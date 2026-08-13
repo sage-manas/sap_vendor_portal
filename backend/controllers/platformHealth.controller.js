@@ -1,14 +1,13 @@
 const mongoose = require('mongoose');
 const Client = require('../models/Client');
 const User = require('../models/User');
-const Vendor = require('../models/Vendor');
-const RFQ = require('../models/RFQ');
 const SapLog = require('../models/SapLog');
 const DocumentModel = require('../models/Document');
 const SapConnection = require('../models/SapConnection');
 const asyncHandler = require('../utils/asyncHandler');
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
 const { getSapAdapterForClient } = require('../sap');
+const { usageAgainstLimits, against } = require('../utils/usage');
 
 // The platform health board: for every tenant, is its SAP working, how much of
 // its plan is it using, and is anyone actually signing in.
@@ -77,31 +76,20 @@ const sapConnectionFor = async (client) => {
   };
 };
 
-const usageFor = async (client) => runWithTenant(client.clientId, async () => {
-  const [vendors, rfqsThisMonth, documents, staff, activeStaff] = await Promise.all([
-    Vendor.countDocuments({}),
-    RFQ.countDocuments({ createdAt: { $gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) } }),
+const usageFor = async (client) => {
+  const [limited, documents, staff, activeStaff] = await runWithTenant(client.clientId, async () => Promise.all([
+    usageAgainstLimits(client),
     DocumentModel.countDocuments({}),
     User.countDocuments({}),
     User.countDocuments({ lastLoginAt: { $gte: since(ACTIVE_USER_DAYS * 24) } }),
-  ]);
-
-  const against = (used, limit) => ({
-    used,
-    limit: limit ?? null,
-    // null rather than 0 when there is no limit: "unlimited" and "nothing left"
-    // must not render the same.
-    ratio: limit ? Number((used / limit).toFixed(3)) : null,
-    breached: Boolean(limit && used > limit),
-  });
+  ]));
 
   return {
-    vendors: against(vendors, client.limits?.vendors),
-    rfqsThisMonth: against(rfqsThisMonth, client.limits?.rfqsPerMonth),
+    ...limited,
     documents: against(documents, null),
     users: { total: staff, activeLast30Days: activeStaff },
   };
-});
+};
 
 // @desc    Per-tenant health, usage and activity
 // @route   GET /api/platform/health
