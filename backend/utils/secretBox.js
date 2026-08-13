@@ -1,15 +1,26 @@
 const crypto = require('crypto');
 
 // Authenticated symmetric encryption for anything that must be stored but never
-// read back by a human: MFA secrets today, SAP credentials in Phase 4.
+// read back by a human: MFA secrets and, since Phase 4, SAP credentials.
 //
 // AES-256-GCM with a random 12-byte IV per message. Ciphertext is stored as a
-// single self-describing string — `v1:<iv>:<tag>:<ciphertext>`, all base64url —
-// so the format can be versioned when Phase 4 introduces per-client data keys
-// wrapped by this master key (envelope encryption). Nothing here ever logs or
-// returns plaintext.
+// single self-describing string — `<version>:<iv>:<tag>:<ciphertext>`, all
+// base64url. Two versions exist, and the prefix is what tells them apart:
+//
+//   v1 — encrypted directly under the master key. MFA secrets, written by
+//        Phase 3, and still read and written as they were.
+//   v2 — envelope encryption (Phase 4). A random 32-byte *data key* per client
+//        encrypts the secret; the data key itself is wrapped as a v1 blob under
+//        the master key and stored beside the ciphertext. Rotating the master
+//        key means re-wrapping N small data keys rather than re-encrypting
+//        every secret, and swapping in a KMS means replacing exactly two
+//        functions — `wrapDataKey` and `unwrapDataKey` — because nothing else
+//        ever touches the master key.
+//
+// Nothing here ever logs or returns plaintext.
 
 const VERSION = 'v1';
+const ENVELOPE_VERSION = 'v2';
 
 const masterKey = () => {
   const raw = process.env.MASTER_KEY || process.env.SECRET_MASTER_KEY;
@@ -29,31 +40,74 @@ const masterKey = () => {
   return decoded.length === 32 ? decoded : crypto.createHash('sha256').update(raw).digest();
 };
 
-const encrypt = (plaintext) => {
-  if (plaintext === null || plaintext === undefined || plaintext === '') return null;
-
+// The primitive both versions share. `version` only labels the output — it is
+// the caller's choice of key that makes a blob v1 or v2.
+const seal = (key, version, plaintext) => {
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', masterKey(), iv);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   const ciphertext = Buffer.concat([cipher.update(String(plaintext), 'utf8'), cipher.final()]);
 
-  return [VERSION, iv.toString('base64url'), cipher.getAuthTag().toString('base64url'), ciphertext.toString('base64url')].join(':');
+  return [version, iv.toString('base64url'), cipher.getAuthTag().toString('base64url'), ciphertext.toString('base64url')].join(':');
 };
 
-const decrypt = (envelope) => {
-  if (!envelope) return null;
-
-  const [version, iv, tag, ciphertext] = String(envelope).split(':');
-  if (version !== VERSION || !iv || !tag || !ciphertext) {
+const open = (key, version, envelope) => {
+  const [found, iv, tag, ciphertext] = String(envelope).split(':');
+  if (found !== version || !iv || !tag || !ciphertext) {
     throw new Error('Cannot decrypt: unrecognised ciphertext envelope');
   }
 
-  const decipher = crypto.createDecipheriv('aes-256-gcm', masterKey(), Buffer.from(iv, 'base64url'));
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'base64url'));
   decipher.setAuthTag(Buffer.from(tag, 'base64url'));
   // Throws if the ciphertext or the key is wrong — tampering is a failure, not
   // a silently different plaintext.
   return Buffer.concat([decipher.update(Buffer.from(ciphertext, 'base64url')), decipher.final()]).toString('utf8');
 };
 
-const isEncrypted = (value) => typeof value === 'string' && value.startsWith(`${VERSION}:`);
+const encrypt = (plaintext) => {
+  if (plaintext === null || plaintext === undefined || plaintext === '') return null;
+  return seal(masterKey(), VERSION, plaintext);
+};
 
-module.exports = { encrypt, decrypt, isEncrypted };
+const decrypt = (envelope) => (envelope ? open(masterKey(), VERSION, envelope) : null);
+
+const isEncrypted = (value) =>
+  typeof value === 'string' && (value.startsWith(`${VERSION}:`) || value.startsWith(`${ENVELOPE_VERSION}:`));
+
+// --- Envelope encryption (v2) ---------------------------------------------
+//
+// The two functions a KMS would replace. Today the master key lives in the
+// process; tomorrow `wrapDataKey` is a `kms.Encrypt` call and `unwrapDataKey` a
+// `kms.Decrypt`, and nothing that stores or reads a secret has to change,
+// because the wrapped key is opaque to every caller.
+
+const generateDataKey = () => crypto.randomBytes(32);
+
+const wrapDataKey = (dataKey) => seal(masterKey(), VERSION, dataKey.toString('base64'));
+
+const unwrapDataKey = (wrapped) => {
+  const raw = Buffer.from(open(masterKey(), VERSION, wrapped), 'base64');
+  if (raw.length !== 32) throw new Error('Cannot unwrap data key: wrong length');
+  return raw;
+};
+
+/** Encrypts a secret under a client's data key. Returns a `v2:` blob. */
+const encryptWithDataKey = (dataKey, plaintext) => {
+  if (plaintext === null || plaintext === undefined || plaintext === '') return null;
+  return seal(dataKey, ENVELOPE_VERSION, plaintext);
+};
+
+const decryptWithDataKey = (dataKey, envelope) =>
+  (envelope ? open(dataKey, ENVELOPE_VERSION, envelope) : null);
+
+module.exports = {
+  encrypt,
+  decrypt,
+  isEncrypted,
+  generateDataKey,
+  wrapDataKey,
+  unwrapDataKey,
+  encryptWithDataKey,
+  decryptWithDataKey,
+  VERSION,
+  ENVELOPE_VERSION,
+};

@@ -17,6 +17,11 @@ const clientSchema = new Schema({
 
   featureFlags: { type: Schema.Types.Mixed, default: {} },
 
+  // Which SapConnection this tenant's traffic actually runs against. A tenant
+  // stays on sandbox until an operator promotes it — this field *is* the
+  // promotion, and nothing but the promote endpoint writes it.
+  sapEnvironment: { type: String, enum: ['sandbox', 'production'], default: 'sandbox' },
+
   limits: {
     vendors:      { type: Number, default: 50 },
     rfqsPerMonth: { type: Number, default: 100 },
