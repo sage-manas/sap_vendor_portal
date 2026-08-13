@@ -3,13 +3,14 @@ const GRN = require('../models/GRN');
 const Invoice = require('../models/Invoice');
 const Payment = require('../models/Payment');
 const asyncHandler = require('../utils/asyncHandler');
+const { withVendorScope } = require('../utils/requestScope');
 
 // @desc    Get dashboard summary statistics
 // @route   GET /api/dashboard/summary
 // @access  Private
 const getDashboardSummary = asyncHandler(async (req, res, next) => {
-  const vendorId = req.clerkUserId || req.headers['x-vendor-id'];
-  const query = vendorId ? { vendorId } : {};
+  // Suppliers see their own numbers; tenant staff see the whole tenant.
+  const query = withVendorScope(req);
 
   const openPOs = await PurchaseOrder.countDocuments({ ...query, status: { $in: ['Open', 'Acknowledged'] } });
   const pendingGRNs = await GRN.countDocuments({ ...query, invoiceSubmitted: false });

@@ -1,8 +1,10 @@
 const mongoose = require('mongoose');
+const tenantPlugin = require('./plugins/tenantPlugin');
 const Schema = mongoose.Schema;
 
 const rfqSchema = new Schema({
-  id:             { type: String, required: true, unique: true },  // 'RFQ-2026-001'
+  // Unique per tenant — see the compound index below.
+  id:             { type: String, required: true },  // 'RFQ-2026-001'
   description:    { type: String, required: true },
   status:         { type: String, enum: ['Draft','Bidding Open','Submitted','Under Review','Awarded','Closed'], default: 'Bidding Open' },
   deadlineDate:   { type: Date, required: true },
@@ -55,8 +57,10 @@ const rfqSchema = new Schema({
   convertedPoId:    String
 }, { timestamps: true });
 
-rfqSchema.index({ status: 1 });
-rfqSchema.index({ deadlineDate: 1 });
-rfqSchema.index({ 'invitedVendors.id': 1 });
+rfqSchema.plugin(tenantPlugin);
+rfqSchema.index({ clientId: 1, id: 1 }, { unique: true });
+rfqSchema.index({ clientId: 1, status: 1 });
+rfqSchema.index({ clientId: 1, deadlineDate: 1 });
+rfqSchema.index({ clientId: 1, 'invitedVendors.id': 1 });
 
 module.exports = mongoose.model('RFQ', rfqSchema);

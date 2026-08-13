@@ -6,6 +6,7 @@ import Sidebar from './Sidebar';
 import BapiConsole from './BapiConsole';
 import CommandPalette from '../ui/CommandPalette';
 import { usePortal } from '@/lib/portal-context';
+import { hasOwnChrome } from '@/lib/planes';
 
 import { usePathname } from 'next/navigation';
 
@@ -23,7 +24,14 @@ export default function PortalLayout({ children }) {
 
   const isAuthPage = pathname === '/sign-in' || pathname === '/sign-up' || pathname === '/forgot-password' || pathname === '/reset-password';
 
+  // The platform console and the tenant workspace are different planes, each
+  // with its own shell, session and navigation. The supplier chrome — sidebar,
+  // BAPI console, command palette — has no meaning in either, so this layout
+  // steps out of the way entirely.
+  const hasSeparateChrome = hasOwnChrome(pathname);
+
   React.useEffect(() => {
+    if (hasSeparateChrome) return undefined;
     if (isAuthPage) {
       document.body.classList.add('auth-mode');
     } else {
@@ -32,7 +40,11 @@ export default function PortalLayout({ children }) {
     return () => {
       document.body.classList.remove('auth-mode');
     };
-  }, [isAuthPage]);
+  }, [isAuthPage, hasSeparateChrome]);
+
+  if (hasSeparateChrome) {
+    return children;
+  }
 
   if (isAuthPage) {
     return (

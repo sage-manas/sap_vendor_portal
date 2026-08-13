@@ -1,8 +1,10 @@
 const mongoose = require('mongoose');
+const tenantPlugin = require('./plugins/tenantPlugin');
 const Schema = mongoose.Schema;
 
 const asnSchema = new Schema({
-  id:                { type: String, required: true, unique: true }, // e.g. 'ASN-826291'
+  // Business IDs are unique per tenant, not globally — see the compound index below.
+  id:                { type: String, required: true }, // e.g. 'ASN-826291'
   poId:              { type: String, required: true },               // ref PO.id
   vendorId:          { type: String, required: true },
   status:            { type: String, enum: ['Submitted','In Transit','Received'], default: 'Submitted' },
@@ -24,5 +26,11 @@ const asnSchema = new Schema({
   }],
   submittedAt:       { type: Date, default: Date.now }
 }, { timestamps: true });
+
+asnSchema.plugin(tenantPlugin);
+asnSchema.index({ clientId: 1, id: 1 }, { unique: true });
+asnSchema.index({ clientId: 1, vendorId: 1 });
+asnSchema.index({ clientId: 1, status: 1 });
+asnSchema.index({ clientId: 1, poId: 1 });
 
 module.exports = mongoose.model('ASN', asnSchema);

@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const tenantPlugin = require('./plugins/tenantPlugin');
 const Schema = mongoose.Schema;
 
 const sapLogSchema = new Schema({
@@ -13,8 +14,11 @@ const sapLogSchema = new Schema({
   timestamp:    { type: Date, default: Date.now }
 });
 
+sapLogSchema.plugin(tenantPlugin);
+
 // TTL index: auto-purge after 30 days
 sapLogSchema.index({ timestamp: 1 }, { expireAfterSeconds: 2592000 });
-sapLogSchema.index({ vendorId: 1, timestamp: -1 });
+sapLogSchema.index({ clientId: 1, vendorId: 1, timestamp: -1 });
+sapLogSchema.index({ clientId: 1, timestamp: -1 });
 
 module.exports = mongoose.model('SapLog', sapLogSchema);

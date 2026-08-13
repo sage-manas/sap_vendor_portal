@@ -7,9 +7,7 @@ const RFQ = require('../models/RFQ');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 
-const getVendorId = (req) => {
-  return req.clerkUserId || req.headers['x-vendor-id'] || 'mock_vendor_id';
-};
+const { requireVendorScope } = require('../utils/requestScope');
 
 // Helper to draw horizontal lines
 const drawLine = (doc, y) => {
@@ -24,7 +22,7 @@ const drawLine = (doc, y) => {
 // @route   GET /api/reports/statement
 // @access  Public
 const generateStatement = asyncHandler(async (req, res, next) => {
-  const vendorId = getVendorId(req);
+  const vendorId = requireVendorScope(req);
   const vendor = await Vendor.findOne({ $or: [{ vendorId }, { clerkId: vendorId }] });
   
   // Get all payments for this vendor
@@ -149,7 +147,7 @@ const generateStatement = asyncHandler(async (req, res, next) => {
 // @access  Public
 const generateInvoicePDF = asyncHandler(async (req, res, next) => {
   const { id } = req.params;
-  const vendorId = getVendorId(req);
+  const vendorId = requireVendorScope(req);
 
   const invoice = await Invoice.findOne({ id });
   if (!invoice) {

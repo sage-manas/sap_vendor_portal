@@ -6,6 +6,9 @@ const logger = require('./utils/logger');
 const validateEnv = require('./config/validateEnv');
 validateEnv(); // Validate environment before startup
 
+// Invitations and password resets are only useful if they can be delivered.
+require('./utils/mailer').assertMailerConfigured();
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -59,42 +62,46 @@ const io = new Server(server, {
 });
 
 const jwt = require('jsonwebtoken');
+const { vendorRoom, procurementRoom } = require('./utils/socketEmitter');
 
-// Pre-auth Socket.io connection middleware
+// Pre-auth Socket.io connection middleware. A socket's tenant comes from its
+// JWT and from nowhere else — it is what every room it may join is keyed on.
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
-  const fallbackVendorId = socket.handshake.auth.vendorId || socket.handshake.headers['x-vendor-id'] || 'mock_vendor_id';
-  
-  if (token) {
-    try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
-      socket.clerkUserId = decoded.vendorId;
-      return next();
-    } catch (err) {
-      if (process.env.NODE_ENV !== 'production' && fallbackVendorId) {
-        socket.clerkUserId = fallbackVendorId;
-        return next();
-      }
-      return next(new Error('Authentication error: Invalid token'));
-    }
+
+  if (!token) {
+    return next(new Error('Authentication error: token required'));
   }
 
-  // Setup user ID on socket object using fallback if no token is provided
-  socket.clerkUserId = fallbackVendorId;
-  next();
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+    if (!decoded.clientId) {
+      return next(new Error('Authentication error: token carries no tenant'));
+    }
+    socket.clientId = decoded.clientId;
+    socket.clerkUserId = decoded.vendorId; // suppliers only; staff tokens carry none
+    socket.roleScope = decoded.roleScope;
+    socket.role = decoded.role;
+    return next();
+  } catch (err) {
+    return next(new Error('Authentication error: Invalid token'));
+  }
 });
 
 io.on('connection', (socket) => {
-  logger.info(`🔌 Client connected to Socket.io: ${socket.id} (vendorId: ${socket.clerkUserId})`);
-  
+  logger.info(`🔌 Client connected to Socket.io: ${socket.id} (client: ${socket.clientId}, vendorId: ${socket.clerkUserId})`);
+
   if (socket.clerkUserId) {
-    socket.join(socket.clerkUserId);
-    logger.info(`🏢 Socket ${socket.id} joined vendor room: ${socket.clerkUserId}`);
+    const room = vendorRoom(socket.clientId, socket.clerkUserId);
+    socket.join(room);
+    logger.info(`🏢 Socket ${socket.id} joined room: ${room}`);
   }
-  
+
   socket.on('join_procurement_room', () => {
-    socket.join('procurement');
-    logger.info(`🏢 Socket ${socket.id} joined procurement room`);
+    // Always this socket's own tenant — the client cannot name the room.
+    const room = procurementRoom(socket.clientId);
+    socket.join(room);
+    logger.info(`🏢 Socket ${socket.id} joined room: ${room}`);
   });
   
   socket.on('disconnect', () => {
@@ -152,7 +159,8 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-vendor-id'],
+  // x-vendor-id is gone (ADR-0010): the JWT is the only identity the API accepts.
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-client-slug'],
 }));
 
 // Limit JSON body size (except upload routes)

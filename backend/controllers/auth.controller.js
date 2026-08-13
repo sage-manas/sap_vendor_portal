@@ -1,22 +1,19 @@
-const crypto = require('crypto');
 const Vendor = require('../models/Vendor');
-const jwt = require('jsonwebtoken');
+const User = require('../models/User');
+const Client = require('../models/Client');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const logger = require('../utils/logger');
-
-// Assigns a vendorId server-side so nothing client-supplied has to be trusted
-// as the account's real identity. Retries on the (extremely unlikely) chance
-// of a collision with an existing document.
-const generateVendorId = async () => {
-  let vendorId;
-  let exists = true;
-  while (exists) {
-    vendorId = `VND-${Math.floor(10000 + Math.random() * 90000)}`;
-    exists = await Vendor.exists({ vendorId });
-  }
-  return vendorId;
-};
+const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
+const { resolveClientForRequest } = require('../utils/resolveClient');
+const { ROLES } = require('../config/roles');
+const { signToken } = require('../utils/authToken');
+const { sendMail } = require('../utils/mailer');
+const { hashResetToken, RESET_TOKEN_TTL_MS } = require('../models/plugins/credentialsPlugin');
+const { frontendUrl } = require('../config/emailTemplates');
+const { generateVendorId } = require('../utils/vendorIdentity');
+const { settingValue } = require('../config/tenantSettings');
+const { hasSupplierInvitation } = require('./invitation.controller');
 
 // Helper to format flat vendor db document to backwards-compatible format with nested objects
 const formatVendorResponse = (vendor) => {
@@ -25,6 +22,8 @@ const formatVendorResponse = (vendor) => {
 
   // Never expose the password hash (select:false does not strip it on create/+password queries)
   delete obj.password;
+  delete obj.resetPasswordToken;
+  delete obj.resetPasswordExpires;
 
   obj.bankDetails = {
     bankName: obj.bankName || '',
@@ -35,17 +34,19 @@ const formatVendorResponse = (vendor) => {
     branch: obj.bankBranch || '',
     accountType: 'Current'
   };
-  
+
   return obj;
 };
 
-// Generate JWT token helper
-const generateToken = (vendor) => {
-  return jwt.sign(
-    { id: vendor._id, vendorId: vendor.vendorId, email: vendor.email },
-    process.env.JWT_SECRET || 'secret',
-    { expiresIn: process.env.JWT_EXPIRES_IN || '30d' }
-  );
+// Tenant staff have no supplier record, so they get their own shape. The
+// `role`/`plane` fields are what the UI filters its nav on (Phase 5).
+const formatUserResponse = (user) => {
+  if (!user) return null;
+  const obj = user.toObject ? user.toObject() : { ...user };
+  delete obj.password;
+  delete obj.resetPasswordToken;
+  delete obj.resetPasswordExpires;
+  return obj;
 };
 
 // @desc    Register a new vendor
@@ -55,11 +56,34 @@ const register = asyncHandler(async (req, res, next) => {
   const { password, companyName, gstin, pan, email, phone, address, city, state, postalCode, bankName, accountNumber, ifscCode, accountName, bankBranch } = req.body;
   let { vendorId } = req.body;
 
-  const existingVendor = await Vendor.findOne({
-    $or: [{ email }, { gstin }, ...(vendorId ? [{ vendorId }] : [])]
-  });
+  // Which workspace is this supplier registering into? (Subdomain in Phase 6;
+  // header/DEFAULT_CLIENT_SLUG/legacy until then.)
+  const client = await resolveClientForRequest(req);
+  if (!client) {
+    return next(ApiError.badRequest('Unknown workspace'));
+  }
+  if (!client.isOperational()) {
+    return next(ApiError.forbidden('This workspace is not accepting registrations'));
+  }
 
-  if (existingVendor) {
+  // A workspace can close self-service registration and admit suppliers by
+  // invitation only (config/tenantSettings.js). An invited supplier is not
+  // self-service, so their invitation is what reopens the door for them.
+  if (!settingValue(client, 'features.supplierSelfRegistration')
+    && !(await hasSupplierInvitation(client.clientId, email))) {
+    return next(ApiError.forbidden('This workspace admits suppliers by invitation only'));
+  }
+
+  // Login identities are global and shared across the identity collections, so
+  // this collision check spans all tenants and both account kinds.
+  const existingVendor = await withoutTenantScope(() => Vendor.findOne({
+    $or: [{ email }, { gstin }, ...(vendorId ? [{ vendorId }] : [])]
+  }));
+  const existingUser = email
+    ? await withoutTenantScope(() => User.findOne({ email: email.toLowerCase() }))
+    : null;
+
+  if (existingVendor || existingUser) {
     return next(ApiError.conflict('Vendor with this ID, email, or GSTIN already exists'));
   }
 
@@ -71,17 +95,10 @@ const register = asyncHandler(async (req, res, next) => {
   // and submit the full onboarding form.
   const defaultStatus = vendorId.startsWith('mock_vendor_') ? 'Pending' : 'Draft';
 
-  // Bootstrap: emails listed in ADMIN_BOOTSTRAP_EMAILS (comma-separated) get
-  // the admin role on first registration — there is no other signup path
-  // that produces an admin account, so this env var is the intended way to
-  // provision the first admin(s) for a deployment.
-  const bootstrapEmails = (process.env.ADMIN_BOOTSTRAP_EMAILS || '')
-    .split(',')
-    .map(e => e.trim().toLowerCase())
-    .filter(Boolean);
-  const role = bootstrapEmails.includes((email || '').toLowerCase()) ? 'admin' : 'vendor';
-
-  const vendor = await Vendor.create({
+  // Self-registration only ever produces a supplier. Staff accounts come from
+  // an invitation or from tenant provisioning — ADMIN_BOOTSTRAP_EMAILS, which
+  // used to mint an admin from a public endpoint, is gone (ADR-0009).
+  const vendor = await runWithTenant(client.clientId, () => Vendor.create({
     vendorId,
     password,
     companyName,
@@ -99,110 +116,180 @@ const register = asyncHandler(async (req, res, next) => {
     accountName,
     bankBranch,
     status: defaultStatus,
-    role
-  });
-
-  const token = generateToken(vendor);
-  const formattedVendor = formatVendorResponse(vendor);
+    role: ROLES.VENDOR
+  }));
 
   res.status(201).json({
     success: true,
-    token,
-    vendor: formattedVendor
+    token: signToken(vendor),
+    vendor: formatVendorResponse(vendor)
   });
 });
 
-// @desc    Login vendor
+// @desc    Login (supplier or tenant staff)
 // @route   POST /api/auth/login
 // @access  Public
 const login = asyncHandler(async (req, res, next) => {
   const { vendorIdOrEmail, password } = req.body;
+  const identifier = String(vendorIdOrEmail || '').trim();
 
-  // Search vendor by email or vendorId
-  const vendor = await Vendor.findOne({
-    $or: [{ email: vendorIdOrEmail.toLowerCase() }, { vendorId: vendorIdOrEmail }]
-  }).select('+password');
+  // Login precedes tenancy — the account itself carries the clientId that every
+  // later request is bound to. Staff sign in with an email; suppliers with
+  // either their email or their vendorId.
+  const user = await withoutTenantScope(() =>
+    User.findOne({ email: identifier.toLowerCase() }).select('+password'));
 
-  if (!vendor) {
+  const vendor = user ? null : await withoutTenantScope(() => Vendor.findOne({
+    $or: [{ email: identifier.toLowerCase() }, { vendorId: identifier }]
+  }).select('+password'));
+
+  const account = user || vendor;
+  if (!account) {
     return next(ApiError.unauthorized('Invalid credentials'));
   }
 
-  const isMatch = await vendor.comparePassword(password);
+  const isMatch = await account.comparePassword(password);
   if (!isMatch) {
     return next(ApiError.unauthorized('Invalid credentials'));
   }
 
-  const token = generateToken(vendor);
-  const formattedVendor = formatVendorResponse(vendor);
+  if (!account.canAuthenticate()) {
+    return next(ApiError.forbidden('This account is not active'));
+  }
+
+  const client = await withoutTenantScope(() => Client.findOne({ clientId: account.clientId }));
+  if (!client || !client.isOperational()) {
+    return next(ApiError.forbidden('This workspace is not active'));
+  }
+
+  account.lastLoginAt = new Date();
+  await runWithTenant(account.clientId, () => account.save({ validateBeforeSave: false }));
 
   res.json({
     success: true,
-    token,
-    vendor: formattedVendor
+    token: signToken(account),
+    mustChangePassword: Boolean(account.mustChangePassword),
+    role: account.role,
+    ...(user ? { user: formatUserResponse(user) } : { vendor: formatVendorResponse(vendor) })
   });
 });
 
-// @desc    Get currently logged in vendor profile
+// @desc    Get the currently logged in principal
 // @route   GET /api/auth/me
 // @access  Private
-const getMe = asyncHandler(async (req, res, next) => {
+const getMe = asyncHandler(async (req, res) => {
   res.json({
     success: true,
-    vendor: formatVendorResponse(req.vendor)
+    auth: req.auth,
+    // The workspace the caller is in: its identity and the settings their
+    // screens render from. Values come through the registry, so a screen never
+    // has to know what happens when a setting was never set.
+    workspace: {
+      clientId: req.client.clientId,
+      companyName: req.client.companyName,
+      slug: req.client.slug,
+      branding: {
+        logo: settingValue(req.client, 'branding.logo'),
+        primaryColor: settingValue(req.client, 'branding.primaryColor'),
+      },
+      features: {
+        supplierChat: settingValue(req.client, 'features.supplierChat'),
+        supplierSelfRegistration: settingValue(req.client, 'features.supplierSelfRegistration'),
+      },
+    },
+    ...(req.vendor
+      ? { vendor: formatVendorResponse(req.vendor) }
+      : { user: formatUserResponse(req.user) })
   });
 });
 
-const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 const GENERIC_FORGOT_MESSAGE = 'If an account exists for this email, a password reset link has been sent.';
 
-// @desc    Issue a time-limited password reset token
+// Finds the identity that owns an email across both tenant-plane collections.
+const findResettableAccount = async (email) => {
+  const lowered = String(email || '').toLowerCase();
+  const user = await withoutTenantScope(() => User.findOne({ email: lowered }));
+  if (user) return user;
+  return withoutTenantScope(() => Vendor.findOne({ email: lowered }));
+};
+
+// @desc    Issue a time-limited password reset token and email it
 // @route   POST /api/auth/forgot-password
 // @access  Public
-const forgotPassword = asyncHandler(async (req, res, next) => {
+const forgotPassword = asyncHandler(async (req, res) => {
   const { email } = req.body;
-  const vendor = await Vendor.findOne({ email: email.toLowerCase() });
+  const account = await findResettableAccount(email);
 
   // Same response whether or not the email exists, so this endpoint can't be
-  // used to enumerate registered vendors.
-  if (!vendor) {
+  // used to enumerate accounts.
+  if (!account || !account.canAuthenticate()) {
     return res.json({ success: true, message: GENERIC_FORGOT_MESSAGE });
   }
 
-  const rawToken = crypto.randomBytes(32).toString('hex');
-  vendor.resetPasswordToken = crypto.createHash('sha256').update(rawToken).digest('hex');
-  vendor.resetPasswordExpires = Date.now() + RESET_TOKEN_TTL_MS;
-  await vendor.save();
+  const rawToken = account.issueResetToken();
+  await withoutTenantScope(() => account.save({ validateBeforeSave: false }));
 
-  const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${rawToken}`;
-  // No email service is configured for this portal — log the link instead so
-  // it can be retrieved by an operator until one is wired up.
-  logger.info(`Password reset requested for ${vendor.email}: ${resetUrl}`);
+  const resetUrl = `${frontendUrl()}/reset-password?token=${rawToken}`;
+
+  // The link is emailed, never logged (ADR-0011).
+  await sendMail({
+    to: account.email,
+    template: 'passwordReset',
+    data: {
+      name: account.name || account.companyName,
+      resetUrl,
+      expiresInMinutes: RESET_TOKEN_TTL_MS / 60000,
+    },
+  });
+  logger.info(`Password reset email dispatched for account ${account._id}`);
 
   res.json({ success: true, message: GENERIC_FORGOT_MESSAGE });
 });
 
-// @desc    Reset a vendor's password using a token issued by forgotPassword
+// @desc    Reset a password using a token issued by forgotPassword
 // @route   POST /api/auth/reset-password
 // @access  Public
 const resetPassword = asyncHandler(async (req, res, next) => {
   const { token, password } = req.body;
-  const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+  const hashedToken = hashResetToken(String(token || ''));
+  const criteria = { resetPasswordToken: hashedToken, resetPasswordExpires: { $gt: new Date() } };
 
-  const vendor = await Vendor.findOne({
-    resetPasswordToken: hashedToken,
-    resetPasswordExpires: { $gt: Date.now() }
-  });
+  const account =
+    (await withoutTenantScope(() => User.findOne(criteria))) ||
+    (await withoutTenantScope(() => Vendor.findOne(criteria)));
 
-  if (!vendor) {
+  if (!account) {
     return next(ApiError.badRequest('Password reset token is invalid or has expired'));
   }
 
-  vendor.password = password;
-  vendor.resetPasswordToken = undefined;
-  vendor.resetPasswordExpires = undefined;
-  await vendor.save();
+  // Single use: the token fields are cleared in the same save as the password.
+  account.consumeResetToken(password);
+  await withoutTenantScope(() => account.save({ validateBeforeSave: false }));
 
   res.json({ success: true, message: 'Password has been reset. You can now sign in.' });
+});
+
+// @desc    Change your own password (also clears a forced first-login change)
+// @route   POST /api/auth/change-password
+// @access  Private
+const changePassword = asyncHandler(async (req, res, next) => {
+  const { currentPassword, newPassword } = req.body;
+  const Model = req.vendor ? Vendor : User;
+
+  const account = await withoutTenantScope(() => Model.findById(req.auth.id).select('+password'));
+  if (!account) {
+    return next(ApiError.unauthorized('Not authorized'));
+  }
+
+  if (!(await account.comparePassword(currentPassword))) {
+    return next(ApiError.unauthorized('Current password is incorrect'));
+  }
+
+  account.password = newPassword;
+  account.mustChangePassword = false;
+  await withoutTenantScope(() => account.save({ validateBeforeSave: false }));
+
+  res.json({ success: true, message: 'Password updated.' });
 });
 
 module.exports = {
@@ -210,5 +297,8 @@ module.exports = {
   login,
   getMe,
   forgotPassword,
-  resetPassword
+  resetPassword,
+  changePassword,
+  formatVendorResponse,
+  formatUserResponse,
 };

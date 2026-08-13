@@ -76,6 +76,12 @@ const profileCreateSchema = z.object({
 
 const profileUpdateSchema = profileCreateSchema.partial();
 
+// A supplier created from the tenant's directory. Derived from the
+// self-registration schema rather than restated, so the two can never drift:
+// the tenant supplies the same fields minus the two it does not own — the
+// vendorId (issued server-side) and the status (the workflow's to set).
+const vendorCreateSchema = profileCreateSchema.omit({ vendorId: true, status: true });
+
 const rejectVendorSchema = z.object({
   reason: z.string().min(1, { message: "Rejection reason is required" })
 });
@@ -83,5 +89,6 @@ const rejectVendorSchema = z.object({
 module.exports = {
   profileCreateSchema,
   profileUpdateSchema,
+  vendorCreateSchema,
   rejectVendorSchema
 };

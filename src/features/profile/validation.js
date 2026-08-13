@@ -1,5 +1,11 @@
 // Field-level validation for the vendor registration form.
 // Extracted from RegistrationView so it can be unit-tested; returns '' when valid.
+//
+// A supplier can be created two ways — they register themselves, or a tenant
+// adds them from its directory — and both go through the rules below. The
+// tenant's form asks for the identifying half only (the supplier still owns
+// their banking details and documents), so that half is named once, here, and
+// read by whoever renders it.
 export const validateField = (field, value) => {
   switch (field) {
     case 'companyName':
@@ -76,3 +82,29 @@ export const validateField = (field, value) => {
       return '';
   }
 };
+
+// What a tenant fills in when it adds a supplier itself. Labels sit beside the
+// field names because the form has no list of its own to keep in step.
+export const SUPPLIER_IDENTITY_FIELDS = [
+  { name: 'companyName', label: 'Legal entity name' },
+  { name: 'email', label: 'Contact email', type: 'email' },
+  { name: 'phone', label: 'Mobile / phone' },
+  { name: 'gstin', label: 'GSTIN' },
+  { name: 'pan', label: 'PAN' },
+  { name: 'address', label: 'Street address' },
+  { name: 'city', label: 'City' },
+  { name: 'state', label: 'State' },
+  { name: 'postalCode', label: 'PIN code' },
+];
+
+/**
+ * Runs `validateField` over a set of fields and returns a { field: message }
+ * map of the ones that failed — the same shape the API returns for a schema
+ * failure, so a form renders both the same way.
+ */
+export const validateFields = (fields, values = {}) =>
+  fields.reduce((errors, field) => {
+    const name = typeof field === 'string' ? field : field.name;
+    const message = validateField(name, values[name]);
+    return message ? { ...errors, [name]: message } : errors;
+  }, {});

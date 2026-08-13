@@ -3,12 +3,9 @@ const PurchaseOrder = require('../models/PurchaseOrder');
 const Vendor = require('../models/Vendor');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
-const { createSapLog } = require('../utils/sapLogger');
+const { getSapAdapterForClient } = require('../sap');
 
-// Helper to determine vendor ID
-const getVendorId = (req) => {
-  return req.clerkUserId || req.headers['x-vendor-id'] || 'mock_vendor_id';
-};
+const { requireVendorScope, vendorScope } = require('../utils/requestScope');
 
 // Helper for tax codes
 const gstToTaxCode = (gstRate) => {
@@ -24,9 +21,10 @@ const gstToTaxCode = (gstRate) => {
 // @route   GET /api/rfqs
 // @access  Public (unauth development)
 const getRFQs = asyncHandler(async (req, res, next) => {
-  const vendorId = req.clerkUserId || req.headers['x-vendor-id'];
   const { status, page = 1, limit = 20 } = req.query;
 
+  // A supplier only ever sees RFQs they were invited to.
+  const vendorId = vendorScope(req);
   let query = {};
   if (vendorId && req.query.all !== 'true') {
     query = { 'invitedVendors.id': vendorId };
@@ -108,24 +106,10 @@ const createRFQ = asyncHandler(async (req, res, next) => {
     invitedVendors: invitedVendors || []
   });
 
-  // Create BAPI_RFQ_CREATE Log
-  await createSapLog({
-    vendorId: invitedVendors && invitedVendors.length ? invitedVendors[0].id : 'SYSTEM',
-    type: 'BAPI',
-    direction: 'OUTBOUND',
-    name: 'BAPI_RFQ_CREATE',
-    payload: {
-      EKKO: {
-        EBELN: id,
-        BSART: rfq.rfqType,
-        ANGDT: rfq.deadlineDate,
-        EKGRP: rfq.purchasingGroup || '001',
-        ZTERM: rfq.paymentTerms
-      },
-      EKPO: rfq.items
-    },
-    status: 'SUCCESS',
-    documentRef: id
+  const sap = await getSapAdapterForClient(req.clientId);
+  await sap.rfqCreate({
+    rfq,
+    vendorId: invitedVendors && invitedVendors.length ? invitedVendors[0].id : 'SYSTEM'
   });
 
   res.status(201).json(rfq);
@@ -143,15 +127,8 @@ const cancelRFQ = asyncHandler(async (req, res, next) => {
   rfq.status = 'Closed';
   await rfq.save();
 
-  await createSapLog({
-    vendorId: 'SYSTEM',
-    type: 'RFC',
-    direction: 'OUTBOUND',
-    name: 'RFC_RFQ_CANCEL',
-    payload: { rfqId: rfq.id, status: 'Closed' },
-    status: 'SUCCESS',
-    documentRef: rfq.id
-  });
+  const sap = await getSapAdapterForClient(req.clientId);
+  await sap.rfqCancel({ rfq });
 
   res.json({ message: 'RFQ cancelled successfully', rfq });
 });
@@ -174,15 +151,8 @@ const reissueRFQ = asyncHandler(async (req, res, next) => {
   rfq.status = 'Bidding Open';
   await rfq.save();
 
-  await createSapLog({
-    vendorId: 'SYSTEM',
-    type: 'RFC',
-    direction: 'OUTBOUND',
-    name: 'RFC_RFQ_REISSUE',
-    payload: { rfqId: rfq.id, deadlineDate: rfq.deadlineDate },
-    status: 'SUCCESS',
-    documentRef: rfq.id
-  });
+  const sap = await getSapAdapterForClient(req.clientId);
+  await sap.rfqReissue({ rfq });
 
   res.json({ message: 'RFQ reissued successfully', rfq });
 });
@@ -191,7 +161,7 @@ const reissueRFQ = asyncHandler(async (req, res, next) => {
 // @route   POST /api/rfqs/:id/bid
 // @access  Public
 const submitBid = asyncHandler(async (req, res, next) => {
-  const vendorId = getVendorId(req);
+  const vendorId = requireVendorScope(req);
   const { unitPrices, gstRate, freight, deliveryLeadTimeDays, validityDate, remarks, uploadedDocs } = req.body;
 
   if (!unitPrices) {
@@ -269,22 +239,11 @@ const submitBid = asyncHandler(async (req, res, next) => {
   }
   await rfq.save();
 
-  // Log SAP outbound sync
-  await createSapLog({
+  const sap = await getSapAdapterForClient(req.clientId);
+  await sap.rfqSubmitBid({
+    rfq,
     vendorId,
-    type: 'RFC',
-    direction: 'OUTBOUND',
-    name: 'RFC_RFQ_SUBMIT_BID',
-    payload: {
-      EBELN: rfq.id,
-      LIFNR: vendorId,
-      NETPR: unitPrices,
-      MWSKZ: taxCode,
-      PLIFZ: deliveryLeadTimeDays,
-      BNDDT: validityDate
-    },
-    status: 'SUCCESS',
-    documentRef: rfq.id
+    bid: { unitPrices, taxCode, deliveryLeadTimeDays, validityDate }
   });
 
   res.json({ message: 'Bid submitted successfully', bidsCount: rfq.bids.length });
@@ -434,31 +393,9 @@ const awardBid = asyncHandler(async (req, res, next) => {
   rfq.convertedPoId = po.id;
   await rfq.save();
 
-  // Log SAP Outbound BAPI
-  await createSapLog({
-    vendorId,
-    type: 'BAPI',
-    direction: 'OUTBOUND',
-    name: 'BAPI_INFORECORD_CREATE',
-    payload: {
-      LIFNR: vendorId,
-      INFNR: 'INF-' + Math.floor(100000 + Math.random() * 900000),
-      items: poItems
-    },
-    status: 'SUCCESS',
-    documentRef: rfq.id
-  });
-
-  // Log SAP Inbound OData PO Sync
-  await createSapLog({
-    vendorId,
-    type: 'OData',
-    direction: 'INBOUND',
-    name: 'OData_PO_INBOUND_SYNC',
-    payload: po,
-    status: 'SUCCESS',
-    documentRef: po.id
-  });
+  const sap = await getSapAdapterForClient(req.clientId);
+  await sap.infoRecordCreate({ rfq, vendorId, items: poItems });
+  await sap.poInboundSync({ po, vendorId });
 
   res.json({ message: 'RFQ awarded and Purchase Order created successfully', po });
 });

@@ -10,6 +10,7 @@ import { usePayments } from '@/features/payments/hooks/usePayments';
 import { useDashboard } from '@/features/dashboard/hooks/useDashboard';
 import { usePathname, useRouter } from 'next/navigation';
 import { initSocket, closeSocket } from '@/lib/socket';
+import { isPlatformPath } from '@/lib/planes';
 import ToastNotification from '@/components/portal/ToastNotification';
 
 const PortalContext = createContext(undefined);
@@ -51,7 +52,9 @@ export function PortalProvider({ children }) {
     if (typeof window !== 'undefined') {
       const token = localStorage.getItem('jwt_token');
       const isAuthPage = pathname === '/sign-in' || pathname === '/sign-up' || pathname === '/forgot-password' || pathname === '/reset-password';
-      if (!token && !isAuthPage) {
+      // The platform console has its own session and its own sign-in flow;
+      // bouncing an operator to the supplier login would be nonsense.
+      if (!token && !isAuthPage && !isPlatformPath(pathname)) {
         router.push('/sign-in');
       }
     }

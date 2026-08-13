@@ -4,12 +4,22 @@ const ASN = require('../models/ASN');
 const Invoice = require('../models/Invoice');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
+const logger = require('../utils/logger');
 const { verifyGstinPan } = require('../services/verification.service');
+const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
+const { resolveClientForRequest } = require('../utils/resolveClient');
+const { getSapAdapterForClient } = require('../sap');
 
-// Helper to determine vendor ID from header (for dev) or JWT auth
-const getVendorId = (req) => {
-  return req.vendorId || req.clerkUserId || req.headers['x-vendor-id'] || 'mock_vendor_id';
-};  
+const { requireVendorScope } = require('../utils/requestScope');
+const { recordAudit } = require('../utils/audit');
+const { AUDIT_ACTIONS } = require('../config/auditActions');
+const { settingValue } = require('../config/tenantSettings');
+const { VENDOR_STATUS, VENDOR_STATUSES, VENDOR_AWAITING_DECISION } = require('../config/statuses');
+const { generateVendorId, identityIsTaken, unguessablePassword } = require('../utils/vendorIdentity');
+const { hasSupplierInvitation } = require('./invitation.controller');
+const { sendMail } = require('../utils/mailer');
+const { frontendUrl } = require('../config/emailTemplates');
+const { RESET_TOKEN_TTL_MS } = require('../models/plugins/credentialsPlugin');
 
 // Helper to map flat or nested fields into flat Vendor model fields
 const mapIncomingBody = (body) => {
@@ -59,7 +69,7 @@ const formatVendorResponse = (vendor) => {
 // Runs the GSTIN/PAN check for a vendor and persists the result on the
 // document. This is the only place gstinVerified/panVerified get set, so
 // every approval path is guaranteed to go through the same check.
-const runGstinPanVerification = async (vendor) => {
+const runGstinPanVerification = async (vendor, sap) => {
   const result = await verifyGstinPan(vendor.gstin, vendor.pan);
 
   vendor.gstinVerified = result.gstinValid;
@@ -68,25 +78,40 @@ const runGstinPanVerification = async (vendor) => {
   vendor.verificationDetails = result;
   await vendor.save();
 
-  const { createSapLog } = require('../utils/sapLogger');
-  await createSapLog({
-    vendorId: vendor.vendorId,
-    type: 'KYC',
-    direction: 'OUTBOUND',
-    name: 'GSTIN_PAN_VERIFY',
-    payload: { gstin: vendor.gstin, pan: vendor.pan, result },
-    status: (result.gstinValid && result.panValid) ? 'SUCCESS' : 'FAILED',
-    documentRef: vendor._id.toString()
-  });
+  await sap.vendorVerifyKyc({ vendor, result });
 
   return vendor;
+};
+
+// Tells a supplier what was decided about them, if this workspace has said it
+// wants that (config/tenantSettings.js). A mail failure must not undo a
+// decision that has already been taken and logged to SAP, so it is caught here.
+const notifyDecision = async (req, vendor, { approved, reason }) => {
+  if (!settingValue(req.client, 'notifications.supplierDecisionEmail')) return;
+
+  try {
+    await sendMail({
+      to: vendor.email,
+      template: 'supplierDecision',
+      data: {
+        companyName: vendor.companyName,
+        workspaceName: req.client.companyName,
+        approved,
+        reason,
+        sapVendorCode: vendor.sapVendorCode,
+        portalUrl: frontendUrl(),
+      },
+    });
+  } catch (error) {
+    logger.error(`[vendor] decision email to ${vendor.email} failed: ${error.message}`);
+  }
 };
 
 // @desc    Get current vendor profile
 // @route   GET /api/vendors/profile
 // @access  Private
 const getProfile = asyncHandler(async (req, res, next) => {
-  const vendorId = getVendorId(req);
+  const vendorId = requireVendorScope(req);
   const vendor = await Vendor.findOne({ vendorId });
   if (!vendor) {
     return next(ApiError.notFound('Vendor profile not found'));
@@ -105,27 +130,101 @@ const createProfile = asyncHandler(async (req, res, next) => {
     return next(ApiError.badRequest('Vendor ID, company name, GSTIN, PAN, and email are required'));
   }
 
-  const existingVendor = await Vendor.findOne({ $or: [{ vendorId }, { email }, { gstin }] });
-  if (existingVendor) {
+  // This route is unauthenticated, so — like registration — it resolves the
+  // workspace from the request rather than from a bound tenant context.
+  const client = await resolveClientForRequest(req);
+  if (!client) {
+    return next(ApiError.badRequest('Unknown workspace'));
+  }
+  if (!client.isOperational()) {
+    return next(ApiError.forbidden('This workspace is not accepting registrations'));
+  }
+
+  // Same rule as POST /api/auth/register: a workspace may admit suppliers by
+  // invitation only, and an invited supplier is not self-service.
+  if (!settingValue(client, 'features.supplierSelfRegistration')
+    && !(await hasSupplierInvitation(client.clientId, email))) {
+    return next(ApiError.forbidden('This workspace admits suppliers by invitation only'));
+  }
+
+  // Login identities are global, so this collision check spans all tenants.
+  if (await identityIsTaken({ vendorId, email, gstin })) {
     return next(ApiError.conflict('Vendor with this ID, email, or GSTIN already exists'));
   }
 
   // Determine starting status
-  const defaultStatus = (vendorId && vendorId.startsWith('mock_vendor_')) ? 'Pending' : 'Draft';
+  const defaultStatus = (vendorId && vendorId.startsWith('mock_vendor_'))
+    ? VENDOR_STATUS.PENDING
+    : VENDOR_STATUS.DRAFT;
+
+  const vendor = await runWithTenant(client.clientId, () => Vendor.create({
+    ...mappedBody,
+    status: mappedBody.status || defaultStatus
+  }));
+
+  res.status(201).json(formatVendorResponse(vendor));
+});
+
+// @desc    Create a supplier from the tenant's own directory
+// @route   POST /api/vendors
+// @access  vendor:create
+//
+// The tenant-side mirror of self-registration. It shares the field list, the
+// validation schema and the flat/nested mapping with POST /vendors/profile —
+// the only differences are whose word the record starts on and how the supplier
+// gets in: the tenant never sets a password, so the account is created with one
+// nobody knows and the supplier claims it through an emailed link (ADR-0026).
+const createVendor = asyncHandler(async (req, res, next) => {
+  const mappedBody = mapIncomingBody(req.body);
+  const { companyName, gstin, pan, email } = mappedBody;
+
+  if (await identityIsTaken({ email, gstin })) {
+    return next(ApiError.conflict('A supplier with this email or GSTIN already exists'));
+  }
+
+  const vendorId = await generateVendorId();
 
   const vendor = await Vendor.create({
     ...mappedBody,
-    status: mappedBody.status || defaultStatus
+    vendorId,
+    password: unguessablePassword(),
+    mustChangePassword: true,
+    // A record the tenant vouches for, but the supplier has not yet confirmed
+    // or documented: it starts where a self-registered draft starts, and the
+    // same submit-then-approve path applies from there.
+    status: VENDOR_STATUS.DRAFT,
   });
 
-  res.status(201).json(formatVendorResponse(vendor));
+  const rawToken = vendor.issueResetToken();
+  await vendor.save();
+
+  await sendMail({
+    to: vendor.email,
+    template: 'supplierWelcome',
+    data: {
+      companyName,
+      workspaceName: req.client.companyName,
+      vendorId,
+      setPasswordUrl: `${frontendUrl()}/reset-password?token=${rawToken}`,
+      expiresInMinutes: RESET_TOKEN_TTL_MS / 60000,
+    },
+  });
+
+  await recordAudit({
+    action: AUDIT_ACTIONS.VENDOR_CREATED,
+    req,
+    target: { type: 'Vendor', id: vendorId, label: companyName },
+    meta: { email, gstin, pan },
+  });
+
+  res.status(201).json({ success: true, vendor: formatVendorResponse(vendor) });
 });
 
 // @desc    Update current vendor profile
 // @route   PUT /api/vendors/profile
 // @access  Private
 const updateProfile = asyncHandler(async (req, res, next) => {
-  const vendorId = getVendorId(req);
+  const vendorId = requireVendorScope(req);
   const vendor = await Vendor.findOne({ vendorId });
   if (!vendor) {
     return next(ApiError.notFound('Vendor profile not found'));
@@ -148,7 +247,7 @@ const updateProfile = asyncHandler(async (req, res, next) => {
 // @route   POST /api/vendors/profile/submit
 // @access  Private
 const submitRegistration = asyncHandler(async (req, res, next) => {
-  const vendorId = getVendorId(req);
+  const vendorId = requireVendorScope(req);
   const vendor = await Vendor.findOne({ vendorId });
   if (!vendor) {
     return next(ApiError.notFound('Vendor profile not found'));
@@ -158,64 +257,32 @@ const submitRegistration = asyncHandler(async (req, res, next) => {
   vendor.submittedAt = new Date();
   await vendor.save();
 
-  // Create outbound pending log for BAPI_VENDOR_CREATE
-  const { createSapLog } = require('../utils/sapLogger');
-  const sapLog = await createSapLog({
-    vendorId,
-    type: 'BAPI',
-    direction: 'OUTBOUND',
-    name: 'BAPI_VENDOR_CREATE',
-    payload: {
-      vendorId,
-      companyName: vendor.companyName,
-      gstin: vendor.gstin,
-      pan: vendor.pan,
-      email: vendor.email
-    },
-    status: 'PENDING',
-    documentRef: vendor._id.toString()
-  });
+  const sap = await getSapAdapterForClient(req.clientId);
+
+  // Announced to SAP and left open: the confirmation is what closes it.
+  const { pendingLogId } = await sap.vendorCreate({ vendor });
 
   // Verify GSTIN/PAN as part of submission — approval is blocked until this passes
-  await runGstinPanVerification(vendor);
+  await runGstinPanVerification(vendor, sap);
 
-  // Simulate SAP auto-approval in 5 seconds
-  setTimeout(async () => {
-    try {
-      const updatedVendor = await Vendor.findOne({ vendorId });
-      if (updatedVendor && updatedVendor.gstinVerified && updatedVendor.panVerified &&
-          (updatedVendor.status === 'Under Review' || updatedVendor.status === 'Pending Approval')) {
-        updatedVendor.status = 'Approved';
-        updatedVendor.approvedAt = new Date();
-        updatedVendor.sapVendorCode = 'VND-' + Math.floor(10000 + Math.random() * 90000);
-        await updatedVendor.save();
+  sap.awaitVendorApproval({ vendor, vendorId, pendingLogId }, async (confirmation) => {
+    const updatedVendor = await Vendor.findOne({ vendorId });
 
-        // Update the outbound request status
-        sapLog.status = 'SUCCESS';
-        await sapLog.save();
+    // SAP only confirms a vendor that is still awaiting confirmation and whose
+    // KYC passed; anything else means the record moved on while we waited.
+    if (!updatedVendor || !updatedVendor.gstinVerified || !updatedVendor.panVerified) return null;
+    if (!['Under Review', 'Pending Approval'].includes(updatedVendor.status)) return null;
 
-        // Create inbound success log for OData confirmation
-        await createSapLog({
-          vendorId,
-          type: 'OData',
-          direction: 'INBOUND',
-          name: 'OData_VENDOR_CONFIRM',
-          payload: {
-            sapVendorCode: updatedVendor.sapVendorCode,
-            status: 'Approved'
-          },
-          status: 'SUCCESS',
-          documentRef: updatedVendor._id.toString()
-        });
-        console.log(`[SIMULATOR] Auto-approved vendor: ${vendorId} (${updatedVendor.sapVendorCode})`);
-      }
-    } catch (err) {
-      console.error('[SIMULATOR] Failed to auto-approve vendor:', err);
-    }
-  }, 5000);
+    updatedVendor.status = 'Approved';
+    updatedVendor.approvedAt = new Date();
+    updatedVendor.sapVendorCode = confirmation.sapVendorCode;
+    await updatedVendor.save();
+
+    return updatedVendor;
+  });
 
   res.json({
-    message: 'Registration submitted. Awaiting approval (simulated auto-approval in 5 seconds).',
+    message: 'Registration submitted. Awaiting confirmation from SAP.',
     vendor: formatVendorResponse(vendor)
   });
 });
@@ -230,33 +297,31 @@ const approveVendor = asyncHandler(async (req, res, next) => {
     return next(ApiError.notFound('Vendor not found'));
   }
 
+  const sap = await getSapAdapterForClient(req.clientId);
+
   if (!vendor.verifiedAt) {
-    await runGstinPanVerification(vendor);
+    await runGstinPanVerification(vendor, sap);
   }
 
   if (!vendor.gstinVerified || !vendor.panVerified) {
     return next(ApiError.badRequest('Vendor cannot be approved: GSTIN/PAN verification failed or has not been completed'));
   }
 
-  vendor.status = 'Approved';
+  // SAP issues the vendor master code, so the confirmation is what fills it in.
+  const { sapVendorCode } = await sap.vendorConfirm({ vendor });
+
+  vendor.status = VENDOR_STATUS.APPROVED;
   vendor.approvedAt = new Date();
-  if (!vendor.sapVendorCode) {
-    vendor.sapVendorCode = 'VND-' + Math.floor(10000 + Math.random() * 90000);
-  }
+  vendor.sapVendorCode = sapVendorCode;
   await vendor.save();
 
-  const { createSapLog } = require('../utils/sapLogger');
-  await createSapLog({
-    vendorId: vendor.vendorId,
-    type: 'OData',
-    direction: 'INBOUND',
-    name: 'OData_VENDOR_CONFIRM',
-    payload: {
-      sapVendorCode: vendor.sapVendorCode,
-      status: 'Approved'
-    },
-    status: 'SUCCESS',
-    documentRef: vendor._id.toString()
+  await notifyDecision(req, vendor, { approved: true });
+
+  await recordAudit({
+    action: AUDIT_ACTIONS.VENDOR_APPROVED,
+    req,
+    target: { type: 'Vendor', id: vendor.vendorId, label: vendor.companyName },
+    meta: { sapVendorCode },
   });
 
   res.json({ message: 'Vendor approved successfully', vendor: formatVendorResponse(vendor) });
@@ -277,22 +342,20 @@ const rejectVendor = asyncHandler(async (req, res, next) => {
     return next(ApiError.notFound('Vendor not found'));
   }
 
-  vendor.status = 'Rejected';
+  vendor.status = VENDOR_STATUS.REJECTED;
   vendor.rejectionReason = reason;
   await vendor.save();
 
-  const { createSapLog } = require('../utils/sapLogger');
-  await createSapLog({
-    vendorId: vendor.vendorId,
-    type: 'OData',
-    direction: 'INBOUND',
-    name: 'OData_VENDOR_REJECT',
-    payload: {
-      status: 'Rejected',
-      reason
-    },
-    status: 'SUCCESS',
-    documentRef: vendor._id.toString()
+  const sap = await getSapAdapterForClient(req.clientId);
+  await sap.vendorReject({ vendor, reason });
+
+  await notifyDecision(req, vendor, { approved: false, reason });
+
+  await recordAudit({
+    action: AUDIT_ACTIONS.VENDOR_REJECTED,
+    req,
+    target: { type: 'Vendor', id: vendor.vendorId, label: vendor.companyName },
+    meta: { reason },
   });
 
   res.json({ message: 'Vendor rejected successfully', vendor: formatVendorResponse(vendor) });
@@ -302,8 +365,23 @@ const rejectVendor = asyncHandler(async (req, res, next) => {
 // @route   GET /api/vendors
 // @access  Admin/Private
 const listVendors = asyncHandler(async (req, res, next) => {
-  const { status, page = 1, limit = 20 } = req.query;
-  const query = status ? { status } : {};
+  const { status, search, page = 1, limit = 20 } = req.query;
+
+  const query = {};
+  if (status) {
+    // The directory's filter offers the registry's statuses; anything else is
+    // a malformed request rather than an empty page.
+    if (!VENDOR_STATUSES.includes(status)) {
+      return next(ApiError.badRequest(`status must be one of: ${VENDOR_STATUSES.join(', ')}`));
+    }
+    query.status = status;
+  }
+  if (search) {
+    // Escaped: a supplier's name is user input, and an unescaped regex here is
+    // both a wrong answer and a way to make Mongo work very hard.
+    const term = new RegExp(String(search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    query.$or = [{ companyName: term }, { vendorId: term }, { email: term }, { gstin: term }];
+  }
 
   const skip = (page - 1) * limit;
   const vendors = await Vendor.find(query)
@@ -315,6 +393,9 @@ const listVendors = asyncHandler(async (req, res, next) => {
 
   res.json({
     vendors: vendors.map(formatVendorResponse),
+    // The directory's filter is offered by the registry rather than typed into
+    // the screen, so a new status appears in the dropdown by existing.
+    filters: { statuses: VENDOR_STATUSES, awaitingDecision: VENDOR_AWAITING_DECISION },
     pagination: {
       total,
       page: Number(page),
@@ -328,7 +409,7 @@ const listVendors = asyncHandler(async (req, res, next) => {
 // @route   GET /api/vendors/performance
 // @access  Private
 const getPerformance = asyncHandler(async (req, res, next) => {
-  const vendorId = getVendorId(req);
+  const vendorId = requireVendorScope(req);
   const vendor = await Vendor.findOne({ vendorId });
   if (!vendor) {
     return next(ApiError.notFound('Vendor profile not found'));
@@ -438,6 +519,7 @@ const getPerformance = asyncHandler(async (req, res, next) => {
 module.exports = {
   getProfile,
   createProfile,
+  createVendor,
   updateProfile,
   submitRegistration,
   approveVendor,

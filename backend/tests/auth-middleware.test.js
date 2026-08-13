@@ -1,22 +1,25 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
-const { registerVendor } = require('./helpers');
+const { registerVendor, createTenantUser, createPlatformUser } = require('./helpers');
 
 const app = buildTestApp();
 
-describe('x-vendor-id dev fallback (protect middleware)', () => {
+// The x-vendor-id header used to authenticate a request whenever NODE_ENV was
+// not production. It is gone in every environment (ADR-0010) — the JWT is the
+// only identity the API accepts.
+describe('protect middleware', () => {
   let vendor;
 
   beforeEach(async () => {
     ({ vendor } = await registerVendor(app));
   });
 
-  it('authenticates via x-vendor-id when no JWT is sent and NODE_ENV is not production', async () => {
+  it('ignores x-vendor-id entirely and answers 401', async () => {
     const res = await request(app).get('/api/rfqs').set('x-vendor-id', vendor.vendorId);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(401);
   });
 
-  it('rejects x-vendor-id (with no JWT) once NODE_ENV=production, since the fallback is dev/test-only', async () => {
+  it('still ignores it in production', async () => {
     const original = process.env.NODE_ENV;
     process.env.NODE_ENV = 'production';
     try {
@@ -27,8 +30,38 @@ describe('x-vendor-id dev fallback (protect middleware)', () => {
     }
   });
 
-  it('rejects requests with neither a JWT nor x-vendor-id', async () => {
+  it('rejects requests with no token at all', async () => {
     const res = await request(app).get('/api/rfqs');
+    expect(res.status).toBe(401);
+  });
+
+  it('accepts a supplier JWT and scopes the request to that supplier', async () => {
+    const { token } = await registerVendor(app, { vendorId: 'vendor_scope_1', email: 'scope@example.com', gstin: '27AABCB1234F1Z6' });
+    const res = await request(app).get('/api/rfqs').set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+  });
+
+  it('refuses a platform operator at a tenant endpoint', async () => {
+    const { token } = await createPlatformUser();
+    const res = await request(app).get('/api/rfqs').set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(403);
+  });
+
+  it('answers 404 — not 403 — when a tenant account calls the platform plane', async () => {
+    const { token } = await createTenantUser({ role: 'client_admin' });
+    const res = await request(app).get('/api/platform/auth/me').set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(404);
+  });
+
+  it('rejects a token whose role no longer matches the account', async () => {
+    const { token, user } = await createTenantUser({ role: 'buyer' });
+    const { asTenant } = require('./helpers');
+    await asTenant(async () => {
+      const User = require('../models/User');
+      await User.updateOne({ _id: user._id }, { role: 'finance' });
+    });
+
+    const res = await request(app).get('/api/auth/me').set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(401);
   });
 });

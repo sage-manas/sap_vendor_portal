@@ -2,6 +2,7 @@ const router = require('express').Router();
 const {
   getProfile,
   createProfile,
+  createVendor,
   updateProfile,
   submitRegistration,
   approveVendor,
@@ -9,27 +10,33 @@ const {
   listVendors,
   getPerformance
 } = require('../controllers/vendor.controller');
+const { inviteVendor } = require('../controllers/invitation.controller');
 
 const validate = require('../middleware/validate');
-const { protect, authorize } = require('../middleware/auth');
+const { protect, requirePermission } = require('../middleware/auth');
+const { PERMISSIONS } = require('../config/permissions');
 const {
   profileCreateSchema,
   profileUpdateSchema,
+  vendorCreateSchema,
   rejectVendorSchema
 } = require('../validators/vendor.validator');
+const { inviteVendorSchema } = require('../validators/user.validator');
 
-// Profile routes
-router.get('/profile', protect, getProfile);
+// Supplier self-service. POST /profile is the unauthenticated arm of
+// registration and resolves its tenant from the request (ADR-0004).
 router.post('/profile', validate(profileCreateSchema), createProfile);
-router.put('/profile', protect, validate(profileUpdateSchema), updateProfile);
-router.post('/profile/submit', protect, submitRegistration);
+router.get('/profile', protect, requirePermission(PERMISSIONS.PROFILE_READ), getProfile);
+router.put('/profile', protect, requirePermission(PERMISSIONS.PROFILE_WRITE), validate(profileUpdateSchema), updateProfile);
+router.post('/profile/submit', protect, requirePermission(PERMISSIONS.PROFILE_SUBMIT), submitRegistration);
 
-// Performance analytics route
-router.get('/performance', protect, getPerformance);
+router.get('/performance', protect, requirePermission(PERMISSIONS.PERFORMANCE_READ), getPerformance);
 
-// Admin routes
-router.get('/', protect, authorize('admin'), listVendors);
-router.put('/:id/approve', protect, authorize('admin'), approveVendor);
-router.put('/:id/reject', protect, authorize('admin'), validate(rejectVendorSchema), rejectVendor);
+// Supplier directory (tenant staff).
+router.post('/invitations', protect, requirePermission(PERMISSIONS.VENDOR_INVITE), validate(inviteVendorSchema), inviteVendor);
+router.post('/', protect, requirePermission(PERMISSIONS.VENDOR_CREATE), validate(vendorCreateSchema), createVendor);
+router.get('/', protect, requirePermission(PERMISSIONS.VENDOR_READ), listVendors);
+router.put('/:id/approve', protect, requirePermission(PERMISSIONS.VENDOR_APPROVE), approveVendor);
+router.put('/:id/reject', protect, requirePermission(PERMISSIONS.VENDOR_APPROVE), validate(rejectVendorSchema), rejectVendor);
 
 module.exports = router;

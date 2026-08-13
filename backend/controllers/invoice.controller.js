@@ -5,25 +5,18 @@ const Payment = require('../models/Payment');
 const Vendor = require('../models/Vendor');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
-const { createSapLog } = require('../utils/sapLogger');
+const { getSapAdapterForClient } = require('../sap');
 const { EVENTS, emitToVendor } = require('../utils/socketEmitter');
 
-// Helper to determine vendor ID
-const getVendorId = (req) => {
-  return req.clerkUserId || req.headers['x-vendor-id'] || 'mock_vendor_id';
-};
+const { requireVendorScope, withVendorScope } = require('../utils/requestScope');
 
 // @desc    Get Invoices
 // @route   GET /api/invoices
 // @access  Public
 const getInvoices = asyncHandler(async (req, res, next) => {
-  const vendorId = req.clerkUserId || req.headers['x-vendor-id'];
   const { status, page = 1, limit = 10 } = req.query;
 
-  let query = {};
-  if (vendorId) {
-    query.vendorId = vendorId;
-  }
+  const query = withVendorScope(req);
   if (status) {
     query.status = status;
   }
@@ -62,7 +55,7 @@ const getInvoiceById = asyncHandler(async (req, res, next) => {
 // @route   POST /api/invoices
 // @access  Public
 const submitInvoice = asyncHandler(async (req, res, next) => {
-  const vendorId = getVendorId(req);
+  const vendorId = requireVendorScope(req);
   const { grnId, invoiceNumber, invoiceDate, subTotal, taxAmount, totalAmount, items } = req.body;
 
   if (!grnId || !invoiceNumber || !invoiceDate || !items || !items.length) {
@@ -123,8 +116,23 @@ const submitInvoice = asyncHandler(async (req, res, next) => {
   });
 
   const invoiceId = 'INV-' + Math.floor(100000 + Math.random() * 900000);
-  const sapMiroDoc = 'MIRO-51' + Math.floor(100000000 + Math.random() * 900000000);
   const status = matchWarning ? 'Match Warning' : 'Submitted';
+
+  const io = req.app.get('io');
+  const { clientId } = req;
+  const sap = await getSapAdapterForClient(clientId);
+
+  const invoiceDraft = {
+    id: invoiceId,
+    invoiceDate: new Date(invoiceDate),
+    currency: po.currency || 'INR',
+    totalAmount: Number(totalAmount),
+    items: validatedItems
+  };
+
+  // SAP posts the document and hands back its MIRO number; we store what it
+  // gave us rather than inventing a number and hoping they agree.
+  const posted = await sap.invoiceCreate({ invoice: invoiceDraft, vendorId });
 
   const invoice = await Invoice.create({
     id: invoiceId,
@@ -132,14 +140,14 @@ const submitInvoice = asyncHandler(async (req, res, next) => {
     poId: po.id,
     vendorId,
     invoiceNumber,
-    invoiceDate: new Date(invoiceDate),
-    sapMiroDoc,
+    invoiceDate: invoiceDraft.invoiceDate,
+    sapMiroDoc: posted.sapMiroDoc,
     status,
     subTotal: Number(subTotal || (totalAmount - (taxAmount || 0))),
     taxAmount: Number(taxAmount || 0),
     totalAmount: Number(totalAmount),
     taxCode: po.items[0]?.taxCode || 'G1',
-    currency: po.currency || 'INR',
+    currency: invoiceDraft.currency,
     matchWarning: matchWarning || undefined,
     items: validatedItems
   });
@@ -152,103 +160,58 @@ const submitInvoice = asyncHandler(async (req, res, next) => {
   po.status = 'Invoiced';
   await po.save();
 
-  // Log SAP Outbound BAPI
-  await createSapLog({
-    vendorId,
-    type: 'BAPI',
-    direction: 'OUTBOUND',
-    name: 'BAPI_INCOMINGINVOICE_CREATE',
-    payload: {
-      HEADER: {
-        INVOICE_IND: 'X',
-        DOC_TYPE: 'RE',
-        DOC_DATE: invoice.invoiceDate,
-        PSTNG_DATE: new Date(),
-        COMP_CODE: '1000',
-        CURRENCY: invoice.currency,
-        GROSS_AMOUNT: invoice.totalAmount
-      },
-      ITEMS: invoice.items
-    },
-    status: 'SUCCESS',
-    documentRef: invoice.id
+  emitToVendor(io, clientId, vendorId, EVENTS.LOG_NEW, { type: posted.transaction.type, name: posted.transaction.code });
+
+  const vendor = await Vendor.findOne({ vendorId });
+  const onCall = ({ code, type }) => emitToVendor(io, clientId, vendorId, EVENTS.LOG_NEW, { type, name: code });
+
+  // The payment run lands when SAP runs F110 — twelve seconds on the
+  // simulator. This handler is what we do with the remittance.
+  sap.awaitPaymentRun({ invoice, vendor, vendorId, onCall }, async (remittance) => {
+    const latestInvoice = await Invoice.findOne({ id: invoice.id });
+    const latestPo = await PurchaseOrder.findOne({ id: po.id });
+
+    // An invoice already cleared must not be paid twice.
+    if (!latestInvoice || !latestPo || latestInvoice.status === 'Cleared') return null;
+
+    const payment = await Payment.create({
+      id: remittance.paymentId,
+      invoiceId: latestInvoice.id,
+      poId: latestPo.id,
+      vendorId: latestInvoice.vendorId,
+      invoiceRef: latestInvoice.id,
+      invoiceNumber: latestInvoice.invoiceNumber,
+      sapMiroDoc: latestInvoice.sapMiroDoc,
+      grossAmount: remittance.grossAmount,
+      tdsDeducted: remittance.tdsDeducted,
+      netAmount: remittance.netAmount,
+      paymentDate: remittance.paymentDate,
+      utrCode: remittance.utrCode,
+      paymentMethod: remittance.paymentMethod,
+      sapPaymentDoc: remittance.sapPaymentDoc,
+      bankName: remittance.bankName,
+      runId: remittance.runId,
+      fiscalYear: new Date().getFullYear(),
+      quarter: 'Q' + (Math.floor(new Date().getMonth() / 3) + 1),
+      tdsSection: remittance.tdsSection,
+      deducteePan: remittance.deducteePan,
+      deductorTan: remittance.deductorTan,
+      totalTds: remittance.tdsDeducted
+    });
+
+    latestInvoice.status = 'Cleared';
+    latestInvoice.clearedAt = new Date();
+    await latestInvoice.save();
+
+    latestPo.status = 'Paid';
+    await latestPo.save();
+
+    emitToVendor(io, clientId, latestInvoice.vendorId, EVENTS.PAYMENT_CLEARED, payment);
+
+    return payment;
   });
 
-  const io = req.app.get('io');
-  emitToVendor(io, vendorId, EVENTS.LOG_NEW, { type: 'BAPI', name: 'BAPI_INCOMINGINVOICE_CREATE' });
-
-  // Schedule autoPaymentRun after 12 seconds
-  setTimeout(async () => {
-    try {
-      console.log(`[SIMULATOR] Starting payment run for Invoice: ${invoice.id}`);
-      
-      const latestInvoice = await Invoice.findOne({ id: invoice.id });
-      const latestPo = await PurchaseOrder.findOne({ id: po.id });
-      const vendor = await Vendor.findOne({ vendorId });
-
-      if (latestInvoice && latestPo && latestInvoice.status !== 'Cleared') {
-        const tdsDeducted = Math.round(latestInvoice.totalAmount * 0.01 * 100) / 100;
-        const netAmount = latestInvoice.totalAmount - tdsDeducted;
-        const pmtId = 'PMT-' + Math.floor(100000 + Math.random() * 900000);
-        const sapPaymentDoc = 'PAY-53' + Math.floor(10000000 + Math.random() * 90000000);
-
-        // Create Payment
-        const payment = await Payment.create({
-          id: pmtId,
-          invoiceId: latestInvoice.id,
-          poId: latestPo.id,
-          vendorId: latestInvoice.vendorId,
-          invoiceRef: latestInvoice.id,
-          invoiceNumber: latestInvoice.invoiceNumber,
-          sapMiroDoc: latestInvoice.sapMiroDoc,
-          grossAmount: latestInvoice.totalAmount,
-          tdsDeducted,
-          netAmount,
-          paymentDate: new Date(),
-          utrCode: 'UTR' + Date.now() + Math.floor(100 + Math.random() * 900),
-          paymentMethod: 'NEFT',
-          sapPaymentDoc,
-          bankName: 'HDFC Bank Ltd',
-          runId: 'F110-' + Date.now().toString().slice(-6),
-          fiscalYear: new Date().getFullYear(),
-          quarter: 'Q' + (Math.floor(new Date().getMonth() / 3) + 1),
-          tdsSection: '194C',
-          deducteePan: vendor ? vendor.pan : 'PAN-MOCK123',
-          deductorTan: 'TAN-SAP1000',
-          totalTds: tdsDeducted
-        });
-
-        // Update Invoice status to Cleared
-        latestInvoice.status = 'Cleared';
-        latestInvoice.clearedAt = new Date();
-        await latestInvoice.save();
-
-        // Update PO status to Paid
-        latestPo.status = 'Paid';
-        await latestPo.save();
-
-        // Log SAP Inbound Payment Sync
-        await createSapLog({
-          vendorId: latestInvoice.vendorId,
-          type: 'OData',
-          direction: 'INBOUND',
-          name: 'FBL1N_RFITEMGL',
-          payload: payment,
-          status: 'SUCCESS',
-          documentRef: payment.id
-        });
-
-        emitToVendor(io, latestInvoice.vendorId, EVENTS.PAYMENT_CLEARED, payment);
-        emitToVendor(io, latestInvoice.vendorId, EVENTS.LOG_NEW, { type: 'OData', name: 'FBL1N_RFITEMGL' });
-
-        console.log(`[SIMULATOR] Auto-payment run completed: ${payment.id} (UTR: ${payment.utrCode})`);
-      }
-    } catch (err) {
-      console.error('[SIMULATOR] Failed to auto-execute payment run:', err);
-    }
-  }, 12000);
-
-  res.status(201).json({ message: 'Invoice submitted successfully. Payment scheduled in 12 seconds.', invoice });
+  res.status(201).json({ message: 'Invoice submitted successfully. Payment will follow from the next SAP payment run.', invoice });
 });
 
 // @desc    Update Invoice status
@@ -280,9 +243,13 @@ const postMiro = asyncHandler(async (req, res, next) => {
     return next(ApiError.notFound('Invoice not found'));
   }
 
-  if (!invoice.sapMiroDoc) {
-    invoice.sapMiroDoc = 'MIRO-51' + Math.floor(100000000 + Math.random() * 900000000);
-  }
+  // Posting to SAP is what produces a MIRO number, so the call happens even
+  // when we already have one — re-posting an already-numbered invoice returns
+  // the number it has rather than minting a second.
+  const sap = await getSapAdapterForClient(req.clientId);
+  const posted = await sap.invoiceCreate({ invoice, vendorId: invoice.vendorId });
+
+  invoice.sapMiroDoc = posted.sapMiroDoc;
   invoice.status = 'Verified';
   await invoice.save();
 

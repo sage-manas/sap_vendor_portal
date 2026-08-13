@@ -1,3 +1,5 @@
+const logger = require('./logger');
+
 const EVENTS = {
   PO_NEW:           'po:new',
   GRN_RECEIVED:     'grn:received',
@@ -9,20 +11,33 @@ const EVENTS = {
   LOG_NEW:          'log:new',
 };
 
-// Emit to a specific vendor's room
-const emitToVendor = (io, clerkUserId, event, data) => {
-  if (io && clerkUserId) {
-    console.log(`[SocketEmitter] Emitting event "${event}" to vendor room: ${clerkUserId}`);
-    io.to(clerkUserId).emit(event, data);
+// Room names are the socket-layer equivalent of the tenant filter: a socket can
+// only ever join rooms prefixed with its own JWT's clientId.
+const vendorRoom      = (clientId, vendorId) => `client:${clientId}:vendor:${vendorId}`;
+const procurementRoom = (clientId) => `client:${clientId}:procurement`;
+
+// clientId is required — an emit without one would cross tenants.
+const emitToVendor = (io, clientId, vendorId, event, data) => {
+  if (!clientId) {
+    throw new Error(`emitToVendor requires a clientId (event: ${event})`);
+  }
+  if (io && vendorId) {
+    const room = vendorRoom(clientId, vendorId);
+    logger.debug(`[SocketEmitter] "${event}" → ${room}`);
+    io.to(room).emit(event, data);
   }
 };
 
-// Emit to all procurement staff
-const emitToProcurement = (io, event, data) => {
+// Emit to all procurement staff of one tenant
+const emitToProcurement = (io, clientId, event, data) => {
+  if (!clientId) {
+    throw new Error(`emitToProcurement requires a clientId (event: ${event})`);
+  }
   if (io) {
-    console.log(`[SocketEmitter] Emitting event "${event}" to procurement room`);
-    io.to('procurement').emit(event, data);
+    const room = procurementRoom(clientId);
+    logger.debug(`[SocketEmitter] "${event}" → ${room}`);
+    io.to(room).emit(event, data);
   }
 };
 
-module.exports = { EVENTS, emitToVendor, emitToProcurement };
+module.exports = { EVENTS, emitToVendor, emitToProcurement, vendorRoom, procurementRoom };

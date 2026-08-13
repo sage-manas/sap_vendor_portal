@@ -1,6 +1,7 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
 const Vendor = require('../models/Vendor');
+const { asTenant } = require('./helpers');
 
 const app = buildTestApp();
 
@@ -36,7 +37,7 @@ describe('POST /api/auth/register', () => {
     expect(res.body.vendor.password).toBeUndefined();
 
     // Password must be stored hashed
-    const stored = await Vendor.findOne({ vendorId: validRegistration.vendorId }).select('+password');
+    const stored = await asTenant(() => Vendor.findOne({ vendorId: validRegistration.vendorId }).select('+password'));
     expect(stored.password).not.toBe(validRegistration.password);
   });
 
