@@ -4,9 +4,12 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Building2, KeyRound, Mail, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
+import WorkspaceBrand from '@/components/portal/WorkspaceBrand';
+import { useWorkspaceRealm } from '@/lib/workspace-realm';
 
 export default function SignUpPage() {
   const router = useRouter();
+  const { workspace, known, selfRegistrationOpen } = useWorkspaceRealm();
   const [companyName, setCompanyName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -78,18 +81,30 @@ export default function SignUpPage() {
     }
   };
 
+  // A workspace can close self-service registration (config/tenantSettings.js).
+  // The API refuses the POST either way; this is so a supplier reads the reason
+  // instead of filling in a form that cannot be accepted.
+  if (known && !selfRegistrationOpen) {
+    return (
+      <div className="w-full max-w-[460px] p-8 card animate-fadeUp my-8">
+        <WorkspaceBrand workspace={workspace} caption="Registration by invitation" />
+        <p className="text-xs text-text-secondary text-center leading-relaxed">
+          This workspace admits suppliers by invitation. Ask your contact in the buying
+          organisation to send you one — the invitation link brings you straight to onboarding.
+        </p>
+        <div className="mt-6 pt-5 border-t border-border text-center">
+          <Link href="/sign-in" className="text-[11px] text-emerald-400 hover:underline font-medium">
+            Back to sign in
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full max-w-[460px] p-8 card animate-fadeUp my-8">
-      {/* Brand Header */}
-      <div className="flex flex-col items-center mb-6">
-        <div className="size-12 rounded-none flex items-center justify-center text-white mb-3 shrink-0" style={{ backgroundColor: 'rgb(var(--color-emerald-default-rgb))' }}>
-          <Building2 className="size-6" />
-        </div>
-        <h2 className="text-xl font-bold text-text-primary tracking-wide font-sans">Register Vendor Partner</h2>
-        <p className="text-[10px] text-text-tertiary font-mono tracking-wider uppercase mt-1">
-          ONBOARDING WIZARD &bull; ERP SYNCHRONIZED
-        </p>
-      </div>
+      {/* Whose front door this is (workspace-realm.js) */}
+      <WorkspaceBrand workspace={workspace} caption="Supplier registration · ERP synchronized" />
 
       {/* Error Output */}
       {error && (
