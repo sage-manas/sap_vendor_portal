@@ -17,6 +17,7 @@ const errorHandler = (err, req, res, next) => {
     error: message,
     code: statusCode,
     ...(err.reason && { reason: err.reason }),
+    ...(err.errors && { errors: err.errors }),
     requestId: req.requestId,
     ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
   };

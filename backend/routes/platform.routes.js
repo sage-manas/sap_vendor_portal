@@ -4,6 +4,7 @@ const tenantController = require('../controllers/platformTenant.controller');
 const operatorController = require('../controllers/platformOperator.controller');
 const auditController = require('../controllers/platformAudit.controller');
 const healthController = require('../controllers/platformHealth.controller');
+const sapController = require('../controllers/platformSap.controller');
 const validate = require('../middleware/validate');
 const { protectPlatform, requireMfa, requirePermission } = require('../middleware/auth');
 const { PERMISSIONS } = require('../config/permissions');
@@ -20,6 +21,8 @@ const {
   createOperatorSchema,
   updateOperatorSchema,
   mfaVerifySchema,
+  sapConnectionSchema,
+  sapPromoteSchema,
 } = require('../validators/platform.validator');
 
 // The platform plane. Two guards stack here and both are required:
@@ -63,6 +66,14 @@ router.put('/operators/:id', requirePermission(PERMISSIONS.OPERATOR_MANAGE), val
 router.post('/operators/:id/suspend', requirePermission(PERMISSIONS.OPERATOR_MANAGE), validate(lifecycleSchema), operatorController.suspendOperator);
 router.post('/operators/:id/reactivate', requirePermission(PERMISSIONS.OPERATOR_MANAGE), validate(lifecycleSchema), operatorController.reactivateOperator);
 router.post('/operators/:id/mfa/reset', requirePermission(PERMISSIONS.OPERATOR_MANAGE), validate(lifecycleSchema), operatorController.resetMfa);
+
+// SAP configuration, per tenant, per environment. `sap:configure` rather than
+// `tenant:manage`: an sap_manager exists to run these screens and nothing else.
+router.get('/tenants/:clientId/sap', requirePermission(PERMISSIONS.SAP_CONFIGURE), sapController.getSapConfiguration);
+router.get('/tenants/:clientId/sap/audit', requirePermission(PERMISSIONS.SAP_CONFIGURE), sapController.listSapAudit);
+router.put('/tenants/:clientId/sap/:environment', requirePermission(PERMISSIONS.SAP_CONFIGURE), validate(sapConnectionSchema), sapController.configureSap);
+router.post('/tenants/:clientId/sap/:environment/test', requirePermission(PERMISSIONS.SAP_CONFIGURE), sapController.testSapConnection);
+router.post('/tenants/:clientId/sap/promote', requirePermission(PERMISSIONS.SAP_CONFIGURE), validate(sapPromoteSchema), sapController.promoteSapEnvironment);
 
 // Audit explorer
 router.get('/audit', requirePermission(PERMISSIONS.PLATFORM_AUDIT_READ), auditController.listAudit);

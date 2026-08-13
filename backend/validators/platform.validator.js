@@ -1,5 +1,7 @@
 const { z } = require('zod');
 const { PLATFORM_ROLES } = require('../config/roles');
+const { DRIVER_KEYS } = require('../sap/drivers');
+const { ENVIRONMENTS } = require('../models/SapConnection');
 
 // Request shapes for the platform console. Roles come from the registry, so a
 // seventh role is still a one-file change.
@@ -60,6 +62,21 @@ const updateOperatorSchema = z.object({
   role: z.enum(PLATFORM_ROLES).optional(),
 }).refine((body) => Object.keys(body).length > 0, { message: 'Nothing to update' });
 
+// SAP connection settings. `config` and `secrets` are intentionally loose here
+// — only the driver knows what a valid gateway URL or system number is for
+// itself, so shape is checked here and meaning in `driver.validateConfig`.
+// Everything under `secrets` is write-only: no endpoint reads it back.
+const sapConnectionSchema = z.object({
+  driver: z.enum(DRIVER_KEYS),
+  config: z.record(z.string(), z.any()).default({}),
+  secrets: z.record(z.string(), z.string().max(4096).nullable()).default({}),
+});
+
+const sapPromoteSchema = z.object({
+  environment: z.enum(ENVIRONMENTS),
+  reason: z.string().max(500).optional(),
+});
+
 const mfaVerifySchema = z.object({
   code: z.string().regex(/^\d{6}$/, { message: 'Enter the six-digit code from your authenticator' }),
 });
@@ -71,4 +88,6 @@ module.exports = {
   createOperatorSchema,
   updateOperatorSchema,
   mfaVerifySchema,
+  sapConnectionSchema,
+  sapPromoteSchema,
 };

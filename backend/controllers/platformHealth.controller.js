@@ -5,17 +5,22 @@ const Vendor = require('../models/Vendor');
 const RFQ = require('../models/RFQ');
 const SapLog = require('../models/SapLog');
 const DocumentModel = require('../models/Document');
+const SapConnection = require('../models/SapConnection');
 const asyncHandler = require('../utils/asyncHandler');
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
+const { getSapAdapterForClient } = require('../sap');
 
 // The platform health board: for every tenant, is its SAP working, how much of
 // its plan is it using, and is anyone actually signing in.
 //
-// SAP status is derived from each tenant's SapLog today. Phase 4 replaces that
-// derivation with the real thing — `SapConnection.lastTestResult` plus the
-// scheduled health ping — behind the same response shape, which is why every
-// row carries `{ source, syncedAt }`: the console can already say honestly
-// where a number came from.
+// Two things go into a tenant's SAP status, and they answer different
+// questions. Traffic — call and failure counts from that tenant's SapLog —
+// says whether the integration is *working*. The connection — driver,
+// environment, last test, circuit breaker — says whether it is *configured and
+// reachable*. A tenant with no traffic and a failing connection must not be
+// painted the same as a tenant with no traffic and a healthy one, so the row
+// carries both, plus the `{ source, syncedAt }` that says where the numbers
+// came from.
 
 const WINDOW_HOURS = 24;
 const ACTIVE_USER_DAYS = 30;
@@ -43,11 +48,34 @@ const sapHealthFor = async (clientId) => runWithTenant(clientId, async () => {
     failures: failed,
     errorRate: total ? Number((failed / total).toFixed(4)) : null,
     lastCall: latest ? { name: latest.name, status: latest.status, at: latest.timestamp, error: latest.errorMessage } : null,
-    // Phase 4 flips this to 'sap' for tenants on a real driver.
-    source: 'mock',
-    syncedAt: new Date().toISOString(),
   };
 });
+
+// The configuration half. Reads the tenant's own adapter, so what the board
+// shows is exactly what its traffic is running through — including the circuit
+// breaker's state, which is the difference between "SAP is broken" and "we
+// stopped calling SAP because it was broken".
+const sapConnectionFor = async (client) => {
+  const environment = client.sapEnvironment || 'sandbox';
+
+  const [connection, adapter] = await Promise.all([
+    withoutTenantScope(() => SapConnection.findOne({ clientId: client.clientId, environment })),
+    getSapAdapterForClient(client.clientId),
+  ]);
+
+  return {
+    driver: adapter.driver,
+    environment,
+    // A tenant nobody has configured is running the simulator on defaults —
+    // true, and worth saying out loud rather than showing as configured.
+    configured: Boolean(connection),
+    implemented: adapter.implemented,
+    lastTest: connection?.lastTest
+      ? { ok: connection.lastTest.ok, at: connection.lastTest.at, message: connection.lastTest.message, latencyMs: connection.lastTest.latencyMs }
+      : null,
+    circuit: adapter.circuit(),
+  };
+};
 
 const usageFor = async (client) => runWithTenant(client.clientId, async () => {
   const [vendors, rfqsThisMonth, documents, staff, activeStaff] = await Promise.all([
@@ -81,15 +109,32 @@ const usageFor = async (client) => runWithTenant(client.clientId, async () => {
 const platformHealth = asyncHandler(async (req, res) => {
   const clients = await withoutTenantScope(() => Client.find({}).sort({ clientId: 1 }));
 
-  const tenants = await Promise.all(clients.map(async (client) => ({
-    clientId: client.clientId,
-    companyName: client.companyName,
-    slug: client.slug,
-    status: client.status,
-    plan: client.plan,
-    sap: await sapHealthFor(client.clientId),
-    usage: await usageFor(client),
-  })));
+  const tenants = await Promise.all(clients.map(async (client) => {
+    const [traffic, connection, usage] = await Promise.all([
+      sapHealthFor(client.clientId),
+      sapConnectionFor(client),
+      usageFor(client),
+    ]);
+
+    return {
+      clientId: client.clientId,
+      companyName: client.companyName,
+      slug: client.slug,
+      status: client.status,
+      plan: client.plan,
+      sap: {
+        ...traffic,
+        // An open breaker outranks the traffic counts. We stopped calling, so
+        // the counts have stopped moving, and a board that read them alone
+        // would quietly turn green at the worst possible moment.
+        status: connection.circuit.state === 'open' ? 'failing' : traffic.status,
+        connection,
+        source: connection.driver,
+        syncedAt: new Date().toISOString(),
+      },
+      usage,
+    };
+  }));
 
   const operational = tenants.filter((tenant) => ['Trial', 'Active'].includes(tenant.status));
 

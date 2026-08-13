@@ -3,11 +3,18 @@ class ApiError extends Error {
   // must branch on *which* refusal it got — the MFA gate is the first: "enrol"
   // and "enter your code" are different screens. It rides alongside the
   // response's `code`, which has always been the HTTP status.
-  constructor(statusCode, message, { isOperational = true, reason } = {}) {
+  //
+  // `errors` is a field → message map, the same shape middleware/validate.js
+  // returns for a zod failure. Validation that cannot be expressed as a schema
+  // — a driver checking its own connection settings, since only the driver
+  // knows what they are — refuses through here, and the client renders both
+  // the same way.
+  constructor(statusCode, message, { isOperational = true, reason, errors } = {}) {
     super(message);
     this.statusCode = statusCode;
     this.isOperational = isOperational;
     this.reason = reason;
+    this.errors = errors;
     Error.captureStackTrace(this, this.constructor);
   }
   static notFound(msg = 'Not found', opts)     { return new ApiError(404, msg, opts); }
