@@ -1,8 +1,10 @@
 const User = require('../models/User');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
-const { TENANT_ROLES } = require('../config/roles');
+const { TENANT_ROLES, INVITABLE_TENANT_ROLES, describeRole } = require('../config/roles');
 const { formatUserResponse } = require('./auth.controller');
+const { recordAudit } = require('../utils/audit');
+const { AUDIT_ACTIONS } = require('../config/auditActions');
 
 // Tenant staff management. Every query here is tenant-scoped by the plugin, so
 // a client_admin can only ever see and change their own workspace's users —
@@ -19,6 +21,19 @@ const listUsers = asyncHandler(async (req, res) => {
 
   const users = await User.find(query).sort({ createdAt: -1 });
   res.json({ success: true, users: users.map(formatUserResponse) });
+});
+
+// @desc    The roles this workspace may hand out, and what each one means
+// @route   GET /api/users/roles
+// @access  user:read
+//
+// Served from the registry so the role picker and the invite endpoint can never
+// disagree about which roles exist.
+const listRoles = asyncHandler(async (req, res) => {
+  res.json({
+    success: true,
+    roles: INVITABLE_TENANT_ROLES.map((role) => ({ role, description: describeRole(role) })),
+  });
 });
 
 // @desc    Get one staff account
@@ -45,6 +60,8 @@ const updateUser = asyncHandler(async (req, res, next) => {
     return next(ApiError.notFound('User not found'));
   }
 
+  const previousRole = user.role;
+
   if (role !== undefined) {
     if (!TENANT_ROLES.includes(role)) {
       return next(ApiError.badRequest(`role must be one of: ${TENANT_ROLES.join(', ')}`));
@@ -61,6 +78,15 @@ const updateUser = asyncHandler(async (req, res, next) => {
   if (jobTitle !== undefined) user.jobTitle = jobTitle;
 
   await user.save();
+
+  await recordAudit({
+    action: AUDIT_ACTIONS.USER_UPDATED,
+    req,
+    target: { type: 'User', id: String(user._id), label: user.email },
+    // A role change is the part of this that matters to whoever reads the trail.
+    meta: { ...(user.role !== previousRole && { role: { from: previousRole, to: user.role } }) },
+  });
+
   res.json({ success: true, user: formatUserResponse(user) });
 });
 
@@ -91,7 +117,14 @@ const setUserStatus = asyncHandler(async (req, res, next) => {
   user.suspendedAt = status === 'Suspended' ? new Date() : undefined;
   await user.save();
 
+  await recordAudit({
+    action: AUDIT_ACTIONS.USER_STATUS_CHANGED,
+    req,
+    target: { type: 'User', id: String(user._id), label: user.email },
+    meta: { status, role: user.role },
+  });
+
   res.json({ success: true, user: formatUserResponse(user) });
 });
 
-module.exports = { listUsers, getUser, updateUser, setUserStatus };
+module.exports = { listUsers, listRoles, getUser, updateUser, setUserStatus };

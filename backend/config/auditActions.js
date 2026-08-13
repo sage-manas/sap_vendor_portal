@@ -27,6 +27,21 @@ const AUDIT_ACTIONS = {
   OPERATOR_LOGIN_FAILED: 'operator.login_failed',
   OPERATOR_PASSWORD_CHANGED: 'operator.password_changed',
 
+  // Supplier directory (tenant plane)
+  VENDOR_INVITED: 'vendor.invited',
+  VENDOR_CREATED: 'vendor.created',
+  VENDOR_APPROVED: 'vendor.approved',
+  VENDOR_REJECTED: 'vendor.rejected',
+
+  // Tenant staff (tenant plane)
+  USER_INVITED: 'user.invited',
+  USER_INVITATION_REVOKED: 'user.invitation_revoked',
+  USER_UPDATED: 'user.updated',
+  USER_STATUS_CHANGED: 'user.status_changed',
+
+  // Workspace configuration (tenant plane)
+  SETTINGS_UPDATED: 'settings.updated',
+
   // SAP configuration (Phase 4 writes these; the explorer already reads them)
   SAP_CONNECTION_CREATED: 'sap.connection_created',
   SAP_CONNECTION_UPDATED: 'sap.connection_updated',

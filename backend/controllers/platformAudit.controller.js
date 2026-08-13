@@ -3,6 +3,7 @@ const Client = require('../models/Client');
 const asyncHandler = require('../utils/asyncHandler');
 const { withoutTenantScope } = require('../utils/tenantContext');
 const { ALL_AUDIT_ACTIONS, AUDIT_SUBJECTS } = require('../config/auditActions');
+const { formatAuditEntry, actionsForSubject, auditQuery } = require('../utils/auditView');
 
 // The audit explorer. Reads across every tenant, which is the one thing the
 // platform plane is for — and reads *only* the trail: an entry says that a
@@ -12,43 +13,19 @@ const { ALL_AUDIT_ACTIONS, AUDIT_SUBJECTS } = require('../config/auditActions');
 // Phase 4 adds SapConnectionAudit as a second source; the response shape
 // already carries a `source` on every row so the union needs no client change.
 
-const formatEntry = (entry) => ({
-  id: entry._id,
-  source: 'audit',
-  at: entry.at,
-  clientId: entry.clientId,
-  action: entry.action,
-  actor: { id: entry.actorId, email: entry.actorEmail, role: entry.actorRole, plane: entry.plane },
-  target: entry.target || null,
-  meta: entry.meta || {},
-  ip: entry.ip,
-});
-
 // @desc    Query the audit trail
 // @route   GET /api/platform/audit
 // @access  platform:audit:read
 const listAudit = asyncHandler(async (req, res) => {
-  const { clientId, action, subject, actorId, plane, from, to, page = 1, limit = 50 } = req.query;
+  const { clientId, action, subject, actorId, plane } = req.query;
+  const { range, perPage, currentPage, skip } = auditQuery(req.query);
 
-  const filter = {};
+  const filter = { ...range };
   if (clientId) filter.clientId = clientId;
   if (actorId) filter.actorId = actorId;
   if (plane) filter.plane = plane;
   if (action) filter.action = action;
-  // "Everything that happened to tenants" — the subject is the action prefix,
-  // matched against the registry rather than by a regex over user input.
-  if (!action && subject) {
-    filter.action = { $in: ALL_AUDIT_ACTIONS.filter((entry) => entry.startsWith(`${subject}.`)) };
-  }
-  if (from || to) {
-    filter.at = {
-      ...(from && { $gte: new Date(from) }),
-      ...(to && { $lte: new Date(to) }),
-    };
-  }
-
-  const perPage = Math.min(Number(limit) || 50, 200);
-  const skip = (Math.max(Number(page) || 1, 1) - 1) * perPage;
+  if (!action && subject) filter.action = { $in: actionsForSubject(subject) };
 
   const [entries, total] = await Promise.all([
     AuditLog.find(filter).sort({ at: -1 }).skip(skip).limit(perPage),
@@ -58,9 +35,9 @@ const listAudit = asyncHandler(async (req, res) => {
   res.json({
     success: true,
     total,
-    page: Math.max(Number(page) || 1, 1),
+    page: currentPage,
     limit: perPage,
-    entries: entries.map(formatEntry),
+    entries: entries.map((entry) => formatAuditEntry(entry)),
   });
 });
 

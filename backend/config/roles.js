@@ -64,6 +64,20 @@ const accountModelForRole = (role) => PLANE_ACCOUNT_MODEL[planeOf(role)] || null
 // screen reads this; the invite endpoint validates against it).
 const INVITABLE_TENANT_ROLES = TENANT_ROLES;
 
+// What each role means, in the words the person handing it out needs. The
+// workspace's role picker renders these rather than carrying its own copy —
+// a role's description is a fact about the role, and this is where roles live.
+const ROLE_DESCRIPTIONS = {
+  [ROLES.SUPER_ADMIN]: 'The platform itself: tenants, operators, plans and connections.',
+  [ROLES.SAP_MANAGER]: 'Every tenant’s SAP connection and the trail it leaves. No tenant business data.',
+  [ROLES.CLIENT_ADMIN]: 'Everything a buyer and a finance user can do, plus suppliers, staff and settings.',
+  [ROLES.BUYER]: 'Sourcing: RFQs, evaluation, awards and purchase orders.',
+  [ROLES.FINANCE]: 'Invoices, approvals and payments.',
+  [ROLES.VENDOR]: 'A supplier: their own profile, bids, shipments and invoices.',
+};
+
+const describeRole = (role) => ROLE_DESCRIPTIONS[role] || '';
+
 module.exports = {
   PLANES,
   ROLES,
@@ -73,6 +87,8 @@ module.exports = {
   TENANT_ROLES,
   SUPPLIER_ROLES,
   INVITABLE_TENANT_ROLES,
+  ROLE_DESCRIPTIONS,
+  describeRole,
   PLANE_ACCOUNT_MODEL,
   planeOf,
   isPlatformRole,

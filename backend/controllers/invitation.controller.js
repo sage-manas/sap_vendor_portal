@@ -9,6 +9,8 @@ const { TENANT_ROLES, ROLES, planeOf, PLANES } = require('../config/roles');
 const { sendMail } = require('../utils/mailer');
 const { signToken } = require('../utils/authToken');
 const { frontendUrl } = require('../config/emailTemplates');
+const { recordAudit } = require('../utils/audit');
+const { AUDIT_ACTIONS } = require('../config/auditActions');
 
 const { hashInviteToken, newInviteToken } = Invitation;
 
@@ -63,7 +65,28 @@ const createInvitation = async ({ req, email, name, role }) => {
     },
   });
 
+  await recordAudit({
+    action: planeOf(role) === PLANES.SUPPLIER ? AUDIT_ACTIONS.VENDOR_INVITED : AUDIT_ACTIONS.USER_INVITED,
+    req,
+    target: { type: 'Invitation', id: String(invitation._id), label: invitation.email },
+    meta: { role },
+  });
+
   return invitation;
+};
+
+// Whether this tenant has invited this email as a supplier. Read by the
+// registration path, which admits an invited supplier into a workspace that has
+// closed self-service registration.
+const hasSupplierInvitation = async (clientId, email) => {
+  if (!email) return false;
+  const invitation = await withoutTenantScope(() => Invitation.findOne({
+    clientId,
+    email: String(email).toLowerCase(),
+    role: ROLES.VENDOR,
+    status: { $in: ['Pending', 'Accepted'] },
+  }));
+  return Boolean(invitation);
 };
 
 // @desc    Invite a member of tenant staff (buyer / finance / client_admin)
@@ -110,6 +133,14 @@ const revokeInvitation = asyncHandler(async (req, res, next) => {
   invitation.status = 'Revoked';
   invitation.revokedAt = new Date();
   await invitation.save();
+
+  await recordAudit({
+    action: AUDIT_ACTIONS.USER_INVITATION_REVOKED,
+    req,
+    target: { type: 'Invitation', id: String(invitation._id), label: invitation.email },
+    meta: { role: invitation.role },
+  });
+
   res.json({ success: true, invitation: publicInvitation(invitation, req.client) });
 });
 
@@ -194,6 +225,7 @@ const acceptInvitation = asyncHandler(async (req, res, next) => {
 });
 
 module.exports = {
+  hasSupplierInvitation,
   inviteUser,
   inviteVendor,
   listInvitations,

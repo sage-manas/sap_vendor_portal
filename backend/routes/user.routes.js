@@ -12,6 +12,9 @@ router.get('/invitations', requirePermission(PERMISSIONS.USER_READ), invitationC
 router.post('/invitations', requirePermission(PERMISSIONS.USER_INVITE), validate(inviteUserSchema), invitationController.inviteUser);
 router.delete('/invitations/:id', requirePermission(PERMISSIONS.USER_MANAGE), invitationController.revokeInvitation);
 
+// Before /:id, or "roles" would be read as an account id.
+router.get('/roles', requirePermission(PERMISSIONS.USER_READ), userController.listRoles);
+
 router.get('/', requirePermission(PERMISSIONS.USER_READ), userController.listUsers);
 router.get('/:id', requirePermission(PERMISSIONS.USER_READ), userController.getUser);
 router.patch('/:id', requirePermission(PERMISSIONS.USER_MANAGE), validate(updateUserSchema), userController.updateUser);

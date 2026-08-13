@@ -28,6 +28,7 @@ router.use('/platform', require('./platform.routes'));
 // Tenant + supplier planes. `protect` binds the tenant; every route inside
 // declares the permission it needs (config/permissions.js decides who holds it).
 router.use('/vendors', require('./vendor.routes'));
+router.use('/workspace', protect, require('./workspace.routes'));
 router.use('/users', protect, require('./user.routes'));
 router.use('/rfqs', protect, require('./rfq.routes'));
 router.use('/pos', protect, require('./po.routes'));
