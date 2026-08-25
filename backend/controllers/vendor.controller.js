@@ -14,8 +14,15 @@ const { requireVendorScope } = require('../utils/requestScope');
 const { recordAudit } = require('../utils/audit');
 const { AUDIT_ACTIONS } = require('../config/auditActions');
 const { settingValue } = require('../config/tenantSettings');
+const { settingsFromClient } = require('../sap/mappings/vendor-create.map');
 const { VENDOR_STATUS, VENDOR_STATUSES, VENDOR_AWAITING_DECISION } = require('../config/statuses');
-const { generateVendorId, identityIsTaken, unguessablePassword } = require('../utils/vendorIdentity');
+const { generateVendorId, identityConflict, unguessablePassword } = require('../utils/vendorIdentity');
+
+const IDENTITY_CONFLICT_MESSAGE = {
+  vendorId: 'A supplier with this vendor ID already exists',
+  email: 'A supplier or user account with this email already exists',
+  gstin: 'A supplier with this GSTIN already exists',
+};
 const { assertCanCreate } = require('../utils/usage');
 const { hasSupplierInvitation } = require('./invitation.controller');
 const { sendMail } = require('../utils/mailer');
@@ -151,8 +158,9 @@ const createProfile = asyncHandler(async (req, res, next) => {
   await assertCanCreate(client, 'vendors');
 
   // Login identities are global, so this collision check spans all tenants.
-  if (await identityIsTaken({ vendorId, email, gstin })) {
-    return next(ApiError.conflict('Vendor with this ID, email, or GSTIN already exists'));
+  const conflict = await identityConflict({ vendorId, email, gstin });
+  if (conflict) {
+    return next(ApiError.conflict(IDENTITY_CONFLICT_MESSAGE[conflict], { reason: conflict }));
   }
 
   // Determine starting status
@@ -181,8 +189,9 @@ const createVendor = asyncHandler(async (req, res, next) => {
   const mappedBody = mapIncomingBody(req.body);
   const { companyName, gstin, pan, email } = mappedBody;
 
-  if (await identityIsTaken({ email, gstin })) {
-    return next(ApiError.conflict('A supplier with this email or GSTIN already exists'));
+  const conflict = await identityConflict({ email, gstin });
+  if (conflict) {
+    return next(ApiError.conflict(IDENTITY_CONFLICT_MESSAGE[conflict], { reason: conflict }));
   }
 
   await assertCanCreate(req.client, 'vendors');
@@ -258,6 +267,18 @@ const submitRegistration = asyncHandler(async (req, res, next) => {
     return next(ApiError.notFound('Vendor profile not found'));
   }
 
+  // VENDOR_CR is not idempotent: it has no duplicate check of its own, so
+  // sending the same supplier twice creates two vendor masters in SAP with no
+  // way to tell them apart afterwards. A supplier who double-submits, or a
+  // retry after a slow response, must not be able to cause that — once we hold
+  // a vendor code, this supplier has already been announced.
+  if (vendor.sapVendorCode) {
+    return next(ApiError.conflict(
+      'This registration has already been sent to SAP and is awaiting confirmation.',
+      { reason: 'already_submitted' },
+    ));
+  }
+
   vendor.status = vendor.status === 'Pending' ? 'Under Review' : 'Pending Approval';
   vendor.submittedAt = new Date();
   await vendor.save();
@@ -265,7 +286,19 @@ const submitRegistration = asyncHandler(async (req, res, next) => {
   const sap = await getSapAdapterForClient(req.clientId);
 
   // Announced to SAP and left open: the confirmation is what closes it.
-  const { pendingLogId } = await sap.vendorCreate({ vendor });
+  // `settings` carries the tenant's VENDOR_CR system-controlled fields
+  // (account group, industry, company code, …) — see config/tenantSettings.js
+  // group 'sapVendorCreate' and sap/mappings/vendor-create.map.js.
+  const { pendingLogId, sapVendorCode } = await sap.vendorCreate({ vendor, settings: settingsFromClient(req.client) });
+
+  // Persist the code the moment SAP issues it, not at approval. The master
+  // exists in SAP from this point on, and this field is what stops a second
+  // submission creating another one — leaving it unset until approval would
+  // hold the duplicate window open for as long as the approval takes.
+  if (sapVendorCode) {
+    vendor.sapVendorCode = sapVendorCode;
+    await vendor.save();
+  }
 
   // Verify GSTIN/PAN as part of submission — approval is blocked until this passes
   await runGstinPanVerification(vendor, sap);

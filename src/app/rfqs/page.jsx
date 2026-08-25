@@ -10,10 +10,6 @@ export default function RfqsPage() {
     selectedRfqId,
     setSelectedRfqId,
     handleBidSubmit,
-    handleCreateRFQ,
-    handleReissueRFQ,
-    handleCancelRFQ,
-    awardVendorBidWrapper,
     addToast
   } = usePortal();
 
@@ -23,10 +19,6 @@ export default function RfqsPage() {
       selectedRfqId={selectedRfqId}
       setSelectedRfqId={setSelectedRfqId}
       handleBidSubmit={handleBidSubmit}
-      createRFQ={handleCreateRFQ}
-      awardVendorBid={awardVendorBidWrapper}
-      reissueRFQ={handleReissueRFQ}
-      cancelRFQ={handleCancelRFQ}
       addToast={addToast}
     />
   );

@@ -61,6 +61,54 @@ const INDIAN_STATES = [
   { code: 'WB', name: 'West Bengal' }
 ];
 
+// --- COUNTRY / REGION DATA ---
+// A curated set of trading-partner countries, not an exhaustive ISO list —
+// intentionally small per IMPLEMENTATION_PLAN.md Phase 7c ("a reasonably
+// short curated set is fine"). India gets a real region list (mapped from
+// the pre-existing INDIAN_STATES codes); other countries get a short
+// placeholder region list. Region codes are unverified against what SAP's
+// `region` field (T005S-BLAND-style) actually expects for non-India
+// countries — confirm with SAP/ABAP before relying on them.
+const COUNTRIES = [
+  { code: 'IN', name: 'India', regions: INDIAN_STATES },
+  {
+    code: 'US', name: 'United States',
+    regions: [
+      { code: 'CA', name: 'California' }, { code: 'NY', name: 'New York' },
+      { code: 'TX', name: 'Texas' }, { code: 'IL', name: 'Illinois' },
+      { code: 'OTH', name: 'Other / Not Listed' },
+    ],
+  },
+  {
+    code: 'GB', name: 'United Kingdom',
+    regions: [
+      { code: 'ENG', name: 'England' }, { code: 'SCT', name: 'Scotland' },
+      { code: 'WLS', name: 'Wales' }, { code: 'NIR', name: 'Northern Ireland' },
+    ],
+  },
+  {
+    code: 'AE', name: 'United Arab Emirates',
+    regions: [
+      { code: 'DU', name: 'Dubai' }, { code: 'AZ', name: 'Abu Dhabi' },
+      { code: 'SH', name: 'Sharjah' }, { code: 'OTH', name: 'Other Emirate' },
+    ],
+  },
+  {
+    code: 'SG', name: 'Singapore',
+    regions: [{ code: 'SG', name: 'Singapore' }],
+  },
+  {
+    code: 'DE', name: 'Germany',
+    regions: [
+      { code: 'BY', name: 'Bavaria' }, { code: 'BW', name: 'Baden-Württemberg' },
+      { code: 'NW', name: 'North Rhine-Westphalia' }, { code: 'OTH', name: 'Other / Not Listed' },
+    ],
+  },
+];
+
+const regionsForCountry = (countryCode) =>
+  COUNTRIES.find((c) => c.code === countryCode)?.regions || [];
+
 // --- STATIC SUBCOMPONENTS ---
 
 // 1. Section Header Component
@@ -87,11 +135,6 @@ function FormSection({ number, title, children }) {
       </div>
     </div>
   );
-}
-
-// 3. SAP Field Mapping Label
-function SAPFieldMapping() {
-  return null;
 }
 
 const FIELD_INPUT_OVERRIDES = "[&_input]:!rounded-md [&_input]:!border [&_input]:!border-border [&_input]:!bg-surface [&_input]:!px-2.5 [&_input]:!py-1.5 [&_input]:!text-[13px] [&_input]:placeholder:!text-text-tertiary/50 [&_input:focus]:!border-primary [&_input:focus]:!bg-surface [&_input:focus]:!outline-none [&_select]:!rounded-md [&_select]:!border [&_select]:!border-border [&_select]:!bg-surface [&_select]:!px-2.5 [&_select]:!py-1.5 [&_select]:!text-[13px] [&_select:focus]:!border-primary [&_select:focus]:!bg-surface [&_select:focus]:!outline-none [&_textarea]:!rounded-md [&_textarea]:!border [&_textarea]:!border-border [&_textarea]:!bg-surface [&_textarea]:!px-2.5 [&_textarea]:!py-1.5 [&_textarea]:!text-[13px] [&_textarea]:placeholder:!text-text-tertiary/50 [&_textarea:focus]:!border-primary [&_textarea:focus]:!bg-surface [&_textarea:focus]:!outline-none";
@@ -484,7 +527,6 @@ export default function RegistrationView({
   const isDraft = state.profile.status === 'Draft' || state.profile.status === 'Rejected' || state.profile.status === 'Pending';
 
   const [currentStep, setCurrentStep] = useState(1);
-  const [isSapView, setIsSapView] = useState(false);
   const [validationErrors, setValidationErrors] = useState({});
   const [draftSaving, setDraftSaving] = useState(false);
   const [showSaveToast, setShowSaveToast] = useState(false);
@@ -499,7 +541,7 @@ export default function RegistrationView({
       name: 'Company Information',
       sections: [
         { title: 'COMPANY IDENTITY', fields: ['companyName', 'tradeName', 'businessType', 'incorporationDate'] },
-        { title: 'REGISTERED ADDRESS', fields: ['address', 'city', 'state', 'postalCode', 'email', 'phone'] }
+        { title: 'REGISTERED ADDRESS', fields: ['address', 'city', 'country', 'region', 'postalCode', 'email', 'phone'] }
       ]
     },
     {
@@ -517,8 +559,8 @@ export default function RegistrationView({
     {
       name: 'Document Uploads',
       sections: [
-        { title: 'MANDATORY', fields: ['panCardCopy', 'gstCertificate', 'incorporationCertificate'] },
-        { title: 'OPTIONAL', fields: ['msmeCertificate', 'isoCertificate', 'itReturns'] }
+        { title: 'MANDATORY', fields: ['panCardCopy', 'gstCertificate'] },
+        { title: 'OPTIONAL', fields: ['msmeCertificate'] }
       ]
     }
   ];
@@ -581,7 +623,9 @@ export default function RegistrationView({
   // so the vendor can still override the looked-up values.
   useEffect(() => {
     const pin = (companyForm.postalCode || '').trim();
-    if (!/^\d{6}$/.test(pin)) {
+    // api.postalpincode.in only covers India — skip the lookup once a
+    // non-India country is selected rather than silently mis-filling it.
+    if (!/^\d{6}$/.test(pin) || (companyForm.country && companyForm.country !== 'IN')) {
       return;
     }
 
@@ -613,7 +657,9 @@ export default function RegistrationView({
           return {
             ...prev,
             city: postOffice.District || prev.city,
-            state: stateMatch ? stateMatch.code : prev.state,
+            country: 'IN',
+            region: stateMatch ? stateMatch.code : prev.region,
+            state: stateMatch ? stateMatch.code : prev.state, // legacy mirror, see Vendor.js
             phone: phone.startsWith('+') ? prev.phone : (phone ? `+91 ${phone}` : '+91 ')
           };
         });
@@ -625,7 +671,7 @@ export default function RegistrationView({
       });
 
     return () => { cancelled = true; };
-  }, [companyForm.postalCode, setCompanyForm]);
+  }, [companyForm.postalCode, companyForm.country, setCompanyForm]);
 
   // Auto-save progress so a vendor who leaves mid-form (closed tab, network
   // blip, etc.) doesn't have to re-enter everything. Debounced so it doesn't
@@ -855,9 +901,28 @@ export default function RegistrationView({
                 <EnterpriseFieldCard label="City" required error={validationErrors[1]?.city}>
                   <input type="text" maxLength={35} value={companyForm.city} onChange={e => handleFieldChange('city', e.target.value)} placeholder="Mumbai" className="w-[39ch] max-w-full" />
                 </EnterpriseFieldCard>
-                <EnterpriseFieldCard label="State" required error={validationErrors[1]?.state}>
+                <EnterpriseFieldCard label="Country" required error={validationErrors[1]?.country}>
                   <div className="w-[25ch] max-w-full">
-                    <SearchableSelect value={companyForm.state} onChange={val => handleFieldChange('state', val)} options={INDIAN_STATES} placeholder="Select State" />
+                    <SearchableSelect
+                      value={companyForm.country}
+                      onChange={val => {
+                        // Changing country invalidates whatever region was
+                        // picked for the old one.
+                        setCompanyForm(prev => ({ ...prev, country: val, region: '' }));
+                      }}
+                      options={COUNTRIES}
+                      placeholder="Select Country"
+                    />
+                  </div>
+                </EnterpriseFieldCard>
+                <EnterpriseFieldCard label="State / Region" required error={validationErrors[1]?.region}>
+                  <div className="w-[25ch] max-w-full">
+                    <SearchableSelect
+                      value={companyForm.region}
+                      onChange={val => handleFieldChange('region', val)}
+                      options={regionsForCountry(companyForm.country)}
+                      placeholder={companyForm.country ? 'Select State / Region' : 'Select a country first'}
+                    />
                   </div>
                 </EnterpriseFieldCard>
                 <EnterpriseFieldCard
@@ -875,6 +940,48 @@ export default function RegistrationView({
                   <input type="tel" maxLength={16} value={companyForm.phone} onChange={e => handleFieldChange('phone', e.target.value)} placeholder="+91 22 2345 6789" className="w-[20ch] max-w-full" />
                 </EnterpriseFieldCard>
               </FormSection>
+
+              <FormSection number="03" title="Trade & payment terms">
+                <EnterpriseFieldCard label="Payment terms" hint="e.g. Net 30, Net 45">
+                  <input type="text" maxLength={35} value={companyForm.paymentTerms || ''} onChange={e => handleFieldChange('paymentTerms', e.target.value)} placeholder="Net 30" className="w-[20ch] max-w-full" />
+                </EnterpriseFieldCard>
+                <EnterpriseFieldCard label="Payment method" hint="How you're normally paid">
+                  <select value={companyForm.paymentMethod || ''} onChange={e => handleFieldChange('paymentMethod', e.target.value)} className="w-[25ch] max-w-full">
+                    <option value="">Select method</option>
+                    <option value="NEFT">Bank transfer (NEFT)</option>
+                    <option value="RTGS">Bank transfer (RTGS)</option>
+                    <option value="CHECK">Cheque</option>
+                    <option value="WIRE">Wire transfer</option>
+                  </select>
+                </EnterpriseFieldCard>
+                <EnterpriseFieldCard label="Currency" hint="Currency you invoice in">
+                  <select value={companyForm.currency || ''} onChange={e => handleFieldChange('currency', e.target.value)} className="w-[20ch] max-w-full">
+                    <option value="">Select currency</option>
+                    <option value="INR">INR - Indian Rupee</option>
+                    <option value="USD">USD - US Dollar</option>
+                    <option value="EUR">EUR - Euro</option>
+                    <option value="GBP">GBP - British Pound</option>
+                    <option value="AED">AED - UAE Dirham</option>
+                    <option value="SGD">SGD - Singapore Dollar</option>
+                  </select>
+                </EnterpriseFieldCard>
+                <EnterpriseFieldCard label="Shipping terms 1" hint="Incoterm, e.g. FOB">
+                  <input type="text" maxLength={3} value={companyForm.incoterms1 || ''} onChange={e => handleFieldChange('incoterms1', e.target.value.toUpperCase())} placeholder="FOB" className="uppercase w-[10ch] max-w-full" />
+                </EnterpriseFieldCard>
+                <EnterpriseFieldCard label="Shipping terms 2" hint="Named place, e.g. Mumbai Port">
+                  <input type="text" maxLength={35} value={companyForm.incoterms2 || ''} onChange={e => handleFieldChange('incoterms2', e.target.value)} placeholder="Mumbai Port" className="w-[25ch] max-w-full" />
+                </EnterpriseFieldCard>
+                <div className="flex flex-col gap-2 justify-center">
+                  <label className="flex items-center gap-2 text-[13px] text-text-secondary select-none">
+                    <input type="checkbox" checked={!!companyForm.doubleInvoiceCheck} onChange={e => handleFieldChange('doubleInvoiceCheck', e.target.checked)} />
+                    Flag duplicate invoices
+                  </label>
+                  <label className="flex items-center gap-2 text-[13px] text-text-secondary select-none">
+                    <input type="checkbox" checked={!!companyForm.grBasedInvoiceVerification} onChange={e => handleFieldChange('grBasedInvoiceVerification', e.target.checked)} />
+                    Require goods receipt before invoice
+                  </label>
+                </div>
+              </FormSection>
             </div>
           )}
 
@@ -885,8 +992,6 @@ export default function RegistrationView({
                   <EnterpriseFieldCard
                     label="PAN number"
                     required
-                    mappingCode="LFA1-STCD2"
-                    isSapView={isSapView}
                     error={validationErrors[2]?.pan}
                   >
                     <input
@@ -901,8 +1006,6 @@ export default function RegistrationView({
                   <EnterpriseFieldCard
                     label="GSTIN"
                     required
-                    mappingCode="LFB1-STCEG"
-                    isSapView={isSapView}
                     error={validationErrors[2]?.gstin}
                   >
                     <input
@@ -917,8 +1020,6 @@ export default function RegistrationView({
                   <EnterpriseFieldCard
                     label="GST Registration Type"
                     required
-                    mappingCode="LFB1-GST_TYPE"
-                    isSapView={isSapView}
                     error={validationErrors[2]?.gstType}
                   >
                     <select
@@ -935,8 +1036,6 @@ export default function RegistrationView({
                   </EnterpriseFieldCard>
                   <EnterpriseFieldCard
                     label="CIN Number"
-                    mappingCode="LFA1-CIN_NO"
-                    isSapView={isSapView}
                     error={validationErrors[2]?.cin}
                   >
                     <input
@@ -950,8 +1049,6 @@ export default function RegistrationView({
                   </EnterpriseFieldCard>
                   <EnterpriseFieldCard
                     label="MSME / Udyam Number"
-                    mappingCode="LFA1-MSME_NO"
-                    isSapView={isSapView}
                     error={validationErrors[2]?.msmeNumber}
                   >
                     <input
@@ -966,8 +1063,6 @@ export default function RegistrationView({
                   <EnterpriseFieldCard
                     label="TDS Section"
                     required
-                    mappingCode="LFBW-WITHT"
-                    isSapView={isSapView}
                     error={validationErrors[2]?.tdsSection}
                   >
                     <select
@@ -994,8 +1089,6 @@ export default function RegistrationView({
                   <EnterpriseFieldCard
                     label="Account holder name"
                     required
-                    mappingCode="LFBK-KOINH"
-                    isSapView={isSapView}
                     error={validationErrors[3]?.accountName}
                   >
                     <input
@@ -1011,8 +1104,6 @@ export default function RegistrationView({
                   <EnterpriseFieldCard
                     label="Bank account number"
                     required
-                    mappingCode="LFBK-BANKN"
-                    isSapView={isSapView}
                     error={validationErrors[3]?.accountNumber}
                   >
                     <div className="relative w-[25ch] max-w-full">
@@ -1036,8 +1127,6 @@ export default function RegistrationView({
                   <EnterpriseFieldCard
                     label="IFSC code"
                     required
-                    mappingCode="LFBK-SWIFT"
-                    isSapView={isSapView}
                     error={validationErrors[3]?.ifscCode}
                   >
                     <input
@@ -1053,8 +1142,6 @@ export default function RegistrationView({
                   <EnterpriseFieldCard
                     label="Bank name (auto-fetched)"
                     required
-                    mappingCode="LFBK-BANKA"
-                    isSapView={isSapView}
                     error={validationErrors[3]?.bankName || (ifscLookup.status === 'error' ? ifscLookup.error : '')}
                   >
                     <div className="relative w-[64ch] max-w-full">
@@ -1074,8 +1161,6 @@ export default function RegistrationView({
                   <EnterpriseFieldCard
                     label="Bank branch (auto-fetched)"
                     required
-                    mappingCode="LFBK-BRNCH"
-                    isSapView={isSapView}
                     error={validationErrors[3]?.bankBranch}
                   >
                     <input
@@ -1089,8 +1174,6 @@ export default function RegistrationView({
                   </EnterpriseFieldCard>
                   <EnterpriseFieldCard
                     label="Account currency"
-                    mappingCode="LFBK-WAERS"
-                    isSapView={isSapView}
                   >
                     <select disabled className="bg-surface2 text-text-secondary cursor-not-allowed w-[25ch] max-w-full">
                       <option value="INR">INR - Indian Rupee</option>
@@ -1101,8 +1184,6 @@ export default function RegistrationView({
                     <EnterpriseFieldCard
                       label="Cancelled cheque copy"
                       required
-                      mappingCode="LFBK-CHQ_DOC"
-                      isSapView={isSapView}
                       error={validationErrors[3]?.cancelledCheque}
                     >
                       <DocumentUploadZone
@@ -1142,8 +1223,7 @@ export default function RegistrationView({
                   {/* GROUP 1: REQUIRED */}
                   {[
                     { id: 'panCardCopy', name: 'PAN Card Copy', req: 'Required for Approval' },
-                    { id: 'gstCertificate', name: 'GST Certificate', req: 'Required for Approval' },
-                    { id: 'incorporationCertificate', name: 'Certificate of Incorporation', req: 'Required for Approval' }
+                    { id: 'gstCertificate', name: 'GST Certificate', req: 'Required for Approval' }
                   ].map(doc => (
                     <div key={doc.id} className="grid grid-cols-[2fr_1.5fr_1fr_1fr_1fr] gap-4 px-4 py-3 items-center hover:bg-surface2/50 transition-colors even:bg-surface2/30">
                       <div className="text-[13px] font-medium text-text-primary">{doc.name}</div>
@@ -1166,9 +1246,7 @@ export default function RegistrationView({
                   ))}
                   {/* GROUP 2: OPTIONAL */}
                   {[
-                    { id: 'msmeCertificate', name: 'MSME Certificate', req: 'Supplemental/Optional' },
-                    { id: 'isoCertificate', name: 'ISO Certificate Copy', req: 'Supplemental/Optional' },
-                    { id: 'itReturns', name: 'IT Returns (Last 2 Years)', req: 'Supplemental/Optional' }
+                    { id: 'msmeCertificate', name: 'MSME Certificate', req: 'Supplemental/Optional' }
                   ].map(doc => (
                     <div key={doc.id} className="grid grid-cols-[2fr_1.5fr_1fr_1fr_1fr] gap-4 px-4 py-3 items-center hover:bg-surface2/50 transition-colors even:bg-surface2/30">
                       <div className="text-[13px] font-medium text-text-primary">{doc.name}</div>
@@ -1272,14 +1350,11 @@ export default function RegistrationView({
                 { label: 'Clearing Bank Institution', val: state.profile.bankName },
                 { label: 'Clearance Bank Branch', val: state.profile.bankBranch || 'Not Mapped' },
                 { label: 'Clearance Bank Account', val: `••••${state.profile.accountNumber?.slice(-4)} (${state.profile.ifscCode})`, isMono: true },
-                { label: 'Operations Plant Office', val: `${state.profile.address}, ${state.profile.city}, ${state.profile.state} - ${state.profile.postalCode}` },
+                { label: 'Operations Plant Office', val: `${state.profile.address}, ${state.profile.city}, ${state.profile.region || state.profile.state}, ${state.profile.country || ''} - ${state.profile.postalCode}` },
                 { label: 'Cancelled Cheque Copy Document', val: state.profile.cancelledCheque || 'Not Uploaded', isFile: true },
                 { label: 'PAN Card Copy Document', val: state.profile.panCardCopy || 'Not Uploaded', isFile: true },
                 { label: 'GST Certificate Document', val: state.profile.gstCertificate || 'Not Uploaded', isFile: true },
-                { label: 'Certificate of Incorporation', val: state.profile.incorporationCertificate || 'Not Uploaded', isFile: true },
-                { label: 'MSME Compliance Certificate', val: state.profile.msmeCertificate || 'Not Uploaded', isFile: true },
-                { label: 'ISO Standard Certificate Copy', val: state.profile.isoCertificate || 'Not Uploaded', isFile: true },
-                { label: 'Income Tax Return Archives', val: state.profile.itReturns || 'Not Uploaded', isFile: true }
+                { label: 'MSME Compliance Certificate', val: state.profile.msmeCertificate || 'Not Uploaded', isFile: true }
               ].map((row, idx) => (
                 <div key={idx} className="flex justify-between items-center border-b border-border-subtle pb-2 gap-4">
                   <span className="text-text-secondary font-bold shrink-0">{row.label}</span>

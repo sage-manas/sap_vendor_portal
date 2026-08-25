@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
 import { apiClient } from './api-client';
+import { hasOwnChrome } from './planes';
 
 const ShellContext = createContext(undefined);
 
@@ -34,7 +35,7 @@ export function ShellProvider({ children }) {
   }, []);
 
   const refreshSapLogs = async () => {
-    if (typeof window !== 'undefined' && !localStorage.getItem('jwt_token')) return;
+    if (typeof window !== 'undefined' && (!localStorage.getItem('jwt_token') || hasOwnChrome(window.location.pathname))) return;
     try {
       const logs = await apiClient.get('/logs');
       if (logs) {
@@ -47,7 +48,7 @@ export function ShellProvider({ children }) {
 
   // Fetch SAP logs from backend on mount (only when authenticated)
   useEffect(() => {
-    if (typeof window !== 'undefined' && localStorage.getItem('jwt_token')) {
+    if (typeof window !== 'undefined' && localStorage.getItem('jwt_token') && !hasOwnChrome(window.location.pathname)) {
       refreshSapLogs();
     }
   }, []);

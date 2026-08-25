@@ -24,25 +24,35 @@ const generateVendorId = async () => {
 };
 
 /**
- * Whether any of these identities already belongs to an account, anywhere on
- * the platform. Login resolves an account before a tenant is known, so this
- * check is deliberately cross-tenant.
+ * Which of these identities already belongs to an account, anywhere on the
+ * platform — 'vendorId' | 'email' | 'gstin' | null. Login resolves an account
+ * before a tenant is known, so this check is deliberately cross-tenant.
+ * Checked in this order so the caller can report the specific field that
+ * collided, rather than a generic "one of these" — a supplier retrying with a
+ * fresh GSTIN has no way to tell that only the email actually conflicted.
  */
-const identityIsTaken = async ({ vendorId, email, gstin }) => {
-  const or = [
-    ...(vendorId ? [{ vendorId }] : []),
-    ...(email ? [{ email: String(email).toLowerCase() }] : []),
-    ...(gstin ? [{ gstin: String(gstin).toUpperCase() }] : []),
-  ];
-  if (!or.length) return false;
+const identityConflict = async ({ vendorId, email, gstin }) => {
+  const normEmail = email ? String(email).toLowerCase() : null;
+  const normGstin = gstin ? String(gstin).toUpperCase() : null;
 
-  if (await withoutTenantScope(() => Vendor.exists({ $or: or }))) return true;
-  if (!email) return false;
-  return Boolean(await withoutTenantScope(() => User.exists({ email: String(email).toLowerCase() })));
+  if (vendorId && await withoutTenantScope(() => Vendor.exists({ vendorId }))) return 'vendorId';
+  if (normEmail && (
+    await withoutTenantScope(() => Vendor.exists({ email: normEmail })) ||
+    await withoutTenantScope(() => User.exists({ email: normEmail }))
+  )) return 'email';
+  if (normGstin && await withoutTenantScope(() => Vendor.exists({ gstin: normGstin }))) return 'gstin';
+
+  return null;
 };
+
+/**
+ * Whether any of these identities already belongs to an account, anywhere on
+ * the platform. Kept for callers that only need the yes/no answer.
+ */
+const identityIsTaken = async (identities) => Boolean(await identityConflict(identities));
 
 // A password nobody knows, for an account whose owner will set their own via
 // the link we email them. It exists so the document is never passwordless.
 const unguessablePassword = () => crypto.randomBytes(24).toString('base64url');
 
-module.exports = { generateVendorId, identityIsTaken, unguessablePassword };
+module.exports = { generateVendorId, identityIsTaken, identityConflict, unguessablePassword };

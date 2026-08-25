@@ -19,7 +19,9 @@ export default function SignInPage() {
     if (typeof window !== 'undefined') {
       const token = localStorage.getItem('jwt_token');
       if (token) {
-        router.push('/');
+        // Only a supplier login cached a vendor profile — tenant staff
+        // belong on the back office, not the supplier portal home.
+        router.push(localStorage.getItem('sap_vendor_profile_data') ? '/' : '/workspace');
       }
     }
   }, [router]);
@@ -48,13 +50,18 @@ export default function SignInPage() {
         throw new Error(data.error || data.errors?.vendorIdOrEmail || data.errors?.password || 'Authentication failed');
       }
 
-      // Save token and profile details
+      // Save the token. Tenant staff (client_admin/buyer/finance) get back
+      // `user`, not `vendor` — only a supplier login carries a vendor profile
+      // to cache, and only a supplier belongs on the supplier portal home.
       localStorage.setItem('jwt_token', data.token);
-      localStorage.setItem('clerk_user_id', data.vendor.vendorId);
-      localStorage.setItem('sap_vendor_profile_data', JSON.stringify(data.vendor));
 
-      // Redirect to main portal dashboard
-      router.push('/');
+      if (data.vendor) {
+        localStorage.setItem('clerk_user_id', data.vendor.vendorId);
+        localStorage.setItem('sap_vendor_profile_data', JSON.stringify(data.vendor));
+        router.push('/');
+      } else {
+        router.push('/workspace');
+      }
     } catch (err) {
       setError(err.message);
     } finally {

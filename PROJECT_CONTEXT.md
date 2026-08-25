@@ -213,6 +213,7 @@ const { sapMiroDoc, transaction } = await sap.invoiceCreate({ invoice, vendorId 
 | `drivers/s4odata.driver.js` · `eccrfc.driver.js` | skeletons. Only `testConnection` is real (S/4 checks gateway reachability; ECC honestly reports it has no transport). Everything else throws `not_implemented`. |
 | `circuitBreaker.js` | one breaker per tenant adapter: closed → open after N consecutive failures → half-open after a cooldown. State is computed on read, so an idle tenant costs nothing. |
 | `index.js` | `getSapAdapterForClient` / `invalidateSapAdapter` / `buildTransientAdapter`, and the wrapper described below. |
+| `conformance/runner.js` · `conformance/fixtures.js` | Phase 8's conformance suite (ADR-0036): runs every contract method against a live adapter and reports `passed`/`not_implemented`/`failed` per method, with a timeout so a driver that never answers can't hang it. `scripts/sap-conformance.js` is the CLI — `--client <id>` against a configured tenant, `--driver s4_odata --config f.json --secrets f.json` against a throwaway adapter for a sandbox with no tenant yet. This is the tool to point at a design-partner sandbox the moment one exists; `s4_odata`/`ecc_rfc` themselves are still the Phase 4 skeletons. |
 
 **What the wrapper does, so no driver has to:** runs the call through the tenant's circuit
 breaker; writes the `SapLog` entry using the transaction registry's own code, type and
@@ -282,7 +283,7 @@ All string business IDs (`id`, `vendorId`, `poId`, …) are human-readable and u
 - `password` (bcrypt, `select:false`), `resetPasswordToken`/`resetPasswordExpires` (`select:false`).
 - Company: `companyName`(req), `tradeName`, `businessType`, `incorporationDate`, `gstin`(req, unique, upper), `gstType`, `pan`(req, upper), `cin`, `msmeNumber`, `tdsSection`, `email`(req, unique, lower), `phone`.
 - **Flat** address (`address/city/state/postalCode`) and bank (`bankName/accountNumber/ifscCode/accountName/bankBranch`). Responses re-nest bank into a `bankDetails` object for backward compat (`formatVendorResponse`).
-- Compliance doc filenames: `cancelledCheque, panCardCopy, gstCertificate, incorporationCertificate, msmeCertificate, isoCertificate, itReturns`.
+- Compliance doc filenames: `cancelledCheque, panCardCopy, gstCertificate, msmeCertificate`.
 - KYC: `gstinVerified`, `panVerified`, `verifiedAt`, `verificationDetails`.
 - SAP/status: `sapVendorCode` (unique sparse), `status` (`Draft`|`Pending`|`Pending Approval`|`Under Review`|`Approved`|`Rejected`, default `Draft`), `rejectionReason`, `vendorCategory`, `submittedAt`, `approvedAt`.
 - Hooks: pre-save bcrypt hash; `comparePassword()` method.

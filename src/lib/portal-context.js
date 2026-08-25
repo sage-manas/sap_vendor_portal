@@ -165,10 +165,11 @@ export function PortalProvider({ children }) {
   const [companyForm, setCompanyForm] = useState({
     companyName: '', tradeName: '', businessType: '', incorporationDate: '',
     gstin: '', gstType: '', pan: '', cin: '', msmeNumber: '', tdsSection: '',
-    email: '', phone: '', address: '', city: '', state: '', postalCode: '',
+    email: '', phone: '', address: '', city: '', state: '', country: '', region: '', postalCode: '',
+    paymentTerms: '', paymentMethod: '', currency: '', incoterms1: '', incoterms2: '',
+    doubleInvoiceCheck: false, grBasedInvoiceVerification: false,
     bankName: '', accountNumber: '', ifscCode: '', accountName: '', bankBranch: '',
-    cancelledCheque: null, panCardCopy: null, gstCertificate: null,
-    incorporationCertificate: null, msmeCertificate: null, isoCertificate: null, itReturns: null
+    cancelledCheque: null, panCardCopy: null, gstCertificate: null, msmeCertificate: null
   });
 
   const [bidPrices, setBidPrices] = useState({});
@@ -231,10 +232,7 @@ export function PortalProvider({ children }) {
           cancelledCheque: state.profile.cancelledCheque || null,
           panCardCopy: state.profile.panCardCopy || null,
           gstCertificate: state.profile.gstCertificate || null,
-          incorporationCertificate: state.profile.incorporationCertificate || null,
-          msmeCertificate: state.profile.msmeCertificate || null,
-          isoCertificate: state.profile.isoCertificate || null,
-          itReturns: state.profile.itReturns || null
+          msmeCertificate: state.profile.msmeCertificate || null
         });
       });
     }

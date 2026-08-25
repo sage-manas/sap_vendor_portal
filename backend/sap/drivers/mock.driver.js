@@ -88,7 +88,12 @@ const createMockDriver = ({ config = {} } = {}) => {
 
     // --- Vendor master ----------------------------------------------------
 
-    vendorCreate: async ({ vendor }) => ({
+    // Mirrors the real VENDOR_CR driver's { TYPE, MESSAGE, VENDOR } response
+    // shape (see sap/drivers/s4odata.driver.js and sap/mappings/vendor-create.map.js)
+    // without actually calling anything — `settings` (the tenant's
+    // sapVendorCreate config group) is accepted for signature parity but
+    // ignored, since the mock invents its own vendor code either way.
+    vendorCreate: async ({ vendor, settings = {} }) => ({
       data: {},
       log: {
         vendorId: vendor.vendorId,
@@ -98,6 +103,7 @@ const createMockDriver = ({ config = {} } = {}) => {
           gstin: vendor.gstin,
           pan: vendor.pan,
           email: vendor.email,
+          accountGroup: settings.accountGroup,
         },
         // Outbound and unanswered: `awaitVendorApproval` resolves this entry
         // when the mock system replies.

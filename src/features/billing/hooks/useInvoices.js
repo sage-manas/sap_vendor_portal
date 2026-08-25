@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useShell } from '../../../lib/shell-context';
+import { hasOwnChrome } from '../../../lib/planes';
 import { invoiceService } from '../services/invoiceService';
 
 // Pure helper functions outside the hook to prevent React purity linter checks
@@ -22,7 +23,7 @@ export function useInvoices(profile, setInvoiceSubmittedForGrn, addPayment) {
   };
 
   const refreshInvoices = async () => {
-    if (typeof window !== 'undefined' && !localStorage.getItem('jwt_token')) return;
+    if (typeof window !== 'undefined' && (!localStorage.getItem('jwt_token') || hasOwnChrome(window.location.pathname))) return;
     try {
       const data = await invoiceService.getInvoices();
       if (data && data.invoices) {

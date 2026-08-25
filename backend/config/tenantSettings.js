@@ -43,6 +43,11 @@ const GROUPS = [
   { key: 'features', label: 'Features', caption: 'Modules this workspace offers. Turning one off closes its API, not just its screen.' },
   { key: 'thresholds', label: 'Thresholds', caption: 'The numbers the workspace overview measures against.' },
   { key: 'notifications', label: 'Notifications', caption: 'Which decisions send the supplier an email.' },
+  {
+    key: 'sapVendorCreate',
+    label: 'SAP vendor creation',
+    caption: 'System-controlled values SAP expects on every vendor master record — set once here, never asked of a supplier. These must match the target SAP system\'s own customizing (account group, company code, purchasing organization and so on); get them from whoever administers it.',
+  },
 ];
 
 const SETTINGS = [
@@ -115,6 +120,103 @@ const SETTINGS = [
     label: 'Email suppliers on approval or rejection',
     hint: 'The rejection reason is included, so the supplier knows what to fix.',
     readBy: 'vendor approve / reject',
+  },
+
+  // --- SAP vendor creation (VENDOR_CR) — system-controlled, Phase 7 ---------
+  // These are NOT vendor-entered form fields. They are set once per tenant by
+  // an admin and read by sap/mappings/vendor-create.map.js when building the
+  // VENDOR_CR payload. The field names are CONFIRMED against the live
+  // endpoint's contract — see that mapping file's header comment. The *values*
+  // are per-system and still come from whoever configures the tenant.
+  {
+    key: 'sapVendorCreate.accountGroup',
+    path: 'settings.sapVendorCreate.accountGroup',
+    group: 'sapVendorCreate',
+    type: 'text',
+    default: '',
+    label: 'Supplier account group',
+    hint: 'SAP account_group for new vendors (e.g. SSDN).',
+    readBy: 'sap/mappings/vendor-create.map.js via s4odata.driver.js vendorCreate',
+  },
+  {
+    key: 'sapVendorCreate.industry',
+    path: 'settings.sapVendorCreate.industry',
+    group: 'sapVendorCreate',
+    type: 'text',
+    default: '',
+    label: 'Industry key',
+    hint: 'SAP industry code for new vendors (e.g. ZENT).',
+    readBy: 'sap/mappings/vendor-create.map.js via s4odata.driver.js vendorCreate',
+  },
+  {
+    key: 'sapVendorCreate.language',
+    path: 'settings.sapVendorCreate.language',
+    group: 'sapVendorCreate',
+    type: 'text',
+    default: 'E',
+    label: 'Language key',
+    hint: 'SAP language key on the vendor\'s general data (e.g. E for English).',
+    readBy: 'sap/mappings/vendor-create.map.js via s4odata.driver.js vendorCreate',
+  },
+  {
+    key: 'sapVendorCreate.companyCode',
+    path: 'settings.sapVendorCreate.companyCode',
+    group: 'sapVendorCreate',
+    type: 'text',
+    default: '',
+    label: 'Company code',
+    hint: 'SAP company_code new vendors are created under (e.g. SSDN).',
+    readBy: 'sap/mappings/vendor-create.map.js via s4odata.driver.js vendorCreate',
+  },
+  {
+    key: 'sapVendorCreate.reconciliationAccount',
+    path: 'settings.sapVendorCreate.reconciliationAccount',
+    group: 'sapVendorCreate',
+    type: 'text',
+    default: '',
+    label: 'Reconciliation account',
+    hint: 'GL reconciliation account for the vendor\'s company code data (e.g. 0000040000).',
+    readBy: 'sap/mappings/vendor-create.map.js via s4odata.driver.js vendorCreate',
+  },
+  {
+    key: 'sapVendorCreate.planningGroup',
+    path: 'settings.sapVendorCreate.planningGroup',
+    group: 'sapVendorCreate',
+    type: 'text',
+    default: '',
+    label: 'Planning group',
+    hint: 'Cash management planning group. Unverified — confirm with SAP/ABAP.',
+    readBy: 'sap/mappings/vendor-create.map.js via s4odata.driver.js vendorCreate',
+  },
+  {
+    key: 'sapVendorCreate.accountStatement',
+    path: 'settings.sapVendorCreate.accountStatement',
+    group: 'sapVendorCreate',
+    type: 'text',
+    default: '',
+    label: 'Account statement group',
+    hint: 'Sort key / account statement grouping. Field name is a guess — unverified.',
+    readBy: 'sap/mappings/vendor-create.map.js via s4odata.driver.js vendorCreate',
+  },
+  {
+    key: 'sapVendorCreate.purchasingOrganization',
+    path: 'settings.sapVendorCreate.purchasingOrganization',
+    group: 'sapVendorCreate',
+    type: 'text',
+    default: '',
+    label: 'Purchasing organization',
+    hint: 'SAP purchasing_organization for the vendor\'s purchasing view. Unverified — confirm with SAP/ABAP.',
+    readBy: 'sap/mappings/vendor-create.map.js via s4odata.driver.js vendorCreate',
+  },
+  {
+    key: 'sapVendorCreate.schemaGroupVendor',
+    path: 'settings.sapVendorCreate.schemaGroupVendor',
+    group: 'sapVendorCreate',
+    type: 'text',
+    default: '',
+    label: 'Schema group (vendor)',
+    hint: 'Pricing/calculation schema group for the vendor. Unverified — confirm with SAP/ABAP.',
+    readBy: 'sap/mappings/vendor-create.map.js via s4odata.driver.js vendorCreate',
   },
 ];
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { hasOwnChrome } from '../../../lib/planes';
 import { paymentService } from '../services/paymentService';
 
 const STORAGE_KEY = 'sap_vendor_portal_payments';
@@ -14,7 +15,7 @@ export function usePayments() {
   }, []);
 
   const refreshPayments = useCallback(async () => {
-    if (typeof window !== 'undefined' && !localStorage.getItem('jwt_token')) {
+    if (typeof window !== 'undefined' && (!localStorage.getItem('jwt_token') || hasOwnChrome(window.location.pathname))) {
       setLoading(false);
       return;
     }

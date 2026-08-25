@@ -5,6 +5,51 @@ Each entry: the call, why, and what it costs.
 
 ---
 
+## ADR-0036 — Phase 8 stays gated on a design-partner sandbox; only the conformance harness ships
+**Phase 8 · 2026-08-14 · Accepted**
+
+**Context.** The plan is explicit: "Phase 8 — Real SAP (only with a design-partner
+sandbox)." No sandbox credentials exist anywhere in this repo or were available when this
+phase was picked up. Writing a "real" `s4_odata`/`ecc_rfc` implementation with no system to
+call it against would mean guessing at OData/RFC request and response shapes and asserting
+tests pass against fixtures invented for the occasion — exactly the kind of pretending the
+skeletons in `sap/drivers/s4odata.driver.js` and `eccrfc.driver.js` were built (Phase 4,
+ADR-0019-ish) to refuse. The scope question was also raised and settled separately: SAP
+connections stay `Client`-scoped, not `Vendor`-scoped (matches the existing per-tenant
+architecture), and no third driver type (Business One, generic webhook) is added
+speculatively — one gets built when a concrete tenant needs it.
+
+**Decision.** Build the piece of Phase 8 that doesn't need a sandbox: the conformance
+suite. `sap/conformance/runner.js` runs every method in the `SapAdapter` contract
+(`sap/contract.js`) against a live adapter and reports `passed` / `not_implemented` / `failed`
+per method, with a timeout so a driver that never answers doesn't hang the suite forever.
+`sap/conformance/fixtures.js` holds one representative payload per method, shaped like
+`sap/drivers/mock.driver.js` reads them, so the same fixtures exercise the mock, the
+skeletons, and — unchanged — whatever real driver eventually replaces them.
+`scripts/sap-conformance.js` is the CLI: `--client <id>` runs it against an
+already-configured tenant, `--driver <key> --config file.json --secrets file.json` runs it
+against a throwaway adapter for a sandbox with no tenant set up yet. Both raise (or, for
+`--client`, warn about) the per-adapter circuit breaker's failure threshold for the run,
+because 5 consecutive `not_implemented` results would otherwise trip it and hide every
+method after the fifth behind `sap_circuit_open` instead of the honest answer. The script
+also disables Mongoose's write-buffering — without a live DB connection each failed call's
+`SapLog` write was blocking for the driver's 10s buffering timeout, turning an
+instant 18-method skeleton run into three minutes.
+
+`s4_odata` and `ecc_rfc` remain exactly the skeletons Phase 4 left them: `testConnection`
+and `health` answer for real, everything else throws `not_implemented`. Nothing here claims
+otherwise.
+
+**Consequences.** The moment a design-partner sandbox exists, pointing
+`sap-conformance.js --driver s4_odata --config sandbox.json --secrets creds.json` at it is
+the first thing to run, before or after any implementation work — it will report
+`not_implemented` for everything until the driver's methods are actually filled in, then
+flip to `passed`/`failed` one at a time as they are, which is the pass/fail-per-method
+progress report the plan asked for. Until then this phase produces no forward motion on the
+real drivers themselves — that work is genuinely blocked, not simulated.
+
+---
+
 ## ADR-0035 — The offboarding export already existed; it is not re-litigated in Phase 7
 **Phase 7 · 2026-08-13 · Accepted**
 

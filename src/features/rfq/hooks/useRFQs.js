@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useShell } from '../../../lib/shell-context';
+import { hasOwnChrome } from '../../../lib/planes';
 import { rfqService } from '../services/rfqService';
 
 export function useRFQs(profile) {
@@ -15,7 +16,7 @@ export function useRFQs(profile) {
   };
 
   const refreshRFQs = async () => {
-    if (typeof window !== 'undefined' && !localStorage.getItem('jwt_token')) return;
+    if (typeof window !== 'undefined' && (!localStorage.getItem('jwt_token') || hasOwnChrome(window.location.pathname))) return;
     try {
       const data = await rfqService.getRFQs();
       if (data) {

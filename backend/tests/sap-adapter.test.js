@@ -63,13 +63,21 @@ describe('the SapAdapter contract', () => {
     expect(() => assertImplements(incomplete, 'broken')).toThrow(/missing invoiceCreate/);
   });
 
-  it('the s4_odata and ecc_rfc skeletons throw not_implemented rather than pretending', async () => {
-    for (const key of ['s4_odata', 'ecc_rfc']) {
-      const adapter = buildTransientAdapter({ clientId: 'CLT-0001', driver: key, config: {}, secrets: {} });
+  it('the ecc_rfc skeleton throws not_implemented rather than pretending', async () => {
+    const adapter = buildTransientAdapter({ clientId: 'CLT-0001', driver: 'ecc_rfc', config: {}, secrets: {} });
 
-      await expect(runWithTenant('CLT-0001', () => adapter.rfqCreate({ rfq: { id: 'RFQ-1' } })))
-        .rejects.toMatchObject({ code: 'not_implemented' });
-    }
+    await expect(runWithTenant('CLT-0001', () => adapter.rfqCreate({ rfq: { id: 'RFQ-1' } })))
+      .rejects.toMatchObject({ code: 'not_implemented' });
+  });
+
+  it('s4_odata is implemented but fails loudly without a configured sourcing service or reachable gateway', async () => {
+    const adapter = buildTransientAdapter({ clientId: 'CLT-0001', driver: 's4_odata', config: {}, secrets: {} });
+
+    // rfqCreate has no standard S/4 API — it needs config.services.sourcing,
+    // which is unset here, so it fails with a clear configuration error
+    // rather than the generic not_implemented a skeleton reports.
+    await expect(runWithTenant('CLT-0001', () => adapter.rfqCreate({ rfq: { id: 'RFQ-1' } })))
+      .rejects.toMatchObject({ code: 'sap_call_failed', message: expect.stringContaining('e-sourcing') });
   });
 
   it('stamps every result with its source and freshness', async () => {
@@ -326,7 +334,7 @@ describe('the mock driver', () => {
   });
 
   it('records a failed call rather than losing it', async () => {
-    const adapter = buildTransientAdapter({ clientId: 'CLT-0001', driver: 's4_odata', config: {}, secrets: {} });
+    const adapter = buildTransientAdapter({ clientId: 'CLT-0001', driver: 'ecc_rfc', config: {}, secrets: {} });
 
     await expect(runWithTenant('CLT-0001', () => adapter.invoiceCreate({ invoice: { id: 'INV-9' }, vendorId: 'v' })))
       .rejects.toMatchObject({ code: 'not_implemented' });
@@ -334,6 +342,33 @@ describe('the mock driver', () => {
     const entry = await runWithTenant('CLT-0001', () => SapLog.findOne({ name: SAP_TRANSACTIONS.INVOICE_CREATE.code }));
     expect(entry.status).toBe('FAILED');
     expect(entry.errorMessage).toMatch(/not_implemented/);
+  });
+
+  // Phase 7: VENDOR_CR contract — mock accepts the { vendor, settings } args
+  // the real driver now needs and logs the tenant's account group alongside
+  // the vendor's own fields.
+  it('vendorCreate accepts the tenant sapVendorCreate settings and logs a PENDING entry', async () => {
+    const adapter = await getSapAdapterForClient('CLT-0001');
+    const vendor = { _id: 'v1', vendorId: 'vendor_1', companyName: 'Acme Pvt Ltd', gstin: '27AAAPL1234C1ZV', pan: 'AAAPL1234C', email: 'a@b.com' };
+
+    await runWithTenant('CLT-0001', () => adapter.vendorCreate({ vendor, settings: { accountGroup: 'LIEF' } }));
+
+    const entry = await runWithTenant('CLT-0001', () => SapLog.findOne({ documentRef: 'v1' }));
+    expect(entry.status).toBe('PENDING');
+    expect(JSON.parse(entry.payload).accountGroup).toBe('LIEF');
+  });
+});
+
+describe('s4_odata vendorCreate (VENDOR_CR)', () => {
+  it('is a plain POST built from the mapping table, and fails honestly with no reachable gateway', async () => {
+    const adapter = buildTransientAdapter({
+      clientId: 'CLT-0001', driver: 's4_odata', secrets: {},
+      config: { baseUrl: 'http://127.0.0.1:1', timeoutMs: 200 },
+    });
+    const vendor = { _id: 'v1', vendorId: 'vendor_1', companyName: 'Acme Pvt Ltd', gstin: '27AAAPL1234C1ZV', pan: 'AAAPL1234C', email: 'a@b.com' };
+
+    await expect(runWithTenant('CLT-0001', () => adapter.vendorCreate({ vendor, settings: { accountGroup: 'LIEF' } })))
+      .rejects.toMatchObject({ code: 'sap_call_failed' });
   });
 });
 
