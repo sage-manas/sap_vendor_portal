@@ -150,7 +150,7 @@ export function usePOs(profile) {
       currency: 'INR',
       deliveryAddress: 'Plant 1000 Main Warehouse, Mumbai',
       status: 'Open',
-      createdDate: new Date().toLocaleDateString('en-GB'),
+      createdDate: new Date().toISOString(),
       items: [{
         line: 10,
         materialCode: 'MAT-3849',

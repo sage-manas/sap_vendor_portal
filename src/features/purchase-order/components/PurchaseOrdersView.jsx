@@ -87,6 +87,22 @@ const formatDate = (dateStr) => {
   return `${day}.${month}.${year}`;
 };
 
+const parseDateSafe = (dateStr) => {
+  if (!dateStr) return new Date();
+  let d = new Date(dateStr);
+  if (isNaN(d.getTime())) {
+    const parts = String(dateStr).split(/[./-]/);
+    if (parts.length === 3) {
+      if (parts[2].length === 4) {
+        d = new Date(parts[2], parts[1] - 1, parts[0]);
+      } else if (parts[0].length === 4) {
+        d = new Date(parts[0], parts[1] - 1, parts[2]);
+      }
+    }
+  }
+  return isNaN(d.getTime()) ? new Date() : d;
+};
+
 export default function PurchaseOrdersView({
   state,
   selectedPoId,
@@ -228,7 +244,7 @@ export default function PurchaseOrdersView({
           const asn = cleanAsns.find(a => a.poId === po.id);
           const submittedDate = asn?.submittedAt || asn?.createdAt || localSubmissionTimes[po.id];
           if (submittedDate) {
-            const elapsed = Math.floor((now - new Date(submittedDate).getTime()) / 1000);
+            const elapsed = Math.floor((now - parseDateSafe(submittedDate).getTime()) / 1000);
             const remaining = Math.max(0, 10 - elapsed);
             setCountdown(prev => ({ ...prev, [po.id]: remaining }));
           } else {
@@ -251,7 +267,7 @@ export default function PurchaseOrdersView({
             {
               sender: 'Buyer',
               message: `Hi Team, PO ${po.id} has been released in SAP. Please review payment terms (${po.paymentTerms || 'NET 30'}) and delivery locations and confirm acknowledgement.`,
-              timestamp: new Date(new Date(po.createdDate).getTime() + 10 * 60000).toISOString()
+              timestamp: new Date(parseDateSafe(po.createdDate).getTime() + 10 * 60000).toISOString()
             }
           ]
         }));
@@ -2126,7 +2142,7 @@ export default function PurchaseOrdersView({
                         <p className="leading-relaxed">{msg.message}</p>
                       </div>
                       <span className="text-[8px] text-text-tertiary font-mono mt-0.5 tabular-nums">
-                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {parseDateSafe(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </div>
                   ))}
