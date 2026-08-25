@@ -2,7 +2,11 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { INITIAL_CHATS, INITIAL_PERFORMANCE } from '../constants';
+import { hasOwnChrome } from '../../../lib/planes';
 import { dashboardService } from '../services/dashboardService';
+
+const canFetchVendorData = () =>
+  typeof window !== 'undefined' && localStorage.getItem('jwt_token') && !hasOwnChrome(window.location.pathname);
 
 export function useDashboard(profile, clearAllLogs) {
   const [chats, setChats] = useState([]);
@@ -24,7 +28,7 @@ export function useDashboard(profile, clearAllLogs) {
 
   // Fetch live backend performance score if vendor is approved
   useEffect(() => {
-    if (typeof window !== 'undefined' && !localStorage.getItem('jwt_token')) return;
+    if (!canFetchVendorData()) return;
     if (profile?.sapVendorCode && profile?.status === 'Approved') {
       dashboardService.getPerformance().then(data => {
         if (data) {
@@ -51,7 +55,7 @@ export function useDashboard(profile, clearAllLogs) {
   };
 
   const refreshChats = useCallback(async () => {
-    if (typeof window !== 'undefined' && !localStorage.getItem('jwt_token')) return;
+    if (!canFetchVendorData()) return;
     try {
       const data = await dashboardService.getChats();
       if (data) {

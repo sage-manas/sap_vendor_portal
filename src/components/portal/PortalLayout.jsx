@@ -5,6 +5,7 @@ import Header from './Header';
 import Sidebar from './Sidebar';
 import BapiConsole from './BapiConsole';
 import CommandPalette from '../ui/CommandPalette';
+import TenantBranding from './TenantBranding';
 import { usePortal } from '@/lib/portal-context';
 import { hasOwnChrome } from '@/lib/planes';
 
@@ -49,6 +50,7 @@ export default function PortalLayout({ children }) {
   if (isAuthPage) {
     return (
       <div id="main-content" className="auth-page-wrapper min-h-screen w-full bg-base flex items-center justify-center py-8 px-4">
+        <TenantBranding />
         {children}
       </div>
     );
@@ -56,6 +58,7 @@ export default function PortalLayout({ children }) {
 
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-base text-text-primary font-sans">
+      <TenantBranding />
       <Header />
       <CommandPalette />
 

@@ -2,12 +2,13 @@
 
 > **Purpose of this file.** A single, self-contained reference that gives any developer or AI agent the *complete* mental model of this project — architecture, data model, every module, every API endpoint, the SAP-simulation design, conventions, and known gotchas — **without needing the codebase open**. Read this top to bottom and you can navigate, extend, or debug the system.
 >
-> **Last synced with code:** 2026-08-12. If code and this file disagree, the code wins — but please update this file.
+> **Last synced with code:** 2026-08-13 (SaaS Phase 7 complete). If code and this file disagree, the code wins — but please update this file.
 >
 > ⚠️ **This app is now multi-tenant** (SaaS Phase 1 complete). Every tenant-scoped query
 > runs inside a bound tenant context or it *throws*. Read §5.5 before writing any backend
 > code; the SaaS plan lives in `SAAS_IMPLEMENTATION_PLAN.md` and the decisions in
-> `DECISIONS.md`.
+> `DECISIONS.md`. Operational concerns — plan limits, billing, rate limits, structured
+> logging, backups — are §5.7.
 
 ---
 
@@ -116,6 +117,9 @@ Frontend talks to backend via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
 | `LOG_LEVEL` | winston level |
 | `UPLOAD_DIR`, `MAX_FILE_SIZE_MB` | multer config |
 | `CLERK_*` | **Deprecated/unused** — Clerk was the original auth plan; replaced by local JWT. `clerkId`/`clerkUserId` names survive as legacy identifiers. |
+| `TENANT_RATE_LIMIT_MAX` | per-tenant request cap, default 300/minute (`middleware/rateLimiter.js` `tenantLimiter`, §5.7). Disabled under `NODE_ENV=test`. |
+| `BILLING_PROVIDER` | selects the billing provider, default `null` (logs and no-ops). See `services/billing.service.js`, §5.7. |
+| `BACKUP_DRILL_DIR` | where `scripts/backup-restore-drill.js` writes its JSON dump. Defaults to `backend/backups/drill-<timestamp>/`. |
 
 Frontend uses `NEXT_PUBLIC_API_URL` only.
 
@@ -209,6 +213,7 @@ const { sapMiroDoc, transaction } = await sap.invoiceCreate({ invoice, vendorId 
 | `drivers/s4odata.driver.js` · `eccrfc.driver.js` | skeletons. Only `testConnection` is real (S/4 checks gateway reachability; ECC honestly reports it has no transport). Everything else throws `not_implemented`. |
 | `circuitBreaker.js` | one breaker per tenant adapter: closed → open after N consecutive failures → half-open after a cooldown. State is computed on read, so an idle tenant costs nothing. |
 | `index.js` | `getSapAdapterForClient` / `invalidateSapAdapter` / `buildTransientAdapter`, and the wrapper described below. |
+| `conformance/runner.js` · `conformance/fixtures.js` | Phase 8's conformance suite (ADR-0036): runs every contract method against a live adapter and reports `passed`/`not_implemented`/`failed` per method, with a timeout so a driver that never answers can't hang it. `scripts/sap-conformance.js` is the CLI — `--client <id>` against a configured tenant, `--driver s4_odata --config f.json --secrets f.json` against a throwaway adapter for a sandbox with no tenant yet. This is the tool to point at a design-partner sandbox the moment one exists; `s4_odata`/`ecc_rfc` themselves are still the Phase 4 skeletons. |
 
 **What the wrapper does, so no driver has to:** runs the call through the tenant's circuit
 breaker; writes the `SapLog` entry using the transaction registry's own code, type and
@@ -227,6 +232,28 @@ promote endpoint writes it. Credentials are envelope-encrypted (ADR-0019) and ne
 returned. A tenant with no connection row gets the mock driver on defaults. Adapters are
 cached per client and keyed on the connection's `updatedAt`, so an edit takes effect on the
 next call.
+
+---
+
+### 5.7 Operations & commercial (Phase 7)
+
+| Concern | Where | Notes |
+|---|---|---|
+| **Usage metering** | `utils/usage.js` | `usageAgainstLimits(client)` — vendors and RFQs-this-month against `Client.limits`, shared by the workspace overview, the platform health board, and enforcement. `null` limit = unlimited; `0` is a real limit, not "unset" (they are checked differently — see the gotcha below). |
+| **Plan enforcement** | `usage.js` `assertCanCreate(client, metric)` | Called before the write in `POST /auth/register`, `POST /vendors/profile`, `POST /vendors` and `POST /rfqs`. Throws `402` with `reason: 'plan_limit_reached'` when the tenant is at or over its limit. Counted fresh on every call — no cached counter to drift. |
+| **Billing** | `services/billing.service.js` | `getBillingProvider()` — one interface (`onTenantCreated`, `onTenantStatusChanged`, `reportUsage`), one implementation today (`null`, logs and no-ops), selected by `BILLING_PROVIDER`. Wired into tenant create/suspend/reactivate/terminate; `POST /platform/tenants/:clientId/billing/sync-usage` reports on demand (operator-triggered — there is no job runner in this codebase). |
+| **Structured logging** | `middleware/requestLogger.js` | `req.log.{info,warn,error}` stamps `requestId` and, once bound, `clientId` on every call automatically. The request-completion and error-handler log lines carry `clientId` too, so any log line can be traced to the tenant and request that produced it. |
+| **Per-tenant rate limits** | `middleware/rateLimiter.js` `tenantLimiter` | Keyed on `req.clientId` (falls back to IP), mounted after `protect` on every tenant/supplier route (`routes/index.js` `protectTenant = [protect, tenantLimiter]`). Independent of `apiLimiter`, which is per-IP and production-only — this one guards against one noisy tenant regardless of how many addresses it calls from. Disabled under `NODE_ENV=test`. `TENANT_RATE_LIMIT_MAX` (default 300/min). |
+| **Backup/restore drill** | `scripts/backup-restore-drill.js`, `npm run backup:drill` | Dumps every collection to JSON, restores into a scratch database, asserts counts match, drops the scratch database. No `mongodump` binary required. Talks to the real `MONGO_URI` over the network (read-only against the source) — see `docs/runbooks/backup-restore.md` before running it. |
+| **Status page** | `GET /api/status` (`controllers/status.controller.js`) | Public, unauthenticated, deliberately anonymous — aggregate counts only (DB connectivity, count of operational tenants, summed SAP call/failure rate), never a tenant name, slug or `clientId`. JSON by default; renders a minimal HTML page for a browser (`Accept: text/html`). Per-tenant detail stays behind `GET /platform/health`. |
+| **Runbooks** | `docs/runbooks/` | Incident response, tenant suspension/termination, key rotation (`JWT_SECRET` vs `MASTER_KEY` — very different blast radius), the backup drill, and diagnosing a SAP outage. |
+
+**Gotcha:** `assertCanCreate` treats a limit as unlimited only when it is `null`/`undefined`
+(`limit == null`) — a limit of `0` is enforced. The older `usage.js` `against()` helper (used
+for *display* on the health board and workspace overview, inherited from Phase 3/5) reads
+`0` as falsy and so displays it the same as unlimited; that display quirk was not changed
+alongside enforcement to avoid touching an already-tested read path. Don't copy that
+`Boolean(limit && …)` pattern into new enforcement code — use `limit == null`.
 
 ---
 
@@ -256,7 +283,7 @@ All string business IDs (`id`, `vendorId`, `poId`, …) are human-readable and u
 - `password` (bcrypt, `select:false`), `resetPasswordToken`/`resetPasswordExpires` (`select:false`).
 - Company: `companyName`(req), `tradeName`, `businessType`, `incorporationDate`, `gstin`(req, unique, upper), `gstType`, `pan`(req, upper), `cin`, `msmeNumber`, `tdsSection`, `email`(req, unique, lower), `phone`.
 - **Flat** address (`address/city/state/postalCode`) and bank (`bankName/accountNumber/ifscCode/accountName/bankBranch`). Responses re-nest bank into a `bankDetails` object for backward compat (`formatVendorResponse`).
-- Compliance doc filenames: `cancelledCheque, panCardCopy, gstCertificate, incorporationCertificate, msmeCertificate, isoCertificate, itReturns`.
+- Compliance doc filenames: `cancelledCheque, panCardCopy, gstCertificate, msmeCertificate`.
 - KYC: `gstinVerified`, `panVerified`, `verifiedAt`, `verificationDetails`.
 - SAP/status: `sapVendorCode` (unique sparse), `status` (`Draft`|`Pending`|`Pending Approval`|`Under Review`|`Approved`|`Rejected`, default `Draft`), `rejectionReason`, `vendorCategory`, `submittedAt`, `approvedAt`.
 - Hooks: pre-save bcrypt hash; `comparePassword()` method.
@@ -314,7 +341,9 @@ All string business IDs (`id`, `vendorId`, `poId`, …) are human-readable and u
 
 **Routing (`routes/index.js`):** everything under `/api`.
 - `/api/health`, `/api/test-error` — public.
-- `/api/auth` — public arms (register, login, forgot/reset password, invitation preview + accept); `/me` and `/change-password` carry their own guard.
+- `/api/auth` — public arms (workspace realm, register, login, forgot/reset password, invitation preview + accept); `/me` and `/change-password` carry their own guard.
+
+**Which tenant is an unauthenticated request for? (`utils/resolveClient.js`, ADR-0028)** The **hostname's first label** decides it — `northwind.vendorconnect.io` → slug `northwind` — with `www`/`platform`/`api`/`app`/`admin` reserved and a bare IP never read as a subdomain. `x-client-slug` overrides it **outside production only** (it is how localhost and the test suite act as any tenant) and is ignored when `NODE_ENV=production`; last comes `DEFAULT_CLIENT_SLUG`, defaulting to `legacy`. `realmFromRequest()` reports the `source` (`subdomain` / `header` / `default`), because only a real subdomain is trusted enough to refuse a login. Registration, the realm endpoint and login all read this one resolver.
 - `/api/platform` — the platform plane, behind `protectPlatform`. **No tenant is bound here.** The `/auth/*` arm carries `protectPlatform` alone (it is how an operator reaches a full session); **everything else sits behind `router.use(protectPlatform, requireMfa)`** — tenants, operators, audit, health.
 - **All other route groups are mounted behind `protect`** (JWT): `vendors, workspace, users, rfqs, pos, grns, invoices, payments, chats, uploads, reports, asns, logs, dashboard`. Inside each group **every route declares one permission** with `requirePermission(...)`; `config/permissions.js` decides which roles hold it (ADR-0012). `vendor.routes.js` applies `protect` per-route because `POST /vendors/profile` is public.
 - **Feature-gated groups** additionally carry `requireFeature('features.…')` (`middleware/requireFeature.js`), which reads the tenant settings registry and answers **404** when the workspace has switched that module off — `/api/chats` is the first (ADR-0023).
@@ -353,13 +382,16 @@ All string business IDs (`id`, `vendorId`, `poId`, …) are human-readable and u
 
 ### 7.1 Complete API Endpoint Map
 
-Base path `/api`. Auth column: **Public** / the permission the route declares (see `config/permissions.js` for who holds it). Phase 2 additions: `/api/users` (staff + invitations, plus `GET /users/roles` — the invitable roles and what each means, served from `config/roles.js`), `/api/vendors/invitations`, `/api/auth/invitations/:token`, `/api/auth/invitations/accept`, `/api/auth/change-password`, `/api/platform/auth/*`. Phase 5 additions: `/api/workspace/*` and `POST /api/vendors`.
+Base path `/api`. Auth column: **Public** / the permission the route declares (see `config/permissions.js` for who holds it). Phase 2 additions: `/api/users` (staff + invitations, plus `GET /users/roles` — the invitable roles and what each means, served from `config/roles.js`), `/api/vendors/invitations`, `/api/auth/invitations/:token`, `/api/auth/invitations/accept`, `/api/auth/change-password`, `/api/platform/auth/*`. Phase 5 additions: `/api/workspace/*` and `POST /api/vendors`. Phase 6 addition: `GET /api/auth/workspace`. Phase 7 additions: `GET /api/status` (public), `POST /platform/tenants/:clientId/billing/sync-usage`.
+
+`GET /health` (liveness — DB state, socket count) and `GET /status` (public status page — see §5.7) sit directly on the router, ahead of everything else, with no `clientId`.
 
 **Auth** (`auth.routes.js`, public):
 | Method | Path | Controller | Notes |
 |---|---|---|---|
 | POST | `/auth/register` | register | zod `registerSchema`; assigns `vendorId` server-side if absent (`VND-#####`); self-reg starts `Draft`; refused when the workspace has closed self-registration unless the email holds an invitation (ADR-0023); returns `{token, vendor}` |
-| POST | `/auth/login` | login | by email or vendorId; returns `{token, vendor}` |
+| POST | `/auth/login` | login | by email or vendorId; returns `{token, vendor}`. On a **real subdomain**, an account belonging to another tenant is refused with the same `Invalid credentials` as a wrong password (ADR-0028) |
+| GET | `/auth/workspace` | getWorkspace | Public. Which tenant this hostname is — identity, branding, feature flags — for the signed-out screens. **404** for an unknown slug *and* for a suspended tenant |
 | GET | `/auth/me` | getMe | JWT; returns `auth` (role, plane, **permissions**) + `workspace` (identity, branding, feature flags) — the three front ends filter their nav on it |
 | POST | `/auth/forgot-password` | forgotPassword | generic response (no enumeration); the link is **emailed**, never logged (ADR-0011) |
 | POST | `/auth/reset-password` | resetPassword | SHA-256 token, 1h expiry |
@@ -436,6 +468,7 @@ Base path `/api`. Auth column: **Public** / the permission the route declares (s
 | POST | `/platform/tenants/:clientId/suspend` · `/reactivate` · `/terminate` | `tenant:manage` | termination is **soft** (ADR-0015); takes effect on the tenant's next request |
 | GET | `/platform/tenants/:clientId/export` | `tenant:manage` | the one place an operator sees tenant documents; one audited action |
 | POST | `/platform/tenants/:clientId/administrators/:userId/credentials` | `tenant:manage` | re-issues a temporary password by email |
+| POST | `/platform/tenants/:clientId/billing/sync-usage` | `tenant:manage` | computes current usage and reports it to the billing provider (§5.7); operator-triggered |
 | GET/POST | `/platform/operators` | `operator:manage` | super_admin only; new operators get emailed credentials + must enrol MFA |
 | PUT | `/platform/operators/:id` | `operator:manage` | name/role; cannot change your own role |
 | POST | `/platform/operators/:id/suspend` · `/reactivate` | `operator:manage` | cannot suspend yourself or the last active super admin |
@@ -535,6 +568,12 @@ The third plane: the client's own back office, for `client_admin` / `buyer` / `f
 - **Screens.** `/workspace` overview (queue, SLA breaches, sourcing/finance counts, usage vs limits — every tile links to the screen that acts on it) · `/suppliers` (directory, search, status filter, approve/decline, invite, and the tenant-side create form that renders from `SUPPLIER_IDENTITY_FIELDS` and runs the supplier form's own `validateField` rules) · `/users` (staff, role changes, suspend/reactivate, invitations; roles come from `GET /users/roles`) · `/settings` (renders entirely from the settings registry the API serves — it knows how to draw a boolean, a number and a string, and nothing about which settings exist) · `/audit`.
 - **`src/lib/whoami.js`** — `useWhoami()`, the one bit of session the supplier portal's sidebar and command palette need in order to show the back-office link (ADR-0027).
 
+**The supplier plane under tenancy (Phase 6).**
+- **`src/lib/workspace-realm.js`** — `useWorkspaceRealm()`, reading `GET /auth/workspace` once (module-cached, like `whoami.js`): whose front door this is, before anyone is signed in. `known` separates "still loading" from "no workspace at this address"; `selfRegistrationOpen` assumes open until told otherwise, because the API is the enforcement point.
+- **`src/lib/branding.js`** — pure. `accentVariables(hex)` moves **one** variable, `--color-emerald-default-rgb`, and returns `{}` for anything that is not a six-digit hex colour (ADR-0030); `brandMark(workspace)` picks the tenant's logo or the product's. `branding.test.js` checks it against the real settings registry.
+- **`src/components/portal/TenantBranding.jsx`** — sets those variables on `<html>` for the supplier portal and its auth pages; renders nothing. The platform console is deliberately not branded.
+- **`src/components/portal/WorkspaceBrand.jsx`** — the mark on a signed-out screen: the buyer's name and logo, VendorConnect as the caption. `/sign-in` hides the register link and `/sign-up` explains itself when the workspace admits suppliers by invitation only.
+
 ---
 
 ## 9. Authentication & Authorization (current, real)
@@ -550,7 +589,9 @@ The third plane: the client's own back office, for `client_admin` / `buyer` / `f
 ## 10. Testing
 
 **Backend** (`backend/`, Jest + Supertest + `mongodb-memory-server`, `NODE_ENV=test`, `--forceExit`):
-`tests/setup.js` (in-memory Mongo), `tests/testApp.js` (real routes + errorHandler, no sockets/CORS/rate-limit), `tests/helpers.js` (`registerVendor`, `createTenantUser`, `createPlatformUser`, `createOperatorSession` — an operator who has already cleared MFA — and `asTenant`). Suites: `auth.test.js`, `auth-middleware.test.js`, `vendor.test.js`, `rfq.test.js` (full lifecycle + scoring math + award), `password-reset.test.js`, `identity.test.js`, **`route-role-matrix.test.js`** (walks the real router; a route with no permission fails CI), **`tenant-plugin.test.js`** (the enforcement layer), **`tenant-isolation.test.js`** (2 tenants × every model × read/update/delete/count, plus API-level 404s), **`migrate-tenancy.test.js`**, **`platform-console.test.js`** (tenant lifecycle, the end-to-end provisioning acceptance test, MFA gating, operator management, audit, health, plane separation), **`crypto-primitives.test.js`** (TOTP against the RFC 6238 vectors; AES-GCM round-trip and tamper rejection), **`sap-adapter.test.js`**, **`workspace.test.js`** (the tenant back office: overview scoping and SLA counting, the settings registry and its whole-or-nothing patch, feature flags closing `/api/chats` for one tenant and not another, self-registration closed but invitations still admitted, tenant-side supplier creation, decision emails, and the audit view's tenant scope and operator anonymisation). 268 passing.
+`tests/setup.js` (in-memory Mongo), `tests/testApp.js` (real routes + errorHandler, no sockets/CORS/rate-limit), `tests/helpers.js` (`registerVendor`, `createTenantUser`, `createPlatformUser`, `createOperatorSession` — an operator who has already cleared MFA — and `asTenant`). Suites: `auth.test.js`, `auth-middleware.test.js`, `vendor.test.js`, `rfq.test.js` (full lifecycle + scoring math + award), `password-reset.test.js`, `identity.test.js`, **`route-role-matrix.test.js`** (walks the real router; a route with no permission fails CI), **`tenant-plugin.test.js`** (the enforcement layer), **`tenant-isolation.test.js`** (2 tenants × every model × read/update/delete/count, plus API-level 404s), **`migrate-tenancy.test.js`**, **`platform-console.test.js`** (tenant lifecycle, the end-to-end provisioning acceptance test, MFA gating, operator management, audit, health, plane separation), **`crypto-primitives.test.js`** (TOTP against the RFC 6238 vectors; AES-GCM round-trip and tamper rejection), **`sap-adapter.test.js`**, **`workspace.test.js`** (the tenant back office: overview scoping and SLA counting, the settings registry and its whole-or-nothing patch, feature flags closing `/api/chats` for one tenant and not another, self-registration closed but invitations still admitted, tenant-side supplier creation, decision emails, and the audit view's tenant scope and operator anonymisation), **`tenant-realm.test.js`** (subdomain resolution and its reserved labels, the header ignored in production, the public realm endpoint's 404s, registration and login addressed to one workspace), **`lifecycle-e2e.test.js`** (the phase-6 acceptance test: a full RFQ→bid→award→PO→ASN→GRN→invoice→payment cycle on the mock driver, with a second tenant running the same cycle and seeing none of it — 404 per document, empty lists, no cross-realm login; ADR-0029). 289 passing.
+
+**Running them.** `npx jest --runInBand` in `backend/`. Several suites in parallel each start their own `mongodb-memory-server`, which is unreliable on Windows — serial is the dependable way to run the whole suite locally.
 
 `tests/setup.js` seeds the `CLT-0001` tenant before each test, because every request path now resolves one. Test code touching models directly must bind a tenant with the `asTenant()` helper — the same rule application code follows.
 

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { useShell } from '../../../lib/shell-context';
+import { hasOwnChrome } from '../../../lib/planes';
 import { profileService } from '../services/profileService';
 
 const getOrGenerateVendorId = () => {
@@ -47,10 +48,7 @@ export function useProfile() {
     cancelledCheque: null,
     panCardCopy: null,
     gstCertificate: null,
-    incorporationCertificate: null,
     msmeCertificate: null,
-    isoCertificate: null,
-    itReturns: null,
     status: 'Draft',
   });
   const [loading, setLoading] = useState(true);
@@ -63,7 +61,9 @@ export function useProfile() {
     async function loadProfile() {
       if (typeof window === 'undefined') return;
       const token = localStorage.getItem('jwt_token');
-      if (!token) {
+      // The platform console and tenant workspace hold their own sessions and
+      // never a supplier profile — this hook has nothing to fetch there.
+      if (!token || hasOwnChrome(window.location.pathname)) {
         setLoading(false);
         return;
       }

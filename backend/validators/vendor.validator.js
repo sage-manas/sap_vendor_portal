@@ -3,7 +3,11 @@ const { z } = require('zod');
 // Regex adjusted to allow digits in alphabetic slots for testing (as explained in implementation plan)
 const gstinRegex = /^[0-9]{2}[A-Z0-9]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/i;
 const panRegex = /^[A-Z0-9]{5}[0-9]{4}[A-Z]{1}$/i;
-const phoneRegex = /^[6-9]\d{9}$/;
+// Matches the registration form's own check (src/features/profile/validation.js):
+// an optional leading '+', then digits/spaces/hyphens, 10-15 characters — the
+// form auto-fills phone as "+91 9935675669" from the PIN code lookup, so a
+// bare-10-digit regex here rejects every submission that used it.
+const phoneRegex = /^\+?[\d\s-]{10,15}$/;
 
 const addressSchema = z.union([
   z.string(),
@@ -17,6 +21,18 @@ const addressSchema = z.union([
     country: z.string().optional(),
   })
 ]).optional();
+
+// What FileUploadZone hands back from POST /uploads, and what the profile
+// form then submits verbatim. A bare string is also accepted for older
+// records/tests written before uploads carried full metadata.
+const uploadedDocumentSchema = z.union([
+  z.string(),
+  z.object({
+    documentId: z.string(),
+    originalName: z.string().optional(),
+    url: z.string().optional(),
+  }),
+]).optional().nullable();
 
 const bankDetailsSchema = z.union([
   z.string(),
@@ -65,13 +81,10 @@ const profileCreateSchema = z.object({
   bankDetails: bankDetailsSchema,
   
   // Document attachments (client sends null before a document is uploaded)
-  cancelledCheque: z.string().optional().nullable(),
-  panCardCopy: z.string().optional().nullable(),
-  gstCertificate: z.string().optional().nullable(),
-  incorporationCertificate: z.string().optional().nullable(),
-  msmeCertificate: z.string().optional().nullable(),
-  isoCertificate: z.string().optional().nullable(),
-  itReturns: z.string().optional().nullable()
+  cancelledCheque: uploadedDocumentSchema,
+  panCardCopy: uploadedDocumentSchema,
+  gstCertificate: uploadedDocumentSchema,
+  msmeCertificate: uploadedDocumentSchema
 });
 
 const profileUpdateSchema = profileCreateSchema.partial();

@@ -6,6 +6,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const { getSapAdapterForClient } = require('../sap');
 
 const { requireVendorScope, vendorScope } = require('../utils/requestScope');
+const { assertCanCreate } = require('../utils/usage');
 
 // Helper for tax codes
 const gstToTaxCode = (gstRate) => {
@@ -72,6 +73,8 @@ const createRFQ = asyncHandler(async (req, res, next) => {
   if (!description || !deadlineDate || !items || !items.length) {
     return next(ApiError.badRequest('Description, deadlineDate, and items are required'));
   }
+
+  await assertCanCreate(req.client, 'rfqsPerMonth');
 
   // Generate RFQ sequential ID: RFQ-YYYY-SEQ
   const year = new Date().getFullYear();

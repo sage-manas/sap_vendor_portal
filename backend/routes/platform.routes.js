@@ -58,6 +58,7 @@ router.post('/tenants/:clientId/reactivate', requirePermission(PERMISSIONS.TENAN
 router.post('/tenants/:clientId/terminate', requirePermission(PERMISSIONS.TENANT_MANAGE), validate(lifecycleSchema), tenantController.terminateTenant);
 router.get('/tenants/:clientId/export', requirePermission(PERMISSIONS.TENANT_MANAGE), tenantController.exportTenant);
 router.post('/tenants/:clientId/administrators/:userId/credentials', requirePermission(PERMISSIONS.TENANT_MANAGE), tenantController.reissueCredentials);
+router.post('/tenants/:clientId/billing/sync-usage', requirePermission(PERMISSIONS.TENANT_MANAGE), tenantController.syncUsage);
 
 // Operators
 router.get('/operators', requirePermission(PERMISSIONS.OPERATOR_MANAGE), operatorController.listOperators);

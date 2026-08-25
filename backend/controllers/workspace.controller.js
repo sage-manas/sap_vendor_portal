@@ -12,6 +12,7 @@ const { formatAuditEntry, actionsForSubject, auditQuery } = require('../utils/au
 const { AUDIT_ACTIONS, AUDIT_SUBJECTS } = require('../config/auditActions');
 const { describeSettings, applySettings, settingValue } = require('../config/tenantSettings');
 const { VENDOR_STATUS, VENDOR_AWAITING_DECISION } = require('../config/statuses');
+const { usageAgainstLimits } = require('../utils/usage');
 
 // The tenant back office. Everything here runs inside a bound tenant, so there
 // is no clientId parameter in this file: a client_admin sees their workspace
@@ -51,6 +52,7 @@ const getOverview = asyncHandler(async (req, res) => {
     invoicesOverThreshold,
     staffActive,
     pendingInvitations,
+    usage,
   ] = await Promise.all([
     Vendor.countDocuments({}),
     Vendor.countDocuments({ status: VENDOR_STATUS.APPROVED }),
@@ -62,6 +64,7 @@ const getOverview = asyncHandler(async (req, res) => {
     Invoice.countDocuments({ status: { $nin: ['Cleared'] }, totalAmount: { $gte: reviewAmount } }),
     User.countDocuments({ status: 'Active' }),
     Invitation.countDocuments({ status: 'Pending' }),
+    usageAgainstLimits(client),
   ]);
 
   res.json({
@@ -78,6 +81,7 @@ const getOverview = asyncHandler(async (req, res) => {
     finance: { invoicesOpen, invoicesOverThreshold, reviewAmount },
     staff: { active: staffActive, pendingInvitations },
     thresholds: { supplierApprovalSlaHours: slaHours, invoiceReviewAmount: reviewAmount },
+    usage,
   });
 });
 

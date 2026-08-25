@@ -5,6 +5,259 @@ Each entry: the call, why, and what it costs.
 
 ---
 
+## ADR-0036 — Phase 8 stays gated on a design-partner sandbox; only the conformance harness ships
+**Phase 8 · 2026-08-14 · Accepted**
+
+**Context.** The plan is explicit: "Phase 8 — Real SAP (only with a design-partner
+sandbox)." No sandbox credentials exist anywhere in this repo or were available when this
+phase was picked up. Writing a "real" `s4_odata`/`ecc_rfc` implementation with no system to
+call it against would mean guessing at OData/RFC request and response shapes and asserting
+tests pass against fixtures invented for the occasion — exactly the kind of pretending the
+skeletons in `sap/drivers/s4odata.driver.js` and `eccrfc.driver.js` were built (Phase 4,
+ADR-0019-ish) to refuse. The scope question was also raised and settled separately: SAP
+connections stay `Client`-scoped, not `Vendor`-scoped (matches the existing per-tenant
+architecture), and no third driver type (Business One, generic webhook) is added
+speculatively — one gets built when a concrete tenant needs it.
+
+**Decision.** Build the piece of Phase 8 that doesn't need a sandbox: the conformance
+suite. `sap/conformance/runner.js` runs every method in the `SapAdapter` contract
+(`sap/contract.js`) against a live adapter and reports `passed` / `not_implemented` / `failed`
+per method, with a timeout so a driver that never answers doesn't hang the suite forever.
+`sap/conformance/fixtures.js` holds one representative payload per method, shaped like
+`sap/drivers/mock.driver.js` reads them, so the same fixtures exercise the mock, the
+skeletons, and — unchanged — whatever real driver eventually replaces them.
+`scripts/sap-conformance.js` is the CLI: `--client <id>` runs it against an
+already-configured tenant, `--driver <key> --config file.json --secrets file.json` runs it
+against a throwaway adapter for a sandbox with no tenant set up yet. Both raise (or, for
+`--client`, warn about) the per-adapter circuit breaker's failure threshold for the run,
+because 5 consecutive `not_implemented` results would otherwise trip it and hide every
+method after the fifth behind `sap_circuit_open` instead of the honest answer. The script
+also disables Mongoose's write-buffering — without a live DB connection each failed call's
+`SapLog` write was blocking for the driver's 10s buffering timeout, turning an
+instant 18-method skeleton run into three minutes.
+
+`s4_odata` and `ecc_rfc` remain exactly the skeletons Phase 4 left them: `testConnection`
+and `health` answer for real, everything else throws `not_implemented`. Nothing here claims
+otherwise.
+
+**Consequences.** The moment a design-partner sandbox exists, pointing
+`sap-conformance.js --driver s4_odata --config sandbox.json --secrets creds.json` at it is
+the first thing to run, before or after any implementation work — it will report
+`not_implemented` for everything until the driver's methods are actually filled in, then
+flip to `passed`/`failed` one at a time as they are, which is the pass/fail-per-method
+progress report the plan asked for. Until then this phase produces no forward motion on the
+real drivers themselves — that work is genuinely blocked, not simulated.
+
+---
+
+## ADR-0035 — The offboarding export already existed; it is not re-litigated in Phase 7
+**Phase 7 · 2026-08-13 · Accepted**
+
+**Context.** The Phase 7 brief lists "tenant offboarding export" among its deliverables.
+Phase 3 already built one (`GET /platform/tenants/:clientId/export`, ADR-0015): a whole-
+tenant JSON archive, audited, the one place a platform operator sees tenant documents.
+
+**Decision.** No new export endpoint. `docs/runbooks/tenant-suspension.md` documents the
+existing one as the offboarding deliverable and records the one real gap found while writing
+that runbook: the export bundles database rows, not the files in `backend/uploads/` — a
+tenant's compliance PDFs are not in the archive. That gap is recorded, not fixed, in this
+phase: bundling files means either reading them into the JSON response (memory cost
+proportional to a tenant's total upload size) or switching the endpoint to a streamed zip,
+which is a larger, separately-reviewable change than "add usage metering."
+
+**Consequences.** The offboarding flow works today with a known, documented limitation
+rather than an undocumented one. Whoever picks up file-bundling next has the shape of the
+problem already written down instead of having to rediscover it mid-incident.
+
+---
+
+## ADR-0034 — Plan limits are enforced at the write, counted fresh, and null means unlimited
+**Phase 7 · 2026-08-13 · Accepted**
+
+**Context.** `Client.limits` and `usage.js`'s `against()` helper (vendors, RFQs-this-month)
+existed since Phase 3/5 for *display* — the health board and workspace overview could show a
+tenant it was over its plan, but nothing stopped them from going further over it. Enforcing
+a limit needs a decision the display code never had to make: what does a limit of `0` mean?
+
+**Decision.** `assertCanCreate(client, metric)` counts the metric fresh — no cached counter
+that could drift from the truth — and refuses the write with `402 plan_limit_reached` when
+`used >= limit`. It treats a limit as unlimited only when it is `null`/`undefined`
+(`limit == null`); `0` is a real limit and blocks immediately. This reads differently from
+the pre-existing `against()` display helper, which uses `Boolean(limit && …)` and so shows
+`0` the same as unlimited — a pre-existing quirk in a read path, left alone rather than
+changed as a side effect of adding enforcement. It is called from every place a vendor or an
+RFQ is created: `POST /auth/register`, `POST /vendors/profile` (both self-registration),
+`POST /vendors` (tenant-created), and `POST /rfqs`.
+
+**Consequences.** A tenant cannot exceed its plan by racing the count — the assertion and
+the creation both run inside the same tenant-bound context, and there is no window between
+"checked" and "created" that a second concurrent request widens in practice for this
+workload (a real race under heavy concurrent load could still admit one extra document; a
+hard atomic guard would need a conditional update on a running counter, which is future work
+if plan limits become a real commercial lever rather than today's soft cap). The cost is one
+extra count query per creation — acceptable at this scale, and the same query the health
+board already ran.
+
+---
+
+## ADR-0033 — Billing is an interface with one provider, and it never blocks the request it's attached to
+**Phase 7 · 2026-08-13 · Accepted**
+
+**Context.** "Billing behind an interface, stub first" is explicit in the plan. There is no
+payment processor integrated yet and, per the plan, none is expected until there's a real
+commercial need — this phase has to leave the seam without pretending there's a provider
+behind it.
+
+**Decision.** `services/billing.service.js` mirrors the shape `utils/mailer.js` and
+`sap/index.js` already established for this codebase: a small contract
+(`onTenantCreated`, `onTenantStatusChanged`, `reportUsage`), a provider registry keyed by
+name, and env-var selection (`BILLING_PROVIDER`, default `null`). The `null` provider logs
+every call and returns a stub success — it is a truthful "nothing happened," not a silent
+no-op. Usage reporting is operator-triggered (`POST
+/platform/tenants/:clientId/billing/sync-usage`) rather than scheduled, because there is no
+job runner anywhere in this codebase to schedule it on; adding one would be infrastructure
+this phase doesn't need yet to prove the seam works.
+
+**Consequences.** Wiring a real processor later is one more entry in `PROVIDERS` behind the
+env var — nothing that calls `getBillingProvider()` changes. Tenant creation and every
+lifecycle transition call the provider unconditionally and await it, so a future real
+provider's failure needs its own decision (retry? block the transition? log and proceed?)
+that this phase does not have to make yet because the only provider that exists cannot fail.
+
+---
+
+## ADR-0032 — Rate limiting gets a second axis: the tenant, not just the IP
+**Phase 7 · 2026-08-13 · Accepted**
+
+**Context.** `apiLimiter` (Phase 1 and earlier) is IP-keyed and production-only. On a
+shared deployment, a single noisy tenant — a runaway integration, a buggy poll loop — is
+invisible to it if that tenant's calls come from many addresses (a NAT, a cloud egress
+pool), and one IP-keyed bucket doesn't stop one tenant's traffic from starving every other
+tenant's share of it.
+
+**Decision.** `tenantLimiter` (`middleware/rateLimiter.js`) is keyed on `req.clientId`,
+which only exists once `protect` has bound it — so it is mounted immediately after `protect`
+on every tenant/supplier route (`routes/index.js`'s `protectTenant = [protect,
+tenantLimiter]`, and the same pairing added route-by-route in `vendor.routes.js` for the
+routes that mount `protect` individually). It is independent of `apiLimiter` and always on
+except under `NODE_ENV=test`, where per-tenant throttling would make the test suite's rapid
+sequential requests fail for a reason that has nothing to do with what's being tested.
+
+**Consequences.** A noisy tenant now gets `429`s scoped to itself; every other tenant's
+traffic is unaffected because they don't share a bucket. The cost is one more middleware
+array to remember when adding a new protected route — `protectTenant`, not bare `protect` —
+and a fallback to IP-keying (via `express-rate-limit`'s `ipKeyGenerator`, required by the
+library for correct IPv6 handling) for the sliver of a request that could reach the limiter
+without a bound tenant, which should not happen given the mount order but must not crash if
+it somehow does.
+
+---
+
+## ADR-0031 — `req.log` carries clientId by construction; the sweep of every existing log call is deliberately not done
+**Phase 7 · 2026-08-13 · Accepted**
+
+**Context.** "Structured logging with clientId correlation" could mean either "make the
+correlation available" or "guarantee every log line in the codebase carries it." The second
+is a mechanical sweep of every `logger.info`/`.warn`/`.error` call site across every
+controller — dozens of call sites, most of them unrelated to anything this phase is
+otherwise touching, and each one a chance to introduce an unrelated bug in a change whose
+whole point is operational safety.
+
+**Decision.** `middleware/requestLogger.js` attaches `req.log` once, right where
+`requestId` is generated: `req.log.info/warn/error(message, meta)` stamps `requestId` and,
+once `protect` (or a pre-auth resolver) has set `req.clientId`, `clientId` — automatically,
+for any call site that chooses to use it. The two log lines that already existed for every
+request — the completion line in `requestLogger.js` and the error line in
+`errorHandler.js` — were updated to include `clientId` directly, since those two see every
+request and every error respectively and are the ones an incident actually greps first (see
+`docs/runbooks/incident-response.md` §3). New or touched call sites should use `req.log`;
+existing ones were not swept.
+
+**Consequences.** The two log lines that matter most for tracing an incident to a tenant —
+"this request happened" and "this request failed" — carry the correlation on every request,
+today, with no further work. Deep-in-a-controller `logger.info()` calls that predate this
+phase do not yet carry `clientId` unless and until they're touched and switched to `req.log`;
+that is an accepted, incremental gap rather than a today problem, since the two universal log
+lines already answer "which tenant hit this error."
+
+---
+
+## ADR-0030 — A tenant's brand moves one variable, not a palette
+**Phase 6 · 2026-08-13 · Accepted**
+
+**Context.** Suppliers arrive at their buyer's address and should find their buyer's
+workspace, not ours. But `DESIGN.md` says no new colours and no new type scale, and a
+tenant with a colour picker is a tenant who can produce an unreadable console — white text
+on white, or a palette that fails contrast on every surface.
+
+**Decision.** Branding is two things and no more: a logo URL and an accent. The accent
+moves `--color-emerald-default-rgb`, the single variable the Kinetic Industrial Console
+already derives every accented surface from — buttons, focus rings, the sidebar rail, the
+BAPI console — and nothing else changes. `accentVariables()` is a pure function that
+returns `{}` for anything that is not a six-digit hex colour, so a malformed setting is
+the default, never a broken one. The variables go on `<html>`, since accented surfaces are
+not all in one subtree.
+
+**Consequences.** Every tenant's portal is legible by construction: backgrounds, text
+colours and contrast ratios are the ones the design system shipped, and the accent is the
+only thing that travels. A tenant who wants their exact brand colour on a surface the
+accent does not touch cannot have it, which is the intended limit. The platform console
+stays unbranded — it is VendorConnect's own plane, and painting it in a tenant's colour
+would misrepresent whose screen it is.
+
+---
+
+## ADR-0029 — The full-cycle acceptance test goes through the API, not a browser
+**Phase 6 · 2026-08-13 · Accepted**
+
+**Context.** The phase brief asks for a Playwright path proving an RFQ→award→PO→ASN→GRN→
+invoice→payment cycle inside one tenant with a second tenant invisible. Playwright would
+add a browser download, a dev server and a seeded database to CI, and its assertions would
+still be about what the API answered — read through three layers of chrome that can only
+blur the result.
+
+**Decision.** `backend/tests/lifecycle-e2e.test.js` drives the whole cycle over HTTP with
+supertest against the real router and the mock driver, then asks the second tenant for
+every document by id (404 on each) and for every list (empty, not filtered). It runs in
+seven seconds inside the suite that already exists.
+
+**Consequences.** The isolation claim — the one that matters — is asserted at the boundary
+that enforces it, on every commit, with no new infrastructure. What is not covered is the
+browser layer: that the screens render those documents and that the branding lands. Those
+are UI regressions, not tenancy leaks, and they stay a manual check until there is a
+reason to pay for a browser in CI. The mock driver's zero test timings (Phase 4) are what
+make this possible at all; the same test against the 10s/12s demo timings would take half
+a minute per cycle.
+
+---
+
+## ADR-0028 — The subdomain is the front door; a header is only a dev key
+**Phase 6 · 2026-08-13 · Accepted**
+
+**Context.** Since Phase 1 an unauthenticated request found its tenant through
+`x-client-slug`, then the hostname, then a default — a deliberate placeholder, because a
+header any browser can set must not be able to choose a workspace. Phase 6 has to settle
+it, and settle what happens when an account from one tenant signs in at another's address.
+
+**Decision.** The hostname's first label decides the tenant, with `www`/`platform`/`api`/
+`app`/`admin` reserved and a bare IP never read as one. `x-client-slug` still works
+outside production and is ignored outright when `NODE_ENV=production`. The resolver
+returns *how* it decided (`subdomain` / `header` / `default`), and only a real subdomain is
+trusted enough to refuse a login: at `contoso.vendorconnect.io`, a Northwind account gets
+`Invalid credentials` — the same answer as a wrong password, so the door never reports
+that an account exists somewhere else. `GET /api/auth/workspace` serves the realm to
+signed-out screens and answers 404 for both an unknown slug and a suspended tenant.
+
+**Consequences.** A tenant's address is now a real boundary rather than a label, and it
+holds without a session. Local development and the test suite keep working through the
+header, which is the affordance that lets one machine be any tenant. The cost is that the
+deployment now needs wildcard DNS and a wildcard certificate before a second tenant can be
+onboarded, and that a misconfigured proxy which drops `X-Forwarded-Host` sends every
+visitor to `DEFAULT_CLIENT_SLUG` — a loud failure (the wrong company's name on the sign-in
+screen) rather than a silent one, which is the right way round.
+
+---
+
 ## ADR-0027 — The chrome asks the server who is signed in
 **Phase 5 · 2026-08-13 · Accepted**
 

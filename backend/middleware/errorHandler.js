@@ -24,6 +24,7 @@ const errorHandler = (err, req, res, next) => {
 
   const logMeta = {
     requestId: req.requestId,
+    clientId: req.clientId,
     method: req.method,
     url: req.originalUrl || req.url,
     statusCode,

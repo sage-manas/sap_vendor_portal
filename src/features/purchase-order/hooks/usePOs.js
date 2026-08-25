@@ -2,7 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import { useShell } from '../../../lib/shell-context';
+import { hasOwnChrome } from '../../../lib/planes';
 import { poService } from '../services/poService';
+
+const canFetchVendorData = () =>
+  typeof window !== 'undefined' && localStorage.getItem('jwt_token') && !hasOwnChrome(window.location.pathname);
 
 const generateInboundDeliveryCode = () => {
   return `1800${Math.floor(100000 + Math.random() * 900000)}`;
@@ -37,6 +41,7 @@ export function usePOs(profile) {
   };
 
   const refreshPOs = async () => {
+    if (!canFetchVendorData()) return;
     try {
       const data = await poService.getPOs();
       if (data && data.pos) {
@@ -49,6 +54,7 @@ export function usePOs(profile) {
   };
 
   const refreshGRNs = async () => {
+    if (!canFetchVendorData()) return;
     try {
       const data = await poService.getGRNs();
       if (data) {
@@ -62,6 +68,7 @@ export function usePOs(profile) {
   };
 
   const refreshASNs = async () => {
+    if (!canFetchVendorData()) return;
     try {
       const data = await poService.getASNs();
       if (data) {

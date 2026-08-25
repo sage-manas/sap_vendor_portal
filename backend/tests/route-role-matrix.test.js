@@ -17,7 +17,9 @@ const {
 // nothing to authorize. Every entry is a deliberate, reviewed exception.
 const PUBLIC_ROUTES = new Set([
   'GET /health',
+  'GET /status',
   'GET /test-error',
+  'GET /auth/workspace',
   'POST /auth/register',
   'POST /auth/login',
   'POST /auth/forgot-password',

@@ -26,11 +26,11 @@ export default function Modal({ open, onClose, title, children, footer, classNam
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}
-        className={`card w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto outline-none ${className}`}
+        className={`flex w-full max-w-lg mx-4 max-h-[90vh] flex-col outline-none rounded-xl border border-border-em bg-surface shadow-2xl overflow-hidden ${className}`}
         onClick={(e) => e.stopPropagation()}
       >
         {title && (
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface2">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface2 shrink-0">
             <h2 className="text-[16px] font-semibold text-text-primary">{title}</h2>
             <button
               onClick={onClose}
@@ -41,8 +41,8 @@ export default function Modal({ open, onClose, title, children, footer, classNam
             </button>
           </div>
         )}
-        <div className="p-4">{children}</div>
-        {footer && <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border bg-surface2">{footer}</div>}
+        <div className="p-4 overflow-y-auto">{children}</div>
+        {footer && <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border bg-surface2 shrink-0">{footer}</div>}
       </div>
     </div>
   );

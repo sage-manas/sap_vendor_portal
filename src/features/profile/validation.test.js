@@ -25,7 +25,6 @@ describe('validateField — required fields', () => {
     expect(validateField('cancelledCheque', null)).toMatch(/required/);
     expect(validateField('panCardCopy', undefined)).toMatch(/required/);
     expect(validateField('gstCertificate', '')).toMatch(/required/);
-    expect(validateField('incorporationCertificate', '')).toMatch(/required/);
   });
 
   it('unknown fields are always valid', () => {

@@ -5,7 +5,7 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const logger = require('../utils/logger');
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
-const { resolveClientForRequest } = require('../utils/resolveClient');
+const { resolveClientForRequest, resolveRealmForRequest } = require('../utils/resolveClient');
 const { ROLES } = require('../config/roles');
 const { signToken } = require('../utils/authToken');
 const { sendMail } = require('../utils/mailer');
@@ -14,6 +14,7 @@ const { frontendUrl } = require('../config/emailTemplates');
 const { generateVendorId } = require('../utils/vendorIdentity');
 const { settingValue } = require('../config/tenantSettings');
 const { hasSupplierInvitation } = require('./invitation.controller');
+const { assertCanCreate } = require('../utils/usage');
 
 // Helper to format flat vendor db document to backwards-compatible format with nested objects
 const formatVendorResponse = (vendor) => {
@@ -87,6 +88,8 @@ const register = asyncHandler(async (req, res, next) => {
     return next(ApiError.conflict('Vendor with this ID, email, or GSTIN already exists'));
   }
 
+  await assertCanCreate(client, 'vendors');
+
   if (!vendorId) {
     vendorId = await generateVendorId();
   }
@@ -126,6 +129,38 @@ const register = asyncHandler(async (req, res, next) => {
   });
 });
 
+// The public face of a tenant: who a visitor is about to sign in to, and what
+// their sign-in screen is allowed to offer. Values come through the settings
+// registry, so "never set" is answered in one place.
+const describeWorkspace = (client) => ({
+  clientId: client.clientId,
+  companyName: client.companyName,
+  slug: client.slug,
+  branding: {
+    logo: settingValue(client, 'branding.logo'),
+    primaryColor: settingValue(client, 'branding.primaryColor'),
+  },
+  features: {
+    supplierChat: settingValue(client, 'features.supplierChat'),
+    supplierSelfRegistration: settingValue(client, 'features.supplierSelfRegistration'),
+  },
+});
+
+// @desc    The workspace this hostname belongs to, for signed-out screens
+// @route   GET /api/auth/workspace
+// @access  Public
+const getWorkspace = asyncHandler(async (req, res, next) => {
+  const { client } = await resolveRealmForRequest(req);
+
+  // An unknown slug and a suspended tenant answer alike: a visitor at the wrong
+  // address learns that there is nothing here, not which of the two it is.
+  if (!client || !client.isOperational()) {
+    return next(ApiError.notFound('Unknown workspace'));
+  }
+
+  res.json({ success: true, workspace: describeWorkspace(client) });
+});
+
 // @desc    Login (supplier or tenant staff)
 // @route   POST /api/auth/login
 // @access  Public
@@ -145,6 +180,16 @@ const login = asyncHandler(async (req, res, next) => {
 
   const account = user || vendor;
   if (!account) {
+    return next(ApiError.unauthorized('Invalid credentials'));
+  }
+
+  // A tenant's subdomain is its front door: an account from another tenant is
+  // not a wrong password, it is not an account here at all. The answer is the
+  // same generic one either way, so the address does not report who exists
+  // where. Only a real subdomain is strong enough to refuse — the development
+  // fallback is a guess about which workspace was meant.
+  const realm = await resolveRealmForRequest(req);
+  if (realm.source === 'subdomain' && account.clientId !== realm.client?.clientId) {
     return next(ApiError.unauthorized('Invalid credentials'));
   }
 
@@ -181,22 +226,9 @@ const getMe = asyncHandler(async (req, res) => {
   res.json({
     success: true,
     auth: req.auth,
-    // The workspace the caller is in: its identity and the settings their
-    // screens render from. Values come through the registry, so a screen never
-    // has to know what happens when a setting was never set.
-    workspace: {
-      clientId: req.client.clientId,
-      companyName: req.client.companyName,
-      slug: req.client.slug,
-      branding: {
-        logo: settingValue(req.client, 'branding.logo'),
-        primaryColor: settingValue(req.client, 'branding.primaryColor'),
-      },
-      features: {
-        supplierChat: settingValue(req.client, 'features.supplierChat'),
-        supplierSelfRegistration: settingValue(req.client, 'features.supplierSelfRegistration'),
-      },
-    },
+    // The workspace the caller is in — the same shape the signed-out realm
+    // endpoint serves, so a screen reads branding one way whoever is looking.
+    workspace: describeWorkspace(req.client),
     ...(req.vendor
       ? { vendor: formatVendorResponse(req.vendor) }
       : { user: formatUserResponse(req.user) })
@@ -296,6 +328,8 @@ module.exports = {
   register,
   login,
   getMe,
+  getWorkspace,
+  describeWorkspace,
   forgotPassword,
   resetPassword,
   changePassword,

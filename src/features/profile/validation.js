@@ -23,6 +23,12 @@ export const validateField = (field, value) => {
     case 'state':
       if (!value) return 'State registration is required';
       return '';
+    case 'country':
+      if (!value) return 'Country is required';
+      return '';
+    case 'region':
+      if (!value) return 'State / Region is required';
+      return '';
     case 'postalCode':
       if (!value || !value.trim()) return 'PIN code is required';
       if (!/^\d{6}$/.test(value)) return 'PIN code must be exactly 6 digits';
@@ -74,9 +80,6 @@ export const validateField = (field, value) => {
       return '';
     case 'gstCertificate':
       if (!value) return 'GST Certificate document copy is required';
-      return '';
-    case 'incorporationCertificate':
-      if (!value) return 'Certificate of Incorporation is required';
       return '';
     default:
       return '';

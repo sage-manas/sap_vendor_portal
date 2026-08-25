@@ -10,7 +10,9 @@
     "migrate:tenancy:dry": "node scripts/migrate-tenancy.js --dry-run",
     "migrate:identity": "node scripts/migrate-identity.js",
     "migrate:identity:dry": "node scripts/migrate-identity.js --dry-run",
-    "seed:platform-admin": "node scripts/seed-platform-admin.js"
+    "seed:platform-admin": "node scripts/seed-platform-admin.js",
+    "backup:drill": "node scripts/backup-restore-drill.js",
+    "sap:conformance": "node scripts/sap-conformance.js"
   },
   "author": "",
   "license": "ISC",

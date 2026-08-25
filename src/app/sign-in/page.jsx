@@ -4,9 +4,12 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Building2, KeyRound, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
+import WorkspaceBrand from '@/components/portal/WorkspaceBrand';
+import { useWorkspaceRealm } from '@/lib/workspace-realm';
 
 export default function SignInPage() {
   const router = useRouter();
+  const { workspace, selfRegistrationOpen } = useWorkspaceRealm();
   const [vendorIdOrEmail, setVendorIdOrEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -16,7 +19,9 @@ export default function SignInPage() {
     if (typeof window !== 'undefined') {
       const token = localStorage.getItem('jwt_token');
       if (token) {
-        router.push('/');
+        // Only a supplier login cached a vendor profile — tenant staff
+        // belong on the back office, not the supplier portal home.
+        router.push(localStorage.getItem('sap_vendor_profile_data') ? '/' : '/workspace');
       }
     }
   }, [router]);
@@ -45,13 +50,18 @@ export default function SignInPage() {
         throw new Error(data.error || data.errors?.vendorIdOrEmail || data.errors?.password || 'Authentication failed');
       }
 
-      // Save token and profile details
+      // Save the token. Tenant staff (client_admin/buyer/finance) get back
+      // `user`, not `vendor` — only a supplier login carries a vendor profile
+      // to cache, and only a supplier belongs on the supplier portal home.
       localStorage.setItem('jwt_token', data.token);
-      localStorage.setItem('clerk_user_id', data.vendor.vendorId);
-      localStorage.setItem('sap_vendor_profile_data', JSON.stringify(data.vendor));
 
-      // Redirect to main portal dashboard
-      router.push('/');
+      if (data.vendor) {
+        localStorage.setItem('clerk_user_id', data.vendor.vendorId);
+        localStorage.setItem('sap_vendor_profile_data', JSON.stringify(data.vendor));
+        router.push('/');
+      } else {
+        router.push('/workspace');
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -61,16 +71,8 @@ export default function SignInPage() {
 
   return (
     <div className="w-full max-w-[420px] p-8 card animate-fadeUp">
-      {/* Brand Header */}
-      <div className="flex flex-col items-center mb-8">
-        <div className="size-12 rounded-none flex items-center justify-center text-white mb-3 shrink-0" style={{ backgroundColor: 'rgb(var(--color-emerald-default-rgb))' }}>
-          <Building2 className="size-6" />
-        </div>
-        <h2 className="text-xl font-bold text-text-primary tracking-wide">VendorConnect Portal</h2>
-        <p className="text-[10px] text-text-tertiary font-mono tracking-wider uppercase mt-1">
-          SAP INTEGRATED PARTNER GATEWAY
-        </p>
-      </div>
+      {/* Whose front door this is (workspace-realm.js) */}
+      <WorkspaceBrand workspace={workspace} caption="Supplier portal · VendorConnect" />
 
       {/* Form Error Message */}
       {error && (
@@ -145,17 +147,24 @@ export default function SignInPage() {
         </button>
       </form>
 
-      {/* Footer onboarding links */}
+      {/* Footer onboarding links. A workspace that admits suppliers by
+          invitation only has no register link to offer. */}
       <div className="mt-8 pt-6 border-t border-border text-center">
-        <p className="text-[11px] text-text-tertiary">
-          New vendor partner?{' '}
-          <Link
-            href="/sign-up"
-            className="text-emerald-400 hover:underline transition-colors duration-150 font-medium ml-1"
-          >
-            Register Profile
-          </Link>
-        </p>
+        {selfRegistrationOpen ? (
+          <p className="text-[11px] text-text-tertiary">
+            New vendor partner?{' '}
+            <Link
+              href="/sign-up"
+              className="text-emerald-400 hover:underline transition-colors duration-150 font-medium ml-1"
+            >
+              Register Profile
+            </Link>
+          </p>
+        ) : (
+          <p className="text-[11px] text-text-tertiary">
+            This workspace admits suppliers by invitation. Contact your buyer for an invite.
+          </p>
+        )}
       </div>
     </div>
   );
