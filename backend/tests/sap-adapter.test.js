@@ -21,11 +21,6 @@ const { ROLES } = require('../config/roles');
 const app = buildTestApp();
 const bearer = (token) => ({ Authorization: `Bearer ${token}` });
 
-// A deferred answer is scheduled on a zero-delay timer under test, so one turn
-// of the event loop plus the awaits inside the handler is enough. This is the
-// one place tests wait for the simulator.
-const settle = () => new Promise((resolve) => setTimeout(resolve, 30));
-
 beforeEach(() => invalidateSapAdapter());
 
 describe('the SapAdapter contract', () => {
@@ -284,9 +279,8 @@ describe('the mock driver', () => {
     });
 
     const handler = jest.fn(async (receipt) => ({ id: receipt.grnId, items: receipt.items, sapMigoDoc: receipt.sapMigoDoc }));
-    fast.awaitGoodsReceipt({ asn: { id: 'ASN-1', vendorId: 'vendor_1', items: [{ line: 10, shippedQuantity: 100, materialCode: 'MAT-1', description: 'x', uom: 'EA' }] }, po: { id: 'PO-1' }, vendorId: 'vendor_1' }, handler);
+    await fast.awaitGoodsReceipt({ asn: { id: 'ASN-1', vendorId: 'vendor_1', items: [{ line: 10, shippedQuantity: 100, materialCode: 'MAT-1', description: 'x', uom: 'EA' }] }, po: { id: 'PO-1' }, vendorId: 'vendor_1' }, handler);
 
-    await settle();
     expect(handler).toHaveBeenCalledTimes(1);
 
     const [receipt] = handler.mock.calls[0];
@@ -303,21 +297,19 @@ describe('the mock driver', () => {
     });
 
     const handler = jest.fn(async (receipt) => ({ id: receipt.grnId }));
-    strict.awaitGoodsReceipt({ asn: { id: 'ASN-1', vendorId: 'v', items: [{ line: 10, shippedQuantity: 100 }] }, po: { id: 'PO-1' }, vendorId: 'v' }, handler);
+    await strict.awaitGoodsReceipt({ asn: { id: 'ASN-1', vendorId: 'v', items: [{ line: 10, shippedQuantity: 100 }] }, po: { id: 'PO-1' }, vendorId: 'v' }, handler);
 
-    await settle();
     expect(handler.mock.calls[0][0].items[0].rejectedQuantity).toBe(0);
   });
 
   it('writes no log and resolves nothing when the handler declines the answer', async () => {
     const adapter = await getSapAdapterForClient('CLT-0001');
 
-    adapter.awaitGoodsReceipt(
+    await adapter.awaitGoodsReceipt(
       { asn: { id: 'ASN-1', vendorId: 'v', items: [{ line: 10, shippedQuantity: 10 }] }, po: { id: 'PO-1' }, vendorId: 'v' },
       async () => null,
     );
 
-    await settle();
     const logs = await runWithTenant('CLT-0001', () => prisma.sapLog.count({}));
     expect(logs).toBe(0);
   });
@@ -326,7 +318,7 @@ describe('the mock driver', () => {
     const adapter = await getSapAdapterForClient('CLT-0001');
     let boundInsideHandler = null;
 
-    adapter.awaitPaymentRun(
+    await adapter.awaitPaymentRun(
       { invoice: { id: 'INV-1', vendorId: 'v', totalAmount: 1000 }, vendorId: 'v' },
       async () => {
         // A query here would throw if the tenant were not bound.
@@ -335,7 +327,6 @@ describe('the mock driver', () => {
       },
     );
 
-    await settle();
     expect(boundInsideHandler).toBe(0);
 
     const entry = await runWithTenant('CLT-0001', () => prisma.sapLog.findFirst({ where: { documentRef: 'PMT-1' } }));

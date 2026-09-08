@@ -16,10 +16,6 @@ const { seedClient } = require('./helpers');
 
 beforeEach(() => invalidateSapAdapter());
 
-// A deferred answer is scheduled on a zero-delay timer under test; one turn of
-// the event loop plus the awaits inside the wrapper is enough for its logs.
-const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
-
 describe('the conformance suite', () => {
   it('passes every method against the mock driver', async () => {
     const adapter = buildTransientAdapter({ clientId: 'CLT-0001', driver: 'mock', config: {}, secrets: {} });
@@ -90,12 +86,19 @@ describe('the conformance suite', () => {
       expect(byMethod[method]).toBeUndefined();
     }
 
-    // Deferred pollers never get a first tick inside this short a timeout —
-    // a real gateway (or a longer timeoutMs) is what makes them resolve.
-    for (const method of ['awaitGoodsReceipt', 'awaitPaymentRun']) {
-      expect(byMethod[method].status).toBe('failed');
-      expect(byMethod[method].error).toMatch(/timed out/);
-    }
+    // awaitGoodsReceipt's fixture PO has a sapPoNumber but no matching Vendor
+    // row exists in this test's database, so it resolves "not found" on its
+    // one attempt without ever reaching the network — nothing left to make it
+    // answer inside this short a timeout except a longer one (a real gateway
+    // wouldn't change that either, without a real vendor/PO to match).
+    expect(byMethod.awaitGoodsReceipt.status).toBe('failed');
+    expect(byMethod.awaitGoodsReceipt.error).toMatch(/timed out/);
+
+    // awaitPaymentRun's fixture has neither a SAP vendor code nor a SAP PO
+    // number, so — unlike a real "not yet" — it fails immediately with an
+    // honest reason rather than waiting out the timeout.
+    expect(byMethod.awaitPaymentRun.status).toBe('failed');
+    expect(byMethod.awaitPaymentRun.error).toMatch(/cannot be matched in SAP/);
   });
 
   it('marks a method that never answers as failed rather than hanging forever', async () => {
@@ -115,11 +118,10 @@ describe('the conformance suite', () => {
     const adapter = buildTransientAdapter({ clientId: 'CLT-0001', driver: 'mock', config: {}, secrets: {} });
 
     await runConformanceSuite({ adapter, clientId: 'CLT-0001' });
-    // The two deferred methods answer on a timer (zero-delay under test) and
-    // their log entries are written after the suite has already returned, so
-    // counting immediately races them. This waited-for turn of the event loop
-    // is what makes the assertion below deterministic rather than lucky.
-    await settle();
+    // runConformanceSuite awaits each deferred method's one-shot probe to
+    // completion (jobs runtime — see sap/conformance/runner.js), so its own
+    // log entries are already written by the time it returns; no race to
+    // wait out here any more.
 
     const logged = await runWithTenant('CLT-0001', () => prisma.sapLog.count({}));
     // Every contract method that declares itself logged writes at least one

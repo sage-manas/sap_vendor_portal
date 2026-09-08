@@ -2,7 +2,6 @@ const { notImplementedDriver, assertImplements } = require('../contract');
 const logger = require('../../utils/logger');
 const { buildVendorCreatePayload } = require('../mappings/vendor-create.map');
 const { matchInvoiceDocument } = require('../mappings/invoice-match');
-const { runWithTenant } = require('../../utils/tenantContext');
 
 // S/4HANA via the OData APIs (API_BUSINESS_PARTNER, API_PURCHASEORDER_PROCESS_SRV,
 // API_INBOUND_DELIVERY_SRV, API_MATERIAL_DOCUMENT_SRV, API_SUPPLIERINVOICE_PROCESS_SRV, …).
@@ -186,26 +185,6 @@ const createODataClient = ({ config }) => {
   return { call };
 };
 
-/** Runs `check()` on an interval until it returns a truthy result, then calls `onFound`. */
-const poll = ({ intervalMs, timeoutMs, check, onFound, onTimeout, label }) => {
-  const start = Date.now();
-  const tick = async () => {
-    try {
-      const result = await check();
-      if (result) return onFound(result);
-    } catch (error) {
-      logger.warn(`[sap:s4_odata] poll for ${label} errored, will retry: ${error.message}`);
-    }
-    if (Date.now() - start > timeoutMs) return onTimeout();
-    schedule();
-  };
-  const schedule = () => {
-    const timer = setTimeout(tick, intervalMs);
-    if (typeof timer.unref === 'function') timer.unref();
-  };
-  schedule();
-};
-
 // --- Service catalogue -------------------------------------------------
 
 const services = (config) => ({
@@ -257,9 +236,12 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
   const svc = services(config);
   const companyCode = config.companyCode || '1000';
   const plant = config.plant || '1000';
-  const pollIntervalMs = Number(config.pollIntervalMs) || 30000;
-  const goodsReceiptTimeoutMs = Number(config.goodsReceiptTimeoutMs) || 24 * 60 * 60 * 1000;
-  const paymentRunTimeoutMs = Number(config.paymentRunTimeoutMs) || 30 * 24 * 60 * 60 * 1000;
+  // Polling cadence and timeout for awaitGoodsReceipt/awaitPaymentRun used to
+  // live here (pollIntervalMs, goodsReceiptTimeoutMs, paymentRunTimeoutMs) —
+  // moved to jobs/kinds.js's defaultIntervalMs/defaultMaxAttempts, since
+  // cadence is now a property of the job runtime shared by every driver, not
+  // this one driver's own setTimeout loop (Phase 1 of
+  // docs/04-sap-runtime-engineering-plan.md).
   const catalogueTtlMs = Number(config.catalogueTtlMs) || 60 * 60 * 1000; // master data, not per-request state
 
   // There is deliberately no simulation fallback in this driver. It used to
@@ -1121,66 +1103,66 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
     // inspection-lot API; until that's available everything received is
     // reported accepted (no false rejections, at the cost of not surfacing
     // real ones either — flag this to MM if quality inspection matters here).
-    // `clientId` is threaded through explicitly rather than relied on
-    // ambient AsyncLocalStorage propagation across the poll's recurring
-    // timers: `check()` runs on its own schedule, well outside the request
-    // that called submitASN, so the Vendor lookup below re-binds the tenant
-    // itself instead of assuming a context that may or may not still be set.
-    awaitGoodsReceipt: ({ asn, po, vendorId, clientId }, handler) => {
-      poll({
-        intervalMs: pollIntervalMs,
-        timeoutMs: goodsReceiptTimeoutMs,
-        label: `goods receipt (${asn.id})`,
-        check: () => runWithTenant(clientId, async () => {
-          if (!po?.sapPoNumber) return null;
+    // One-shot probe, called once per job attempt (jobs/worker.js) rather
+    // than owning its own poll loop — see docs/04-sap-runtime-engineering-plan.md
+    // Phase 1.6. The worker has already bound the tenant with runWithTenant()
+    // before calling this (jobs/handlers/awaitGoodsReceipt.js), so — unlike
+    // the old poll(), which ran on its own setTimeout outside any request or
+    // job — the Vendor lookup below can rely on ambient AsyncLocalStorage
+    // context rather than re-binding it itself. Cadence and how many attempts
+    // before giving up live in jobs/kinds.js now, not in this driver.
+    //
+    // Returns `false` — not yet found, no error — when SAP's ledger doesn't
+    // have it, and `true` once `handler` has run and persisted it. Any
+    // genuine failure (network, an unreachable gateway) throws, which the
+    // caller (the job handler, then jobs/worker.js) treats as an error to
+    // back off and retry, distinct from "not yet".
+    awaitGoodsReceipt: async ({ asn, po, vendorId }, handler) => {
+      if (!po?.sapPoNumber) return false;
 
-          const { prisma } = require('../../db/prisma');
-          const vendorDoc = await prisma.vendor.findFirst({ where: { vendorId } });
-          if (!vendorDoc?.sapVendorCode) return null;
+      const { prisma } = require('../../db/prisma');
+      const vendorDoc = await prisma.vendor.findFirst({ where: { vendorId } });
+      if (!vendorDoc?.sapVendorCode) return false;
 
-          const { orders } = (await driver.vendorPoGrnDisplay({ vendor: vendorDoc })).data;
-          const order = orders.find((o) => o.poNumber === po.sapPoNumber);
-          if (!order) return null;
+      const { orders } = (await driver.vendorPoGrnDisplay({ vendor: vendorDoc })).data;
+      const order = orders.find((o) => o.poNumber === po.sapPoNumber);
+      if (!order) return false;
 
-          const matched = asn.items.map((asnItem) => ({
-            asnItem,
-            orderItem: order.items.find((i) => Number(i.itemNumber) === Number(asnItem.line)),
-          }));
-          // Not "received" until every shipped line has at least one GRN
-          // posted against it in SAP — a GRN on one line while another is
-          // still in transit isn't the goods receipt for this ASN yet.
-          if (matched.some(({ orderItem }) => !orderItem || !orderItem.grns.length)) return null;
-          return matched;
-        }),
-        onFound: (matched) => {
-          const firstGrn = matched[0].orderItem.grns[0];
-          const items = matched.map(({ asnItem, orderItem }) => {
-            const received = orderItem.receivedQuantity;
-            return {
-              line: asnItem.line, materialCode: orderItem.materialCode, description: orderItem.description,
-              receivedQuantity: received, acceptedQuantity: received, rejectedQuantity: 0,
-              uom: orderItem.uom || 'EA',
-            };
-          });
+      const matched = asn.items.map((asnItem) => ({
+        asnItem,
+        orderItem: order.items.find((i) => Number(i.itemNumber) === Number(asnItem.line)),
+      }));
+      // Not "received" until every shipped line has at least one GRN posted
+      // against it in SAP — a GRN on one line while another is still in
+      // transit isn't the goods receipt for this ASN yet.
+      if (matched.some(({ orderItem }) => !orderItem || !orderItem.grns.length)) return false;
 
-          handler({
-            data: {
-              grnId: `GRN-${firstGrn.grNumber}`,
-              sapMigoDoc: firstGrn.grNumber,
-              // grDate already comes off vendorPoGrnDisplay as an ISO
-              // "YYYY-MM-DD" string (via sapDayToIso), not raw digits.
-              postingDate: firstGrn.grDate ? new Date(firstGrn.grDate) : new Date(),
-              receivedBy: 'SAP',
-              items,
-            },
-            logs: (answer, grn) => [
-              { transaction: 'GOODS_RECEIPT', vendorId: vendorId || asn.vendorId, payload: grn, documentRef: grn.id },
-              { transaction: 'GOODS_RECEIPT_READ', vendorId: vendorId || asn.vendorId, payload: { migoDoc: grn.sapMigoDoc, items: grn.items }, documentRef: grn.id },
-            ],
-          });
-        },
-        onTimeout: () => logger.error(`[sap:s4_odata] goods receipt poll for ASN ${asn.id} timed out — no GRN found in SAP's PO/GRN ledger for PO ${po?.sapPoNumber}`),
+      const firstGrn = matched[0].orderItem.grns[0];
+      const items = matched.map(({ asnItem, orderItem }) => {
+        const received = orderItem.receivedQuantity;
+        return {
+          line: asnItem.line, materialCode: orderItem.materialCode, description: orderItem.description,
+          receivedQuantity: received, acceptedQuantity: received, rejectedQuantity: 0,
+          uom: orderItem.uom || 'EA',
+        };
       });
+
+      await handler({
+        data: {
+          grnId: `GRN-${firstGrn.grNumber}`,
+          sapMigoDoc: firstGrn.grNumber,
+          // grDate already comes off vendorPoGrnDisplay as an ISO
+          // "YYYY-MM-DD" string (via sapDayToIso), not raw digits.
+          postingDate: firstGrn.grDate ? new Date(firstGrn.grDate) : new Date(),
+          receivedBy: 'SAP',
+          items,
+        },
+        logs: (answer, grn) => [
+          { transaction: 'GOODS_RECEIPT', vendorId: vendorId || asn.vendorId, payload: grn, documentRef: grn.id },
+          { transaction: 'GOODS_RECEIPT_READ', vendorId: vendorId || asn.vendorId, payload: { migoDoc: grn.sapMigoDoc, items: grn.items }, documentRef: grn.id },
+        ],
+      });
+      return true;
     },
 
     // --- Invoice and payment --------------------------------------------
@@ -1190,72 +1172,69 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
     //   1. discover — find the MIRO document AP posted for it, by matching
     //      zmiro_display/MIRO on purchase order and gross amount
     //      (sap/mappings/invoice-match.js). Until AP posts, there is nothing
-    //      to find and the poll simply keeps waiting.
-    //   2. follow   — once discovered, poll zpayment_api/payment (confirmed
+    //      to find and this attempt reports "not yet".
+    //   2. follow   — once discovered, check zpayment_api/payment (confirmed
     //      live, open) for that document's clearing.
+    //
+    // One-shot probe, same shape as awaitGoodsReceipt above: called once per
+    // job attempt, no owned timer. Unlike the old poll(), it cannot cache the
+    // discovered MIRO document across attempts — each attempt re-discovers it
+    // via step 1 before re-checking its clearing in step 2. That is more SAP
+    // traffic per attempt than before, not a correctness change; Phase 2+ can
+    // optimise by persisting the discovered document if this turns out to
+    // matter in practice.
     //
     // The payment endpoint carries UTR reference, payment method and TDS
     // deducted for a cleared document. Bank name and TDS section are nowhere
     // in it, so they stay null rather than invented — those need the house
     // bank/payment-medium API and the withholding-tax reporting API.
-    awaitPaymentRun: ({ invoice, vendor, vendorId }, handler) => {
+    awaitPaymentRun: async ({ invoice, vendor, vendorId }, handler) => {
       // Discovery needs the vendor's SAP code to read their MIRO ledger, and
       // the SAP purchase order number to match against. Without either there
       // is nothing to look for — and inventing a payment is exactly what this
-      // redesign exists to stop, so it waits rather than simulating.
+      // redesign exists to stop, so this throws rather than simulating an
+      // answer; the job runtime records it as a failed attempt and backs off.
       if (!vendor?.sapVendorCode || !invoice.sapPoNumber) {
-        logger.error(`[sap:s4_odata] awaitPaymentRun: invoice ${invoice.id} cannot be matched in SAP — ${!vendor?.sapVendorCode ? 'vendor has no SAP code' : 'no SAP purchase order number'}`);
-        return;
+        throw new Error(`awaitPaymentRun: invoice ${invoice.id} cannot be matched in SAP — ${!vendor?.sapVendorCode ? 'vendor has no SAP code' : 'no SAP purchase order number'}`);
       }
 
-      let found = null; // the MIRO document, once discovery has identified it
+      const { documents } = (await driver.vendorMiroDisplay({ vendor })).data;
+      const found = matchInvoiceDocument(
+        { sapPoNumber: invoice.sapPoNumber, totalAmount: invoice.totalAmount },
+        documents,
+      );
+      if (!found) return false; // AP has not posted it yet
 
-      poll({
-        intervalMs: pollIntervalMs,
-        timeoutMs: paymentRunTimeoutMs,
-        label: `payment run (${invoice.id})`,
-        check: async () => {
-          if (!found) {
-            const { documents } = (await driver.vendorMiroDisplay({ vendor })).data;
-            found = matchInvoiceDocument(
-              { sapPoNumber: invoice.sapPoNumber, totalAmount: invoice.totalAmount },
-              documents,
-            );
-            if (!found) return null; // AP has not posted it yet
-            logger.info(`[sap:s4_odata] invoice ${invoice.id} matched SAP MIRO document ${found.miroDoc}/${found.fiscalYear}`);
-          }
+      const detail = (await driver.invoicePaymentDetail({
+        invoiceDocNo: found.miroDoc, fiscalYear: found.fiscalYear,
+      })).data;
+      if (!detail.found || detail.status !== 'CLEARED') return false;
 
-          const detail = (await driver.invoicePaymentDetail({
-            invoiceDocNo: found.miroDoc, fiscalYear: found.fiscalYear,
-          })).data;
-          return detail.found && detail.status === 'CLEARED' ? { detail, document: found } : null;
+      await handler({
+        data: {
+          paymentId: `PMT-${found.miroDoc}`,
+          // The number SAP itself issued, discovered rather than minted —
+          // the caller stores it on the invoice so the reconciliation view
+          // stops having to re-match.
+          sapMiroDoc: `${found.miroDoc}/${found.fiscalYear}`,
+          sapPaymentDoc: detail.clearingDocument,
+          runId: null, // not carried by this endpoint
+          utrCode: detail.utrReference,
+          paymentDate: parseSapYyyymmdd(detail.clearingDate) || new Date(),
+          paymentMethod: detail.paymentMethod,
+          bankName: null, // still needs the house bank / payment medium API
+          grossAmount: detail.grossAmount,
+          tdsDeducted: detail.tdsDeducted,
+          netAmount: detail.netDisbursed,
+          tdsSection: null, // still needs the withholding-tax reporting API
+          deducteePan: vendor?.pan || null,
+          deductorTan: null,
         },
-        onFound: ({ detail, document }) => handler({
-          data: {
-            paymentId: `PMT-${document.miroDoc}`,
-            // The number SAP itself issued, discovered rather than minted —
-            // the caller stores it on the invoice so the reconciliation view
-            // stops having to re-match.
-            sapMiroDoc: `${document.miroDoc}/${document.fiscalYear}`,
-            sapPaymentDoc: detail.clearingDocument,
-            runId: null, // not carried by this endpoint
-            utrCode: detail.utrReference,
-            paymentDate: parseSapYyyymmdd(detail.clearingDate) || new Date(),
-            paymentMethod: detail.paymentMethod,
-            bankName: null, // still needs the house bank / payment medium API
-            grossAmount: detail.grossAmount,
-            tdsDeducted: detail.tdsDeducted,
-            netAmount: detail.netDisbursed,
-            tdsSection: null, // still needs the withholding-tax reporting API
-            deducteePan: vendor?.pan || null,
-            deductorTan: null,
-          },
-          logs: (answer, payment) => [{
-            transaction: 'PAYMENT_RUN', vendorId: vendorId || invoice.vendorId, payload: payment, documentRef: payment.id,
-          }],
-        }),
-        onTimeout: () => logger.error(`[sap:s4_odata] payment run poll for invoice ${invoice.id} timed out — ${found ? `zpayment_api/payment never reported ${found.miroDoc}/${found.fiscalYear} cleared` : 'no matching MIRO document was ever posted in SAP for this invoice'}`),
+        logs: (answer, payment) => [{
+          transaction: 'PAYMENT_RUN', vendorId: vendorId || invoice.vendorId, payload: payment, documentRef: payment.id,
+        }],
       });
+      return true;
     },
   };
 
@@ -1299,7 +1278,6 @@ module.exports = {
     { name: 'invoicePlanPath', label: 'Invoicing plan display path (custom Z REST, FPLA/FPLT — confirmed live)', type: 'text', default: '/zinv_milestone/plan' },
     { name: 'invoicePlanUpdatePath', label: 'Invoicing plan update path (custom Z REST, ME22N — unverified)', type: 'text', default: '/zpo_invplan/PLAN_UPD' },
     { name: 'poGrnTimeoutMs', label: 'PO/GRN detail request timeout (ms) — this endpoint is very slow (22–84s observed for 173 orders)', type: 'number', default: 120000 },
-    { name: 'pollIntervalMs', label: 'Poll interval for deferred answers (ms)', type: 'number', default: 30000 },
     { name: 'fields.poAcknowledgeField', label: 'PO field to set on supplier acknowledgement (extension field, optional)', type: 'text' },
   ],
 };

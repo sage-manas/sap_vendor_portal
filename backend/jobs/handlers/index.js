@@ -9,10 +9,10 @@
 // rehydrate from the database inside the tenant binding the worker already
 // applied before calling it.
 //
-// Awaiting driver rewiring (docs/04-sap-runtime-engineering-plan.md Phase
-// 1.6) — the actual awaitGoodsReceipt/awaitPaymentRun handlers land here once
-// the drivers' poll()/setTimeout timers are converted to one-shot probes.
-const HANDLERS = {};
+const HANDLERS = {
+  awaitGoodsReceipt: require('./awaitGoodsReceipt'),
+  awaitPaymentRun: require('./awaitPaymentRun'),
+};
 
 const handlerFor = (kind) => {
   const handler = HANDLERS[kind];

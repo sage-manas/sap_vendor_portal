@@ -13,8 +13,15 @@ const { assertImplements } = require('../contract');
 //
 // The rule this file obeys: it invents SAP's *answers* — document numbers,
 // acceptance quantities, TDS deductions, timing — and nothing else. It does not
-// touch the database and does not know what a Mongoose model is. Persisting an
-// answer is the caller's job, via the handler passed to a deferred method.
+// touch the database. Persisting an answer is the caller's job, via the
+// handler passed to a deferred method.
+//
+// awaitGoodsReceipt/awaitPaymentRun no longer own a timer (Phase 1 of
+// docs/04-sap-runtime-engineering-plan.md moved that to jobs/worker.js): each
+// is now a one-shot probe, called once per job attempt, that answers once
+// `timings.*Ms` of wall-clock time has passed since the job was created —
+// same delay semantics as before, just measured against a durable timestamp
+// instead of owning a setTimeout.
 
 const DEFAULT_TIMINGS = {
   goodsReceiptMs: 10000,
@@ -86,15 +93,6 @@ const createMockDriver = ({ config = {} } = {}) => {
 
   const timings = { ...baseTimings, ...(config.timings || {}) };
   const behaviour = { ...DEFAULT_BEHAVIOUR, ...(config.behaviour || {}) };
-
-  // The one place a deferred answer is scheduled. `unref` keeps a pending
-  // simulation from holding a process open at shutdown — the work is a
-  // simulation, and losing it on exit is correct.
-  const later = (ms, fn) => {
-    const timer = setTimeout(fn, ms);
-    if (typeof timer.unref === 'function') timer.unref();
-    return timer;
-  };
 
   const driver = {
     name: 'mock',
@@ -494,8 +492,20 @@ const createMockDriver = ({ config = {} } = {}) => {
 
     // --- Delivery and goods receipt ---------------------------------------
 
-    awaitGoodsReceipt: ({ asn, po, vendorId }, handler) =>
-      later(timings.goodsReceiptMs, () => handler({
+    // One-shot probe, called once per job attempt (jobs/worker.js) rather
+    // than owning its own timer — see docs/04-sap-runtime-engineering-plan.md
+    // Phase 1.6. `startedAt` is the job's createdAt, threaded through by
+    // jobs/handlers/awaitGoodsReceipt.js; timings.goodsReceiptMs keeps its
+    // old meaning (a wall-clock delay), just measured against that instead of
+    // a driver-owned setTimeout. A caller with no `startedAt` (a direct driver
+    // call, e.g. in a test) gets an immediate answer rather than one that can
+    // never arrive — the honest failure mode for a simulator is "too eager",
+    // not "hangs forever".
+    awaitGoodsReceipt: async ({ asn, po, vendorId, startedAt }, handler) => {
+      const startedAtMs = startedAt ? new Date(startedAt).getTime() : 0;
+      if (Date.now() - startedAtMs < timings.goodsReceiptMs) return false;
+
+      await handler({
         data: {
           grnId: `GRN-1800${digits(5)}`,
           sapMigoDoc: `MIGO-18${digits(9)}`,
@@ -533,39 +543,45 @@ const createMockDriver = ({ config = {} } = {}) => {
             documentRef: grn.id,
           },
         ],
-      })),
+      });
+      return true;
+    },
 
     // --- Invoice and payment ----------------------------------------------
 
-    awaitPaymentRun: ({ invoice, vendor, vendorId }, handler) =>
-      later(timings.paymentRunMs, () => {
-        const gross = invoice.totalAmount;
-        const tdsDeducted = Math.round(gross * behaviour.tdsRate * 100) / 100;
+    // Same one-shot shape as awaitGoodsReceipt above.
+    awaitPaymentRun: async ({ invoice, vendor, vendorId, startedAt }, handler) => {
+      const startedAtMs = startedAt ? new Date(startedAt).getTime() : 0;
+      if (Date.now() - startedAtMs < timings.paymentRunMs) return false;
 
-        return handler({
-          data: {
-            paymentId: `PMT-${digits(6)}`,
-            sapPaymentDoc: `PAY-53${digits(8)}`,
-            runId: `F110-${Date.now().toString().slice(-6)}`,
-            utrCode: `UTR${Date.now()}${digits(3)}`,
-            paymentDate: new Date(),
-            paymentMethod: behaviour.paymentMethod,
-            bankName: behaviour.bankName,
-            grossAmount: gross,
-            tdsDeducted,
-            netAmount: gross - tdsDeducted,
-            tdsSection: '194C',
-            deducteePan: vendor?.pan || 'PAN-MOCK123',
-            deductorTan: `TAN-SAP${behaviour.companyCode}`,
-          },
-          logs: (answer, payment) => [{
-            transaction: 'PAYMENT_RUN',
-            vendorId: vendorId || invoice.vendorId,
-            payload: payment,
-            documentRef: payment.id,
-          }],
-        });
-      }),
+      const gross = invoice.totalAmount;
+      const tdsDeducted = Math.round(gross * behaviour.tdsRate * 100) / 100;
+
+      await handler({
+        data: {
+          paymentId: `PMT-${digits(6)}`,
+          sapPaymentDoc: `PAY-53${digits(8)}`,
+          runId: `F110-${Date.now().toString().slice(-6)}`,
+          utrCode: `UTR${Date.now()}${digits(3)}`,
+          paymentDate: new Date(),
+          paymentMethod: behaviour.paymentMethod,
+          bankName: behaviour.bankName,
+          grossAmount: gross,
+          tdsDeducted,
+          netAmount: gross - tdsDeducted,
+          tdsSection: '194C',
+          deducteePan: vendor?.pan || 'PAN-MOCK123',
+          deductorTan: `TAN-SAP${behaviour.companyCode}`,
+        },
+        logs: (answer, payment) => [{
+          transaction: 'PAYMENT_RUN',
+          vendorId: vendorId || invoice.vendorId,
+          payload: payment,
+          documentRef: payment.id,
+        }],
+      });
+      return true;
+    },
   };
 
   return assertImplements(driver, 'mock');

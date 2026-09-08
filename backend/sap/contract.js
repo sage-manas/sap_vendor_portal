@@ -11,13 +11,19 @@
 //   immediate — `fn(args) -> { data, log }`. The wrapper stamps `{source,
 //               syncedAt}` on `data`, writes `log` to the SapLog, and returns.
 //
-//   deferred  — `fn(args, handler) -> void`. SAP answers later: the mock driver
-//               uses a timer, a real driver would poll or take a webhook. When
-//               the answer arrives the wrapper re-binds the tenant context,
-//               calls `handler(data)` so the caller can persist it, then writes
-//               the logs. Controllers therefore never schedule anything
-//               themselves — the *timing* is the driver's business and the
-//               *bookkeeping* is theirs.
+//   deferred  — `fn(args, handler) -> Promise<boolean>`. SAP answers later, so
+//               a deferred method is a one-shot probe: called once per
+//               attempt by a durable job (jobs/worker.js — see
+//               docs/04-sap-runtime-engineering-plan.md Phase 1), it resolves
+//               `false` if SAP doesn't have an answer yet, `true` once it has
+//               called `handler(data)` so the caller can persist the answer,
+//               or throws on a genuine failure (which the job runtime treats
+//               as an error to back off and retry, distinct from "not yet").
+//               When `handler` runs the wrapper re-binds the tenant context
+//               and writes the logs. Controllers therefore never schedule or
+//               poll anything themselves — cadence and retry budget are the
+//               job runtime's business (jobs/kinds.js) and the *bookkeeping*
+//               is the wrapper's.
 //
 // `log` is `{ transaction, vendorId, payload, status?, documentRef }`, where
 // `transaction` is a key from config/sapTransactions.js. Deferred methods

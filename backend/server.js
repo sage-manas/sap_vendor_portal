@@ -167,6 +167,11 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'x-client-slug'],
 }));
 
+// The job worker process (jobs/worker.js) has no Socket.io server of its
+// own — this is how it reaches this process's `io` to push a realtime event.
+// Mounted outside /api deliberately: not part of the public API surface.
+app.use('/internal', require('./routes/internal.routes')(io));
+
 // Limit JSON body size (except upload routes)
 app.use('/api', (req, res, next) => {
   if (req.path.startsWith('/uploads')) return next();

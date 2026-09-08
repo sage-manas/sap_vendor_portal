@@ -18,7 +18,7 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
 const { prisma } = require('../db/prisma');
-const { registerVendor, createAdminUser } = require('./helpers');
+const { registerVendor, createAdminUser, runDueJobs } = require('./helpers');
 const { runWithTenant } = require('../utils/tenantContext');
 
 const app = buildTestApp();
@@ -108,11 +108,12 @@ describe('money fields survive the Float → Decimal migration', () => {
     expect(typeof inv.items[0].amount).toBe('number');
     expect(inv.totalAmount).toBeCloseTo(393.29, 2);
 
-    // The deferred SAP payment run fires on its own schedule (zero delay under
-    // NODE_ENV=test — see sap/drivers/mock.driver.js). Poll for it rather than
-    // assuming it has landed.
+    // The deferred SAP payment run now lands as a durable SapJob row that
+    // nothing processes under test unless asked — runDueJobs() is that ask.
+    // Poll for it rather than assuming it has landed.
     let payment = null;
     for (let i = 0; i < 50 && !payment; i += 1) {
+      await runDueJobs();
       const res = await asSupplier(request(app).get('/api/payments'));
       payment = (res.body.payments || []).find((p) => p.invoiceId === inv.id);
       if (!payment) await new Promise((resolve) => setTimeout(resolve, 20));

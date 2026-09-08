@@ -82,13 +82,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  // Some routes (submitInvoice/submitPlanInvoice) fire a deferred SAP payment
-  // run via `setTimeout(0, ...)` that isn't awaited by the request/response
-  // cycle (see sap/drivers/mock.driver.js). Under NODE_ENV=test that timer
-  // fires almost immediately, but "almost" can still land after this hook's
-  // reset starts. Yielding a macrotask first lets it settle, so the reset sees
-  // its writes rather than racing them.
-  await new Promise((resolve) => setTimeout(resolve, 50));
   await resetDatabase();
 });
 

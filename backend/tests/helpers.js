@@ -123,6 +123,19 @@ const createOperatorSession = async ({ role = ROLES.SUPER_ADMIN, ...rest } = {})
 // application code: bind a tenant, or the query throws.
 const asTenant = (fn, clientId = 'CLT-0001') => runWithTenant(clientId, fn);
 
+// SAP work that used to answer on a setTimeout inside the request now lands
+// as a durable SapJob row (docs/04-sap-runtime-engineering-plan.md Phase 1) —
+// JOBS_ENABLED defaults to false under test (jobs/worker.js), so nothing
+// processes it unless something calls tick() explicitly. This is that call:
+// claim whatever's due and run it once, synchronously, for a test to drive
+// the job runtime the same way jobs/worker.js's live loop would, without
+// racing it. Since the mock driver's timings default to 0ms under test, one
+// call is enough for a document created moments ago; a poll loop that calls
+// this every iteration (rather than just sleeping) is what makes waiting for
+// a GRN/payment deterministic instead of hoping a background loop that isn't
+// running gets there first.
+const runDueJobs = (...args) => require('../jobs/worker').tick(...args);
+
 module.exports = {
   baseVendor,
   registerVendor,
@@ -134,4 +147,5 @@ module.exports = {
   seedClient,
   signTokenFor,
   asTenant,
+  runDueJobs,
 };
