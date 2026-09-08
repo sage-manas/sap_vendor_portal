@@ -1,6 +1,6 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
-const { registerVendor, createTenantUser, seedClient, baseVendor } = require('./helpers');
+const { registerVendor, createTenantUser, seedClient, baseVendor, runDueJobs } = require('./helpers');
 
 // One tenant runs a complete procurement cycle — RFQ → bid → award → PO →
 // ASN → GRN → invoice → payment — on the mock driver, while a second tenant
@@ -20,11 +20,15 @@ const TENANT_B = { clientId: 'CLT-0003', slug: 'contoso', companyName: 'Contoso 
 const futureDate = (days = 7) =>
   new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
 
-// A deferred SAP answer (the goods receipt, the payment run) lands on the
-// driver's own schedule — zero delay under test, but still asynchronous. Poll
-// the API the way the portal does rather than reaching into the database.
+// A deferred SAP answer (the goods receipt, the payment run) now lands as a
+// durable SapJob row (docs/04-sap-runtime-engineering-plan.md Phase 1) that
+// nothing processes under test unless asked to — runDueJobs() is that ask.
+// Poll the API the way the portal does rather than reaching into the
+// database, driving the job runtime once per attempt rather than racing a
+// live worker loop that isn't running.
 const until = async (probe, what, attempts = 50) => {
   for (let i = 0; i < attempts; i += 1) {
+    await runDueJobs();
     const answer = await probe();
     if (answer) return answer;
     await new Promise((resolve) => setTimeout(resolve, 20));

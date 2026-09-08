@@ -7,7 +7,7 @@ const request = require('supertest');
 const buildTestApp = require('./testApp');
 const { prisma } = require('../db/prisma');
 const { runWithTenant } = require('../utils/tenantContext');
-const { registerVendor, createTenantUser } = require('./helpers');
+const { registerVendor, createTenantUser, runDueJobs } = require('./helpers');
 const { createWithUniqueId } = require('../utils/createWithUniqueId');
 
 const { Prisma } = require('@prisma/client');
@@ -95,6 +95,7 @@ describe('a forced id collision on invoice submission still succeeds', () => {
 
     let grn = null;
     for (let i = 0; i < 50 && !grn; i += 1) {
+      await runDueJobs();
       const res = await asSupplier(request(app).get('/api/grns'));
       grn = (res.body.grns || res.body || []).find((g) => g.poId === poId);
       if (!grn) await new Promise((resolve) => setTimeout(resolve, 20));

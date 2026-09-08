@@ -2,143 +2,33 @@ const { prisma } = require('../db/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { getSapAdapterForClient } = require('../sap');
-const { EVENTS, emitToVendor } = require('../utils/socketEmitter');
 
 const { requireVendorScope, withVendorScope } = require('../utils/requestScope');
 const { matchInvoiceDocument } = require('../sap/mappings/invoice-match');
-const { fiscalPeriodOf } = require('../utils/fiscalPeriod');
 const { isLineDue } = require('../services/invoicePlan.service');
 const { PO_INCLUDE, formatPo } = require('../db/poHelpers');
+const { INVOICE_INCLUDE, formatInvoice } = require('../db/invoiceHelpers');
 const { createWithUniqueId } = require('../utils/createWithUniqueId');
-const { toNumber } = require('../utils/money');
 const { formatPayment } = require('../db/paymentHelpers');
+const { enqueue } = require('../jobs/queue');
 
 // A random 6-digit suffix on a per-tenant-unique id — see createWithUniqueId's
 // header for why this needs a retry rather than a plain `create`.
 const genInvoiceId = () => 'INV-' + Math.floor(100000 + Math.random() * 900000);
 
-const INVOICE_INCLUDE = { items: true };
-
-// subTotal/taxAmount/totalAmount and each item's unitPrice/amount are
-// Decimal-typed columns — converted to plain numbers here, the one place
-// every consumer (API responses, the mock SAP driver's payment-run math,
-// this file's own tax/total arithmetic below) reads an invoice back through.
-// See utils/money.js for why this can't be left to `+`'s implicit coercion.
-const formatInvoice = (invoice) => {
-  const { items, subTotal, taxAmount, totalAmount, ...rest } = invoice;
-  return {
-    ...rest,
-    subTotal: toNumber(subTotal),
-    taxAmount: toNumber(taxAmount),
-    totalAmount: toNumber(totalAmount),
-    items: (items || []).map(({ pk, clientId, invoicePk, unitPrice, amount, ...item }) => ({
-      ...item,
-      unitPrice: toNumber(unitPrice),
-      amount: toNumber(amount),
-    })),
-  };
-};
-
 // Shared by submitInvoice and submitPlanInvoice — the wait for AP to post the
-// invoice in SAP and F110 to clear it is the same deferred call either way,
+// invoice in SAP and F110 to clear it is the same durable job either way,
 // keyed on the SAP purchase order number since the portal issued no number of
-// its own.
-const schedulePaymentRun = ({ sap, invoice, po, vendor, vendorId, io, clientId }) => {
-  const onCall = ({ code, type }) => emitToVendor(io, clientId, vendorId, EVENTS.LOG_NEW, { type, name: code });
-
-  sap.awaitPaymentRun({
-    invoice: { ...formatInvoice(invoice), sapPoNumber: po.sapPoNumber },
-    vendor,
-    vendorId,
-    onCall,
-  }, async (remittance) => {
-    // The Payment row, the invoice's Cleared status, and the PO/plan-line
-    // side effect all describe one event (AP cleared this invoice) and must
-    // land together — a real transaction now (migration plan Phase 3; the
-    // Mongoose version made these same writes sequentially, unguarded,
-    // relying only on the idempotency check below).
-    const result = await prisma.$transaction(async (tx) => {
-      const latestInvoice = await tx.invoice.findFirst({ where: { id: invoice.id } });
-      const latestPo = await tx.purchaseOrder.findFirst({ where: { id: po.id }, include: PO_INCLUDE });
-
-      // An invoice already cleared must not be paid twice. Kept alongside the
-      // transaction, not replaced by it: this guards a retried/duplicate
-      // deferred answer, which atomicity alone does not.
-      if (!latestInvoice || !latestPo || latestInvoice.status === 'Cleared') return null;
-
-      // SAP's own MIRO number, learned by discovery rather than minted here.
-      // Storing it means the reconciliation view stops having to re-match.
-      const sapMiroDoc = (remittance.sapMiroDoc && !latestInvoice.sapMiroDoc)
-        ? remittance.sapMiroDoc
-        : latestInvoice.sapMiroDoc;
-
-      const payment = await tx.payment.create({
-        data: {
-          id: remittance.paymentId,
-          invoiceId: latestInvoice.id,
-          poId: latestPo.id,
-          vendorId: latestInvoice.vendorId,
-          invoiceRef: latestInvoice.id,
-          invoiceNumber: latestInvoice.invoiceNumber,
-          sapMiroDoc,
-          grossAmount: remittance.grossAmount,
-          tdsDeducted: remittance.tdsDeducted,
-          netAmount: remittance.netAmount,
-          paymentDate: remittance.paymentDate,
-          utrCode: remittance.utrCode,
-          paymentMethod: remittance.paymentMethod,
-          sapPaymentDoc: remittance.sapPaymentDoc,
-          bankName: remittance.bankName,
-          runId: remittance.runId,
-          // The Indian fiscal quarter of the payment itself — not the calendar
-          // quarter, and not "now". Both were wrong here: a January payment landed
-          // in Q1 of the wrong year, and a row written late landed in whatever
-          // quarter it happened to be created in.
-          ...fiscalPeriodOf(remittance.paymentDate),
-          tdsSection: remittance.tdsSection,
-          deducteePan: remittance.deducteePan,
-          deductorTan: remittance.deductorTan,
-          totalTds: remittance.tdsDeducted
-        },
-      });
-
-      await tx.invoice.update({
-        where: { pk: latestInvoice.pk },
-        data: { sapMiroDoc, status: 'Cleared', clearedAt: new Date() },
-      });
-
-      // A plan-based invoice doesn't own the PO's overall status — other lines
-      // may still be mid-delivery, and a periodic plan has eleven more instalments
-      // to come — so only a GRN-matched invoice moves it. What a plan invoice does
-      // own is its own plan entry, which gains SAP's MIRO number so the plan and
-      // the invoice list agree about the document without re-matching.
-      if (latestInvoice.invoicePlanRef?.planLineNumber) {
-        const formattedPo = formatPo(latestPo);
-        const planItem = formattedPo.items.find((item) => item.line === latestInvoice.invoicePlanRef.line);
-        const planLine = (planItem?.invoicePlan?.lines || []).find(
-          (line) => line.lineNumber === latestInvoice.invoicePlanRef.planLineNumber,
-        );
-        if (planLine && sapMiroDoc) {
-          const rawItem = latestPo.items.find((item) => item.line === latestInvoice.invoicePlanRef.line);
-          await tx.invoicePlanLine.update({
-            where: { planPk_lineNumber: { planPk: rawItem.invoicePlan.pk, lineNumber: planLine.lineNumber } },
-            data: { sapMiroDoc },
-          });
-        }
-      } else {
-        await tx.purchaseOrder.update({ where: { pk: latestPo.pk }, data: { status: 'Paid' } });
-      }
-
-      return { payment, vendorId: latestInvoice.vendorId };
-    });
-
-    if (!result) return null;
-
-    emitToVendor(io, clientId, result.vendorId, EVENTS.PAYMENT_CLEARED, result.payment);
-
-    return result.payment;
-  });
-};
+// its own. jobs/handlers/awaitPaymentRun.js does the actual work (this used
+// to run inline here as `schedulePaymentRun`, calling `sap.awaitPaymentRun`
+// directly with an in-request closure — see docs/04-sap-runtime-engineering-plan.md
+// Phase 1.6 for why that moved to the job runtime).
+const scheduleAwaitPaymentRun = ({ invoice, po, vendorId, clientId }) => enqueue({
+  clientId,
+  kind: 'awaitPaymentRun',
+  dedupeKey: `awaitPaymentRun:${clientId}:${invoice.id}`,
+  args: { invoiceId: invoice.id, poId: po.id, vendorId },
+});
 
 // @desc    Get Invoices
 // @route   GET /api/invoices
@@ -246,9 +136,7 @@ const submitInvoice = asyncHandler(async (req, res, next) => {
 
   const status = matchWarning ? 'Match Warning' : 'Submitted';
 
-  const io = req.app.get('io');
   const { clientId } = req;
-  const sap = await getSapAdapterForClient(clientId);
 
   // Nothing is posted to SAP here. MIRO is invoice verification — AP's
   // transaction against their own books — so the portal records the supplier's
@@ -291,13 +179,11 @@ const submitInvoice = asyncHandler(async (req, res, next) => {
   // Update PO status to Invoiced
   await prisma.purchaseOrder.update({ where: { pk: po.pk }, data: { status: 'Invoiced' } });
 
-  const vendor = await prisma.vendor.findFirst({ where: { vendorId } });
-
   // Two waits in one, on a real system: first for AP to post the invoice in
-  // SAP, then for F110 to clear it. The driver needs the SAP purchase order
-  // number to recognise the document, since the portal issued no number of its
-  // own. Twelve seconds end to end on the simulator.
-  schedulePaymentRun({ sap, invoice, po, vendor, vendorId, io, clientId });
+  // SAP, then for F110 to clear it. jobs/handlers/awaitPaymentRun.js does the
+  // work; the driver needs the SAP purchase order number to recognise the
+  // document, since the portal issued no number of its own.
+  await scheduleAwaitPaymentRun({ invoice, po, vendorId, clientId });
 
   res.status(201).json({ message: 'Invoice submitted successfully. Payment will follow in your buyer’s next payment run.', invoice: formatInvoice(invoice) });
 });
@@ -346,9 +232,7 @@ const submitPlanInvoice = asyncHandler(async (req, res, next) => {
   const taxAmount = statedTax !== undefined ? Number(statedTax) : Number((subTotal * 0.18).toFixed(2));
   const totalAmount = Number((subTotal + taxAmount).toFixed(2));
 
-  const io = req.app.get('io');
   const { clientId } = req;
-  const sap = await getSapAdapterForClient(clientId);
 
   // See the earlier submitInvoice for why this is a retry rather than a plain
   // create: Invoice.id is the only unique constraint here, so retrying it
@@ -398,8 +282,7 @@ const submitPlanInvoice = asyncHandler(async (req, res, next) => {
     data: { status: 'Invoiced', invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber, invoicedAt: new Date() },
   });
 
-  const planVendor = await prisma.vendor.findFirst({ where: { vendorId } });
-  schedulePaymentRun({ sap, invoice, po, vendor: planVendor, vendorId, io, clientId });
+  await scheduleAwaitPaymentRun({ invoice, po, vendorId, clientId });
 
   res.status(201).json({ message: 'Invoice submitted against the invoicing plan. Payment will follow in your buyer’s next payment run.', invoice: formatInvoice(invoice) });
 });

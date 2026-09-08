@@ -16,6 +16,7 @@ const {
 const { PO_INCLUDE, formatPlan, formatPo, persistInvoicePlan, disableInvoicePlan } = require('../db/poHelpers');
 const { createWithUniqueId } = require('../utils/createWithUniqueId');
 const { toNumber } = require('../utils/money');
+const { enqueue } = require('../jobs/queue');
 
 // A random 6-digit suffix on a per-tenant-unique id — see createWithUniqueId's
 // header for why this needs a retry rather than a plain `create`.
@@ -211,9 +212,7 @@ const submitASN = asyncHandler(async (req, res, next) => {
     };
   });
 
-  const io = req.app.get('io');
   const { clientId } = req;
-  const sap = await getSapAdapterForClient(clientId);
 
   // ASN.id is the only unique constraint this create can hit — see
   // createWithUniqueId's header — so retrying it blindly on a fresh id is safe.
@@ -246,63 +245,15 @@ const submitASN = asyncHandler(async (req, res, next) => {
   // Update PO status to Dispatched
   await prisma.purchaseOrder.update({ where: { pk: po.pk }, data: { status: 'Dispatched' } });
 
-  // The goods receipt arrives when SAP says it does — ten seconds on the
-  // simulator, a webhook or a poll on a real system. Either way this handler is
-  // what we do with it, and the adapter has already re-bound the tenant.
-  const onCall = ({ code, type }) => emitToVendor(io, clientId, vendorId, EVENTS.LOG_NEW, { type, name: code });
-
-  sap.awaitGoodsReceipt({ asn, po: formatPo(po), vendorId, clientId, onCall }, async (receipt) => {
-    // GRN creation, the ASN's status flip, the PO items' grnQuantity, and the
-    // PO's own status all describe one physical event (goods arrived) and
-    // must land together — wrapped in a real transaction now (migration plan
-    // Phase 3; the Mongoose version made these same four writes sequentially,
-    // unguarded, relying only on the idempotency check below).
-    const grn = await prisma.$transaction(async (tx) => {
-      const latestPo = await tx.purchaseOrder.findFirst({ where: { id: po.id }, include: { items: true } });
-      const latestAsn = await tx.aSN.findFirst({ where: { id: asn.id } });
-
-      // The receipt is only applied if the shipment is still awaiting one — a
-      // cancelled or already-received ASN must not gain a second GRN. Kept
-      // alongside the transaction, not replaced by it: this guards against a
-      // retried/duplicate call, which atomicity alone does not.
-      if (!latestPo || !latestAsn || latestAsn.status !== 'Submitted') return null;
-
-      const createdGrn = await tx.gRN.create({
-        data: {
-          id: receipt.grnId,
-          poId: latestPo.id,
-          asnId: latestAsn.id,
-          vendorId: latestAsn.vendorId,
-          sapMigoDoc: receipt.sapMigoDoc,
-          postingDate: receipt.postingDate,
-          receivedBy: receipt.receivedBy,
-          invoiceSubmitted: false,
-          items: { create: receipt.items.map((item) => ({ clientId, ...item })) },
-        },
-        include: { items: true },
-      });
-
-      await tx.aSN.update({ where: { pk: latestAsn.pk }, data: { status: 'Received' } });
-
-      for (const gItem of receipt.items) {
-        const poItem = latestPo.items.find((pItem) => pItem.line === gItem.line);
-        if (poItem) {
-          await tx.purchaseOrderItem.update({
-            where: { pk: poItem.pk },
-            data: { grnQuantity: poItem.grnQuantity + gItem.acceptedQuantity },
-          });
-        }
-      }
-      await tx.purchaseOrder.update({ where: { pk: latestPo.pk }, data: { status: 'Delivered' } });
-
-      return createdGrn;
-    });
-
-    if (!grn) return null;
-
-    emitToVendor(io, clientId, asn.vendorId, EVENTS.GRN_RECEIVED, grn);
-
-    return grn;
+  // The goods receipt arrives when SAP says it does. jobs/handlers/awaitGoodsReceipt.js
+  // does the actual work (this used to run inline here as a closure passed to
+  // `sap.awaitGoodsReceipt` — see docs/04-sap-runtime-engineering-plan.md
+  // Phase 1.6 for why that moved to the durable job runtime).
+  await enqueue({
+    clientId,
+    kind: 'awaitGoodsReceipt',
+    dedupeKey: `awaitGoodsReceipt:${clientId}:${asn.id}`,
+    args: { asnId: asn.id, poId: po.id, vendorId },
   });
 
   res.status(201).json({ message: 'Shipment details submitted successfully. Your buyer will confirm the delivery once the goods arrive.', asn });

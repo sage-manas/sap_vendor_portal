@@ -12,22 +12,37 @@ const withTimeout = (promise, ms, label) => {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 };
 
-// A deferred method never returns a promise itself — it schedules work and
-// calls a handler later (a timer today, a poll or a webhook for a real
-// driver). The suite has no document to persist, so it hands back whatever
-// the driver answered with as if it had been persisted, which is enough to
-// let the adapter's own bookkeeping (SapLog, the resolved PENDING entry) run
-// for real.
+// A deferred method is a one-shot probe called once per job attempt
+// (jobs/worker.js — see docs/04-sap-runtime-engineering-plan.md Phase 1): it
+// resolves `false` with no handler call when SAP has no answer yet, `true`
+// once `handler` has run and the wrapper has finished its own bookkeeping
+// (SapLog, the resolved PENDING entry), or rejects on a genuine failure.
+//
+// Resolving on the *outer* `adapter[method](...)` promise rather than from
+// inside the handler callback matters: `handler` runs partway through
+// sap/index.js's wrapDeferred — the wrapper still has its own `recordSapCall`
+// writes to make after `handler` returns, before the driver's returned
+// promise itself settles. Resolving early (from inside the callback) would
+// race ahead of those writes and under-count them nondeterministically. The
+// suite has no document to persist, so it hands back whatever the driver
+// answered with as if it had been persisted, which is enough to let the
+// wrapper's bookkeeping run for real. A `false` resolution (nothing found on
+// this one attempt — a real gateway or a longer timeoutMs is what would
+// eventually produce an answer) is left pending deliberately: the race
+// against `timeoutMs` below is what turns that into "timed out" rather than
+// a real rejection winning first.
 const runDeferred = (adapter, method, args, timeoutMs) =>
   withTimeout(new Promise((resolve, reject) => {
-    try {
-      adapter[method](args, async (data) => {
-        resolve(data);
-        return data;
-      });
-    } catch (error) {
-      reject(error);
-    }
+    let captured;
+    Promise.resolve(adapter[method](args, async (data) => {
+      captured = data;
+      return data;
+    }))
+      .then((found) => {
+        if (found) resolve(captured);
+        // else: leave pending — see the note above.
+      })
+      .catch(reject);
   }), timeoutMs, `${method}()`);
 
 /**
