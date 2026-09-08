@@ -328,6 +328,17 @@ model RFQ {
   awardedAt         DateTime?
   convertedPoId     String?
 
+  // Dual identity / sync state (Phase 3 of docs/04-sap-runtime-engineering-plan.md).
+  // An RFQ is portal-internal by design (sourcing has no SAP write path — see
+  // contract.js) — sapDocNumber and sapSyncState stay at their defaults
+  // (null / "local") for the whole lifetime of every RFQ that was never
+  // matched against an SAP-native quotation. See config/statuses.js
+  // SAP_SYNC_STATES for the full state machine and what each value means.
+  sapDocNumber String?
+  sapSyncState String    @default("local")
+  sapSyncedAt  DateTime?
+  sapSyncError String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -340,6 +351,7 @@ model RFQ {
   @@unique([clientId, id])
   @@index([clientId, status])
   @@index([clientId, deadlineDate])
+  @@index([clientId, sapSyncState])
   @@map("rfqs")
 }
 
@@ -457,6 +469,20 @@ model PurchaseOrder {
   fromRfqId String?
   fromRfq   RFQ?    @relation(fields: [clientId, fromRfqId], references: [clientId, id])
 
+  // Dual identity / sync state — see the note on RFQ above and
+  // config/statuses.js SAP_SYNC_STATES. `sapPoNumber` stays the typed
+  // correlation key vendorPoGrnDisplay-matching already keys on;
+  // `sapDocNumber` is the uniform field the reconciliation queue reads
+  // across all six documents. The column default is `local` (same as every
+  // other synced table, so no migration needs a table-specific default) —
+  // awardRfq (rfq.controller.js) sets it explicitly to `pending` at create
+  // time, since unlike an RFQ a PO is always meant to be matched against
+  // SAP's own ledger (§5.6).
+  sapDocNumber String?
+  sapSyncState String    @default("local")
+  sapSyncedAt  DateTime?
+  sapSyncError String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -470,6 +496,7 @@ model PurchaseOrder {
   @@unique([clientId, id])
   @@index([clientId, vendorId])
   @@index([clientId, status])
+  @@index([clientId, sapSyncState])
   @@map("purchase_orders")
 }
 
@@ -572,6 +599,15 @@ model ASN {
   sapInboundDelivery    String?
   submittedAt           DateTime @default(now())
 
+  // Dual identity / sync state — see the note on RFQ above. jobs/syncState.js
+  // sets this to `pending` when the goods-receipt watch is enqueued
+  // (jobs/handlers/awaitGoodsReceipt.js), `synced` (with the MIGO doc number)
+  // once found, `orphaned` if the watching job is abandoned.
+  sapDocNumber String?
+  sapSyncState String    @default("local")
+  sapSyncedAt  DateTime?
+  sapSyncError String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -581,6 +617,7 @@ model ASN {
   @@unique([clientId, id])
   @@index([clientId, vendorId])
   @@index([clientId, status])
+  @@index([clientId, sapSyncState])
   @@map("asns")
 }
 
@@ -619,6 +656,15 @@ model GRN {
   receivedBy       String?
   invoiceSubmitted Boolean  @default(false)
 
+  // Dual identity / sync state — see the note on RFQ above. A GRN is only
+  // ever created *from* a found SAP goods receipt (jobs/handlers/
+  // awaitGoodsReceipt.js), so every row starts life `synced` — there is no
+  // portal-only or pending GRN, unlike the other five documents.
+  sapDocNumber String?
+  sapSyncState String    @default("local")
+  sapSyncedAt  DateTime?
+  sapSyncError String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -628,6 +674,7 @@ model GRN {
   @@unique([clientId, id])
   @@index([clientId, vendorId])
   @@index([clientId, poId])
+  @@index([clientId, sapSyncState])
   @@map("grns")
 }
 
@@ -690,6 +737,15 @@ model Invoice {
   postedAt  DateTime?
   clearedAt DateTime?
 
+  // Dual identity / sync state — see the note on RFQ above. Set to `pending`
+  // when the payment-run watch is enqueued (jobs/handlers/awaitPaymentRun.js),
+  // `synced` (with the MIRO doc number) once discovered, `orphaned` if the
+  // watching job is abandoned.
+  sapDocNumber String?
+  sapSyncState String    @default("local")
+  sapSyncedAt  DateTime?
+  sapSyncError String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -699,6 +755,7 @@ model Invoice {
   @@unique([clientId, id])
   @@index([clientId, vendorId])
   @@index([clientId, status])
+  @@index([clientId, sapSyncState])
   @@map("invoices")
 }
 
@@ -753,12 +810,21 @@ model Payment {
   deductorTan String?
   totalTds    Decimal? @db.Decimal(14, 2)
 
+  // Dual identity / sync state — see the note on RFQ above. A Payment, like a
+  // GRN, is only ever created *from* a found SAP payment clearing
+  // (jobs/handlers/awaitPaymentRun.js) — every row starts life `synced`.
+  sapDocNumber String?
+  sapSyncState String    @default("local")
+  sapSyncedAt  DateTime?
+  sapSyncError String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([clientId, id])
   @@index([clientId, vendorId])
   @@index([clientId, invoiceId])
+  @@index([clientId, sapSyncState])
   @@map("payments")
 }
 

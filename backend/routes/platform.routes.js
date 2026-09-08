@@ -4,6 +4,7 @@ const tenantController = require('../controllers/platformTenant.controller');
 const operatorController = require('../controllers/platformOperator.controller');
 const auditController = require('../controllers/platformAudit.controller');
 const healthController = require('../controllers/platformHealth.controller');
+const reconciliationController = require('../controllers/platformReconciliation.controller');
 const sapController = require('../controllers/platformSap.controller');
 const validate = require('../middleware/validate');
 const { protectPlatform, requireMfa, requirePermission } = require('../middleware/auth');
@@ -86,5 +87,9 @@ router.get('/health', requirePermission(PERMISSIONS.PLATFORM_HEALTH_READ), healt
 // SAP job runtime (docs/04-sap-runtime-engineering-plan.md Phase 1)
 router.get('/jobs', requirePermission(PERMISSIONS.PLATFORM_HEALTH_READ), healthController.listJobs);
 router.post('/jobs/:pk/retry', requirePermission(PERMISSIONS.TENANT_MANAGE), healthController.retryJob);
+
+// Dual identity / sync state — the reconciliation queue (Phase 3)
+router.get('/reconciliation', requirePermission(PERMISSIONS.PLATFORM_HEALTH_READ), reconciliationController.listReconciliation);
+router.post('/reconciliation/:type/:pk/retry', requirePermission(PERMISSIONS.TENANT_MANAGE), reconciliationController.retryReconciliationRow);
 
 module.exports = router;

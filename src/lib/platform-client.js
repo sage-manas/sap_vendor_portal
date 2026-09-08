@@ -90,4 +90,8 @@ export const platformApi = {
   audit: (query = '') => request(`/audit${query}`),
   auditFilters: () => request('/audit/filters'),
   health: () => request('/health'),
+
+  // Dual identity / sync state — the reconciliation queue
+  reconciliation: (query = '') => request(`/reconciliation${query}`),
+  retryReconciliation: (type, pk) => request(`/reconciliation/${type}/${pk}/retry`, { method: 'POST', body: {} }),
 };

@@ -17,6 +17,7 @@ const { PO_INCLUDE, formatPlan, formatPo, persistInvoicePlan, disableInvoicePlan
 const { createWithUniqueId } = require('../utils/createWithUniqueId');
 const { toNumber } = require('../utils/money');
 const { enqueue } = require('../jobs/queue');
+const { markPending } = require('../jobs/syncState');
 
 // A random 6-digit suffix on a per-tenant-unique id — see createWithUniqueId's
 // header for why this needs a retry rather than a plain `create`.
@@ -100,7 +101,21 @@ const getSapPoStatus = asyncHandler(async (req, res, next) => {
     if (toBackfill.length) {
       await Promise.all(toBackfill.map((po) => {
         const match = orders.find((order) => order.poId === po.id);
-        return prisma.purchaseOrder.update({ where: { pk: po.pk }, data: { sapPoNumber: match.poNumber } });
+        return prisma.purchaseOrder.update({
+          where: { pk: po.pk },
+          data: {
+            sapPoNumber: match.poNumber,
+            // Dual identity / sync state (Phase 3 of
+            // docs/04-sap-runtime-engineering-plan.md): this correlation is
+            // exactly what moves a PO from `pending` to `synced` —
+            // sapDocNumber mirrors sapPoNumber so the reconciliation queue
+            // can read all six document types uniformly.
+            sapDocNumber: match.poNumber,
+            sapSyncState: 'synced',
+            sapSyncedAt: new Date(),
+            sapSyncError: null,
+          },
+        });
       }));
     }
   }
@@ -255,6 +270,9 @@ const submitASN = asyncHandler(async (req, res, next) => {
     dedupeKey: `awaitGoodsReceipt:${clientId}:${asn.id}`,
     args: { asnId: asn.id, poId: po.id, vendorId },
   });
+  // Dual identity / sync state (Phase 3): the ASN starts life `local` until
+  // this watch begins.
+  await markPending('awaitGoodsReceipt', { asnId: asn.id });
 
   res.status(201).json({ message: 'Shipment details submitted successfully. Your buyer will confirm the delivery once the goods arrive.', asn });
 });

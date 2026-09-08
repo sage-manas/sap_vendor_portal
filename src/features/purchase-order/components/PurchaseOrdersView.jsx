@@ -16,6 +16,7 @@ import TableSkeleton from '@/components/ui/TableSkeleton';
 import KPICard from '@/components/ui/KPICard';
 import Modal from '@/components/ui/Modal';
 import { poStatusVariant } from '@/lib/statusColors';
+import { describeSyncState } from '@/lib/syncState';
 import { useWhoami } from '@/lib/whoami';
 import InvoicePlanPanel from './InvoicePlanPanel';
 
@@ -941,15 +942,29 @@ export default function PurchaseOrdersView({
                             <td className="text-center">
                               {sapPoOrders === null || sapPoOrders === undefined ? (
                                 <Loader2 className="size-3.5 animate-spin text-text-tertiary inline-block" />
-                              ) : isConfirmedInSap(po) ? (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400" title="Your buyer’s system confirms this order">
-                                  <ShieldCheck className="size-3.5" /> Confirmed
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-400" title="Not yet visible in your buyer’s system">
-                                  <ShieldAlert className="size-3.5" /> Not confirmed yet
-                                </span>
-                              )}
+                              ) : (() => {
+                                // Dual identity / sync state (Phase 3 of
+                                // docs/04-sap-runtime-engineering-plan.md,
+                                // invariant I5): a number shown to a supplier
+                                // is either from SAP or clearly marked as not.
+                                // sapSyncState is the honest source now;
+                                // isConfirmedInSap's own cross-check against
+                                // the vendorPoGrnDisplay read stays as the
+                                // fallback for a PO fetched before this field
+                                // existed on the response shape.
+                                const { label, tone, showNumber } = po.sapSyncState
+                                  ? describeSyncState(po.sapSyncState)
+                                  : (isConfirmedInSap(po)
+                                    ? { label: 'Confirmed', tone: 'active', showNumber: true }
+                                    : { label: 'Not confirmed yet', tone: 'pending', showNumber: false });
+                                const toneClass = tone === 'active' ? 'text-emerald-400' : tone === 'suspended' ? 'text-rose-400' : 'text-amber-400';
+                                const Icon = showNumber ? ShieldCheck : ShieldAlert;
+                                return (
+                                  <span className={`inline-flex items-center gap-1 text-[10px] font-bold ${toneClass}`} title={label}>
+                                    <Icon className="size-3.5" /> {label}
+                                  </span>
+                                );
+                              })()}
                             </td>
                             <td className="text-center" onClick={e => e.stopPropagation()}>
                               <div className="flex items-center justify-center gap-1.5">

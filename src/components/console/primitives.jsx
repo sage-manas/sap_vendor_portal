@@ -66,6 +66,12 @@ const STATUS_TONE = {
   degraded: 'status-badge-warn',
   failing: 'status-badge-suspended',
   unknown: 'status-badge-pending',
+  // Dual identity / sync state (backend/config/statuses.js SAP_SYNC_STATE) —
+  // the reconciliation queue's own vocabulary.
+  Synced: 'status-badge-active',
+  Local: 'status-badge-pending',
+  Failed: 'status-badge-suspended',
+  Orphaned: 'status-badge-suspended',
 };
 
 export const Status = ({ value }) => (

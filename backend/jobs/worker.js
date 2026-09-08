@@ -5,6 +5,19 @@ const { jobKind } = require('./kinds');
 const { nextRunAt } = require('./backoff');
 const { claim, release, reapStale } = require('./queue');
 const { handlerFor: defaultHandlerFor } = require('./handlers');
+const { markFailed, markOrphaned } = require('./syncState');
+
+// Sync-state bookkeeping (Phase 3) is best-effort side-channel work, not the
+// job's own result — a job kind Phase 4 adds without a document mapping
+// (jobs/syncState.js's DOCUMENT_FOR_KIND) must not fail the job over it, so
+// every call from here is swallowed and logged rather than left to propagate.
+const trySyncState = async (fn, ...args) => {
+  try {
+    await fn(...args);
+  } catch (error) {
+    logger.warn(`[jobs] sync-state update failed: ${error.message}`);
+  }
+};
 
 const WORKER_ID = `${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -34,9 +47,12 @@ const processJob = async (job, { handlerFor = defaultHandlerFor } = {}) => {
 
     // Not yet — the normal path for a poll: reschedule, do not touch error
     // state. Exhausting maxAttempts here means "SAP never answered", which is
-    // a different operator question than SAP erroring, so it's `abandoned`.
+    // a different operator question than SAP erroring, so it's `abandoned` —
+    // and the document it was watching becomes `orphaned` (Phase 3).
     if (job.attempts >= job.maxAttempts) {
-      await release(job, { status: 'abandoned', lastError: 'Exhausted maxAttempts — SAP never answered' });
+      const message = 'Exhausted maxAttempts — SAP never answered';
+      await release(job, { status: 'abandoned', lastError: message });
+      await runWithTenant(job.clientId, () => trySyncState(markOrphaned, job.kind, job.args, message));
     } else {
       await release(job, { runAt: nextRunAt({ spec, attempts: job.attempts, errored: false }), status: 'pending' });
     }
@@ -45,12 +61,16 @@ const processJob = async (job, { handlerFor = defaultHandlerFor } = {}) => {
     logger.error(`[jobs] ${job.kind} (${job.pk}) errored: ${error.message}`);
     if (job.attempts >= job.maxAttempts) {
       await release(job, { status: 'abandoned', lastError: error.message });
+      await runWithTenant(job.clientId, () => trySyncState(markOrphaned, job.kind, job.args, error.message));
     } else {
       await release(job, {
         status: 'pending',
         runAt: nextRunAt({ spec, attempts: job.attempts, errored: true }),
         lastError: error.message,
       });
+      // Phase 3: the job itself keeps retrying — this just records the last
+      // error against the document for the reconciliation queue.
+      await runWithTenant(job.clientId, () => trySyncState(markFailed, job.kind, job.args, error.message));
     }
     return { ok: false, error };
   }

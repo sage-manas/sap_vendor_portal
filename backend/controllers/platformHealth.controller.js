@@ -7,6 +7,8 @@ const ApiError = require('../utils/ApiError');
 const { recordAudit } = require('../utils/audit');
 const { AUDIT_ACTIONS } = require('../config/auditActions');
 const { jobKind } = require('../jobs/kinds');
+const { markPending } = require('../jobs/syncState');
+const { retryByPk } = require('../jobs/queue');
 
 // The platform health board: for every tenant, is its SAP working, how much of
 // its plan is it using, and is anyone actually signing in.
@@ -229,10 +231,15 @@ const retryJob = asyncHandler(async (req, res, next) => {
   // not a silent no-op.
   jobKind(job.kind);
 
-  const updated = await withoutTenantScope(() => rawPrisma.sapJob.update({
-    where: { pk },
-    data: { status: 'pending', runAt: new Date(), attempts: 0, lastError: null, lockedBy: null, lockedAt: null },
-  }));
+  const updated = await retryByPk(pk);
+
+  // Dual identity / sync state (Phase 3): an operator retrying a job is
+  // restarting the watch, so the document it watches goes back to `pending`
+  // too — failed/orphaned -> pending is a legal transition
+  // (config/statuses.js SAP_SYNC_TRANSITIONS). Best-effort: a job kind with
+  // no document mapping (or none yet — Phase 4's sweeps) must not block the
+  // retry itself.
+  await runWithTenant(job.clientId, () => markPending(job.kind, job.args).catch(() => {}));
 
   await recordAudit({
     action: AUDIT_ACTIONS.JOB_RETRIED,
