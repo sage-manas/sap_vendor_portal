@@ -55,6 +55,10 @@ export function WorkspaceSessionProvider({ children }) {
     stage,
     user: session?.user || null,
     workspace: session?.workspace || null,
+    // Server-verified (the JWT's plane claim, resolved from the account's own
+    // collection — never client-supplied), so this is the value navFor's
+    // plane check actually trusts. See its comment in lib/workspaceNav.js.
+    plane: session?.auth?.plane || null,
     permissions: session?.auth?.permissions || [],
     can: (permission) => Boolean(session?.auth?.permissions?.includes(permission)),
     refresh,

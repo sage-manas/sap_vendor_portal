@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useShell } from '../../../lib/shell-context';
 import { hasOwnChrome } from '../../../lib/planes';
 import { poService } from '../services/poService';
 
@@ -29,10 +28,10 @@ const generatePoId = () => {
 };
 
 export function usePOs(profile) {
-  const { addSapLog } = useShell();
   const [pos, setPos] = useState([]);
   const [asns, setAsns] = useState([]);
   const [grns, setGrns] = useState([]);
+  const [sapPoOrders, setSapPoOrders] = useState(null);
 
   const persistLocally = (key, data) => {
     try {
@@ -80,10 +79,20 @@ export function usePOs(profile) {
     }
   };
 
+  const refreshSapPoStatus = async () => {
+    if (!canFetchVendorData()) return;
+    try {
+      const data = await poService.getSapStatus();
+      if (data) setSapPoOrders(data.orders);
+    } catch (e) {
+      console.error('Failed to fetch SAP PO/GRN status', e);
+    }
+  };
+
   useEffect(() => {
-    refreshPOs();
-    refreshGRNs();
-    refreshASNs();
+    void (async () => {
+      await Promise.all([refreshPOs(), refreshGRNs(), refreshASNs(), refreshSapPoStatus()]);
+    })();
   }, [profile]);
 
   const addPO = (newPO) => {
@@ -122,56 +131,6 @@ export function usePOs(profile) {
     }
   };
 
-  const simulateIncomingPO = async () => {
-    try {
-      const res = await poService.createPO({});
-      if (res && (res.id || res._id)) {
-        setPos(prev => {
-          if (prev.some(p => p.id === res.id)) return prev;
-          const updated = [res, ...prev];
-          persistLocally('sap_vendor_portal_pos', updated);
-          return updated;
-        });
-        addSapLog('OData', '/API_PURCHASEORDER_PROCESS_SRV', 'INBOUND', res, 'SUCCESS');
-        return res;
-      }
-    } catch (e) {
-      console.error('API simulation error:', e);
-    }
-
-    const newId = generatePoId();
-    const fallbackPO = {
-      id: newId,
-      sapPoNumber: '4500' + Math.floor(100000 + Math.random() * 900000),
-      vendorId: profile?.vendorId || 'mock_vendor_id',
-      buyerName: 'SAP Buyer System',
-      plant: '1000',
-      paymentTerms: 'NET 30 Days',
-      currency: 'INR',
-      deliveryAddress: 'Plant 1000 Main Warehouse, Mumbai',
-      status: 'Open',
-      createdDate: new Date().toISOString(),
-      items: [{
-        line: 10,
-        materialCode: 'MAT-3849',
-        description: 'Steel Pipe 3" SCH40',
-        quantity: 500,
-        grnQuantity: 0,
-        unitPrice: 240,
-        netValue: 120000,
-        uom: 'EA'
-      }]
-    };
-
-    setPos(prev => {
-      const updated = [fallbackPO, ...prev];
-      persistLocally('sap_vendor_portal_pos', updated);
-      return updated;
-    });
-    addSapLog('OData', '/API_PURCHASEORDER_PROCESS_SRV', 'INBOUND', fallbackPO, 'SUCCESS');
-    return fallbackPO;
-  };
-
   const setInvoiceSubmittedForGrn = (grnId) => {
     setGrns(prev => {
       const updated = prev.map(g => {
@@ -187,13 +146,14 @@ export function usePOs(profile) {
     pos,
     asns,
     grns,
+    sapPoOrders,
     addPO,
     acknowledgePO,
     submitASN,
-    simulateIncomingPO,
     setInvoiceSubmittedForGrn,
     refreshPOs,
     refreshGRNs,
-    refreshASNs
+    refreshASNs,
+    refreshSapPoStatus
   };
 }

@@ -20,3 +20,18 @@ export const isWorkspacePath = under(WORKSPACE_ROOT);
 // portal's sidebar, header and BAPI console.
 export const hasOwnChrome = (pathname = '') =>
   isPlatformPath(pathname) || isWorkspacePath(pathname);
+
+// The screens you reach without a session: they render centered, in "auth
+// mode", and the session redirect must not bounce you off them. The layout and
+// the provider both need this answer and used to carry a copy each, which is
+// how a new public route ends up redirecting to /sign-in on one of them only.
+const AUTH_PATHS = new Set([
+  '/sign-in',
+  '/sign-up',
+  '/forgot-password',
+  '/reset-password',
+  // Where an invited colleague or supplier lands from their email.
+  '/accept-invitation',
+]);
+
+export const isAuthPath = (pathname = '') => AUTH_PATHS.has(pathname);

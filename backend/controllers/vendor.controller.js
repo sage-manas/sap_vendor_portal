@@ -1,12 +1,12 @@
-const Vendor = require('../models/Vendor');
-const GRN = require('../models/GRN');
-const ASN = require('../models/ASN');
-const Invoice = require('../models/Invoice');
+const { prisma } = require('../db/prisma');
+const { hashPassword, issueResetToken } = require('../db/credentials');
+const { isClientOperational } = require('../db/clientHelpers');
+const { getTenantId } = require('../utils/tenantContext');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const logger = require('../utils/logger');
 const { verifyGstinPan } = require('../services/verification.service');
-const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
+const { runWithTenant } = require('../utils/tenantContext');
 const { resolveClientForRequest } = require('../utils/resolveClient');
 const { getSapAdapterForClient } = require('../sap');
 
@@ -14,6 +14,7 @@ const { requireVendorScope } = require('../utils/requestScope');
 const { recordAudit } = require('../utils/audit');
 const { AUDIT_ACTIONS } = require('../config/auditActions');
 const { settingValue } = require('../config/tenantSettings');
+const { toNumber } = require('../utils/money');
 const { settingsFromClient } = require('../sap/mappings/vendor-create.map');
 const { VENDOR_STATUS, VENDOR_STATUSES, VENDOR_AWAITING_DECISION } = require('../config/statuses');
 const { generateVendorId, identityConflict, unguessablePassword } = require('../utils/vendorIdentity');
@@ -27,12 +28,20 @@ const { assertCanCreate } = require('../utils/usage');
 const { hasSupplierInvitation } = require('./invitation.controller');
 const { sendMail } = require('../utils/mailer');
 const { frontendUrl } = require('../config/emailTemplates');
-const { RESET_TOKEN_TTL_MS } = require('../models/plugins/credentialsPlugin');
+const { RESET_TOKEN_TTL_MS } = require('../db/credentials');
+
+// Fields nobody may set through a dynamic field-by-field update — identity,
+// tenant scoping, and credential internals are all written through their own
+// dedicated paths, never via "whatever keys were in the request body".
+const PROTECTED_VENDOR_FIELDS = new Set([
+  'pk', 'clientId', 'vendorId', 'createdAt', 'updatedAt',
+  'resetPasswordToken', 'resetPasswordExpires', 'passwordChangedAt',
+]);
 
 // Helper to map flat or nested fields into flat Vendor model fields
 const mapIncomingBody = (body) => {
   const mapped = { ...body };
-  
+
   // If address is nested (legacy tests), flatten it
   if (body.address && typeof body.address === 'object') {
     mapped.address = body.address.street || body.address.address || '';
@@ -40,7 +49,7 @@ const mapIncomingBody = (body) => {
     mapped.state = body.address.state || '';
     mapped.postalCode = body.address.pincode || body.address.postalCode || '';
   }
-  
+
   // If bankDetails is nested (legacy tests), flatten it
   if (body.bankDetails && typeof body.bankDetails === 'object') {
     mapped.bankName = body.bankDetails.bankName || '';
@@ -48,17 +57,23 @@ const mapIncomingBody = (body) => {
     mapped.ifscCode = body.bankDetails.ifscCode || '';
     mapped.accountName = body.bankDetails.accountName || body.bankDetails.accountHolderName || '';
     mapped.bankBranch = body.bankDetails.branch || body.bankDetails.bankBranch || '';
+    // Mongoose silently dropped an unrecognized `bankDetails` key on write
+    // (strict-mode schemas ignore undeclared paths); Prisma has no such
+    // tolerance and rejects an unknown field outright, so the nested shape
+    // has to be removed once it's been flattened into real columns.
+    delete mapped.bankDetails;
   }
 
   return mapped;
 };
 
-// Helper to format flat vendor db document to backwards-compatible format with nested objects
+// Helper to format a Vendor row to the backwards-compatible response shape
+// with nested objects.
 const formatVendorResponse = (vendor) => {
   if (!vendor) return null;
-  const obj = vendor.toObject ? vendor.toObject({ virtuals: true }) : { ...vendor };
+  const obj = { ...vendor };
 
-  // Never expose the password hash (select:false does not strip it on create/+password queries)
+  // Never expose the password hash.
   delete obj.password;
 
   obj.bankDetails = {
@@ -70,25 +85,29 @@ const formatVendorResponse = (vendor) => {
     branch: obj.bankBranch || '',
     accountType: 'Current'
   };
-  
+
   return obj;
 };
 
-// Runs the GSTIN/PAN check for a vendor and persists the result on the
-// document. This is the only place gstinVerified/panVerified get set, so
-// every approval path is guaranteed to go through the same check.
+// Runs the GSTIN/PAN check for a vendor and persists the result on the row.
+// This is the only place gstinVerified/panVerified get set, so every
+// approval path is guaranteed to go through the same check.
 const runGstinPanVerification = async (vendor, sap) => {
   const result = await verifyGstinPan(vendor.gstin, vendor.pan);
 
-  vendor.gstinVerified = result.gstinValid;
-  vendor.panVerified = result.panValid;
-  vendor.verifiedAt = new Date();
-  vendor.verificationDetails = result;
-  await vendor.save();
+  const updated = await prisma.vendor.update({
+    where: { pk: vendor.pk },
+    data: {
+      gstinVerified: result.gstinValid,
+      panVerified: result.panValid,
+      verifiedAt: new Date(),
+      verificationDetails: result,
+    },
+  });
 
-  await sap.vendorVerifyKyc({ vendor, result });
+  await sap.vendorVerifyKyc({ vendor: updated, result });
 
-  return vendor;
+  return updated;
 };
 
 // Tells a supplier what was decided about them, if this workspace has said it
@@ -115,12 +134,32 @@ const notifyDecision = async (req, vendor, { approved, reason }) => {
   }
 };
 
+// @desc    Master-data catalogues (region, payment terms, payment method) the
+//          registration form's dropdowns are populated from — VENDOR_CR
+//          rejects free text for these, so the form must offer only values
+//          SAP actually knows.
+// @route   GET /api/vendors/sap-reference-data
+// @access  Private
+const getSapReferenceData = asyncHandler(async (req, res) => {
+  const sap = await getSapAdapterForClient(req.clientId);
+  const [regions, paymentTerms, paymentMethods] = await Promise.all([
+    sap.vendorRegionCatalogue(),
+    sap.vendorPaymentTermsCatalogue(),
+    sap.vendorPaymentMethodCatalogue(),
+  ]);
+  res.json({
+    regions: regions.regions,
+    paymentTerms: paymentTerms.paymentTerms,
+    paymentMethods: paymentMethods.paymentMethods,
+  });
+});
+
 // @desc    Get current vendor profile
 // @route   GET /api/vendors/profile
 // @access  Private
 const getProfile = asyncHandler(async (req, res, next) => {
   const vendorId = requireVendorScope(req);
-  const vendor = await Vendor.findOne({ vendorId });
+  const vendor = await prisma.vendor.findFirst({ where: { vendorId } });
   if (!vendor) {
     return next(ApiError.notFound('Vendor profile not found'));
   }
@@ -133,7 +172,7 @@ const getProfile = asyncHandler(async (req, res, next) => {
 const createProfile = asyncHandler(async (req, res, next) => {
   const mappedBody = mapIncomingBody(req.body);
   const { vendorId, companyName, gstin, pan, email } = mappedBody;
-  
+
   if (!vendorId || !companyName || !gstin || !pan || !email) {
     return next(ApiError.badRequest('Vendor ID, company name, GSTIN, PAN, and email are required'));
   }
@@ -144,7 +183,7 @@ const createProfile = asyncHandler(async (req, res, next) => {
   if (!client) {
     return next(ApiError.badRequest('Unknown workspace'));
   }
-  if (!client.isOperational()) {
+  if (!isClientOperational(client)) {
     return next(ApiError.forbidden('This workspace is not accepting registrations'));
   }
 
@@ -168,9 +207,15 @@ const createProfile = asyncHandler(async (req, res, next) => {
     ? VENDOR_STATUS.PENDING
     : VENDOR_STATUS.DRAFT;
 
-  const vendor = await runWithTenant(client.clientId, () => Vendor.create({
-    ...mappedBody,
-    status: mappedBody.status || defaultStatus
+  const { password, ...rest } = mappedBody;
+  const passwordFields = password ? await hashPassword(password) : {};
+
+  const vendor = await runWithTenant(client.clientId, () => prisma.vendor.create({
+    data: {
+      ...rest,
+      ...passwordFields,
+      status: mappedBody.status || defaultStatus,
+    },
   }));
 
   res.status(201).json(formatVendorResponse(vendor));
@@ -197,20 +242,22 @@ const createVendor = asyncHandler(async (req, res, next) => {
   await assertCanCreate(req.client, 'vendors');
 
   const vendorId = await generateVendorId();
+  const passwordFields = await hashPassword(unguessablePassword());
+  const { rawToken, fields: resetFields } = issueResetToken();
 
-  const vendor = await Vendor.create({
-    ...mappedBody,
-    vendorId,
-    password: unguessablePassword(),
-    mustChangePassword: true,
-    // A record the tenant vouches for, but the supplier has not yet confirmed
-    // or documented: it starts where a self-registered draft starts, and the
-    // same submit-then-approve path applies from there.
-    status: VENDOR_STATUS.DRAFT,
+  const vendor = await prisma.vendor.create({
+    data: {
+      ...mappedBody,
+      vendorId,
+      ...passwordFields,
+      mustChangePassword: true,
+      ...resetFields,
+      // A record the tenant vouches for, but the supplier has not yet confirmed
+      // or documented: it starts where a self-registered draft starts, and the
+      // same submit-then-approve path applies from there.
+      status: VENDOR_STATUS.DRAFT,
+    },
   });
-
-  const rawToken = vendor.issueResetToken();
-  await vendor.save();
 
   await sendMail({
     to: vendor.email,
@@ -239,22 +286,27 @@ const createVendor = asyncHandler(async (req, res, next) => {
 // @access  Private
 const updateProfile = asyncHandler(async (req, res, next) => {
   const vendorId = requireVendorScope(req);
-  const vendor = await Vendor.findOne({ vendorId });
+  const vendor = await prisma.vendor.findFirst({ where: { vendorId } });
   if (!vendor) {
     return next(ApiError.notFound('Vendor profile not found'));
   }
 
   const mappedBody = mapIncomingBody(req.body);
-  
-  // Update all fields dynamically
-  Object.keys(mappedBody).forEach(key => {
-    if (key !== 'vendorId' && key !== '_id') {
-      vendor[key] = mappedBody[key];
-    }
-  });
 
-  await vendor.save();
-  res.json(formatVendorResponse(vendor));
+  // Update all fields dynamically, same field-by-field behavior as before —
+  // including that a `password` key in the body is honored (re-hashed, since
+  // there is no pre-save hook to do it implicitly anymore).
+  const data = {};
+  for (const [key, value] of Object.entries(mappedBody)) {
+    if (PROTECTED_VENDOR_FIELDS.has(key)) continue;
+    data[key] = value;
+  }
+  if (data.password) {
+    Object.assign(data, await hashPassword(data.password));
+  }
+
+  const updated = await prisma.vendor.update({ where: { pk: vendor.pk }, data });
+  res.json(formatVendorResponse(updated));
 });
 
 // @desc    Submit registration for review
@@ -262,66 +314,39 @@ const updateProfile = asyncHandler(async (req, res, next) => {
 // @access  Private
 const submitRegistration = asyncHandler(async (req, res, next) => {
   const vendorId = requireVendorScope(req);
-  const vendor = await Vendor.findOne({ vendorId });
+  const vendor = await prisma.vendor.findFirst({ where: { vendorId } });
   if (!vendor) {
     return next(ApiError.notFound('Vendor profile not found'));
   }
 
-  // VENDOR_CR is not idempotent: it has no duplicate check of its own, so
-  // sending the same supplier twice creates two vendor masters in SAP with no
-  // way to tell them apart afterwards. A supplier who double-submits, or a
-  // retry after a slow response, must not be able to cause that — once we hold
-  // a vendor code, this supplier has already been announced.
+  // The vendor master is not created in SAP until a client admin approves —
+  // see approveVendor. Once approved, resubmitting would leave a stray VENDOR_CR
+  // behind for a record SAP already holds, so that's what this guards against.
   if (vendor.sapVendorCode) {
     return next(ApiError.conflict(
-      'This registration has already been sent to SAP and is awaiting confirmation.',
-      { reason: 'already_submitted' },
+      'This registration has already been approved and created in SAP.',
+      { reason: 'already_approved' },
     ));
   }
 
-  vendor.status = vendor.status === 'Pending' ? 'Under Review' : 'Pending Approval';
-  vendor.submittedAt = new Date();
-  await vendor.save();
+  let updated = await prisma.vendor.update({
+    where: { pk: vendor.pk },
+    data: {
+      status: vendor.status === 'Pending' ? 'Under Review' : 'Pending Approval',
+      submittedAt: new Date(),
+    },
+  });
 
   const sap = await getSapAdapterForClient(req.clientId);
 
-  // Announced to SAP and left open: the confirmation is what closes it.
-  // `settings` carries the tenant's VENDOR_CR system-controlled fields
-  // (account group, industry, company code, …) — see config/tenantSettings.js
-  // group 'sapVendorCreate' and sap/mappings/vendor-create.map.js.
-  const { pendingLogId, sapVendorCode } = await sap.vendorCreate({ vendor, settings: settingsFromClient(req.client) });
-
-  // Persist the code the moment SAP issues it, not at approval. The master
-  // exists in SAP from this point on, and this field is what stops a second
-  // submission creating another one — leaving it unset until approval would
-  // hold the duplicate window open for as long as the approval takes.
-  if (sapVendorCode) {
-    vendor.sapVendorCode = sapVendorCode;
-    await vendor.save();
-  }
-
-  // Verify GSTIN/PAN as part of submission — approval is blocked until this passes
-  await runGstinPanVerification(vendor, sap);
-
-  sap.awaitVendorApproval({ vendor, vendorId, pendingLogId }, async (confirmation) => {
-    const updatedVendor = await Vendor.findOne({ vendorId });
-
-    // SAP only confirms a vendor that is still awaiting confirmation and whose
-    // KYC passed; anything else means the record moved on while we waited.
-    if (!updatedVendor || !updatedVendor.gstinVerified || !updatedVendor.panVerified) return null;
-    if (!['Under Review', 'Pending Approval'].includes(updatedVendor.status)) return null;
-
-    updatedVendor.status = 'Approved';
-    updatedVendor.approvedAt = new Date();
-    updatedVendor.sapVendorCode = confirmation.sapVendorCode;
-    await updatedVendor.save();
-
-    return updatedVendor;
-  });
+  // Verify GSTIN/PAN as part of submission — approval is blocked until this
+  // passes. SAP itself is not told about this vendor yet: the vendor master
+  // (VENDOR_CR) is only created once a client admin approves.
+  updated = await runGstinPanVerification(updated, sap);
 
   res.json({
-    message: 'Registration submitted. Awaiting confirmation from SAP.',
-    vendor: formatVendorResponse(vendor)
+    message: 'Registration submitted and awaiting admin approval.',
+    vendor: formatVendorResponse(updated)
   });
 });
 
@@ -330,7 +355,7 @@ const submitRegistration = asyncHandler(async (req, res, next) => {
 // @access  Admin/Private
 const approveVendor = asyncHandler(async (req, res, next) => {
   const { id } = req.params;
-  const vendor = await Vendor.findById(id);
+  let vendor = await prisma.vendor.findFirst({ where: { pk: id } });
   if (!vendor) {
     return next(ApiError.notFound('Vendor not found'));
   }
@@ -338,31 +363,36 @@ const approveVendor = asyncHandler(async (req, res, next) => {
   const sap = await getSapAdapterForClient(req.clientId);
 
   if (!vendor.verifiedAt) {
-    await runGstinPanVerification(vendor, sap);
+    vendor = await runGstinPanVerification(vendor, sap);
   }
 
   if (!vendor.gstinVerified || !vendor.panVerified) {
     return next(ApiError.badRequest('Vendor cannot be approved: GSTIN/PAN verification failed or has not been completed'));
   }
 
-  // SAP issues the vendor master code, so the confirmation is what fills it in.
-  const { sapVendorCode } = await sap.vendorConfirm({ vendor });
+  // The vendor master is created in SAP right here, on approval — not at
+  // submission. VENDOR_CR is not idempotent, so a vendor that already holds a
+  // code (e.g. a retried approval request) must not be sent to SAP again.
+  let { sapVendorCode } = vendor;
+  if (!sapVendorCode) {
+    ({ sapVendorCode } = await sap.vendorCreate({ vendor, settings: settingsFromClient(req.client) }));
+  }
 
-  vendor.status = VENDOR_STATUS.APPROVED;
-  vendor.approvedAt = new Date();
-  vendor.sapVendorCode = sapVendorCode;
-  await vendor.save();
+  const updated = await prisma.vendor.update({
+    where: { pk: vendor.pk },
+    data: { status: VENDOR_STATUS.APPROVED, approvedAt: new Date(), sapVendorCode },
+  });
 
-  await notifyDecision(req, vendor, { approved: true });
+  await notifyDecision(req, updated, { approved: true });
 
   await recordAudit({
     action: AUDIT_ACTIONS.VENDOR_APPROVED,
     req,
-    target: { type: 'Vendor', id: vendor.vendorId, label: vendor.companyName },
+    target: { type: 'Vendor', id: updated.vendorId, label: updated.companyName },
     meta: { sapVendorCode },
   });
 
-  res.json({ message: 'Vendor approved successfully', vendor: formatVendorResponse(vendor) });
+  res.json({ message: 'Vendor approved successfully', vendor: formatVendorResponse(updated) });
 });
 
 // @desc    Reject vendor (Admin)
@@ -375,28 +405,29 @@ const rejectVendor = asyncHandler(async (req, res, next) => {
     return next(ApiError.badRequest('Rejection reason is required'));
   }
 
-  const vendor = await Vendor.findById(id);
+  const vendor = await prisma.vendor.findFirst({ where: { pk: id } });
   if (!vendor) {
     return next(ApiError.notFound('Vendor not found'));
   }
 
-  vendor.status = VENDOR_STATUS.REJECTED;
-  vendor.rejectionReason = reason;
-  await vendor.save();
+  const updated = await prisma.vendor.update({
+    where: { pk: vendor.pk },
+    data: { status: VENDOR_STATUS.REJECTED, rejectionReason: reason },
+  });
 
   const sap = await getSapAdapterForClient(req.clientId);
-  await sap.vendorReject({ vendor, reason });
+  await sap.vendorReject({ vendor: updated, reason });
 
-  await notifyDecision(req, vendor, { approved: false, reason });
+  await notifyDecision(req, updated, { approved: false, reason });
 
   await recordAudit({
     action: AUDIT_ACTIONS.VENDOR_REJECTED,
     req,
-    target: { type: 'Vendor', id: vendor.vendorId, label: vendor.companyName },
+    target: { type: 'Vendor', id: updated.vendorId, label: updated.companyName },
     meta: { reason },
   });
 
-  res.json({ message: 'Vendor rejected successfully', vendor: formatVendorResponse(vendor) });
+  res.json({ message: 'Vendor rejected successfully', vendor: formatVendorResponse(updated) });
 });
 
 // @desc    List all vendors (Admin)
@@ -405,29 +436,30 @@ const rejectVendor = asyncHandler(async (req, res, next) => {
 const listVendors = asyncHandler(async (req, res, next) => {
   const { status, search, page = 1, limit = 20 } = req.query;
 
-  const query = {};
+  const where = {};
   if (status) {
     // The directory's filter offers the registry's statuses; anything else is
     // a malformed request rather than an empty page.
     if (!VENDOR_STATUSES.includes(status)) {
       return next(ApiError.badRequest(`status must be one of: ${VENDOR_STATUSES.join(', ')}`));
     }
-    query.status = status;
+    where.status = status;
   }
   if (search) {
-    // Escaped: a supplier's name is user input, and an unescaped regex here is
-    // both a wrong answer and a way to make Mongo work very hard.
-    const term = new RegExp(String(search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-    query.$or = [{ companyName: term }, { vendorId: term }, { email: term }, { gstin: term }];
+    const term = String(search);
+    where.OR = [
+      { companyName: { contains: term, mode: 'insensitive' } },
+      { vendorId: { contains: term, mode: 'insensitive' } },
+      { email: { contains: term, mode: 'insensitive' } },
+      { gstin: { contains: term, mode: 'insensitive' } },
+    ];
   }
 
   const skip = (page - 1) * limit;
-  const vendors = await Vendor.find(query)
-    .sort({ createdAt: -1 })
-    .skip(skip)
-    .limit(Number(limit));
-
-  const total = await Vendor.countDocuments(query);
+  const [vendors, total] = await Promise.all([
+    prisma.vendor.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: Number(limit) }),
+    prisma.vendor.count({ where }),
+  ]);
 
   res.json({
     vendors: vendors.map(formatVendorResponse),
@@ -443,100 +475,203 @@ const listVendors = asyncHandler(async (req, res, next) => {
   });
 });
 
+// A Postgres uuid column throws a type error if compared against a
+// non-uuid-shaped string, so `pk` can only go in a lookup's OR when `id`
+// actually looks like one — mirrors the old `mongoose.isValidObjectId(id)`
+// branch that picked `_id` vs `vendorId`.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// @desc    One supplier in full — their profile, their compliance state, and
+//          how much trading they have actually done with this workspace
+// @route   GET /api/vendors/:id
+// @access  Private (vendor:read — tenant staff, never another supplier)
+//
+// `:id` accepts either the row's own `pk` (what the directory list carries,
+// the modern equivalent of the old Mongo `_id`) or the supplier's own
+// `vendorId`. The activity aggregates below now run as real SQL against
+// PurchaseOrder/Invoice/Payment/RFQ/GRN/ASN's relational tables (Phase 2 of
+// the migration plan) — `$queryRaw` bypasses the tenant extension entirely,
+// so `clientId` is filtered explicitly in every one of these queries.
+const getVendorById = asyncHandler(async (req, res, next) => {
+  const { id } = req.params;
+
+  const vendor = await prisma.vendor.findFirst({
+    where: UUID_RE.test(id) ? { OR: [{ pk: id }, { vendorId: id }] } : { vendorId: id },
+  });
+  if (!vendor) {
+    return next(ApiError.notFound('Supplier not found'));
+  }
+
+  const { vendorId } = vendor;
+  const clientId = getTenantId();
+
+  // One round trip each, in parallel — a supplier with a long history should
+  // not make this page noticeably slower than one with none.
+  const [
+    poStatusCounts,
+    invoiceStatusCounts,
+    paymentTotals,
+    rfqInvitations,
+    grnCount,
+    asnCount,
+    recentOrders,
+  ] = await Promise.all([
+    prisma.$queryRaw`
+      SELECT po.status AS status, COUNT(DISTINCT po.pk)::int AS count,
+             COALESCE(SUM(poi."netValue"), 0)::float AS value
+      FROM purchase_orders po
+      LEFT JOIN purchase_order_items poi ON poi."poPk" = po.pk
+      WHERE po."vendorId" = ${vendorId} AND po."clientId" = ${clientId}
+      GROUP BY po.status
+    `,
+    prisma.$queryRaw`
+      SELECT status, COUNT(*)::int AS count, COALESCE(SUM("totalAmount"), 0)::float AS value
+      FROM invoices
+      WHERE "vendorId" = ${vendorId} AND "clientId" = ${clientId}
+      GROUP BY status
+    `,
+    prisma.$queryRaw`
+      SELECT COUNT(*)::int AS count, COALESCE(SUM("grossAmount"), 0)::float AS gross,
+             COALESCE(SUM("netAmount"), 0)::float AS net, COALESCE(SUM("tdsDeducted"), 0)::float AS tds
+      FROM payments
+      WHERE "vendorId" = ${vendorId} AND "clientId" = ${clientId}
+    `,
+    prisma.rfqInvitedVendor.count({ where: { vendorExtId: vendorId } }),
+    prisma.gRN.count({ where: { vendorId } }),
+    prisma.aSN.count({ where: { vendorId } }),
+    // Enough recent orders to show the shape of the relationship without
+    // turning this into the purchase order list.
+    prisma.purchaseOrder.findMany({ where: { vendorId }, include: { items: true }, orderBy: { createdAt: 'desc' }, take: 5 }),
+  ]);
+
+  const totalOf = (rows, field) => rows.reduce((sum, row) => sum + (row[field] || 0), 0);
+  const byStatus = (rows) => Object.fromEntries(rows.map((row) => [row.status, { count: row.count, value: row.value || 0 }]));
+
+  res.json({
+    vendor: formatVendorResponse(vendor),
+    // Whether this supplier is a decision waiting to happen is the registry's
+    // answer, the same as it is for the directory list — a screen that retyped
+    // the list would silently stop offering the buttons the day a status is
+    // added.
+    awaitingDecision: VENDOR_AWAITING_DECISION.includes(vendor.status),
+    activity: {
+      purchaseOrders: {
+        total: totalOf(poStatusCounts, 'count'),
+        value: totalOf(poStatusCounts, 'value'),
+        byStatus: byStatus(poStatusCounts),
+      },
+      invoices: {
+        total: totalOf(invoiceStatusCounts, 'count'),
+        value: totalOf(invoiceStatusCounts, 'value'),
+        byStatus: byStatus(invoiceStatusCounts),
+      },
+      payments: {
+        total: paymentTotals[0]?.count || 0,
+        grossPaid: paymentTotals[0]?.gross || 0,
+        netPaid: paymentTotals[0]?.net || 0,
+        tdsDeducted: paymentTotals[0]?.tds || 0,
+      },
+      rfqInvitations,
+      goodsReceipts: grnCount,
+      shipments: asnCount,
+    },
+    recentOrders: recentOrders.map((po) => ({
+      id: po.id,
+      sapPoNumber: po.sapPoNumber || null,
+      status: po.status,
+      createdDate: po.createdDate,
+      currency: po.currency,
+      // netValue is a Decimal-typed column, and `po` here is a raw (unformatted)
+      // Prisma read — see utils/money.js for why `sum + item.netValue` would
+      // otherwise silently concatenate strings instead of summing.
+      value: (po.items || []).reduce((sum, item) => sum + (toNumber(item.netValue) || 0), 0),
+      lines: (po.items || []).length,
+    })),
+  });
+});
+
 // @desc    Get vendor performance score
 // @route   GET /api/vendors/performance
 // @access  Private
+//
+// Same raw-SQL-with-explicit-clientId approach as getVendorById above, for
+// the same reason: these three joins/aggregations have no single-table
+// Prisma query-builder equivalent.
 const getPerformance = asyncHandler(async (req, res, next) => {
   const vendorId = requireVendorScope(req);
-  const vendor = await Vendor.findOne({ vendorId });
+  const vendor = await prisma.vendor.findFirst({ where: { vendorId } });
   if (!vendor) {
     return next(ApiError.notFound('Vendor profile not found'));
   }
+  const clientId = getTenantId();
 
   // 1. Calculate Quality Acceptance from GRNs
-  const grnStats = await GRN.aggregate([
-    { $match: { vendorId } },
-    { $unwind: '$items' },
-    {
-      $group: {
-        _id: null,
-        totalReceived: { $sum: '$items.receivedQuantity' },
-        totalAccepted: { $sum: '$items.acceptedQuantity' }
-      }
-    }
-  ]);
+  const [grnStats] = await prisma.$queryRaw`
+    SELECT COALESCE(SUM(gi."receivedQuantity"), 0)::float AS "totalReceived",
+           COALESCE(SUM(gi."acceptedQuantity"), 0)::float AS "totalAccepted"
+    FROM grn_items gi
+    JOIN grns g ON g.pk = gi."grnPk"
+    WHERE g."vendorId" = ${vendorId} AND g."clientId" = ${clientId}
+  `;
 
   let qualityAcceptance = 100;
-  if (grnStats.length > 0 && grnStats[0].totalReceived > 0) {
-    qualityAcceptance = (grnStats[0].totalAccepted / grnStats[0].totalReceived) * 100;
+  if (grnStats && grnStats.totalReceived > 0) {
+    qualityAcceptance = (grnStats.totalAccepted / grnStats.totalReceived) * 100;
   }
 
-  // 2. Calculate Delivery OTIF (On-Time In-Full) from ASNs vs POs
-  const asnStats = await ASN.aggregate([
-    { $match: { vendorId } },
-    {
-      $lookup: {
-        from: 'purchaseorders',
-        localField: 'poId',
-        foreignField: 'id',
-        as: 'poDetails'
-      }
-    },
-    { $unwind: { path: '$poDetails', preserveNullAndEmptyArrays: true } },
-    {
-      $project: {
-        onTime: {
-          $cond: {
-            if: { 
-              $and: [ 
-                { $gt: [ '$poDetails', null ] }, 
-                { $lte: [ '$estimatedDeliveryDate', '$poDetails.createdDate' ] } 
-              ] 
-            },
-            then: 1,
-            else: 0
-          }
-        }
-      }
-    },
-    {
-      $group: {
-        _id: null,
-        totalAsns: { $sum: 1 },
-        onTimeAsns: { $sum: '$onTime' }
-      }
-    }
-  ]);
+  // 2. Delivery OTIF (On-Time In-Full), measured per receipted shipment.
+  //
+  // "On time" is when the goods were actually received against when the
+  // supplier promised them: the GRN's posting date versus the ASN's estimated
+  // delivery date, compared by day, since a shipment received on its promised
+  // date is on time whatever o'clock the receipt was posted. This used to
+  // compare the ASN's ETA against the PO's *creation* date, which an ETA is
+  // always later than — so every supplier scored 0% OTIF and no realistic data
+  // could ever score anything else.
+  //
+  // "In full" is received against shipped. Quantity rejected on inspection is
+  // deliberately not counted here: that is what qualityAcceptance above
+  // measures, and charging it to both metrics would penalise it twice.
+  //
+  // A shipment still in transit has no receipt to judge, so it is outside the
+  // denominator rather than counted as late.
+  const [asnStats] = await prisma.$queryRaw`
+    SELECT COUNT(*)::int AS "receiptedAsns",
+           SUM(CASE WHEN date_trunc('day', d."postingDate") <= date_trunc('day', d."estimatedDeliveryDate")
+                     AND d.received >= d.shipped
+                    THEN 1 ELSE 0 END)::int AS "otifAsns"
+    FROM (
+      SELECT a."estimatedDeliveryDate",
+             g."postingDate",
+             COALESCE((SELECT SUM(ai."shippedQuantity") FROM asn_items ai WHERE ai."asnPk" = a.pk), 0) AS shipped,
+             COALESCE((SELECT SUM(gi."receivedQuantity") FROM grn_items gi WHERE gi."grnPk" = g.pk), 0) AS received
+      FROM asns a
+      JOIN grns g ON g."clientId" = a."clientId" AND g."asnId" = a.id
+      WHERE a."vendorId" = ${vendorId} AND a."clientId" = ${clientId}
+    ) d
+  `;
 
   let deliveryOTIF = 100;
-  if (asnStats.length > 0 && asnStats[0].totalAsns > 0) {
-    deliveryOTIF = (asnStats[0].onTimeAsns / asnStats[0].totalAsns) * 100;
+  if (asnStats && asnStats.receiptedAsns > 0) {
+    deliveryOTIF = (asnStats.otifAsns / asnStats.receiptedAsns) * 100;
   }
 
   // 3. Invoice Accuracy
-  const invoiceStats = await Invoice.aggregate([
-    { $match: { vendorId } },
-    {
-      $group: {
-        _id: null,
-        totalInvoices: { $sum: 1 },
-        warningInvoices: {
-          $sum: {
-            $cond: [{ $ifNull: ['$matchWarning', false] }, 1, 0]
-          }
-        }
-      }
-    }
-  ]);
+  const [invoiceStats] = await prisma.$queryRaw`
+    SELECT COUNT(*)::int AS "totalInvoices",
+           SUM(CASE WHEN "matchWarning" IS NOT NULL THEN 1 ELSE 0 END)::int AS "warningInvoices"
+    FROM invoices
+    WHERE "vendorId" = ${vendorId} AND "clientId" = ${clientId}
+  `;
 
   let invoiceAccuracy = 100;
-  if (invoiceStats.length > 0 && invoiceStats[0].totalInvoices > 0) {
-    invoiceAccuracy = ((invoiceStats[0].totalInvoices - invoiceStats[0].warningInvoices) / invoiceStats[0].totalInvoices) * 100;
+  if (invoiceStats && invoiceStats.totalInvoices > 0) {
+    invoiceAccuracy = ((invoiceStats.totalInvoices - invoiceStats.warningInvoices) / invoiceStats.totalInvoices) * 100;
   }
 
   // 4. Calculate Grade based on weighted score
   const weightedScore = (qualityAcceptance * 0.4) + (deliveryOTIF * 0.4) + (invoiceAccuracy * 0.2);
-  
+
   let grade = 'A';
   if (weightedScore < 70) grade = 'D';
   else if (weightedScore < 85) grade = 'C';
@@ -563,5 +698,7 @@ module.exports = {
   approveVendor,
   rejectVendor,
   listVendors,
-  getPerformance
+  getVendorById,
+  getPerformance,
+  getSapReferenceData
 };

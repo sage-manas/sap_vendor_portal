@@ -1,7 +1,17 @@
 const ApiError = require('../utils/ApiError');
+const { mapPrismaError } = require('../utils/prismaErrors');
 const logger = require('../utils/logger');
 
 const errorHandler = (err, req, res, next) => {
+  // A Prisma error reaching here means a controller let it propagate rather
+  // than catching it itself — a malformed :id with no UUID_RE guard, a unique
+  // constraint, a foreign key naming a row this tenant cannot see. Map it to
+  // the ApiError shape the rest of the API speaks before falling into the
+  // same branch every other error does, so logging/response-shaping below
+  // needs no separate path for it.
+  const mapped = mapPrismaError(err);
+  if (mapped) err = mapped;
+
   let { statusCode, message } = err;
 
   // If error is not an instance of ApiError, default to 500 Internal Server Error

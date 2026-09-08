@@ -1,23 +1,28 @@
-const PurchaseOrder = require('../models/PurchaseOrder');
-const GRN = require('../models/GRN');
-const Invoice = require('../models/Invoice');
-const Payment = require('../models/Payment');
+const { prisma } = require('../db/prisma');
 const asyncHandler = require('../utils/asyncHandler');
 const { withVendorScope } = require('../utils/requestScope');
+const { toNumber } = require('../utils/money');
 
 // @desc    Get dashboard summary statistics
 // @route   GET /api/dashboard/summary
 // @access  Private
 const getDashboardSummary = asyncHandler(async (req, res, next) => {
   // Suppliers see their own numbers; tenant staff see the whole tenant.
-  const query = withVendorScope(req);
+  const where = withVendorScope(req);
 
-  const openPOs = await PurchaseOrder.countDocuments({ ...query, status: { $in: ['Open', 'Acknowledged'] } });
-  const pendingGRNs = await GRN.countDocuments({ ...query, invoiceSubmitted: false });
-  const invoices = await Invoice.find(query);
-  const payments = await Payment.find(query);
+  const [openPOs, pendingGRNs, invoices, payments] = await Promise.all([
+    prisma.purchaseOrder.count({ where: { ...where, status: { in: ['Open', 'Acknowledged'] } } }),
+    prisma.gRN.count({ where: { ...where, invoiceSubmitted: false } }),
+    prisma.invoice.findMany({ where }),
+    prisma.payment.findMany({ where }),
+  ]);
 
-  const totalPaymentsAmount = payments.reduce((sum, p) => sum + (p.netAmount || p.grossAmount || 0), 0);
+  // netAmount/grossAmount are Decimal-typed columns — see utils/money.js for
+  // why `sum + p.netAmount` on a raw one would silently concatenate strings
+  // instead of summing.
+  const totalPaymentsAmount = payments.reduce(
+    (sum, p) => sum + (toNumber(p.netAmount) || toNumber(p.grossAmount) || 0), 0,
+  );
 
   res.json({
     openPOCount: openPOs,

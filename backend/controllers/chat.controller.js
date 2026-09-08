@@ -1,4 +1,4 @@
-const ChatMessage = require('../models/ChatMessage');
+const { prisma } = require('../db/prisma');
 const asyncHandler = require('../utils/asyncHandler');
 const ApiError = require('../utils/ApiError');
 const { EVENTS, emitToVendor } = require('../utils/socketEmitter');
@@ -11,15 +11,15 @@ const { requireVendorScope } = require('../utils/requestScope');
 // @access  Public (Will be secured later)
 const getMessages = asyncHandler(async (req, res, next) => {
   const vendorId = requireVendorScope(req);
-  
+
   // Find all messages for the vendor
-  const messages = await ChatMessage.find({ vendorId }).sort({ timestamp: 1 });
-  
+  const messages = await prisma.chatMessage.findMany({ where: { vendorId }, orderBy: { timestamp: 'asc' } });
+
   // Mark all unread messages from Buyer/System/etc. as read
-  await ChatMessage.updateMany(
-    { vendorId, sender: { $ne: 'Vendor' }, isRead: false },
-    { $set: { isRead: true } }
-  );
+  await prisma.chatMessage.updateMany({
+    where: { vendorId, sender: { not: 'Vendor' }, isRead: false },
+    data: { isRead: true },
+  });
 
   res.json(messages);
 });
@@ -37,14 +37,16 @@ const sendMessage = asyncHandler(async (req, res, next) => {
   }
 
   // Create vendor message
-  const chatMsg = await ChatMessage.create({
-    vendorId,
-    sender: 'Vendor',
-    message: message.trim(),
-    linkedPoId,
-    linkedRfqId,
-    timestamp: new Date(),
-    isRead: true
+  const chatMsg = await prisma.chatMessage.create({
+    data: {
+      vendorId,
+      sender: 'Vendor',
+      message: message.trim(),
+      linkedPoId: linkedPoId || null,
+      linkedRfqId: linkedRfqId || null,
+      timestamp: new Date(),
+      isRead: true
+    },
   });
 
   // Emit to socket room
@@ -60,7 +62,7 @@ const sendMessage = asyncHandler(async (req, res, next) => {
     replyText = "Tax code G1 (18% GST) applies to regular domestic supplies. Ensure your matching HSN invoice parameters align exactly with the Purchase Order unit rates.";
     senderRole = 'Finance';
   } else if (lowerText.includes('delivery') || lowerText.includes('delay') || lowerText.includes('dispatched')) {
-    replyText = "Please update your Advance Shipping Notice (ASN) immediately with the estimated delivery dates. For severe delays, log a message with the logistics desk.";
+    replyText = "Please send us your shipment details with the expected delivery dates. If the delay is significant, message the logistics desk.";
     senderRole = 'Warehouse';
   } else if (lowerText.includes('reject') || lowerText.includes('quality') || lowerText.includes('defect')) {
     replyText = "Quality rejection requires a signed Inspection Sheet and a copy of the discrepancy report. Please submit a physical claim form or contact warehouse quality control.";
@@ -71,14 +73,16 @@ const sendMessage = asyncHandler(async (req, res, next) => {
   // so the tenant context has to be re-bound explicitly.
   setTimeout(() => runWithTenant(clientId, async () => {
     try {
-      const replyMsg = await ChatMessage.create({
-        vendorId,
-        sender: senderRole,
-        message: replyText,
-        linkedPoId,
-        linkedRfqId,
-        timestamp: new Date(),
-        isRead: false
+      const replyMsg = await prisma.chatMessage.create({
+        data: {
+          vendorId,
+          sender: senderRole,
+          message: replyText,
+          linkedPoId: linkedPoId || null,
+          linkedRfqId: linkedRfqId || null,
+          timestamp: new Date(),
+          isRead: false
+        },
       });
 
       emitToVendor(io, clientId, vendorId, EVENTS.CHAT_MESSAGE, replyMsg);

@@ -1,5 +1,4 @@
-const Client = require('../models/Client');
-const { withoutTenantScope } = require('./tenantContext');
+const { prisma } = require('../db/prisma');
 
 const LEGACY_CLIENT_ID = 'CLT-0001';
 const LEGACY_CLIENT_SLUG = 'legacy';
@@ -49,9 +48,11 @@ const realmFromRequest = (req) => {
 
 const slugFromRequest = (req) => realmFromRequest(req).slug;
 
-// Client is not tenant-scoped, but it is read here before any context exists,
-// so the lookup is explicitly unscoped.
-const findClientBySlug = (slug) => withoutTenantScope(() => Client.findOne({ slug }));
+// Client is not tenant-scoped (excluded from tenantExtension's model list, see
+// backend/db/tenantExtension.js), so this needs no withoutTenantScope wrapper
+// — unlike the Mongoose plugin, the Prisma extension never touches this model
+// regardless of what tenant context is bound.
+const findClientBySlug = (slug) => prisma.client.findFirst({ where: { slug } });
 
 const resolveClientForRequest = async (req) => findClientBySlug(slugFromRequest(req));
 

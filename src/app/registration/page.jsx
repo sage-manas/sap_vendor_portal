@@ -19,7 +19,6 @@ export default function RegistrationPage() {
       companyForm={companyForm}
       setCompanyForm={setCompanyForm}
       handleCompanySubmit={handleCompanySubmit}
-      approveRegistration={profileHook.approveRegistration}
       saveDraft={profileHook.saveDraft}
       submitRegistration={profileHook.submitRegistration}
     />

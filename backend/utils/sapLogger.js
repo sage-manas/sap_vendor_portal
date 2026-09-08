@@ -1,3 +1,4 @@
+const { prisma } = require('../db/prisma');
 const logger = require('./logger');
 const { transaction } = require('../config/sapTransactions');
 
@@ -22,16 +23,17 @@ const recordSapCall = async ({ transaction: key, vendorId, payload, status = 'SU
   const { code, type, direction } = transaction(key);
 
   try {
-    const SapLog = require('../models/SapLog');
-    return await SapLog.create({
-      vendorId,
-      type,
-      direction,
-      name: code,
-      payload: typeof payload === 'object' ? JSON.stringify(payload, null, 2) : payload,
-      status,
-      errorMessage,
-      documentRef,
+    return await prisma.sapLog.create({
+      data: {
+        vendorId,
+        type,
+        direction,
+        name: code,
+        payload: typeof payload === 'object' ? JSON.stringify(payload, null, 2) : payload,
+        status,
+        errorMessage,
+        documentRef,
+      },
     });
   } catch (error) {
     // Losing the log must not lose the operation it described — the same
@@ -48,8 +50,10 @@ const recordSapCall = async ({ transaction: key, vendorId, payload, status = 'SU
 const resolveSapCall = async (id, status, errorMessage) => {
   if (!id) return null;
   try {
-    const SapLog = require('../models/SapLog');
-    return await SapLog.findByIdAndUpdate(id, { status, ...(errorMessage && { errorMessage }) }, { new: true });
+    return await prisma.sapLog.update({
+      where: { pk: id },
+      data: { status, ...(errorMessage && { errorMessage }) },
+    });
   } catch (error) {
     logger.error(`[sap] failed to resolve SapLog ${id}: ${error.message}`);
     return null;

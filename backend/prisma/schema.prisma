@@ -1,0 +1,1087 @@
+// Prisma schema for the sap_vendor_portal backend — PostgreSQL rewrite of the
+// Mongoose models under backend/models/. See backend/db/tenantExtension.js for
+// the multi-tenancy enforcement this schema depends on (mirrors
+// models/plugins/tenantPlugin.js), and C:\Users\pc\.claude\plans for the
+// migration plan behind each modeling choice.
+//
+// Convention: every table has a surrogate `pk` (uuid) primary key. Tables that
+// also carry a human-facing business id (RFQ, PurchaseOrder, ASN, GRN, Invoice,
+// Payment) call that field `id` and enforce per-tenant uniqueness via
+// `@@unique([clientId, id])` — this is what other tables' soft string
+// references (fromRfqId, poId, ...) become real composite foreign keys
+// against. Child/line-item tables carry `clientId` too (denormalized) so the
+// tenant extension can scope them directly without a parent join.
+//
+// Fields whose valid values are sourced from a JS registry the app already
+// treats as the single source of truth (config/roles.js, config/statuses.js,
+// config/auditActions.js, sap/drivers/index.js) are kept as `String`,
+// validated at the application layer — mirroring today's Mongoose enums,
+// which are themselves just that registry's array pasted into the schema.
+// Native Prisma enums are used only where the value set is declared inline in
+// the model file itself, since that inline array is the actual source of
+// truth in Mongo today.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums (inline-declared value sets in the current Mongoose schemas)
+// ---------------------------------------------------------------------------
+
+enum ClientStatus {
+  Trial
+  Active
+  Suspended
+  Terminated
+}
+
+enum SapEnvironment {
+  sandbox
+  production
+}
+
+// RFQ.status is NOT a Prisma enum, deliberately: valid values are Draft,
+// 'Bidding Open', Submitted, 'Under Review', Awarded, Closed — several are
+// multi-word, and Prisma enums require the client to reference the mapped
+// identifier name rather than the display string, which would force every
+// controller/frontend call site to translate. Kept as a plain app-validated
+// String instead, exactly like the config-registry-sourced role/status
+// fields elsewhere in this schema.
+
+enum RfqType {
+  AN
+  AB
+}
+
+enum PoStatus {
+  Open
+  Acknowledged
+  Dispatched
+  Delivered
+  Invoiced
+  Paid
+}
+
+enum PlanType {
+  Periodic
+  Partial
+}
+
+// InvoicePlan.frequency is NOT a Prisma enum: 'Half-Yearly' is not a valid
+// Prisma enum identifier and would need @map, with the same
+// identifier-vs-display-string mismatch as RfqStatus above. Valid values:
+// Weekly, Monthly, Quarterly, 'Half-Yearly', Yearly.
+
+enum InvoicingRule {
+  Advance
+  Arrears
+}
+
+enum PlanSource {
+  portal
+  sap
+}
+
+enum PlanLineStatus {
+  Open
+  Invoiced
+  Blocked
+  Cancelled
+}
+
+// ASN.status is NOT a Prisma enum: 'In Transit' has the same
+// identifier-vs-display-string problem. Valid values: Submitted, 'In
+// Transit', Received.
+
+// Invoice.status is NOT a Prisma enum, for the same reason — several values
+// are multi-word: Submitted, 'Under Review', 'Match Warning', Approved,
+// 'Posted in SAP', Cleared.
+
+enum PaymentMethod {
+  NEFT
+  RTGS
+  IMPS
+}
+
+enum ChatSender {
+  Vendor
+  Buyer
+  System
+  Finance
+  Quality
+  Warehouse
+}
+
+enum DocumentLinkType {
+  ASN
+  RFQ
+  Profile
+  Invoice
+}
+
+enum SapLogType {
+  BAPI
+  RFC
+  OData
+  IDoc
+  SYS
+  KYC
+}
+
+enum SapLogDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum SapLogStatus {
+  SUCCESS
+  PENDING
+  FAILED
+}
+
+enum AuditPlane {
+  platform
+  tenant
+  supplier
+  system
+}
+
+enum InvitationStatus {
+  Pending
+  Accepted
+  Revoked
+  Expired
+}
+
+enum UserStatus {
+  Invited
+  Active
+  Suspended
+}
+
+enum PlatformUserStatus {
+  Active
+  Suspended
+}
+
+// ---------------------------------------------------------------------------
+// Client — the tenant itself. NOT tenant-scoped (it is what scope points at).
+// ---------------------------------------------------------------------------
+
+model Client {
+  pk          String       @id @default(uuid()) @db.Uuid
+  clientId    String       @unique // 'CLT-0001' — natural key everything else FKs to
+  companyName String
+  slug        String       @unique
+  status      ClientStatus @default(Trial)
+  plan        String       @default("trial")
+
+  brandingLogo  String?
+  brandingColor String?
+
+  // Deliberately undeclared shape (ADR-0023) — config/tenantSettings.js is the
+  // registry of valid keys, not this schema. Stays JSONB.
+  featureFlags Json @default("{}")
+  settings     Json @default("{}")
+
+  sapEnvironment SapEnvironment @default(sandbox)
+
+  // Nullable, deliberately: null means unlimited (see utils/usage.js's
+  // `if (limit == null) return` / `against()`), distinct from a real numeric
+  // limit of 0 ("no room at all"). The Mongoose field was an optional Number
+  // for the same reason.
+  limitVendors      Int? @default(50)
+  limitRfqsPerMonth Int? @default(100)
+  limitStorageMb    Int? @default(1024)
+
+  createdBy    String?
+  activatedAt  DateTime?
+  suspendedAt  DateTime?
+  terminatedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@map("clients")
+}
+
+// ---------------------------------------------------------------------------
+// Vendor — globally-unique supplier login identity + tenant-scoped SAP master
+// data. The one model that is both.
+// ---------------------------------------------------------------------------
+
+model Vendor {
+  pk       String  @id @default(uuid()) @db.Uuid
+  clientId String
+  vendorId String  @unique // global — login identity resolved before tenancy is known (ADR-0002)
+  clerkId  String? // deprecated, kept for backward compatibility
+
+  // Sourced from config/roles.js (SUPPLIER_ROLES) — app-layer validated.
+  // Matches ROLES.VENDOR ('vendor', lowercase) exactly; this must never drift
+  // from that constant, since middleware/auth.js's planeOf()/signToken() key
+  // off the literal role string to route a token to the right plane.
+  role String @default("vendor")
+
+  companyName       String
+  tradeName         String?
+  businessType      String?
+  incorporationDate String?
+  gstin             String  @unique
+  gstType           String?
+  pan               String
+  cin               String?
+  msmeNumber        String?
+  tdsSection        String?
+  email             String  @unique
+  phone             String?
+
+  address    String?
+  city       String?
+  state      String?
+  country    String?
+  region     String?
+  postalCode String?
+
+  paymentTerms               String?
+  paymentMethod              String?
+  currency                   String?
+  incoterms1                 String?
+  incoterms2                 String?
+  doubleInvoiceCheck         Boolean @default(false)
+  grBasedInvoiceVerification Boolean @default(false)
+
+  bankName      String?
+  accountNumber String?
+  ifscCode      String?
+  accountName   String?
+  bankBranch    String?
+
+  cancelledCheque Json?
+  panCardCopy     Json?
+  gstCertificate  Json?
+  msmeCertificate Json?
+
+  gstinVerified       Boolean   @default(false)
+  panVerified         Boolean   @default(false)
+  verifiedAt          DateTime?
+  verificationDetails Json?
+
+  sapVendorCode   String?
+  // Sourced from config/statuses.js (VENDOR_STATUSES) — app-layer validated.
+  status          String    @default("Draft")
+  rejectionReason String?
+  vendorCategory  String?
+  submittedAt     DateTime?
+  approvedAt      DateTime?
+
+  // credentialsPlugin fields, inlined — see backend/db/credentials.js for the
+  // behavior that used to live in the Mongoose pre-save hook.
+  password             String?
+  resetPasswordToken   String?
+  resetPasswordExpires DateTime?
+  mustChangePassword   Boolean   @default(false)
+  lastLoginAt          DateTime?
+  passwordChangedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  purchaseOrders PurchaseOrder[]
+  rfqBids        RfqBid[]
+
+  @@unique([clientId, sapVendorCode])
+  @@index([clientId, status])
+  @@index([clientId, vendorId])
+  @@map("vendors")
+}
+
+// ---------------------------------------------------------------------------
+// RFQ + child tables
+// ---------------------------------------------------------------------------
+
+model RFQ {
+  pk       String @id @default(uuid()) @db.Uuid
+  clientId String
+  id       String // 'RFQ-2026-001'
+
+  description      String
+  status           String   @default("Bidding Open")
+  deadlineDate     DateTime
+  rfqType          RfqType  @default(AN)
+  paymentTerms     String?
+  purchasingOrg    String   @default("1000")
+  purchasingGroup  String?
+  companyCode      String   @default("1000")
+  currency         String   @default("INR")
+  deliveryLocation String?
+  createdDate      DateTime @default(now())
+
+  awardedVendorId   String?
+  awardedVendorName String?
+  awardedAt         DateTime?
+  convertedPoId     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items          RfqItem[]
+  bids           RfqBid[]
+  invitedVendors RfqInvitedVendor[]
+  purchaseOrders PurchaseOrder[]
+  chatMessages   ChatMessage[]
+
+  @@unique([clientId, id])
+  @@index([clientId, status])
+  @@index([clientId, deadlineDate])
+  @@map("rfqs")
+}
+
+model RfqItem {
+  pk       String @id @default(uuid()) @db.Uuid
+  clientId String
+  rfqPk    String @db.Uuid
+  rfq      RFQ    @relation(fields: [rfqPk], references: [pk], onDelete: Cascade)
+
+  line         Int
+  materialCode String
+  description  String?
+  quantity     Float
+  uom          String    @default("EA")
+  targetPrice  Decimal?  @db.Decimal(14, 2)
+  plant        String    @default("1000")
+  deliveryDate DateTime?
+
+  @@unique([rfqPk, line])
+  @@map("rfq_items")
+}
+
+model RfqBid {
+  pk       String @id @default(uuid()) @db.Uuid
+  clientId String
+  rfqPk    String @db.Uuid
+  rfq      RFQ    @relation(fields: [rfqPk], references: [pk], onDelete: Cascade)
+
+  vendorId String // legacy external id string, kept as-is
+  vendorPk String? @db.Uuid
+  vendor   Vendor? @relation(fields: [vendorPk], references: [pk])
+
+  vendorName           String?
+  gstRate              String?
+  taxCode              String?
+  freight              Decimal   @default(0) @db.Decimal(14, 2)
+  deliveryLeadTimeDays Int?
+  vendorRating         Float?
+  technicalScore       Float     @default(80)
+  validityDate         DateTime?
+  moq                  Float     @default(1)
+  remarks              String?
+  submittedAt          DateTime  @default(now())
+
+  unitPrices   RfqBidUnitPrice[]
+  uploadedDocs RfqBidDocument[]
+
+  @@map("rfq_bids")
+}
+
+// Normalizes the Mongoose `Map<lineNo, Number>` — a child table (rather than a
+// Json map) because bids are the kind of thing invoice-plan-style reporting
+// will want to join on by line number.
+model RfqBidUnitPrice {
+  pk         String @id @default(uuid()) @db.Uuid
+  clientId   String
+  bidPk      String @db.Uuid
+  bid        RfqBid @relation(fields: [bidPk], references: [pk], onDelete: Cascade)
+  lineNumber Int
+  price      Decimal @db.Decimal(14, 2)
+
+  @@unique([bidPk, lineNumber])
+  @@map("rfq_bid_unit_prices")
+}
+
+model RfqBidDocument {
+  pk           String  @id @default(uuid()) @db.Uuid
+  clientId     String
+  bidPk        String  @db.Uuid
+  bid          RfqBid  @relation(fields: [bidPk], references: [pk], onDelete: Cascade)
+  documentId   String?
+  originalName String?
+  url          String?
+
+  @@map("rfq_bid_documents")
+}
+
+model RfqInvitedVendor {
+  pk          String  @id @default(uuid()) @db.Uuid
+  clientId    String
+  rfqPk       String  @db.Uuid
+  rfq         RFQ     @relation(fields: [rfqPk], references: [pk], onDelete: Cascade)
+  vendorExtId String?
+  name        String?
+  status      String  @default("Pending")
+  rating      Float?
+
+  @@map("rfq_invited_vendors")
+}
+
+// ---------------------------------------------------------------------------
+// PurchaseOrder + nested invoicing-plan structure (SAP FPLA/FPLT)
+// ---------------------------------------------------------------------------
+
+model PurchaseOrder {
+  pk       String @id @default(uuid()) @db.Uuid
+  clientId String
+  id       String // 'PO-2026-0081'
+
+  sapPoNumber String?
+  vendorId    String // legacy external id string
+  vendorPk    String? @db.Uuid
+  vendor      Vendor? @relation(fields: [vendorPk], references: [pk])
+
+  buyerName       String?
+  plant           String?
+  paymentTerms    String?
+  currency        String    @default("INR")
+  incoterms       String?
+  deliveryAddress String?
+  status          PoStatus  @default(Open)
+  createdDate     DateTime  @default(now())
+  acknowledgedAt  DateTime?
+
+  fromRfqId String?
+  fromRfq   RFQ?    @relation(fields: [clientId, fromRfqId], references: [clientId, id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items        PurchaseOrderItem[]
+  asns         ASN[]
+  grns         GRN[]
+  invoices     Invoice[]
+  payments     Payment[]
+  chatMessages ChatMessage[]
+
+  @@unique([clientId, id])
+  @@index([clientId, vendorId])
+  @@index([clientId, status])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  pk       String        @id @default(uuid()) @db.Uuid
+  clientId String
+  poPk     String        @db.Uuid
+  po       PurchaseOrder @relation(fields: [poPk], references: [pk], onDelete: Cascade)
+
+  line         Int
+  materialCode String
+  description  String?
+  quantity     Float
+  grnQuantity  Float   @default(0)
+  unitPrice    Decimal @db.Decimal(14, 2)
+  netValue     Decimal @db.Decimal(14, 2)
+  uom          String  @default("EA")
+
+  invoicePlan InvoicePlan?
+
+  @@unique([poPk, line])
+  @@map("purchase_order_items")
+}
+
+// 1:1 with PurchaseOrderItem — was an embedded subdocument defaulting to
+// {enabled:false}. Kept relational (not Json) so `WHERE enabled AND
+// status='Open'`-shaped queries stay plain SQL.
+model InvoicePlan {
+  pk       String            @id @default(uuid()) @db.Uuid
+  clientId String
+  itemPk   String            @unique @db.Uuid
+  item     PurchaseOrderItem @relation(fields: [itemPk], references: [pk], onDelete: Cascade)
+
+  enabled        Boolean       @default(false)
+  planNumber     String?
+  type           PlanType?
+  startDate      DateTime?
+  endDate        DateTime?
+  frequency      String?
+  invoicingRule  InvoicingRule @default(Arrears)
+  periodicAmount Decimal? @db.Decimal(14, 2)
+  currency       String        @default("INR")
+  reference      String?
+  source         PlanSource    @default(portal)
+  syncedAt       DateTime?
+
+  lines InvoicePlanLine[]
+
+  @@map("invoice_plans")
+}
+
+model InvoicePlanLine {
+  pk       String      @id @default(uuid()) @db.Uuid
+  clientId String
+  planPk   String      @db.Uuid
+  plan     InvoicePlan @relation(fields: [planPk], references: [pk], onDelete: Cascade)
+
+  lineNumber     Int
+  description    String?
+  settlementDate DateTime
+  billingDate    DateTime?
+  percentage     Float          @default(0)
+  amount         Decimal        @db.Decimal(14, 2)
+  status         PlanLineStatus @default(Open)
+  blocked        Boolean        @default(false)
+
+  // Set once invoiced. Real FK is deliberately not enforced against Invoice
+  // here (see Invoice.invoicePlanRef) — kept as a plain string, matching how
+  // this field behaves today (written once the invoice exists, not before).
+  invoiceId     String?
+  invoiceNumber String?
+  invoicedAt    DateTime?
+  sapMiroDoc    String?
+
+  @@unique([planPk, lineNumber])
+  @@map("invoice_plan_lines")
+}
+
+// ---------------------------------------------------------------------------
+// ASN
+// ---------------------------------------------------------------------------
+
+model ASN {
+  pk       String @id @default(uuid()) @db.Uuid
+  clientId String
+  id       String // 'ASN-826291'
+
+  poId String
+  po   PurchaseOrder @relation(fields: [clientId, poId], references: [clientId, id])
+
+  vendorId              String
+  status                String   @default("Submitted")
+  shipDate              DateTime
+  estimatedDeliveryDate DateTime
+  carrierName           String?
+  trackingNumber        String?
+  vehicleNumber         String?
+  invoiceReference      String?
+  ewayBillNo            String?
+  sapInboundDelivery    String?
+  submittedAt           DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items AsnItem[]
+  grns  GRN[]
+
+  @@unique([clientId, id])
+  @@index([clientId, vendorId])
+  @@index([clientId, status])
+  @@map("asns")
+}
+
+model AsnItem {
+  pk       String @id @default(uuid()) @db.Uuid
+  clientId String
+  asnPk    String @db.Uuid
+  asn      ASN    @relation(fields: [asnPk], references: [pk], onDelete: Cascade)
+
+  line            Int?
+  materialCode    String
+  description     String?
+  shippedQuantity Float
+  uom             String  @default("EA")
+
+  @@map("asn_items")
+}
+
+// ---------------------------------------------------------------------------
+// GRN
+// ---------------------------------------------------------------------------
+
+model GRN {
+  pk       String @id @default(uuid()) @db.Uuid
+  clientId String
+  id       String // 'GRN-1800xxxxx'
+
+  poId  String
+  po    PurchaseOrder @relation(fields: [clientId, poId], references: [clientId, id])
+  asnId String
+  asn   ASN           @relation(fields: [clientId, asnId], references: [clientId, id])
+
+  vendorId         String
+  sapMigoDoc       String?
+  postingDate      DateTime
+  receivedBy       String?
+  invoiceSubmitted Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items    GrnItem[]
+  invoices Invoice[]
+
+  @@unique([clientId, id])
+  @@index([clientId, vendorId])
+  @@index([clientId, poId])
+  @@map("grns")
+}
+
+// `totalAccepted`/`rejectionRate` were Mongoose virtuals computed from these
+// rows, not stored columns — replicate as an app-layer compute-after-fetch
+// helper (same formula), not a generated column here.
+model GrnItem {
+  pk       String @id @default(uuid()) @db.Uuid
+  clientId String
+  grnPk    String @db.Uuid
+  grn      GRN    @relation(fields: [grnPk], references: [pk], onDelete: Cascade)
+
+  line             Int?
+  materialCode     String
+  description      String?
+  receivedQuantity Float
+  acceptedQuantity Float
+  rejectedQuantity Float   @default(0)
+  rejectionReason  String?
+  uom              String  @default("EA")
+
+  @@map("grn_items")
+}
+
+// ---------------------------------------------------------------------------
+// Invoice
+// ---------------------------------------------------------------------------
+
+model Invoice {
+  pk       String @id @default(uuid()) @db.Uuid
+  clientId String
+  id       String
+
+  // Required for a GRN-matched invoice; null for one raised against an
+  // invoicing-plan entry — see invoicePlanRef below. Enforced mutually
+  // exclusive via the CHECK constraint added in the initial migration SQL
+  // (Prisma cannot express cross-field CHECK constraints natively).
+  grnId String?
+  grn   GRN?    @relation(fields: [clientId, grnId], references: [clientId, id])
+
+  poId String
+  po   PurchaseOrder @relation(fields: [clientId, poId], references: [clientId, id])
+
+  vendorId      String
+  invoiceNumber String
+  invoiceDate   DateTime
+  sapMiroDoc    String?
+  status        String   @default("Submitted")
+  subTotal      Decimal  @db.Decimal(14, 2)
+  taxAmount     Decimal  @db.Decimal(14, 2)
+  totalAmount   Decimal  @db.Decimal(14, 2)
+  taxCode       String   @default("G1")
+  currency      String   @default("INR")
+  matchWarning  String?
+
+  // The invoicing-plan date this invoice bills, when it came from a plan
+  // rather than a delivery. Small, always read/written whole — stays Json.
+  invoicePlanRef Json?
+
+  postedAt  DateTime?
+  clearedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items    InvoiceItem[]
+  payments Payment[]
+
+  @@unique([clientId, id])
+  @@index([clientId, vendorId])
+  @@index([clientId, status])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  pk        String  @id @default(uuid()) @db.Uuid
+  clientId  String
+  invoicePk String  @db.Uuid
+  invoice   Invoice @relation(fields: [invoicePk], references: [pk], onDelete: Cascade)
+
+  line         Int?
+  materialCode String
+  description  String?
+  quantity     Float
+  unitPrice    Decimal @db.Decimal(14, 2)
+  amount       Decimal @db.Decimal(14, 2)
+
+  @@map("invoice_items")
+}
+
+// ---------------------------------------------------------------------------
+// Payment (F110 run)
+// ---------------------------------------------------------------------------
+
+model Payment {
+  pk       String @id @default(uuid()) @db.Uuid
+  clientId String
+  id       String
+
+  invoiceId String
+  invoice   Invoice       @relation(fields: [clientId, invoiceId], references: [clientId, id])
+  poId      String
+  po        PurchaseOrder @relation(fields: [clientId, poId], references: [clientId, id])
+
+  vendorId      String
+  invoiceRef    String?
+  invoiceNumber String?
+  sapMiroDoc    String?
+  grossAmount   Decimal?      @db.Decimal(14, 2)
+  tdsDeducted   Decimal       @default(0) @db.Decimal(14, 2)
+  netAmount     Decimal       @db.Decimal(14, 2)
+  paymentDate   DateTime
+  utrCode       String
+  paymentMethod PaymentMethod @default(NEFT)
+  sapPaymentDoc String?
+  bankName      String?
+  runId         String? // F110 Run ID
+
+  fiscalYear  Int?
+  quarter     String?
+  tdsSection  String?
+  deducteePan String?
+  deductorTan String?
+  totalTds    Decimal? @db.Decimal(14, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([clientId, id])
+  @@index([clientId, vendorId])
+  @@index([clientId, invoiceId])
+  @@map("payments")
+}
+
+// ---------------------------------------------------------------------------
+// ChatMessage, Document — simple tenant-scoped tables
+// ---------------------------------------------------------------------------
+
+model ChatMessage {
+  pk       String @id @default(uuid()) @db.Uuid
+  clientId String
+
+  vendorId    String
+  sender      ChatSender
+  message     String
+  linkedPoId  String?
+  po          PurchaseOrder? @relation(fields: [clientId, linkedPoId], references: [clientId, id])
+  linkedRfqId String?
+  rfq         RFQ?           @relation(fields: [clientId, linkedRfqId], references: [clientId, id])
+  timestamp   DateTime       @default(now())
+  isRead      Boolean        @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId, vendorId, timestamp])
+  @@map("chat_messages")
+}
+
+model Document {
+  pk       String @id @default(uuid()) @db.Uuid
+  clientId String
+
+  vendorId     String
+  fileName     String
+  originalName String
+  mimeType     String
+  size         Int
+  filePath     String
+  linkedTo     DocumentLinkType @default(Profile)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId, vendorId])
+  @@map("documents")
+}
+
+// ---------------------------------------------------------------------------
+// SapLog — 30-day TTL replicated via pg_cron / app cron, not a schema feature
+// ---------------------------------------------------------------------------
+
+model SapLog {
+  pk       String @id @default(uuid()) @db.Uuid
+  clientId String
+
+  vendorId     String
+  type         SapLogType
+  direction    SapLogDirection
+  name         String
+  payload      String? // JSON-serialized string, kept verbatim (not Json) — see plan §1.2
+  status       SapLogStatus    @default(PENDING)
+  errorMessage String?
+  documentRef  String? // poId, rfqId, invoiceId, etc. — untyped polymorphic ref
+  timestamp    DateTime        @default(now())
+
+  @@index([clientId, vendorId, timestamp(sort: Desc)])
+  @@index([clientId, timestamp(sort: Desc)])
+  @@index([timestamp])
+  @@map("sap_logs")
+}
+
+// ---------------------------------------------------------------------------
+// AuditLog — NOT tenant-scoped, append-only (enforced by Client Extension +
+// Postgres REVOKE, see backend/db/appendOnlyExtension.js)
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  pk         String     @id @default(uuid()) @db.Uuid
+  clientId   String? // null for platform-plane actions concerning no single tenant
+  actorId    String
+  actorRole  String
+  actorEmail String?
+  plane      AuditPlane
+
+  // Sourced from config/auditActions.js (ALL_AUDIT_ACTIONS) — app-layer validated.
+  action String
+
+  target Json? // {type, id, label} — polymorphic, stays JSON
+  meta   Json  @default("{}")
+
+  ip String?
+  at DateTime @default(now())
+
+  @@index([at(sort: Desc)])
+  @@index([clientId, at(sort: Desc)])
+  @@index([action, at(sort: Desc)])
+  @@index([actorId, at(sort: Desc)])
+  @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Invitation
+// ---------------------------------------------------------------------------
+
+model Invitation {
+  pk       String @id @default(uuid()) @db.Uuid
+  clientId String
+
+  email             String
+  name              String?
+  // Sourced from config/roles.js (TENANT_ROLES + SUPPLIER_ROLES) — app-layer validated.
+  role              String
+  tokenHash         String
+  status            InvitationStatus @default(Pending)
+  expiresAt         DateTime
+  invitedBy         String?
+  acceptedAt        DateTime?
+  revokedAt         DateTime?
+  // Polymorphic — points at either a User or Vendor depending on role. Kept
+  // as a plain string, not a FK, matching today's design.
+  acceptedAccountId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId, email, status])
+  @@index([clientId, status])
+  @@index([tokenHash])
+  @@map("invitations")
+}
+
+// ---------------------------------------------------------------------------
+// SapConnection + secrets — NOT tenant-scoped (platform-plane configuration)
+// ---------------------------------------------------------------------------
+
+model SapConnection {
+  pk          String         @id @default(uuid()) @db.Uuid
+  clientId    String
+  environment SapEnvironment
+
+  // Sourced from sap/drivers/index.js (DRIVERS registry) — app-layer validated.
+  driver String
+
+  config         Json    @default("{}")
+  wrappedDataKey String?
+  lastTest       Json?
+
+  promotedAt DateTime?
+  promotedBy String?
+  createdBy  String?
+  updatedBy  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  secrets SapConnectionSecret[]
+
+  @@unique([clientId, environment])
+  @@map("sap_connections")
+}
+
+// Normalizes the Mongoose `Map<String,String>` of ciphertext values. A real
+// table (not Json) because setSecrets/decryptSecrets already do per-key
+// add/remove/overwrite — a table gives natural per-row writes instead of a
+// read-modify-write-whole-blob on a credential store.
+model SapConnectionSecret {
+  pk           String        @id @default(uuid()) @db.Uuid
+  connectionPk String        @db.Uuid
+  connection   SapConnection @relation(fields: [connectionPk], references: [pk], onDelete: Cascade)
+  name         String
+  ciphertext   String
+
+  @@unique([connectionPk, name])
+  @@map("sap_connection_secrets")
+}
+
+// ---------------------------------------------------------------------------
+// SapConnectionAudit — NOT tenant-scoped, append-only
+// ---------------------------------------------------------------------------
+
+model SapConnectionAudit {
+  pk          String  @id @default(uuid()) @db.Uuid
+  clientId    String
+  environment String
+  action      String // an AUDIT_ACTIONS 'sap.*' value
+  driver      String?
+
+  changes        Json     @default("{}")
+  secretsChanged String[] @default([])
+  result         Json?
+
+  actorId    String?
+  actorEmail String?
+  actorRole  String?
+  ip         String?
+
+  at DateTime @default(now())
+
+  @@index([clientId, at(sort: Desc)])
+  @@index([action, at(sort: Desc)])
+  @@map("sap_connection_audits")
+}
+
+// ---------------------------------------------------------------------------
+// User — tenant staff (client_admin / buyer / finance)
+// ---------------------------------------------------------------------------
+
+model User {
+  pk       String @id @default(uuid()) @db.Uuid
+  clientId String
+
+  email       String     @unique // global — login identity resolved before tenancy is known
+  name        String
+  // Sourced from config/roles.js (TENANT_ROLES) — app-layer validated.
+  role        String
+  status      UserStatus @default(Active)
+  phone       String?
+  jobTitle    String?
+  invitedBy   String?
+  invitedAt   DateTime?
+  activatedAt DateTime?
+  suspendedAt DateTime?
+
+  // credentialsPlugin fields, inlined.
+  password             String?
+  resetPasswordToken   String?
+  resetPasswordExpires DateTime?
+  mustChangePassword   Boolean   @default(false)
+  lastLoginAt          DateTime?
+  passwordChangedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId, role])
+  @@index([clientId, status])
+  @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// PlatformUser — platform operators. NOT tenant-scoped, separate collection.
+// ---------------------------------------------------------------------------
+
+model PlatformUser {
+  pk     String             @id @default(uuid()) @db.Uuid
+  email  String             @unique
+  name   String
+  // Sourced from config/roles.js (PLATFORM_ROLES) — app-layer validated.
+  role   String
+  status PlatformUserStatus @default(Active)
+
+  mfaEnabled    Boolean   @default(false)
+  mfaSecret     String?
+  mfaEnrolledAt DateTime?
+
+  createdBy String?
+
+  // credentialsPlugin fields, inlined.
+  password             String?
+  resetPasswordToken   String?
+  resetPasswordExpires DateTime?
+  mustChangePassword   Boolean   @default(false)
+  lastLoginAt          DateTime?
+  passwordChangedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([role])
+  @@index([status])
+  @@map("platform_users")
+}
+
+// ---------------------------------------------------------------------------
+// SapJob + SapSchedule — durable scheduling for SAP work that resolves after
+// the request that started it (Phase 1 of docs/04-sap-runtime-engineering-plan.md).
+// Replaces the in-process poll()/setTimeout timers in the drivers.
+//
+// NOT tenant-scoped, deliberately — see the note in db/tenantExtension.js. The
+// worker must claim across all tenants before it knows whose job it is; it
+// binds the tenant with runWithTenant() immediately after claiming.
+// ---------------------------------------------------------------------------
+
+model SapJob {
+  pk        String @id @default(uuid()) @db.Uuid
+  clientId  String
+  kind      String // SapJobKind value — see jobs/kinds.js
+  dedupeKey String @unique // stable identity, e.g. "awaitGoodsReceipt:CLT-0001:ASN-000412"
+  args      Json // ids only, never hydrated documents
+
+  status      String    @default("pending") // pending|running|succeeded|failed|abandoned|cancelled
+  runAt       DateTime  @default(now())
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(240)
+
+  lockedBy    String?
+  lockedAt    DateTime?
+  lastError   String?
+  lastRunAt   DateTime?
+  succeededAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, runAt])
+  @@index([clientId, kind, status])
+  @@index([status, lockedAt])
+  @@map("sap_jobs")
+}
+
+// Recurring work. The worker materialises SapJob rows from these when
+// nextRunAt passes. One row per (tenant, feed). Not used until Phase 4, but
+// created alongside SapJob so both land in the same migration (Phase 1).
+model SapSchedule {
+  pk         String    @id @default(uuid()) @db.Uuid
+  clientId   String
+  kind       String
+  intervalMs Int
+  enabled    Boolean   @default(true)
+  lastRunAt  DateTime?
+  nextRunAt  DateTime  @default(now())
+
+  @@unique([clientId, kind])
+  @@index([enabled, nextRunAt])
+  @@map("sap_schedules")
+}

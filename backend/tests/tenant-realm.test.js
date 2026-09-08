@@ -1,6 +1,6 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
-const Client = require('../models/Client');
+const { rawPrisma } = require('../db/prisma');
 const { withoutTenantScope } = require('../utils/tenantContext');
 const { realmFromRequest } = require('../utils/resolveClient');
 const { registerVendor, seedClient, baseVendor } = require('./helpers');
@@ -77,10 +77,12 @@ describe('GET /api/auth/workspace', () => {
 
   it('carries the tenant branding the sign-in screen renders', async () => {
     await seedClient({ clientId: 'CLT-0002', slug: 'northwind', companyName: 'Northwind Traders' });
-    await withoutTenantScope(() => Client.updateOne(
-      { clientId: 'CLT-0002' },
-      { $set: { 'branding.primaryColor': '#2f6f4e', 'branding.logo': 'https://cdn.example.com/nw.svg' } },
-    ));
+    // branding.primaryColor/logo were a nested Mongoose subdocument; now
+    // flattened columns (brandingColor/brandingLogo — see prisma/schema.prisma).
+    await withoutTenantScope(() => rawPrisma.client.updateMany({
+      where: { clientId: 'CLT-0002' },
+      data: { brandingColor: '#2f6f4e', brandingLogo: 'https://cdn.example.com/nw.svg' },
+    }));
 
     const res = await request(app).get('/api/auth/workspace').set('x-client-slug', 'northwind');
 
@@ -97,7 +99,7 @@ describe('GET /api/auth/workspace', () => {
 
   it('answers 404 for a suspended tenant, the same as for one that never existed', async () => {
     await seedClient({ clientId: 'CLT-0002', slug: 'northwind' });
-    await withoutTenantScope(() => Client.updateOne({ clientId: 'CLT-0002' }, { $set: { status: 'Suspended' } }));
+    await withoutTenantScope(() => rawPrisma.client.updateMany({ where: { clientId: 'CLT-0002' }, data: { status: 'Suspended' } }));
 
     const res = await request(app).get('/api/auth/workspace').set('x-client-slug', 'northwind');
     expect(res.status).toBe(404);

@@ -1,3 +1,5 @@
+const { prisma } = require('../db/prisma');
+const { decryptSecrets } = require('../db/sapConnectionHelpers');
 const logger = require('../utils/logger');
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
 const { recordSapCall, resolveSapCall } = require('../utils/sapLogger');
@@ -76,7 +78,7 @@ const wrapImmediate = (driverName, method, fn, breaker) => async (args = {}) => 
     const entry = await recordSapCall({ transaction: spec.transaction, ...log });
     // The caller needs the entry's id only when the call is still open — the
     // vendor-create BAPI awaiting its confirmation.
-    if (entry && log.status === 'PENDING') return { ...stamp(data, driverName, method), pendingLogId: entry._id };
+    if (entry && log.status === 'PENDING') return { ...stamp(data, driverName, method), pendingLogId: entry.pk };
   }
 
   return stamp(data, driverName, method);
@@ -136,17 +138,18 @@ const wrapDeferred = (driverName, method, fn, breaker, clientId) => (args = {}, 
   });
 };
 
-const buildAdapter = ({ clientId, connection }) => {
+const buildAdapter = ({ clientId, connection, secrets }) => {
   const driverKey = connection?.driver || DEFAULT_DRIVER;
   const definition = driverDefinition(driverKey);
 
   const driver = definition.create({
     clientId,
     config: connection?.config || {},
-    // Decryption happens here and nowhere else. The plaintext lives in this
-    // closure for the adapter's lifetime and is never returned, logged or
-    // attached to the adapter's public surface.
-    secrets: connection?.decryptSecrets ? connection.decryptSecrets() : {},
+    // Decryption happens in the caller (getSapAdapterForClient /
+    // buildTransientAdapter) and nowhere else. The plaintext is passed in
+    // already-resolved and lives in this closure for the adapter's lifetime;
+    // it is never returned, logged or attached to the adapter's public surface.
+    secrets: secrets || {},
   });
 
   const breaker = createCircuitBreaker({
@@ -175,18 +178,18 @@ const buildAdapter = ({ clientId, connection }) => {
 // is the promotion switch: a tenant stays on its sandbox connection until an
 // operator promotes it, and nothing else flips that.
 const loadConnection = async (clientId) => {
-  const Client = require('../models/Client');
-  const SapConnection = require('../models/SapConnection');
-
   return withoutTenantScope(async () => {
-    const client = await Client.findOne({ clientId }).select('sapEnvironment');
+    const client = await prisma.client.findFirst({ where: { clientId }, select: { sapEnvironment: true } });
     const environment = client?.sapEnvironment || 'sandbox';
-    return SapConnection.findOne({ clientId, environment }).select('+wrappedDataKey');
+    return prisma.sapConnection.findFirst({
+      where: { clientId, environment },
+      omit: { wrappedDataKey: false },
+    });
   });
 };
 
 const cacheKey = (connection) =>
-  (connection ? `${connection._id}:${connection.updatedAt?.getTime()}` : 'default:mock');
+  (connection ? `${connection.pk}:${connection.updatedAt?.getTime()}` : 'default:mock');
 
 /**
  * The tenant's SAP adapter. Cached per client and invalidated by any edit to
@@ -205,7 +208,8 @@ const getSapAdapterForClient = async (clientId) => {
 
   if (hit && hit.key === key && Date.now() - hit.builtAt < ADAPTER_TTL_MS) return hit.adapter;
 
-  const adapter = buildAdapter({ clientId, connection });
+  const secrets = connection ? await decryptSecrets(connection) : {};
+  const adapter = buildAdapter({ clientId, connection, secrets });
   cache.set(clientId, { adapter, key, builtAt: Date.now() });
   return adapter;
 };
@@ -229,7 +233,8 @@ const invalidateSapAdapter = (clientId) => {
 const buildTransientAdapter = ({ clientId, driver, config, secrets }) =>
   buildAdapter({
     clientId,
-    connection: { driver, config, environment: 'sandbox', decryptSecrets: () => secrets || {} },
+    connection: { driver, config, environment: 'sandbox' },
+    secrets: secrets || {},
   });
 
 module.exports = {

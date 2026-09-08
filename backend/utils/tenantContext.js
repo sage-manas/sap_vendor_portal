@@ -7,11 +7,12 @@ const storage = new AsyncLocalStorage();
 
 const UNSCOPED = Symbol('withoutTenantScope');
 
-// Runs fn with clientId bound. Everything awaited inside — including Mongoose
+// Runs fn with clientId bound. Everything awaited inside — including Prisma
 // queries several layers down — sees this tenant.
-// Note the `await` inside the run callback: a Mongoose Query is lazy, so
-// returning one un-awaited would execute it *after* the store had unwound and
-// the tenant filter would be lost. Awaiting here keeps execution inside scope.
+// Note the `await` inside the run callback: a Prisma query is a lazily-started
+// PrismaPromise (the same laziness that lets $transaction([...]) batch them),
+// so returning one un-awaited would execute it *after* the store had unwound
+// and the tenant filter would be lost. Awaiting here keeps execution inside scope.
 const runWithTenant = (clientId, fn) => {
   if (!clientId) {
     throw new Error('runWithTenant requires a clientId');

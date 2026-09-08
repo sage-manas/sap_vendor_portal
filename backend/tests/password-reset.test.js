@@ -1,6 +1,6 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
-const Vendor = require('../models/Vendor');
+const { rawPrisma } = require('../db/prisma');
 const { baseVendor, registerVendor, asTenant } = require('./helpers');
 const { sentMails, lastMailTo, clearMails } = require('../utils/mailer');
 
@@ -38,7 +38,10 @@ describe('POST /api/auth/forgot-password', () => {
     expect(sentMails()[0].to).toBe(baseVendor.email);
     expect(sentMails()[0].template).toBe('passwordReset');
 
-    const vendor = await asTenant(() => Vendor.findOne({ email: baseVendor.email }).select('+resetPasswordToken +resetPasswordExpires'));
+    const vendor = await asTenant(() => rawPrisma.vendor.findFirst({
+      where: { email: baseVendor.email },
+      omit: { resetPasswordToken: false, resetPasswordExpires: false },
+    }));
     expect(vendor.resetPasswordToken).toEqual(expect.any(String));
     expect(vendor.resetPasswordExpires.getTime()).toBeGreaterThan(Date.now());
   });
@@ -88,7 +91,7 @@ describe('POST /api/auth/reset-password', () => {
     const token = tokenSentTo(baseVendor.email);
 
     // Force the token to have already expired
-    await asTenant(() => Vendor.updateOne({ email: baseVendor.email }, { resetPasswordExpires: new Date(Date.now() - 1000) }));
+    await asTenant(() => rawPrisma.vendor.updateMany({ where: { email: baseVendor.email }, data: { resetPasswordExpires: new Date(Date.now() - 1000) } }));
 
     const res = await request(app).post('/api/auth/reset-password').send({ token, password: 'newpass456' });
     expect(res.status).toBe(400);

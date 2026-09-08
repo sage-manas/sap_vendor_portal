@@ -42,8 +42,19 @@ const reissueRfqSchema = z.object({
   deadlineDate: z.string().refine((val) => !isNaN(Date.parse(val)), { message: "Invalid deadlineDate format" })
 });
 
+const quotationPriceUpdateSchema = z.object({
+  sapRfqNumber: z.string().min(1),
+  items: z.array(
+    z.object({
+      line: z.coerce.number().int().positive(),
+      netPrice: z.coerce.number().positive()
+    })
+  ).min(1)
+});
+
 module.exports = {
   rfqCreateSchema,
   bidSchema,
-  reissueRfqSchema
+  reissueRfqSchema,
+  quotationPriceUpdateSchema
 };

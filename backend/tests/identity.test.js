@@ -1,8 +1,7 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
-const User = require('../models/User');
-const Vendor = require('../models/Vendor');
-const Invitation = require('../models/Invitation');
+const { prisma, rawPrisma } = require('../db/prisma');
+const { comparePassword } = require('../db/credentials');
 const {
   registerVendor,
   createTenantUser,
@@ -43,7 +42,7 @@ describe('tenant staff identity', () => {
   it('a suspended staff user cannot sign in or use an existing token', async () => {
     const { token, user } = await createTenantUser({ role: 'buyer', email: 'buyer2@example.com' });
 
-    await asTenant(() => User.updateOne({ _id: user._id }, { status: 'Suspended' }));
+    await asTenant(() => prisma.user.update({ where: { pk: user.pk }, data: { status: 'Suspended' } }));
 
     const login = await request(app).post('/api/auth/login').send({
       vendorIdOrEmail: 'buyer2@example.com',
@@ -78,10 +77,10 @@ describe('tenant staff identity', () => {
     const { token, user } = await createAdminUser({ email: 'solo-admin@example.com' });
     const { user: other } = await createTenantUser({ role: 'buyer', email: 'someone@example.com' });
 
-    const demote = await bearer(request(app).patch(`/api/users/${user._id}`), token).send({ role: 'buyer' });
+    const demote = await bearer(request(app).patch(`/api/users/${user.pk}`), token).send({ role: 'buyer' });
     expect(demote.status).toBe(400);
 
-    const suspendOther = await bearer(request(app).put(`/api/users/${other._id}/status`), token).send({ status: 'Suspended' });
+    const suspendOther = await bearer(request(app).put(`/api/users/${other.pk}/status`), token).send({ status: 'Suspended' });
     expect(suspendOther.status).toBe(200);
   });
 
@@ -90,7 +89,7 @@ describe('tenant staff identity', () => {
     const { user: theirs } = await createTenantUser({ role: 'buyer', clientId: 'CLT-0002', email: 'their-buyer@example.com' });
     const { token } = await createAdminUser({ email: 'our-admin@example.com' });
 
-    const res = await bearer(request(app).get(`/api/users/${theirs._id}`), token);
+    const res = await bearer(request(app).get(`/api/users/${theirs.pk}`), token);
     expect(res.status).toBe(404);
   });
 });
@@ -147,7 +146,7 @@ describe('invitations', () => {
     expect(accept.status).toBe(200);
     expect(accept.body.next).toBe('register');
     expect(accept.body.workspace.slug).toBe('legacy');
-    expect(await asTenant(() => User.countDocuments({ email: 'supplier@example.com' }))).toBe(0);
+    expect(await asTenant(() => prisma.user.count({ where: { email: 'supplier@example.com' } }))).toBe(0);
   });
 
   it('revoking an invitation makes its link useless', async () => {
@@ -158,9 +157,9 @@ describe('invitations', () => {
     expect(invite.status).toBe(201);
 
     const rawToken = inviteTokenFor('revoked@example.com');
-    const stored = await asTenant(() => Invitation.findOne({ email: 'revoked@example.com' }));
+    const stored = await asTenant(() => prisma.invitation.findFirst({ where: { email: 'revoked@example.com' } }));
 
-    const revoke = await bearer(request(app).delete(`/api/users/invitations/${stored._id}`), token);
+    const revoke = await bearer(request(app).delete(`/api/users/invitations/${stored.pk}`), token);
     expect(revoke.status).toBe(200);
 
     const accept = await request(app).post('/api/auth/invitations/accept')
@@ -196,7 +195,7 @@ describe('invitations', () => {
       .send({ token: rawToken, password: 'secret123' });
 
     expect(accept.status).toBe(201);
-    const created = await asTenant(() => User.findOne({ email: 'their-invitee@example.com' }), 'CLT-0002');
+    const created = await asTenant(() => prisma.user.findFirst({ where: { email: 'their-invitee@example.com' } }), 'CLT-0002');
     expect(created.clientId).toBe('CLT-0002');
   });
 });
@@ -290,7 +289,7 @@ describe('forced password change', () => {
       .send({ currentPassword: 'secret123', newPassword: 'changed123' });
     expect(changed.status).toBe(200);
 
-    const stored = await asTenant(() => Vendor.findOne({ email: 'acme@example.com' }).select('+password'));
-    expect(await stored.comparePassword('changed123')).toBe(true);
+    const stored = await asTenant(() => rawPrisma.vendor.findFirst({ where: { email: 'acme@example.com' }, omit: { password: false } }));
+    expect(await comparePassword('changed123', stored.password)).toBe(true);
   });
 });

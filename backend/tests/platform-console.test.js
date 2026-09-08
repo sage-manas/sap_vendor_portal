@@ -4,11 +4,7 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
 
-const Client = require('../models/Client');
-const User = require('../models/User');
-const RFQ = require('../models/RFQ');
-const AuditLog = require('../models/AuditLog');
-const PlatformUser = require('../models/PlatformUser');
+const { prisma, rawPrisma } = require('../db/prisma');
 
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
 const { clearMails, lastMailTo } = require('../utils/mailer');
@@ -55,7 +51,7 @@ describe('platform console — tenants', () => {
     expect(res.body.tenant.clientId).toBe('CLT-0002');
     expect(res.body.tenant.createdBy).toBe(operator.email);
 
-    const admin = await runWithTenant('CLT-0002', () => User.findOne({ email: 'ops@northwind.example.com' }));
+    const admin = await runWithTenant('CLT-0002', () => prisma.user.findFirst({ where: { email: 'ops@northwind.example.com' } }));
     expect(admin.role).toBe(ROLES.CLIENT_ADMIN);
     expect(admin.clientId).toBe('CLT-0002');
     expect(admin.mustChangePassword).toBe(true);
@@ -84,7 +80,7 @@ describe('platform console — tenants', () => {
     const res = await createTenant(token, { admin: { email: 'clash@example.com' } });
 
     expect(res.status).toBe(409);
-    expect(await withoutTenantScope(() => Client.findOne({ slug: 'northwind' }))).toBeNull();
+    expect(await withoutTenantScope(() => rawPrisma.client.findFirst({ where: { slug: 'northwind' } }))).toBeNull();
   });
 
   it('lists, filters and reads back a tenant with its counts', async () => {
@@ -145,7 +141,7 @@ describe('platform console — tenants', () => {
     expect(terminated.body.tenant.terminatedAt).toBeTruthy();
 
     // Soft: the tenant and its data are still there to be exported.
-    expect(await withoutTenantScope(() => Client.findOne({ clientId: 'CLT-0002' }))).not.toBeNull();
+    expect(await withoutTenantScope(() => rawPrisma.client.findFirst({ where: { clientId: 'CLT-0002' } }))).not.toBeNull();
     expect((await request(app).post('/api/platform/tenants/CLT-0002/reactivate').set(bearer(token)).send({})).status).toBe(400);
   });
 
@@ -166,8 +162,8 @@ describe('platform console — tenants', () => {
     const { token } = await createOperatorSession();
     await createTenant(token);
 
-    await runWithTenant('CLT-0001', () => RFQ.create({ id: 'RFQ-LEGACY-1', description: 'Legacy bearings', deadlineDate: new Date(Date.now() + 8.64e7), items: [{ line: 10, materialCode: 'M1', quantity: 1 }] }));
-    await runWithTenant('CLT-0002', () => RFQ.create({ id: 'RFQ-NORTH-1', description: 'Northwind bearings', deadlineDate: new Date(Date.now() + 8.64e7), items: [{ line: 10, materialCode: 'M1', quantity: 1 }] }));
+    await runWithTenant('CLT-0001', () => prisma.rFQ.create({ data: { id: 'RFQ-LEGACY-1', description: 'Legacy bearings', deadlineDate: new Date(Date.now() + 8.64e7), items: { create: [{ clientId: 'CLT-0001', line: 10, materialCode: 'M1', quantity: 1 }] } } }));
+    await runWithTenant('CLT-0002', () => prisma.rFQ.create({ data: { id: 'RFQ-NORTH-1', description: 'Northwind bearings', deadlineDate: new Date(Date.now() + 8.64e7), items: { create: [{ clientId: 'CLT-0002', line: 10, materialCode: 'M1', quantity: 1 }] } } }));
 
     const res = await request(app).get('/api/platform/tenants/CLT-0002/export').set(bearer(token));
 
@@ -293,7 +289,7 @@ describe('platform console — operators and MFA', () => {
   it('never stores or returns the MFA secret after enrolment', async () => {
     const { token, operator, secret } = await createOperatorSession();
 
-    const stored = await PlatformUser.findById(operator._id).select('+mfaSecret');
+    const stored = await rawPrisma.platformUser.findFirst({ where: { pk: operator.pk }, omit: { mfaSecret: false } });
     expect(stored.mfaSecret).not.toContain(secret);
     expect(stored.mfaSecret.startsWith('v1:')).toBe(true);
 
@@ -327,20 +323,21 @@ describe('platform console — operators and MFA', () => {
   it('will not let an operator suspend or demote themselves, or strand the platform', async () => {
     const { token, operator } = await createOperatorSession();
 
-    expect((await request(app).post(`/api/platform/operators/${operator._id}/suspend`).set(bearer(token)).send({})).status).toBe(400);
-    expect((await request(app).put(`/api/platform/operators/${operator._id}`).set(bearer(token)).send({ role: ROLES.SAP_MANAGER })).status).toBe(400);
+    expect((await request(app).post(`/api/platform/operators/${operator.pk}/suspend`).set(bearer(token)).send({})).status).toBe(400);
+    expect((await request(app).put(`/api/platform/operators/${operator.pk}`).set(bearer(token)).send({ role: ROLES.SAP_MANAGER })).status).toBe(400);
 
     // The last active super admin cannot be suspended by anyone.
     const { token: otherToken } = await createOperatorSession({ role: ROLES.SUPER_ADMIN, email: 'second@platform.example.com' });
-    const suspendFirst = await request(app).post(`/api/platform/operators/${operator._id}/suspend`).set(bearer(otherToken)).send({});
+    const suspendFirst = await request(app).post(`/api/platform/operators/${operator.pk}/suspend`).set(bearer(otherToken)).send({});
     expect(suspendFirst.status).toBe(200);
 
+    const secondOperator = await rawPrisma.platformUser.findFirst({ where: { email: 'second@platform.example.com' } });
     const stranding = await request(app)
-      .post(`/api/platform/operators/${(await PlatformUser.findOne({ email: 'second@platform.example.com' }))._id}/suspend`)
+      .post(`/api/platform/operators/${secondOperator.pk}/suspend`)
       .set(bearer(token));
     // The suspended operator's own token is dead, so this is a 403 either way —
     // assert the invariant directly instead.
-    expect(await PlatformUser.countDocuments({ role: ROLES.SUPER_ADMIN, status: 'Active' })).toBeGreaterThan(0);
+    expect(await rawPrisma.platformUser.count({ where: { role: ROLES.SUPER_ADMIN, status: 'Active' } })).toBeGreaterThan(0);
     expect(stranding.status).toBe(403);
   });
 
@@ -350,7 +347,7 @@ describe('platform console — operators and MFA', () => {
 
     expect((await request(app).get('/api/platform/tenants').set(bearer(theirToken))).status).toBe(200);
 
-    const reset = await request(app).post(`/api/platform/operators/${operator._id}/mfa/reset`).set(bearer(superToken)).send({ reason: 'lost phone' });
+    const reset = await request(app).post(`/api/platform/operators/${operator.pk}/mfa/reset`).set(bearer(superToken)).send({ reason: 'lost phone' });
     expect(reset.status).toBe(200);
     expect(reset.body.operator.mfaEnabled).toBe(false);
 
@@ -395,11 +392,11 @@ describe('platform console — audit explorer', () => {
       meta: { password: 'hunter2', nested: { apiKey: 'abc' }, plan: 'growth' },
     });
 
-    const entry = await AuditLog.findOne({});
+    const entry = await rawPrisma.auditLog.findFirst({});
     expect(entry.meta).toEqual({ password: '[redacted]', nested: { apiKey: '[redacted]' }, plan: 'growth' });
 
-    await expect(AuditLog.updateOne({ _id: entry._id }, { $set: { action: 'tenant.updated' } })).rejects.toThrow(/append-only/);
-    await expect(AuditLog.deleteOne({ _id: entry._id })).rejects.toThrow(/append-only/);
+    await expect(prisma.auditLog.update({ where: { pk: entry.pk }, data: { action: 'tenant.updated' } })).rejects.toThrow(/append-only/);
+    await expect(prisma.auditLog.delete({ where: { pk: entry.pk } })).rejects.toThrow(/append-only/);
 
     await expect(recordAudit({ action: 'not.a.real.action' })).rejects.toThrow(/Unknown audit action/);
   });
@@ -412,9 +409,8 @@ describe('platform console — health', () => {
     await request(app).put('/api/platform/tenants/CLT-0002').set(bearer(token)).send({ limits: { vendors: 1 } });
 
     await runWithTenant('CLT-0002', async () => {
-      const Vendor = require('../models/Vendor');
-      await Vendor.create({ vendorId: 'VND-N1', companyName: 'One Ltd', gstin: '27AABCN1111F1Z5', pan: 'AABCN1111F', email: 'one@northwind.example.com' });
-      await Vendor.create({ vendorId: 'VND-N2', companyName: 'Two Ltd', gstin: '27AABCN2222F1Z5', pan: 'AABCN2222F', email: 'two@northwind.example.com' });
+      await prisma.vendor.create({ data: { vendorId: 'VND-N1', companyName: 'One Ltd', gstin: '27AABCN1111F1Z5', pan: 'AABCN1111F', email: 'one@northwind.example.com' } });
+      await prisma.vendor.create({ data: { vendorId: 'VND-N2', companyName: 'Two Ltd', gstin: '27AABCN2222F1Z5', pan: 'AABCN2222F', email: 'two@northwind.example.com' } });
     });
 
     const res = await request(app).get('/api/platform/health').set(bearer(token));

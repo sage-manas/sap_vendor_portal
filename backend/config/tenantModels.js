@@ -24,11 +24,26 @@ const TENANT_MODELS = [
 
 const TENANT_MODEL_NAMES = TENANT_MODELS.map((entry) => entry.name);
 
-// Loads the mongoose models, lazily: requiring them at module load would drag
-// the whole model graph into any file that only wants the names.
-const tenantModels = () => TENANT_MODELS.map((entry) => ({
-  ...entry,
-  model: require(`../models/${entry.name}`),
-}));
+// Prisma client property for a model name, e.g. 'RFQ' -> 'rFQ' (see
+// backend/db/tenantExtension.js's clientPropFor, same rule — Prisma
+// lowercases only the model name's first character).
+const clientPropFor = (name) => name.charAt(0).toLowerCase() + name.slice(1);
+
+// Loads the Prisma client lazily: requiring it at module load would drag the
+// whole client into any file that only wants the names. Returns `count`/
+// `findMany` rather than a raw model handle, since callers only ever want
+// "how many rows" or "every row" for a whole-tenant operation (counts board,
+// tenant export) — see backend/controllers/platformTenant.controller.js.
+const tenantModels = () => {
+  const { prisma } = require('../db/prisma');
+  return TENANT_MODELS.map((entry) => {
+    const client = prisma[clientPropFor(entry.name)];
+    return {
+      ...entry,
+      count: () => client.count({}),
+      findMany: () => client.findMany({}),
+    };
+  });
+};
 
 module.exports = { TENANT_MODELS, TENANT_MODEL_NAMES, tenantModels };

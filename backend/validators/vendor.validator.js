@@ -71,15 +71,29 @@ const profileCreateSchema = z.object({
   address: addressSchema,
   city: z.string().optional(),
   state: z.string().optional(),
+  country: z.string().optional(),
+  region: z.string().optional(),
   postalCode: z.string().optional(),
-  
+
   bankName: z.string().optional(),
   accountNumber: z.string().optional(),
   ifscCode: z.string().optional(),
   accountName: z.string().optional(),
   bankBranch: z.string().optional(),
   bankDetails: bankDetailsSchema,
-  
+
+  // SAP purchasing/finance fields the VENDOR_CR contract needs (Vendor.js,
+  // sap/mappings/vendor-create.map.js) — omitting any of these here means
+  // Zod silently drops it before it reaches the database, and VENDOR_CR then
+  // submits an empty string for it with no error anywhere in between.
+  paymentTerms: z.string().optional(),
+  paymentMethod: z.string().optional(),
+  currency: z.string().optional(),
+  incoterms1: z.string().optional(),
+  incoterms2: z.string().optional(),
+  doubleInvoiceCheck: z.boolean().optional(),
+  grBasedInvoiceVerification: z.boolean().optional(),
+
   // Document attachments (client sends null before a document is uploaded)
   cancelledCheque: uploadedDocumentSchema,
   panCardCopy: uploadedDocumentSchema,

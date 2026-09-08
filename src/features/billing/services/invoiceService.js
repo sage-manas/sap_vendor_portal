@@ -1,8 +1,9 @@
 import { apiClient } from '../../../lib/api-client';
 
 export const invoiceService = {
-  async getInvoices() {
-    return apiClient.get('/invoices').catch(() => null);
+  async getInvoices(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return apiClient.get(`/invoices${qs ? `?${qs}` : ''}`).catch(() => null);
   },
 
   async getInvoiceById(invoiceId) {
@@ -17,8 +18,8 @@ export const invoiceService = {
     return apiClient.put(`/invoices/${invoiceId}/status`, { status }).catch(() => null);
   },
 
-  /** MIRO posting — triggers accounting document creation in SAP */
-  async postMiro(invoiceId) {
-    return apiClient.post(`/invoices/${invoiceId}/miro`, {}).catch(() => null);
+  /** Cross-checks our invoice records against what SAP itself has posted (MIRO) for this vendor */
+  async getSapStatus() {
+    return apiClient.get('/invoices/sap-status').catch(() => null);
   }
 };

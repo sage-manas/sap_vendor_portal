@@ -23,8 +23,8 @@ const signOut = (router) => {
 function Chrome({ children }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, workspace, permissions } = useWorkspaceSession();
-  const items = navFor(permissions);
+  const { user, workspace, permissions, plane } = useWorkspaceSession();
+  const items = navFor(permissions, plane);
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-base font-sans text-text-primary">

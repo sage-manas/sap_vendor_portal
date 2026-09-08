@@ -1,5 +1,4 @@
-const Document = require('../models/Document');
-const path = require('path');
+const { prisma } = require('../db/prisma');
 const fs = require('fs');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
@@ -11,7 +10,7 @@ const { requireVendorScope, vendorScope, isSupplier } = require('../utils/reques
 // @access  Public
 const uploadFile = asyncHandler(async (req, res, next) => {
   const vendorId = requireVendorScope(req);
-  
+
   if (!req.file) {
     return next(ApiError.badRequest('No file uploaded'));
   }
@@ -26,22 +25,24 @@ const uploadFile = asyncHandler(async (req, res, next) => {
 
   const { linkedTo } = req.body;
 
-  const doc = await Document.create({
-    vendorId,
-    fileName: req.file.filename,
-    originalName: req.file.originalname,
-    mimeType: req.file.mimetype,
-    size: req.file.size,
-    filePath: req.file.path,
-    linkedTo: linkedTo || 'Profile'
+  const doc = await prisma.document.create({
+    data: {
+      vendorId,
+      fileName: req.file.filename,
+      originalName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      size: req.file.size,
+      filePath: req.file.path,
+      linkedTo: linkedTo || 'Profile'
+    },
   });
 
   res.status(201).json({
-    documentId: doc._id,
+    documentId: doc.pk,
     originalName: doc.originalName,
     fileName: doc.fileName,
     size: doc.size,
-    url: `/api/uploads/${doc._id}`
+    url: `/api/uploads/${doc.pk}`
   });
 });
 
@@ -52,13 +53,13 @@ const downloadFile = asyncHandler(async (req, res, next) => {
   const { id } = req.params;
   const vendorId = vendorScope(req);
 
-  const doc = await Document.findById(id);
+  const doc = await prisma.document.findFirst({ where: { pk: id } });
   if (!doc) {
     return next(ApiError.notFound('Document not found'));
   }
 
   // A supplier reaches only their own documents. Tenant staff reach any
-  // document in their tenant — the tenant plugin has already scoped the read.
+  // document in their tenant — the tenant extension has already scoped the read.
   if (isSupplier(req) && doc.vendorId !== vendorId) {
     return next(ApiError.forbidden('You do not have permission to view this document'));
   }
@@ -69,7 +70,7 @@ const downloadFile = asyncHandler(async (req, res, next) => {
 
   res.setHeader('Content-Type', doc.mimeType);
   res.setHeader('Content-Disposition', `attachment; filename="${doc.originalName}"`);
-  
+
   const fileStream = fs.createReadStream(doc.filePath);
   fileStream.pipe(res);
 });
@@ -80,12 +81,12 @@ const downloadFile = asyncHandler(async (req, res, next) => {
 const listDocuments = asyncHandler(async (req, res, next) => {
   const { linkedTo } = req.query;
 
-  const query = vendorScope(req) ? { vendorId: vendorScope(req) } : {};
+  const where = vendorScope(req) ? { vendorId: vendorScope(req) } : {};
   if (linkedTo) {
-    query.linkedTo = linkedTo;
+    where.linkedTo = linkedTo;
   }
 
-  const docs = await Document.find(query).sort({ createdAt: -1 });
+  const docs = await prisma.document.findMany({ where, orderBy: { createdAt: 'desc' } });
   res.json(docs);
 });
 
@@ -96,13 +97,13 @@ const deleteDocument = asyncHandler(async (req, res, next) => {
   const { id } = req.params;
   const vendorId = vendorScope(req);
 
-  const doc = await Document.findById(id);
+  const doc = await prisma.document.findFirst({ where: { pk: id } });
   if (!doc) {
     return next(ApiError.notFound('Document not found'));
   }
 
   // A supplier reaches only their own documents. Tenant staff reach any
-  // document in their tenant — the tenant plugin has already scoped the read.
+  // document in their tenant — the tenant extension has already scoped the read.
   if (isSupplier(req) && doc.vendorId !== vendorId) {
     return next(ApiError.forbidden('You do not have permission to delete this document'));
   }
@@ -112,7 +113,7 @@ const deleteDocument = asyncHandler(async (req, res, next) => {
     fs.unlinkSync(doc.filePath);
   }
 
-  await Document.findByIdAndDelete(id);
+  await prisma.document.delete({ where: { pk: doc.pk } });
   res.json({ message: 'Document deleted successfully' });
 });
 

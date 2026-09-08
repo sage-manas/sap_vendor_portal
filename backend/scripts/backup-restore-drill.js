@@ -3,88 +3,123 @@
  *
  *   node scripts/backup-restore-drill.js
  *
- * Proves a backup is actually restorable, not just written. Dumps every
- * collection in the connected database to newline-delimited JSON on disk,
- * restores each one into a scratch database, and asserts the restored count
- * matches the source — then drops the scratch database. This does not
- * require the `mongodump`/`mongorestore` binaries: it reads and writes
- * through the driver directly, which is also what makes it something CI or a
- * cron can run on a schedule without extra tooling.
+ * Proves a backup is actually restorable, not just written. Dumps every table
+ * in the connected database to JSON on disk, restores each one into a scratch
+ * schema on the same database, and asserts the restored count matches the
+ * source — then drops the scratch schema. This goes through the Prisma
+ * driver directly (raw SQL, no `pg_dump`/`pg_restore`), which is what makes it
+ * something CI or a cron can run on a schedule without extra tooling.
  *
- * Exit code 0 means every collection round-tripped; 1 means at least one
- * didn't, and the report printed says which.
+ * A schema, not a separate database, is the scratch area: `CREATE DATABASE`
+ * cannot run inside the connection pool's transactions and would need a
+ * second connection string, while a schema round-trips through the exact
+ * same connection this script already has.
+ *
+ * Exit code 0 means every table round-tripped; 1 means at least one didn't,
+ * and the report printed says which.
  */
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const fs = require('fs');
-const mongoose = require('mongoose');
+const { Prisma } = require('@prisma/client');
+const { rawPrisma } = require('../db/prisma');
 
-const SOURCE_URI = process.env.MONGO_URI;
 const DUMP_DIR = process.env.BACKUP_DRILL_DIR
   || path.join(__dirname, '..', 'backups', `drill-${new Date().toISOString().replace(/[:.]/g, '-')}`);
-const SCRATCH_SUFFIX = '_backup_drill';
+const SCRATCH_SCHEMA = 'backup_drill';
 
-// Swaps the database name in a Mongo connection string for the scratch one,
-// leaving host, auth and query params untouched.
-const scratchUriFor = (uri, scratchDbName) => {
-  const [beforeQuery, query] = uri.split('?');
-  const lastSlash = beforeQuery.lastIndexOf('/');
-  const base = beforeQuery.slice(0, lastSlash + 1);
-  return `${base}${scratchDbName}${query ? `?${query}` : ''}`;
+// Prisma's raw-query layer hands back Decimal and Buffer instances that
+// JSON.stringify cannot round-trip on its own — tag them so the restore step
+// can tell a wrapped value from a plain jsonb column apart from a real object.
+const toJsonSafe = (value) => {
+  if (value instanceof Prisma.Decimal) return { $decimal: value.toString() };
+  if (Buffer.isBuffer(value)) return { $bytes: value.toString('base64') };
+  return value;
 };
 
-async function main() {
-  if (!SOURCE_URI) throw new Error('MONGO_URI is required');
+const fromJsonSafe = (value) => {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    if (typeof value.$decimal === 'string') return new Prisma.Decimal(value.$decimal);
+    if (typeof value.$bytes === 'string') return Buffer.from(value.$bytes, 'base64');
+  }
+  return value;
+};
 
-  const sourceConn = await mongoose.createConnection(SOURCE_URI).asPromise();
-  const sourceDb = sourceConn.db;
-  const scratchDbName = `${sourceDb.databaseName}${SCRATCH_SUFFIX}`;
-  const scratchConn = await mongoose.createConnection(scratchUriFor(SOURCE_URI, scratchDbName)).asPromise();
-  const scratchDb = scratchConn.db;
+const mapRow = (row, fn) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, fn(v)]));
+
+async function listTables() {
+  const rows = await rawPrisma.$queryRaw`
+    SELECT tablename FROM pg_tables WHERE schemaname = 'public'`;
+  return rows.map((r) => r.tablename);
+}
+
+async function main() {
+  const tables = await listTables();
+  if (!tables.length) {
+    console.warn('No tables found — nothing was drilled. Check DATABASE_URL.');
+    process.exitCode = 1;
+    return;
+  }
 
   fs.mkdirSync(DUMP_DIR, { recursive: true });
 
-  const collectionNames = (await sourceDb.listCollections().toArray()).map((c) => c.name);
+  await rawPrisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${SCRATCH_SCHEMA}" CASCADE`);
+  await rawPrisma.$executeRawUnsafe(`CREATE SCHEMA "${SCRATCH_SCHEMA}"`);
+
   const report = [];
 
   try {
-    for (const name of collectionNames) {
-      const docs = await sourceDb.collection(name).find({}).toArray();
-      fs.writeFileSync(path.join(DUMP_DIR, `${name}.json`), JSON.stringify(docs));
+    for (const table of tables) {
+      const rows = await rawPrisma.$queryRawUnsafe(`SELECT * FROM "public"."${table}"`);
+      const dumped = rows.map((row) => mapRow(row, toJsonSafe));
+      fs.writeFileSync(path.join(DUMP_DIR, `${table}.json`), JSON.stringify(dumped));
 
-      await scratchDb.collection(name).deleteMany({});
-      if (docs.length) await scratchDb.collection(name).insertMany(docs, { ordered: false });
+      // LIKE ... INCLUDING ALL copies columns, defaults, indexes and CHECK
+      // constraints but never foreign keys — exactly what a scratch table
+      // needs, since it has no siblings in "backup_drill" to reference.
+      await rawPrisma.$executeRawUnsafe(
+        `CREATE TABLE "${SCRATCH_SCHEMA}"."${table}" (LIKE "public"."${table}" INCLUDING ALL)`,
+      );
 
-      const restored = await scratchDb.collection(name).countDocuments();
-      report.push({ collection: name, source: docs.length, restored, ok: restored === docs.length });
+      for (const row of dumped) {
+        const restored = mapRow(row, fromJsonSafe);
+        const columns = Object.keys(restored);
+        if (!columns.length) continue;
+        const columnList = columns.map((c) => `"${c}"`).join(', ');
+        const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
+        await rawPrisma.$executeRawUnsafe(
+          `INSERT INTO "${SCRATCH_SCHEMA}"."${table}" (${columnList}) VALUES (${placeholders})`,
+          ...columns.map((c) => restored[c]),
+        );
+      }
+
+      const [{ count }] = await rawPrisma.$queryRawUnsafe(
+        `SELECT COUNT(*)::int AS count FROM "${SCRATCH_SCHEMA}"."${table}"`,
+      );
+      report.push({ table, source: dumped.length, restored: count, ok: count === dumped.length });
     }
   } finally {
-    // The scratch database is proof, not a copy anyone should rely on — the
+    // The scratch schema is proof, not a copy anyone should rely on — the
     // dump on disk in DUMP_DIR is the artifact this drill leaves behind.
-    await scratchDb.dropDatabase();
-    await sourceConn.close();
-    await scratchConn.close();
+    await rawPrisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${SCRATCH_SCHEMA}" CASCADE`);
   }
 
   const failed = report.filter((r) => !r.ok);
   console.table(report);
 
-  if (!collectionNames.length) {
-    console.warn('No collections found — nothing was drilled. Check MONGO_URI.');
-    process.exitCode = 1;
-    return;
-  }
-
   if (failed.length) {
-    console.error(`Backup/restore drill FAILED for: ${failed.map((f) => f.collection).join(', ')}`);
+    console.error(`Backup/restore drill FAILED for: ${failed.map((f) => f.table).join(', ')}`);
     process.exitCode = 1;
   } else {
-    console.log(`Backup/restore drill passed for ${report.length} collections. Dump kept at ${DUMP_DIR}`);
+    console.log(`Backup/restore drill passed for ${report.length} tables. Dump kept at ${DUMP_DIR}`);
   }
+
+  await rawPrisma.$disconnect();
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   console.error('Backup/restore drill errored:', err);
   process.exitCode = 1;
+  await rawPrisma.$disconnect();
 });

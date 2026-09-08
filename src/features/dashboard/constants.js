@@ -3,7 +3,7 @@ export const INITIAL_CHATS = [
   {
     id: 'MSG-001',
     sender: 'System',
-    message: 'Welcome to the SAP Vendor Portal. Please proceed to the Onboarding tab to complete your registration.',
+    message: 'Welcome to the Supplier Portal. Please go to the Onboarding tab to complete your registration.',
     timestamp: '2026-06-02T10:00:00Z'
   }
 ];

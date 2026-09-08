@@ -1,4 +1,5 @@
-const PlatformUser = require('../models/PlatformUser');
+const { prisma } = require('../db/prisma');
+const { hashPassword } = require('../db/credentials');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { recordAudit } = require('../utils/audit');
@@ -17,7 +18,7 @@ const { generatePassword } = require('../services/tenantProvisioning.service');
 // operator must enrol again, which is the recovery path for a lost device.
 
 const formatOperator = (operator) => ({
-  id: operator._id,
+  id: operator.pk,
   email: operator.email,
   name: operator.name,
   role: operator.role,
@@ -31,7 +32,7 @@ const formatOperator = (operator) => ({
 });
 
 const findOperatorOr404 = async (id) => {
-  const operator = await PlatformUser.findById(id).catch(() => null);
+  const operator = await prisma.platformUser.findFirst({ where: { pk: id } }).catch(() => null);
   if (!operator) throw ApiError.notFound('Not found');
   return operator;
 };
@@ -40,7 +41,7 @@ const findOperatorOr404 = async (id) => {
 // @route   GET /api/platform/operators
 // @access  operator:manage
 const listOperators = asyncHandler(async (req, res) => {
-  const operators = await PlatformUser.find({}).sort({ createdAt: -1 });
+  const operators = await prisma.platformUser.findMany({ orderBy: { createdAt: 'desc' } });
   res.json({ success: true, operators: operators.map(formatOperator) });
 });
 
@@ -54,19 +55,23 @@ const createOperator = asyncHandler(async (req, res, next) => {
   if (!PLATFORM_ROLES.includes(role)) {
     return next(ApiError.badRequest(`role must be one of: ${PLATFORM_ROLES.join(', ')}`));
   }
-  if (await PlatformUser.findOne({ email: normalized })) {
+  if (await prisma.platformUser.findFirst({ where: { email: normalized } })) {
     return next(ApiError.conflict('An operator already exists for this email'));
   }
 
-  const password = generatePassword();
-  const operator = await PlatformUser.create({
-    email: normalized,
-    name,
-    role,
-    status: 'Active',
-    password,
-    mustChangePassword: true,
-    createdBy: req.auth.email,
+  const plainPassword = generatePassword();
+  const { password, passwordChangedAt } = await hashPassword(plainPassword);
+  const operator = await prisma.platformUser.create({
+    data: {
+      email: normalized,
+      name,
+      role,
+      status: 'Active',
+      password,
+      passwordChangedAt,
+      mustChangePassword: true,
+      createdBy: req.auth.email,
+    },
   });
 
   await sendMail({
@@ -75,8 +80,10 @@ const createOperator = asyncHandler(async (req, res, next) => {
     data: {
       name: operator.name,
       email: operator.email,
-      temporaryPassword: password,
-      loginUrl: `${frontendUrl()}/platform/login`,
+      temporaryPassword: plainPassword,
+      // The console's sign-in is the gate on /platform itself (PlatformGate
+      // renders the right step); there is no separate /platform/login route.
+      loginUrl: `${frontendUrl()}/platform`,
     },
   });
 
@@ -84,7 +91,7 @@ const createOperator = asyncHandler(async (req, res, next) => {
     req,
     action: AUDIT_ACTIONS.OPERATOR_CREATED,
     clientId: null,
-    target: { type: 'PlatformUser', id: String(operator._id), label: operator.email },
+    target: { type: 'PlatformUser', id: operator.pk, label: operator.email },
     meta: { role: operator.role },
   });
 
@@ -107,7 +114,7 @@ const updateOperator = asyncHandler(async (req, res, next) => {
   }
   // Demoting yourself out of operator:manage would lock the last door from the
   // inside — and a role change invalidates your own token anyway (ADR-0013).
-  if (role && role !== operator.role && String(operator._id) === req.auth.id) {
+  if (role && role !== operator.role && operator.pk === req.auth.id) {
     return next(ApiError.badRequest('You cannot change your own role'));
   }
 
@@ -115,20 +122,22 @@ const updateOperator = asyncHandler(async (req, res, next) => {
   if (name && name !== operator.name) changed.name = { from: operator.name, to: name };
   if (role && role !== operator.role) changed.role = { from: operator.role, to: role };
 
-  Object.assign(operator, { ...(name && { name }), ...(role && { role }) });
-  await operator.save({ validateBeforeSave: true });
+  const updated = await prisma.platformUser.update({
+    where: { pk: operator.pk },
+    data: { ...(name && { name }), ...(role && { role }) },
+  });
 
   if (Object.keys(changed).length) {
     await recordAudit({
       req,
       action: AUDIT_ACTIONS.OPERATOR_UPDATED,
       clientId: null,
-      target: { type: 'PlatformUser', id: String(operator._id), label: operator.email },
+      target: { type: 'PlatformUser', id: operator.pk, label: operator.email },
       meta: { changed },
     });
   }
 
-  res.json({ success: true, operator: formatOperator(operator) });
+  res.json({ success: true, operator: formatOperator(updated) });
 });
 
 // Suspension is the delete: an operator's name has to stay attached to the
@@ -136,7 +145,7 @@ const updateOperator = asyncHandler(async (req, res, next) => {
 const setStatus = (status) => asyncHandler(async (req, res, next) => {
   const operator = await findOperatorOr404(req.params.id);
 
-  if (String(operator._id) === req.auth.id) {
+  if (operator.pk === req.auth.id) {
     return next(ApiError.badRequest('You cannot change your own account status'));
   }
   if (operator.status === status) {
@@ -145,26 +154,28 @@ const setStatus = (status) => asyncHandler(async (req, res, next) => {
 
   // The platform must never end up with no way in.
   if (status === 'Suspended') {
-    const remaining = await PlatformUser.countDocuments({
-      role: 'super_admin', status: 'Active', _id: { $ne: operator._id },
+    const remaining = await prisma.platformUser.count({
+      where: { role: 'super_admin', status: 'Active', pk: { not: operator.pk } },
     });
     if (operator.role === 'super_admin' && remaining === 0) {
       return next(ApiError.badRequest('This is the last active super admin — create another before suspending this one'));
     }
   }
 
-  operator.status = status;
-  await operator.save({ validateBeforeSave: false });
+  const updated = await prisma.platformUser.update({
+    where: { pk: operator.pk },
+    data: { status },
+  });
 
   await recordAudit({
     req,
     action: status === 'Suspended' ? AUDIT_ACTIONS.OPERATOR_SUSPENDED : AUDIT_ACTIONS.OPERATOR_REACTIVATED,
     clientId: null,
-    target: { type: 'PlatformUser', id: String(operator._id), label: operator.email },
+    target: { type: 'PlatformUser', id: operator.pk, label: operator.email },
     meta: { reason: req.body?.reason },
   });
 
-  res.json({ success: true, operator: formatOperator(operator) });
+  res.json({ success: true, operator: formatOperator(updated) });
 });
 
 // @desc    Clear an operator's MFA enrolment (lost device)
@@ -173,23 +184,23 @@ const setStatus = (status) => asyncHandler(async (req, res, next) => {
 const resetMfa = asyncHandler(async (req, res) => {
   const operator = await findOperatorOr404(req.params.id);
 
-  operator.mfaEnabled = false;
-  operator.mfaSecret = undefined;
-  operator.mfaEnrolledAt = undefined;
-  await operator.save({ validateBeforeSave: false });
+  const updated = await prisma.platformUser.update({
+    where: { pk: operator.pk },
+    data: { mfaEnabled: false, mfaSecret: null, mfaEnrolledAt: null },
+  });
 
   await recordAudit({
     req,
     action: AUDIT_ACTIONS.OPERATOR_MFA_RESET,
     clientId: null,
-    target: { type: 'PlatformUser', id: String(operator._id), label: operator.email },
+    target: { type: 'PlatformUser', id: operator.pk, label: operator.email },
     meta: { reason: req.body?.reason },
   });
 
   res.json({
     success: true,
-    operator: formatOperator(operator),
-    message: `${operator.email} must enrol a new authenticator at their next sign-in.`,
+    operator: formatOperator(updated),
+    message: `${updated.email} must enrol a new authenticator at their next sign-in.`,
   });
 });
 

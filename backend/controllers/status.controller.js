@@ -1,6 +1,4 @@
-const mongoose = require('mongoose');
-const Client = require('../models/Client');
-const SapLog = require('../models/SapLog');
+const { prisma, rawPrisma } = require('../db/prisma');
 const asyncHandler = require('../utils/asyncHandler');
 const { withoutTenantScope, runWithTenant } = require('../utils/tenantContext');
 
@@ -20,8 +18,8 @@ const sapRollup = async (clientIds) => {
 
   const totals = await Promise.all(clientIds.map((clientId) => runWithTenant(clientId, async () => {
     const [calls, failures] = await Promise.all([
-      SapLog.countDocuments({ timestamp: { $gte: since } }),
-      SapLog.countDocuments({ timestamp: { $gte: since }, status: 'FAILED' }),
+      prisma.sapLog.count({ where: { timestamp: { gte: since } } }),
+      prisma.sapLog.count({ where: { timestamp: { gte: since }, status: 'FAILED' } }),
     ]);
     return { calls, failures };
   })));
@@ -32,12 +30,24 @@ const sapRollup = async (clientIds) => {
   }), { calls: 0, failures: 0 });
 };
 
+const isDatabaseConnected = async () => {
+  try {
+    await rawPrisma.$queryRaw`SELECT 1`;
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const buildStatus = async () => {
-  const dbConnected = mongoose.connection.readyState === 1;
+  const dbConnected = await isDatabaseConnected();
 
   const operationalClientIds = dbConnected
     ? await withoutTenantScope(async () => {
-      const clients = await Client.find({ status: { $in: ['Trial', 'Active'] } }, 'clientId').lean();
+      const clients = await rawPrisma.client.findMany({
+        where: { status: { in: ['Trial', 'Active'] } },
+        select: { clientId: true },
+      });
       return clients.map((c) => c.clientId);
     })
     : [];

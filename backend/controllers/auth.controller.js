@@ -1,6 +1,7 @@
-const Vendor = require('../models/Vendor');
-const User = require('../models/User');
-const Client = require('../models/Client');
+const { prisma } = require('../db/prisma');
+const { hashPassword, comparePassword, issueResetToken, consumeResetToken, hashResetToken, RESET_TOKEN_TTL_MS } = require('../db/credentials');
+const { canAuthenticate } = require('../db/accountHelpers');
+const { isClientOperational } = require('../db/clientHelpers');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const logger = require('../utils/logger');
@@ -9,19 +10,20 @@ const { resolveClientForRequest, resolveRealmForRequest } = require('../utils/re
 const { ROLES } = require('../config/roles');
 const { signToken } = require('../utils/authToken');
 const { sendMail } = require('../utils/mailer');
-const { hashResetToken, RESET_TOKEN_TTL_MS } = require('../models/plugins/credentialsPlugin');
 const { frontendUrl } = require('../config/emailTemplates');
 const { generateVendorId } = require('../utils/vendorIdentity');
 const { settingValue } = require('../config/tenantSettings');
 const { hasSupplierInvitation } = require('./invitation.controller');
 const { assertCanCreate } = require('../utils/usage');
 
-// Helper to format flat vendor db document to backwards-compatible format with nested objects
+// Helper to format a Vendor row to the backwards-compatible response shape
+// with nested objects. Rows come back with password/reset fields present
+// whenever a call site explicitly un-omitted them (login, changePassword) —
+// they are stripped here defensively regardless.
 const formatVendorResponse = (vendor) => {
   if (!vendor) return null;
-  const obj = vendor.toObject ? vendor.toObject({ virtuals: true }) : { ...vendor };
+  const obj = { ...vendor };
 
-  // Never expose the password hash (select:false does not strip it on create/+password queries)
   delete obj.password;
   delete obj.resetPasswordToken;
   delete obj.resetPasswordExpires;
@@ -43,7 +45,7 @@ const formatVendorResponse = (vendor) => {
 // `role`/`plane` fields are what the UI filters its nav on (Phase 5).
 const formatUserResponse = (user) => {
   if (!user) return null;
-  const obj = user.toObject ? user.toObject() : { ...user };
+  const obj = { ...user };
   delete obj.password;
   delete obj.resetPasswordToken;
   delete obj.resetPasswordExpires;
@@ -63,7 +65,7 @@ const register = asyncHandler(async (req, res, next) => {
   if (!client) {
     return next(ApiError.badRequest('Unknown workspace'));
   }
-  if (!client.isOperational()) {
+  if (!isClientOperational(client)) {
     return next(ApiError.forbidden('This workspace is not accepting registrations'));
   }
 
@@ -77,11 +79,11 @@ const register = asyncHandler(async (req, res, next) => {
 
   // Login identities are global and shared across the identity collections, so
   // this collision check spans all tenants and both account kinds.
-  const existingVendor = await withoutTenantScope(() => Vendor.findOne({
-    $or: [{ email }, { gstin }, ...(vendorId ? [{ vendorId }] : [])]
+  const existingVendor = await withoutTenantScope(() => prisma.vendor.findFirst({
+    where: { OR: [{ email }, { gstin }, ...(vendorId ? [{ vendorId }] : [])] },
   }));
   const existingUser = email
-    ? await withoutTenantScope(() => User.findOne({ email: email.toLowerCase() }))
+    ? await withoutTenantScope(() => prisma.user.findFirst({ where: { email: email.toLowerCase() } }))
     : null;
 
   if (existingVendor || existingUser) {
@@ -98,28 +100,33 @@ const register = asyncHandler(async (req, res, next) => {
   // and submit the full onboarding form.
   const defaultStatus = vendorId.startsWith('mock_vendor_') ? 'Pending' : 'Draft';
 
+  const { password: hashedPassword, passwordChangedAt } = await hashPassword(password);
+
   // Self-registration only ever produces a supplier. Staff accounts come from
   // an invitation or from tenant provisioning — ADMIN_BOOTSTRAP_EMAILS, which
   // used to mint an admin from a public endpoint, is gone (ADR-0009).
-  const vendor = await runWithTenant(client.clientId, () => Vendor.create({
-    vendorId,
-    password,
-    companyName,
-    gstin,
-    pan,
-    email,
-    phone,
-    address,
-    city,
-    state,
-    postalCode,
-    bankName,
-    accountNumber,
-    ifscCode,
-    accountName,
-    bankBranch,
-    status: defaultStatus,
-    role: ROLES.VENDOR
+  const vendor = await runWithTenant(client.clientId, () => prisma.vendor.create({
+    data: {
+      vendorId,
+      password: hashedPassword,
+      passwordChangedAt,
+      companyName,
+      gstin,
+      pan,
+      email,
+      phone,
+      address,
+      city,
+      state,
+      postalCode,
+      bankName,
+      accountNumber,
+      ifscCode,
+      accountName,
+      bankBranch,
+      status: defaultStatus,
+      role: ROLES.VENDOR
+    },
   }));
 
   res.status(201).json({
@@ -154,7 +161,7 @@ const getWorkspace = asyncHandler(async (req, res, next) => {
 
   // An unknown slug and a suspended tenant answer alike: a visitor at the wrong
   // address learns that there is nothing here, not which of the two it is.
-  if (!client || !client.isOperational()) {
+  if (!client || !isClientOperational(client)) {
     return next(ApiError.notFound('Unknown workspace'));
   }
 
@@ -172,11 +179,12 @@ const login = asyncHandler(async (req, res, next) => {
   // later request is bound to. Staff sign in with an email; suppliers with
   // either their email or their vendorId.
   const user = await withoutTenantScope(() =>
-    User.findOne({ email: identifier.toLowerCase() }).select('+password'));
+    prisma.user.findFirst({ where: { email: identifier.toLowerCase() }, omit: { password: false } }));
 
-  const vendor = user ? null : await withoutTenantScope(() => Vendor.findOne({
-    $or: [{ email: identifier.toLowerCase() }, { vendorId: identifier }]
-  }).select('+password'));
+  const vendor = user ? null : await withoutTenantScope(() => prisma.vendor.findFirst({
+    where: { OR: [{ email: identifier.toLowerCase() }, { vendorId: identifier }] },
+    omit: { password: false },
+  }));
 
   const account = user || vendor;
   if (!account) {
@@ -193,29 +201,30 @@ const login = asyncHandler(async (req, res, next) => {
     return next(ApiError.unauthorized('Invalid credentials'));
   }
 
-  const isMatch = await account.comparePassword(password);
+  const isMatch = await comparePassword(password, account.password);
   if (!isMatch) {
     return next(ApiError.unauthorized('Invalid credentials'));
   }
 
-  if (!account.canAuthenticate()) {
+  if (!canAuthenticate(account, user ? 'user' : 'vendor')) {
     return next(ApiError.forbidden('This account is not active'));
   }
 
-  const client = await withoutTenantScope(() => Client.findOne({ clientId: account.clientId }));
-  if (!client || !client.isOperational()) {
+  const client = await withoutTenantScope(() => prisma.client.findFirst({ where: { clientId: account.clientId } }));
+  if (!client || !isClientOperational(client)) {
     return next(ApiError.forbidden('This workspace is not active'));
   }
 
-  account.lastLoginAt = new Date();
-  await runWithTenant(account.clientId, () => account.save({ validateBeforeSave: false }));
+  const table = user ? 'user' : 'vendor';
+  const updated = await runWithTenant(account.clientId, () =>
+    prisma[table].update({ where: { pk: account.pk }, data: { lastLoginAt: new Date() }, omit: { password: false } }));
 
   res.json({
     success: true,
-    token: signToken(account),
-    mustChangePassword: Boolean(account.mustChangePassword),
-    role: account.role,
-    ...(user ? { user: formatUserResponse(user) } : { vendor: formatVendorResponse(vendor) })
+    token: signToken(updated),
+    mustChangePassword: Boolean(updated.mustChangePassword),
+    role: updated.role,
+    ...(user ? { user: formatUserResponse(updated) } : { vendor: formatVendorResponse(updated) })
   });
 });
 
@@ -240,9 +249,10 @@ const GENERIC_FORGOT_MESSAGE = 'If an account exists for this email, a password 
 // Finds the identity that owns an email across both tenant-plane collections.
 const findResettableAccount = async (email) => {
   const lowered = String(email || '').toLowerCase();
-  const user = await withoutTenantScope(() => User.findOne({ email: lowered }));
-  if (user) return user;
-  return withoutTenantScope(() => Vendor.findOne({ email: lowered }));
+  const user = await withoutTenantScope(() => prisma.user.findFirst({ where: { email: lowered } }));
+  if (user) return { account: user, kind: 'user' };
+  const vendor = await withoutTenantScope(() => prisma.vendor.findFirst({ where: { email: lowered } }));
+  return vendor ? { account: vendor, kind: 'vendor' } : { account: null, kind: null };
 };
 
 // @desc    Issue a time-limited password reset token and email it
@@ -250,16 +260,16 @@ const findResettableAccount = async (email) => {
 // @access  Public
 const forgotPassword = asyncHandler(async (req, res) => {
   const { email } = req.body;
-  const account = await findResettableAccount(email);
+  const { account, kind } = await findResettableAccount(email);
 
   // Same response whether or not the email exists, so this endpoint can't be
   // used to enumerate accounts.
-  if (!account || !account.canAuthenticate()) {
+  if (!account || !canAuthenticate(account, kind)) {
     return res.json({ success: true, message: GENERIC_FORGOT_MESSAGE });
   }
 
-  const rawToken = account.issueResetToken();
-  await withoutTenantScope(() => account.save({ validateBeforeSave: false }));
+  const { rawToken, fields } = issueResetToken();
+  await withoutTenantScope(() => prisma[kind].update({ where: { pk: account.pk }, data: fields }));
 
   const resetUrl = `${frontendUrl()}/reset-password?token=${rawToken}`;
 
@@ -273,7 +283,7 @@ const forgotPassword = asyncHandler(async (req, res) => {
       expiresInMinutes: RESET_TOKEN_TTL_MS / 60000,
     },
   });
-  logger.info(`Password reset email dispatched for account ${account._id}`);
+  logger.info(`Password reset email dispatched for account ${account.pk}`);
 
   res.json({ success: true, message: GENERIC_FORGOT_MESSAGE });
 });
@@ -284,19 +294,22 @@ const forgotPassword = asyncHandler(async (req, res) => {
 const resetPassword = asyncHandler(async (req, res, next) => {
   const { token, password } = req.body;
   const hashedToken = hashResetToken(String(token || ''));
-  const criteria = { resetPasswordToken: hashedToken, resetPasswordExpires: { $gt: new Date() } };
+  const criteria = { resetPasswordToken: hashedToken, resetPasswordExpires: { gt: new Date() } };
 
-  const account =
-    (await withoutTenantScope(() => User.findOne(criteria))) ||
-    (await withoutTenantScope(() => Vendor.findOne(criteria)));
+  let account = await withoutTenantScope(() => prisma.user.findFirst({ where: criteria }));
+  let kind = 'user';
+  if (!account) {
+    account = await withoutTenantScope(() => prisma.vendor.findFirst({ where: criteria }));
+    kind = 'vendor';
+  }
 
   if (!account) {
     return next(ApiError.badRequest('Password reset token is invalid or has expired'));
   }
 
-  // Single use: the token fields are cleared in the same save as the password.
-  account.consumeResetToken(password);
-  await withoutTenantScope(() => account.save({ validateBeforeSave: false }));
+  // Single use: the token fields are cleared in the same update as the password.
+  const fields = await consumeResetToken(password);
+  await withoutTenantScope(() => prisma[kind].update({ where: { pk: account.pk }, data: fields }));
 
   res.json({ success: true, message: 'Password has been reset. You can now sign in.' });
 });
@@ -306,20 +319,23 @@ const resetPassword = asyncHandler(async (req, res, next) => {
 // @access  Private
 const changePassword = asyncHandler(async (req, res, next) => {
   const { currentPassword, newPassword } = req.body;
-  const Model = req.vendor ? Vendor : User;
+  const kind = req.vendor ? 'vendor' : 'user';
 
-  const account = await withoutTenantScope(() => Model.findById(req.auth.id).select('+password'));
+  const account = await withoutTenantScope(() =>
+    prisma[kind].findFirst({ where: { pk: req.auth.id }, omit: { password: false } }));
   if (!account) {
     return next(ApiError.unauthorized('Not authorized'));
   }
 
-  if (!(await account.comparePassword(currentPassword))) {
+  if (!(await comparePassword(currentPassword, account.password))) {
     return next(ApiError.unauthorized('Current password is incorrect'));
   }
 
-  account.password = newPassword;
-  account.mustChangePassword = false;
-  await withoutTenantScope(() => account.save({ validateBeforeSave: false }));
+  const { password, passwordChangedAt } = await hashPassword(newPassword);
+  await withoutTenantScope(() => prisma[kind].update({
+    where: { pk: account.pk },
+    data: { password, passwordChangedAt, mustChangePassword: false },
+  }));
 
   res.json({ success: true, message: 'Password updated.' });
 });

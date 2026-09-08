@@ -17,9 +17,8 @@ const { assertImplements } = require('../contract');
 // answer is the caller's job, via the handler passed to a deferred method.
 
 const DEFAULT_TIMINGS = {
-  vendorApprovalMs: 5000,
-  goodsReceiptMs:   10000,
-  paymentRunMs:     12000,
+  goodsReceiptMs: 10000,
+  paymentRunMs:   12000,
 };
 
 const DEFAULT_BEHAVIOUR = {
@@ -48,12 +47,41 @@ const CATALOGUE = [
  * @param {object} [options.config]  the tenant's SapConnection.config
  * @param {string} [options.clientId]
  */
+// A stable stand-in for the purchase order number SAP would have issued.
+// Awarding an RFQ creates a local order with `sapPoNumber: null` — the portal
+// does not create purchase orders in SAP — so the simulator supplies the number
+// its real counterpart would, derived from the order id rather than random so
+// repeated reads agree with each other.
+const mockSapPoNumber = (po) => {
+  if (po.sapPoNumber) return po.sapPoNumber;
+  const serial = String(po.id || '').replace(/\D/g, '').padStart(8, '0').slice(-8);
+  return `45${serial}`;
+};
+
+// The FPLA plan number SAP would have assigned to an item's invoicing plan.
+// Derived from the order and item rather than random, for the same reason as
+// mockSapPoNumber: two reads of the same plan must agree.
+const mockPlanNumber = (po, item) =>
+  `${String(po?.id || '').replace(/\D/g, '').padStart(6, '0').slice(-6)}${String(item?.line ?? 0).padStart(4, '0')}`;
+
+// The plan dates cross the driver boundary as ISO "YYYY-MM-DD" strings, never
+// as Date objects, so a caller cannot tell which driver answered.
+const isoDay = (value) => (value ? new Date(value).toISOString().slice(0, 10) : null);
+
+// A stable stand-in for the MIRO document an AP clerk would have posted.
+// Derived from the invoice id rather than random, so every poll of
+// vendorMiroDisplay reports the same number for the same invoice.
+const mockMiroDoc = (invoice) => {
+  const serial = String(invoice.id || '').replace(/\D/g, '').padStart(6, '0').slice(-6);
+  return `51${serial}${String(new Date(invoice.invoiceDate || Date.now()).getFullYear()).slice(-2)}`;
+};
+
 const createMockDriver = ({ config = {} } = {}) => {
   // Timings default to zero under test: a suite must not wait twelve real
   // seconds to assert that a payment lands, and a timer outliving the test that
   // scheduled it is how a Jest run ends up leaking handles.
   const baseTimings = process.env.NODE_ENV === 'test'
-    ? { vendorApprovalMs: 0, goodsReceiptMs: 0, paymentRunMs: 0 }
+    ? { goodsReceiptMs: 0, paymentRunMs: 0 }
     : DEFAULT_TIMINGS;
 
   const timings = { ...baseTimings, ...(config.timings || {}) };
@@ -92,9 +120,11 @@ const createMockDriver = ({ config = {} } = {}) => {
     // shape (see sap/drivers/s4odata.driver.js and sap/mappings/vendor-create.map.js)
     // without actually calling anything — `settings` (the tenant's
     // sapVendorCreate config group) is accepted for signature parity but
-    // ignored, since the mock invents its own vendor code either way.
+    // ignored, since the mock invents its own vendor code either way. Called
+    // from approveVendor, so the code is minted and returned on the spot —
+    // there is nothing left to wait on.
     vendorCreate: async ({ vendor, settings = {} }) => ({
-      data: {},
+      data: { sapVendorCode: vendor.sapVendorCode || `VND-${digits(5)}` },
       log: {
         vendorId: vendor.vendorId,
         payload: {
@@ -105,10 +135,317 @@ const createMockDriver = ({ config = {} } = {}) => {
           email: vendor.email,
           accountGroup: settings.accountGroup,
         },
-        // Outbound and unanswered: `awaitVendorApproval` resolves this entry
-        // when the mock system replies.
-        status: 'PENDING',
+        status: 'SUCCESS',
         documentRef: String(vendor._id),
+      },
+    }),
+
+    // Real region/payment-terms codes pulled from a confirmed live sandbox
+    // (Z REST catalogues), not invented — so a demo built against the mock
+    // exercises the same dropdown shape the real driver's registration form
+    // uses, and doesn't quietly let free-text region/payment-terms values
+    // back in.
+    vendorRegionCatalogue: async () => ({
+      data: {
+        regions: [
+          { code: '01', label: 'Andra Pradesh' }, { code: '02', label: 'Arunachal Pradesh' },
+          { code: '03', label: 'Assam' }, { code: '04', label: 'Bihar' },
+          { code: '05', label: 'Goa' }, { code: '06', label: 'Gujarat' },
+          { code: '07', label: 'Haryana' }, { code: '08', label: 'Himachal Pradesh' },
+          { code: '09', label: 'Jammu und Kashmir' }, { code: '10', label: 'Karnataka' },
+          { code: '11', label: 'Kerala' }, { code: '12', label: 'Madhya Pradesh' },
+          { code: '13', label: 'Maharashtra' }, { code: '14', label: 'Manipur' },
+          { code: '15', label: 'Megalaya' }, { code: '16', label: 'Mizoram' },
+          { code: '17', label: 'Nagaland' }, { code: '18', label: 'Orissa' },
+          { code: '19', label: 'Punjab' }, { code: '20', label: 'Rajasthan' },
+          { code: '21', label: 'Sikkim' }, { code: '22', label: 'Tamil Nadu' },
+          { code: '23', label: 'Tripura' }, { code: '24', label: 'Uttar Pradesh' },
+          { code: '25', label: 'West Bengal' }, { code: '26', label: 'Andaman und Nico.In.' },
+          { code: '27', label: 'Chandigarh' }, { code: '28', label: 'Dadra und Nagar Hav.' },
+          { code: '29', label: 'Daman und Diu' }, { code: '30', label: 'Delhi' },
+          { code: '31', label: 'Lakshadweep' }, { code: '32', label: 'Pondicherry' },
+        ],
+      },
+    }),
+
+    vendorPaymentTermsCatalogue: async () => ({
+      data: {
+        paymentTerms: [
+          '0001', '0002', '0003', '0004', '0005', '0006', '0007', '0008', '0009',
+          '0010', '0011', '0012', '0013', '0014', '0015', '0016', '0017',
+          '1-01', '1-02', '2-10', 'JP01', 'JP02', 'JP03', 'JP04', 'JP05', 'JP10',
+          'MF01', 'NT30', 'NT60', 'R001', 'SR00', 'T00D', 'T20D', 'T20E', 'T301', 'T40D',
+          'ZB00', 'ZB01', 'ZB02', 'ZB03', 'ZB04', 'ZB05', 'ZB06', 'ZB07', 'ZB08',
+          'ZB09', 'ZB10', 'ZB11', 'ZB13', 'ZB14', 'ZB15', 'ZB50', 'ZB99',
+          'ZR01', 'ZR02', 'ZR03',
+        ],
+      },
+    }),
+
+    vendorPaymentMethodCatalogue: async () => ({
+      data: {
+        paymentMethods: [
+          { code: '1', label: 'paymet by check' },
+          { code: '5', label: 'paymet by check HPL1' },
+          { code: 'C', label: 'Cheque' },
+          { code: 'H', label: 'Payment method for HP00' },
+          { code: 'K', label: 'cheque for kanvi' },
+          { code: 'R', label: 'Cheque' },
+          { code: 'S', label: 'check payment spl1' },
+          { code: 'T', label: 'Bank Transfer' },
+          { code: 'U', label: 'Cheque' },
+        ],
+      },
+    }),
+
+    // Mirrors the shape the real driver's zpo_grn_vendor/Detail endpoint
+    // returns. The mock has no database access — the caller passes back the
+    // POs it already tracks for this vendor, and this just re-describes them
+    // (and their GRN-derived receipt quantities) the way the real endpoint would.
+    vendorPoGrnDisplay: async ({ pos = [] }) => ({
+      data: {
+        orders: pos.map((po) => ({
+          poNumber: mockSapPoNumber(po),
+          // Which of the caller's own PurchaseOrder rows this is — the mock can
+          // say so honestly because it built this row from that same `po`. The
+          // real driver queries SAP directly by vendor code (see its own
+          // vendorPoGrnDisplay) and has no such correlation, so it always
+          // answers `poId: null` here; a caller that wants to persist the SAP
+          // number it just discovered back onto its own record checks this
+          // rather than assuming array order lines up between the two sides.
+          poId: po.id,
+          // ISO date string, matching the real driver's normalized shape
+          // (see sapDotDateToIso in s4odata.driver.js) — callers that sort or
+          // compare poDate as a string must not care which driver answered.
+          poDate: po.createdDate ? new Date(po.createdDate).toISOString().slice(0, 10) : null,
+          buyerName: po.buyerName,
+          shipToCity: null,
+          shipToState: null,
+          companyCode: behaviour.companyCode,
+          currency: po.currency,
+          netAmount: po.items.reduce((sum, item) => sum + item.netValue, 0),
+          grossAmount: po.items.reduce((sum, item) => sum + item.netValue, 0),
+          items: po.items.map((item) => ({
+            itemNumber: String(item.line).padStart(5, '0'),
+            materialCode: item.materialCode,
+            description: item.description,
+            orderedQuantity: item.quantity,
+            receivedQuantity: item.grnQuantity,
+            invoicedQuantity: item.grnQuantity,
+            uom: item.uom,
+            unitPrice: item.unitPrice,
+            netAmount: item.netValue,
+            grossAmount: item.netValue,
+            grStatus: item.grnQuantity >= item.quantity ? 'Closed' : null,
+            plant: po.plant,
+            grns: [],
+            // The simulator has no service-procurement POs, so this is always
+            // empty — it exists so both drivers return the same item shape.
+            serviceEntries: [],
+          })),
+        })),
+      },
+    }),
+
+    // --- Invoicing plans (FPLA/FPLT) ------------------------------------
+    //
+    // The simulator has no invoicing-plan store of its own, and inventing one
+    // would be inventing SAP's *records* rather than its *answers* — the line
+    // this driver does not cross. So it reads back the plans the portal has
+    // already configured on the order, in the same normalized shape the real
+    // driver produces, and mints the FPLA plan number SAP would have assigned.
+    poInvoicePlanDisplay: async ({ po }) => ({
+      data: {
+        poNumber: mockSapPoNumber(po || {}),
+        plans: (po?.items || [])
+          .filter((item) => item.invoicePlan?.enabled)
+          .map((item) => {
+            const plan = item.invoicePlan;
+            return {
+              line: item.line,
+              planNumber: plan.planNumber || mockPlanNumber(po, item),
+              type: plan.type,
+              frequency: plan.frequency || null,
+              invoicingRule: plan.invoicingRule || null,
+              periodicAmount: plan.periodicAmount ?? null,
+              currency: plan.currency || po.currency || 'INR',
+              startDate: isoDay(plan.startDate),
+              endDate: isoDay(plan.endDate),
+              reference: plan.reference || null,
+              lines: (plan.lines || []).map((line) => ({
+                lineNumber: line.lineNumber,
+                description: line.description || null,
+                settlementDate: isoDay(line.settlementDate),
+                billingDate: isoDay(line.billingDate || line.settlementDate),
+                percentage: line.percentage || 0,
+                amount: line.amount,
+                // SAP reports the billing status (FKSAF) and the billing block
+                // (FAKSP) separately; the portal's own record of which invoice
+                // covered a date is not something SAP would echo back.
+                status: line.status,
+                blocked: Boolean(line.blocked),
+              })),
+            };
+          }),
+      },
+    }),
+
+    poInvoicePlanUpdate: async ({ po, item, plan }) => {
+      const planNumber = plan.planNumber || mockPlanNumber(po, item);
+      return {
+        data: { planNumber, line: item.line, dates: (plan.lines || []).length },
+        log: {
+          vendorId: po.vendorId,
+          payload: {
+            poNumber: mockSapPoNumber(po),
+            item: String(item.line).padStart(5, '0'),
+            planNumber,
+            planType: plan.type,
+            frequency: plan.frequency || null,
+            invoicingRule: plan.invoicingRule || null,
+            dates: (plan.lines || []).length,
+          },
+          documentRef: `${po.id}/${item.line}`,
+        },
+      };
+    },
+
+    // Mirrors the shape the real driver's ZME43/ME43 endpoint returns. The
+    // mock has no database access, so the caller passes back the RFQs this
+    // vendor was invited to; each becomes a synthetic SAP RFQ document.
+    vendorRfqDisplay: async ({ rfqs = [] }) => ({
+      data: {
+        // Dates are the SAP YYYYMMDD string the real endpoint sends, not a Date
+        // — same convention as vendorQuotationDisplay below, so a caller that
+        // sorts or formats this field cannot care which driver answered.
+        documents: rfqs.map((rfq) => ({
+          sapRfqNumber: `6${digits(9)}`,
+          date: rfq.createdDate
+            ? new Date(rfq.createdDate).toISOString().slice(0, 10).replace(/-/g, '')
+            : null,
+          currency: rfq.currency || 'INR',
+          purchasingOrg: rfq.purchasingOrg || '1000',
+        })),
+      },
+    }),
+
+    // Mirrors the shape the real driver's ZCL_ME48/vendor endpoint returns.
+    // That endpoint is named for ME48 Display Quotation but actually hands
+    // back every purchasing document on the vendor code — quotations and POs
+    // together (see the note on vendorQuotationDisplay in s4odata.driver.js) —
+    // so the mock does the same, from the RFQs and POs the caller passes back.
+    // Dates are the SAP YYYYMMDD string the real endpoint sends, not ISO.
+    vendorQuotationDisplay: async ({ rfqs = [], pos = [] }) => {
+      const sapDate = (value) => (value ? new Date(value).toISOString().slice(0, 10).replace(/-/g, '') : null);
+
+      return {
+        data: {
+          documents: [
+            ...rfqs.map((rfq) => ({
+              documentNumber: `6${digits(9)}`,
+              documentType: 'Quotation',
+              date: sapDate(rfq.createdDate),
+              currency: rfq.currency || 'INR',
+              purchasingOrg: rfq.purchasingOrg || '1000',
+            })),
+            ...pos.map((po) => ({
+              documentNumber: mockSapPoNumber(po),
+              documentType: 'Purchase Order',
+              date: sapDate(po.createdDate),
+              currency: po.currency || 'INR',
+              purchasingOrg: po.purchasingOrg || '1000',
+            })),
+          ],
+        },
+      };
+    },
+
+    // Mirrors the shape the real driver's zpayment_api/payment endpoint
+    // returns. As above, the mock has no database access — the caller passes
+    // back the Payment record it already has for this invoice (if any), and
+    // this just re-describes it the way the real endpoint would.
+    invoicePaymentDetail: async ({ payment }) => {
+      if (!payment) return { data: { found: false } };
+      return {
+        data: {
+          found: true,
+          status: 'CLEARED',
+          grossAmount: payment.grossAmount,
+          tdsDeducted: payment.tdsDeducted,
+          netDisbursed: payment.netAmount,
+          clearingDocument: payment.sapPaymentDoc || null,
+          clearingDate: payment.paymentDate,
+          postingDate: payment.paymentDate,
+          paymentMethod: payment.paymentMethod || null,
+          utrReference: payment.utrCode || null,
+        },
+      };
+    },
+
+    // The vendor's whole payment ledger. The real driver assembles this from
+    // SAP's MIRO display plus a clearing read per document; the mock has no
+    // database (see file header), so the caller hands back the Payment rows it
+    // already holds for the vendor and this re-describes them in the same
+    // shape. Every mock payment is by definition cleared — awaitPaymentRun
+    // only ever produces settled ones.
+    vendorPaymentDisplay: async ({ payments = [] }) => ({
+      data: {
+        payments: payments.map((payment) => ({
+          miroDoc: payment.sapMiroDoc || null,
+          fiscalYear: payment.fiscalYear ? String(payment.fiscalYear) : String(new Date(payment.paymentDate).getFullYear()),
+          poNumber: payment.poId,
+          companyCode: behaviour.companyCode,
+          currency: 'INR',
+          status: 'CLEARED',
+          grossAmount: payment.grossAmount,
+          tdsDeducted: payment.tdsDeducted,
+          netDisbursed: payment.netAmount,
+          clearingDocument: payment.sapPaymentDoc || null,
+          clearingDate: payment.paymentDate,
+          postingDate: payment.paymentDate,
+          paymentMethod: payment.paymentMethod || behaviour.paymentMethod,
+          utrReference: payment.utrCode || null,
+        })),
+      },
+    }),
+
+    // Mirrors the shape the real driver's zmiro_display/MIRO endpoint
+    // returns. The mock never touches the database (see file header), so it
+    // cannot look invoices up itself — the caller passes back the same
+    // invoices it already tracks, and this just re-describes them the way
+    // SAP's own MIRO display would.
+    //
+    // The simulator stands in for an AP clerk who has already posted the
+    // invoice: it *mints* the MIRO number here rather than echoing one the
+    // portal wrote, because nothing in the portal writes one any more. The
+    // number is derived from the invoice id so it is stable across polls —
+    // discovery matches on it repeatedly, and a fresh random number each call
+    // would never converge.
+    vendorMiroDisplay: async ({ vendor, invoices = [] }) => ({
+      data: {
+        documents: invoices.map((invoice) => ({
+          miroDoc: invoice.sapMiroDoc || mockMiroDoc(invoice),
+          fiscalYear: String(new Date(invoice.invoiceDate).getFullYear()),
+          docType: 'RD',
+          docDate: invoice.invoiceDate,
+          postingDate: invoice.invoiceDate,
+          poNumber: invoice.poId,
+          companyCode: behaviour.companyCode,
+          currency: invoice.currency,
+          grossAmount: invoice.totalAmount,
+          taxableAmount: invoice.taxAmount,
+          taxCode: invoice.taxCode,
+          paymentTerm: '',
+          items: (invoice.items || []).map((item) => ({
+            poNumber: invoice.poId,
+            poItem: String(item.line).padStart(5, '0'),
+            materialCode: item.materialCode,
+            amount: item.amount,
+            quantity: item.quantity,
+            uom: 'EA',
+            totalValue: item.amount,
+          })),
+        })),
       },
     }),
 
@@ -122,18 +459,6 @@ const createMockDriver = ({ config = {} } = {}) => {
       },
     }),
 
-    vendorConfirm: async ({ vendor }) => {
-      const sapVendorCode = vendor.sapVendorCode || `VND-${digits(5)}`;
-      return {
-        data: { sapVendorCode },
-        log: {
-          vendorId: vendor.vendorId,
-          payload: { sapVendorCode, status: 'Approved' },
-          documentRef: String(vendor._id),
-        },
-      };
-    },
-
     vendorReject: async ({ vendor, reason }) => ({
       data: {},
       log: {
@@ -143,121 +468,7 @@ const createMockDriver = ({ config = {} } = {}) => {
       },
     }),
 
-    awaitVendorApproval: ({ vendor, pendingLogId }, handler) =>
-      later(timings.vendorApprovalMs, () => handler({
-        data: { sapVendorCode: `VND-${digits(5)}` },
-        // Resolving the outbound PENDING entry is part of the answer, not a
-        // separate bookkeeping step the caller has to remember.
-        resolve: pendingLogId ? { id: pendingLogId, status: 'SUCCESS' } : null,
-        logs: (answer, approved) => [{
-          transaction: 'VENDOR_CONFIRM',
-          vendorId: vendor.vendorId,
-          payload: { sapVendorCode: approved.sapVendorCode, status: 'Approved' },
-          documentRef: String(approved._id || vendor._id),
-        }],
-      })),
-
     // --- Sourcing ---------------------------------------------------------
-
-    rfqCreate: async ({ rfq, vendorId }) => ({
-      data: {},
-      log: {
-        vendorId: vendorId || 'SYSTEM',
-        payload: {
-          EKKO: {
-            EBELN: rfq.id,
-            BSART: rfq.rfqType,
-            ANGDT: rfq.deadlineDate,
-            EKGRP: rfq.purchasingGroup || '001',
-            ZTERM: rfq.paymentTerms,
-          },
-          EKPO: rfq.items,
-        },
-        documentRef: rfq.id,
-      },
-    }),
-
-    rfqCancel: async ({ rfq }) => ({
-      data: {},
-      log: { vendorId: 'SYSTEM', payload: { rfqId: rfq.id, status: 'Closed' }, documentRef: rfq.id },
-    }),
-
-    rfqReissue: async ({ rfq }) => ({
-      data: {},
-      log: { vendorId: 'SYSTEM', payload: { rfqId: rfq.id, deadlineDate: rfq.deadlineDate }, documentRef: rfq.id },
-    }),
-
-    rfqSubmitBid: async ({ rfq, vendorId, bid }) => ({
-      data: {},
-      log: {
-        vendorId,
-        payload: {
-          EBELN: rfq.id,
-          LIFNR: vendorId,
-          NETPR: bid.unitPrices,
-          MWSKZ: bid.taxCode,
-          PLIFZ: bid.deliveryLeadTimeDays,
-          BNDDT: bid.validityDate,
-        },
-        documentRef: rfq.id,
-      },
-    }),
-
-    infoRecordCreate: async ({ rfq, vendorId, items }) => {
-      const infoRecord = `INF-${digits(6)}`;
-      return {
-        data: { infoRecord },
-        log: {
-          vendorId,
-          payload: { LIFNR: vendorId, INFNR: infoRecord, items },
-          documentRef: rfq.id,
-        },
-      };
-    },
-
-    // --- Purchase orders --------------------------------------------------
-
-    poInboundSync: async ({ po, vendorId }) => ({
-      data: {},
-      log: { vendorId, payload: po, documentRef: po.id },
-    }),
-
-    // The inbound PO the /simulate endpoint asks for. The driver invents the
-    // SAP-side document — number, buyer, terms, lines — and the controller
-    // gives it a per-tenant business id and stores it.
-    poProvision: async ({ vendorId }) => {
-      const material = CATALOGUE[Math.floor(Math.random() * CATALOGUE.length)];
-      const quantity = Math.floor(100 + Math.random() * 900);
-      const unitPrice = Math.floor(50 + Math.random() * 450);
-
-      return {
-        data: {
-          sapPoNumber: `4500${digits(6)}`,
-          buyerName: 'SAP Buyer System',
-          plant: behaviour.plant,
-          paymentTerms: 'NET 30 Days',
-          currency: 'INR',
-          deliveryAddress: `Plant ${behaviour.plant} Main Warehouse, Mumbai`,
-          items: [{
-            line: 10,
-            materialCode: material.code,
-            description: material.desc,
-            quantity,
-            grnQuantity: 0,
-            unitPrice,
-            netValue: unitPrice * quantity,
-            uom: 'EA',
-          }],
-        },
-        // Logged by the caller once the PO has an id — see poProvisioned below.
-        log: null,
-      };
-    },
-
-    poProvisioned: async ({ po, vendorId }) => ({
-      data: {},
-      log: { vendorId, payload: po, documentRef: po.id },
-    }),
 
     poAcknowledge: async ({ po }) => ({
       data: {},
@@ -268,27 +479,20 @@ const createMockDriver = ({ config = {} } = {}) => {
       },
     }),
 
-    // --- Delivery and goods receipt ---------------------------------------
+    // Mirrors the real driver's ZQUOT_NETPR/QUOT_UPDPR: always accepts the
+    // price update and echoes the document number back, the way SAP's `{
+    // STATUS: 'S', MESSAGE, RFQ_NUMBER }` response does.
+    quotationUpdatePrice: async ({ vendor, sapRfqNumber, items = [] }) => ({
+      data: { status: 'S', message: 'Quotation updated successfully', sapRfqNumber },
+      log: {
+        vendorId: vendor?.vendorId,
+        payload: { rfq_number: sapRfqNumber, items },
+        status: 'SUCCESS',
+        documentRef: sapRfqNumber,
+      },
+    }),
 
-    deliveryCreate: async ({ asn, po, vendorId }) => {
-      const sapInboundDelivery = `180${digits(7)}`;
-      return {
-        data: { sapInboundDelivery },
-        log: {
-          vendorId: vendorId || po?.vendorId,
-          payload: {
-            LIKP: {
-              VBELN: sapInboundDelivery,
-              WADAT: asn.shipDate,
-              TDLNR: asn.carrierName,
-              LIFEX: asn.trackingNumber,
-            },
-            LIPS: asn.items,
-          },
-          documentRef: asn.id,
-        },
-      };
-    },
+    // --- Delivery and goods receipt ---------------------------------------
 
     awaitGoodsReceipt: ({ asn, po, vendorId }, handler) =>
       later(timings.goodsReceiptMs, () => handler({
@@ -332,29 +536,6 @@ const createMockDriver = ({ config = {} } = {}) => {
       })),
 
     // --- Invoice and payment ----------------------------------------------
-
-    invoiceCreate: async ({ invoice, vendorId }) => {
-      const sapMiroDoc = invoice.sapMiroDoc || `MIRO-51${digits(9)}`;
-      return {
-        data: { sapMiroDoc },
-        log: {
-          vendorId,
-          payload: {
-            HEADER: {
-              INVOICE_IND: 'X',
-              DOC_TYPE: 'RE',
-              DOC_DATE: invoice.invoiceDate,
-              PSTNG_DATE: new Date(),
-              COMP_CODE: behaviour.companyCode,
-              CURRENCY: invoice.currency,
-              GROSS_AMOUNT: invoice.totalAmount,
-            },
-            ITEMS: invoice.items,
-          },
-          documentRef: invoice.id,
-        },
-      };
-    },
 
     awaitPaymentRun: ({ invoice, vendor, vendorId }, handler) =>
       later(timings.paymentRunMs, () => {

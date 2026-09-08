@@ -8,7 +8,9 @@ const {
   approveVendor,
   rejectVendor,
   listVendors,
-  getPerformance
+  getVendorById,
+  getPerformance,
+  getSapReferenceData
 } = require('../controllers/vendor.controller');
 const { inviteVendor } = require('../controllers/invitation.controller');
 
@@ -30,6 +32,7 @@ router.post('/profile', validate(profileCreateSchema), createProfile);
 router.get('/profile', protect, tenantLimiter, requirePermission(PERMISSIONS.PROFILE_READ), getProfile);
 router.put('/profile', protect, tenantLimiter, requirePermission(PERMISSIONS.PROFILE_WRITE), validate(profileUpdateSchema), updateProfile);
 router.post('/profile/submit', protect, tenantLimiter, requirePermission(PERMISSIONS.PROFILE_SUBMIT), submitRegistration);
+router.get('/sap-reference-data', protect, tenantLimiter, requirePermission(PERMISSIONS.PROFILE_READ), getSapReferenceData);
 
 router.get('/performance', protect, tenantLimiter, requirePermission(PERMISSIONS.PERFORMANCE_READ), getPerformance);
 
@@ -39,5 +42,8 @@ router.post('/', protect, tenantLimiter, requirePermission(PERMISSIONS.VENDOR_CR
 router.get('/', protect, tenantLimiter, requirePermission(PERMISSIONS.VENDOR_READ), listVendors);
 router.put('/:id/approve', protect, tenantLimiter, requirePermission(PERMISSIONS.VENDOR_APPROVE), approveVendor);
 router.put('/:id/reject', protect, tenantLimiter, requirePermission(PERMISSIONS.VENDOR_APPROVE), validate(rejectVendorSchema), rejectVendor);
+// Last: '/:id' would otherwise swallow '/profile', '/performance' and
+// '/sap-reference-data' above it.
+router.get('/:id', protect, tenantLimiter, requirePermission(PERMISSIONS.VENDOR_READ), getVendorById);
 
 module.exports = router;

@@ -1,7 +1,7 @@
 const logger = require('../utils/logger');
 
 const validateEnv = () => {
-  const strictlyRequired = ['PORT', 'MONGO_URI', 'FRONTEND_URL'];
+  const strictlyRequired = ['PORT', 'DATABASE_URL', 'FRONTEND_URL'];
   const clerkKeys = ['CLERK_SECRET_KEY', 'CLERK_PUBLISHABLE_KEY', 'CLERK_WEBHOOK_SIGNING_SECRET'];
 
   const missingStrict = [];

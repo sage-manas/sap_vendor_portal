@@ -8,6 +8,7 @@ import { useWorkspaceSession } from '@/lib/workspace-session';
 import { PageHeader, Notice, Field, Status, Table, Loading, useResource, formatDate } from '@/components/console/primitives';
 import Modal from '@/components/ui/Modal';
 import { SUPPLIER_IDENTITY_FIELDS, validateFields } from '@/features/profile/validation';
+import DeclineSupplier from '@/features/profile/components/DeclineSupplier';
 
 // The supplier directory: who this workspace buys from, who is waiting on a
 // decision, and the two ways a new one arrives — an invitation they answer, or
@@ -130,52 +131,6 @@ function InviteSupplier({ onClose, onSent }) {
   );
 }
 
-function RejectSupplier({ supplier, onClose, onDone }) {
-  const [reason, setReason] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState('');
-
-  const submit = async () => {
-    if (!reason.trim()) return setFailed('A reason is required — the supplier is told what to fix.');
-    setBusy(true);
-    setFailed('');
-    try {
-      await apiClient.put(`/vendors/${supplier._id}/reject`, { reason });
-      onDone(`${supplier.companyName} was declined.`);
-    } catch (err) {
-      setFailed(err.message);
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={`Decline ${supplier.companyName}`}
-      footer={
-        <>
-          <button type="button" className="btn btn-o h-9" onClick={onClose}>Cancel</button>
-          <button type="button" className="btn btn-r h-9" onClick={submit} disabled={busy}>
-            {busy ? 'Working…' : 'Decline'}
-          </button>
-        </>
-      }
-    >
-      <Notice tone="error">{failed}</Notice>
-      <label className="label">Reason</label>
-      <textarea
-        rows={4}
-        className="w-full"
-        value={reason}
-        disabled={busy}
-        onChange={(event) => setReason(event.target.value)}
-        placeholder="The GST certificate is illegible — please upload a clearer copy."
-      />
-    </Modal>
-  );
-}
-
 export default function SuppliersPage() {
   const { can } = useWorkspaceSession();
   const router = useRouter();
@@ -197,8 +152,8 @@ export default function SuppliersPage() {
 
   const approve = async (supplier) => {
     try {
-      await apiClient.put(`/vendors/${supplier._id}/approve`, {});
-      setDone(`${supplier.companyName} was approved, and SAP issued their vendor code.`);
+      await apiClient.put(`/vendors/${supplier.pk}/approve`, {});
+      setDone(`${supplier.companyName} was approved and issued a supplier ID.`);
       reload();
     } catch (err) {
       setError(err.message);
@@ -217,7 +172,7 @@ export default function SuppliersPage() {
       header: 'Supplier',
       render: (row) => (
         <div>
-          <p className="text-text-primary">{row.companyName}</p>
+          <p className="text-text-primary hover:underline">{row.companyName}</p>
           <p className="mono text-[11px] text-text-tertiary">{row.vendorId} · {row.email}</p>
         </div>
       ),
@@ -233,7 +188,7 @@ export default function SuppliersPage() {
         // Which statuses are a decision waiting to happen is the registry's
         // answer, and it arrives with the list.
         (data?.filters?.awaitingDecision || []).includes(row.status) ? (
-          <div className="flex justify-end gap-2">
+          <div className="flex justify-end gap-2" onClick={(event) => event.stopPropagation()}>
             <button type="button" className="btn btn-v h-8 px-2.5" onClick={() => approve(row)}>Approve</button>
             <button type="button" className="btn btn-o h-8 px-2.5" onClick={() => setDialog({ kind: 'reject', supplier: row })}>Decline</button>
           </div>
@@ -244,7 +199,7 @@ export default function SuppliersPage() {
 
   return (
     <>
-      <PageHeader title="Suppliers" caption="The directory, and everyone waiting on a decision.">
+      <PageHeader title="Suppliers" caption="The directory, and everyone waiting on a decision. Open a supplier for their full profile.">
         {can('vendor:invite') && (
           <button type="button" className="btn btn-o h-9" onClick={() => setDialog({ kind: 'invite' })}>
             <Mail className="size-3.5" /> Invite
@@ -286,8 +241,9 @@ export default function SuppliersPage() {
       ) : (
         <Table
           columns={columns}
-          rows={(data?.vendors || []).map((vendor) => ({ ...vendor, key: vendor._id }))}
+          rows={(data?.vendors || []).map((vendor) => ({ ...vendor, key: vendor.pk }))}
           empty={query || status ? 'No supplier matches that.' : 'No suppliers yet.'}
+          onRowClick={(row) => router.push(`/workspace/suppliers/${row.pk}`)}
         />
       )}
 
@@ -301,7 +257,7 @@ export default function SuppliersPage() {
         <InviteSupplier onClose={() => setDialog(null)} onSent={(email) => finish(`An invitation is on its way to ${email}.`)} />
       )}
       {dialog?.kind === 'reject' && (
-        <RejectSupplier supplier={dialog.supplier} onClose={() => setDialog(null)} onDone={finish} />
+        <DeclineSupplier supplier={dialog.supplier} onClose={() => setDialog(null)} onDone={finish} />
       )}
     </>
   );

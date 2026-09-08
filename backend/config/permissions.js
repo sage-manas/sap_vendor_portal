@@ -41,7 +41,6 @@ const P = {
   INVOICE_READ: 'invoice:read',
   INVOICE_SUBMIT: 'invoice:submit',
   INVOICE_APPROVE: 'invoice:approve',
-  INVOICE_POST: 'invoice:post',
   PAYMENT_READ: 'payment:read',
   PAYMENT_CREATE: 'payment:create',
   PAYMENT_MANAGE: 'payment:manage',
@@ -119,7 +118,6 @@ const BUYER = [
 const FINANCE = [
   ...TENANT_READ_ONLY,
   P.INVOICE_APPROVE,
-  P.INVOICE_POST,
   P.PAYMENT_CREATE,
   P.PAYMENT_MANAGE,
   P.DOCUMENT_WRITE,

@@ -1,4 +1,4 @@
-import { isPlatformPath } from './planes';
+import { isPlatformPath, isAuthPath } from './planes';
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
@@ -29,10 +29,9 @@ export const apiClient = {
           localStorage.removeItem('jwt_token');
           localStorage.removeItem('clerk_user_id');
           localStorage.removeItem('sap_vendor_profile_data');
-          const publicPaths = ['/sign-in', '/sign-up', '/forgot-password', '/reset-password'];
           // Never redirect out of the platform console: it authenticates
           // through platform-client.js and does not hold a supplier token.
-          if (!publicPaths.includes(window.location.pathname) && !isPlatformPath(window.location.pathname)) {
+          if (!isAuthPath(window.location.pathname) && !isPlatformPath(window.location.pathname)) {
             window.location.href = '/sign-in';
           }
         }

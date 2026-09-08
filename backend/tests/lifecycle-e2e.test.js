@@ -45,7 +45,9 @@ const setUpTenant = async ({ clientId, slug, companyName }, seq) => {
     // are different companies, so they carry different ones anyway.
     gstin: `2${seq}AABCB1234F1Z5`,
     companyName: `${companyName} Supplier`,
-  }, { clientSlug: slug });
+    // The cycle this suite walks starts after onboarding: a supplier still in
+    // Draft cannot reach any of it (middleware/requireOnboarded.js).
+  }, { clientSlug: slug, onboarded: true });
 
   const buyer = await createTenantUser({
     role: 'buyer',

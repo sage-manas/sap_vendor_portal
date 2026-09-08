@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   FileText, Landmark, Clock, CheckCircle2, ChevronRight, AlertCircle,
-  Calendar, Building2, ShieldCheck, Receipt, Download, Search, ChevronLeft
+  Calendar, Building2, ShieldCheck, ShieldAlert, Receipt, Download, Search, ChevronLeft, Loader2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import ErrorBoundary from '@/components/ErrorBoundary';
@@ -81,138 +81,75 @@ export default function PaymentTrackingView({ state }) {
   const [tdsYearFilter, setTdsYearFilter] = useState('all');
   const [tdsQuarterFilter, setTdsQuarterFilter] = useState('all');
 
-  // 1. Unified fallback & live data merger to guarantee rich dummy data is always visible for testing
-  const dbPayments = state?.payments || [];
-  const mockPaymentsFallback = [
-    {
-      id: 'PMT-100234',
-      invoiceId: 'INV-2026-0001',
-      poId: 'PO-2026-0001',
-      amount: 42570,
-      grossAmount: 43000,
-      tdsDeducted: 430,
-      paymentDate: '2026-06-01',
-      utrCode: 'UTR202606010012',
-      paymentMethod: 'NEFT'
-    }
-  ];
+  // SAP's own payment ledger for this vendor (GET /api/payments/sap-status).
+  // null while the read is still in flight; an empty array means SAP genuinely
+  // has nothing. Our rows stay the ones on screen — this is the cross-check
+  // column beside them, the same arrangement the invoice registry uses.
+  const sapPayments = state?.sapPayments;
 
-  // Merge dbPayments and mockPaymentsFallback, avoiding duplicates
-  const cleanPayments = [...dbPayments];
-  mockPaymentsFallback.forEach(mockP => {
-    const isDuplicate = cleanPayments.some(
-      p => p.id === mockP.id || p._id === mockP.id || (p.utrCode && p.utrCode === mockP.utrCode)
-    );
-    if (!isDuplicate) {
-      cleanPayments.push(mockP);
-    }
-  });
+  // A payment is "in SAP" if SAP's ledger holds a row for the same MIRO
+  // document, the same clearing document, or the same UTR. Three keys rather
+  // than one because which of them is populated depends on how far through the
+  // F110 cycle the document is.
+  const sapPaymentKeys = new Set(
+    (sapPayments || []).flatMap((row) => [row.miroDoc, row.clearingDocument, row.utrReference].filter(Boolean))
+  );
+  const isConfirmedBySap = (payment) =>
+    [payment.sapMiroDoc, payment.sapPaymentDoc, payment.utrCode].some((key) => key && sapPaymentKeys.has(key));
+
+  // Real rows only. This used to merge in a hardcoded ₹42,570 payment with a
+  // fabricated UTR "to guarantee rich dummy data is always visible for
+  // testing" — fine in development, not something to show a supplier.
+  const cleanPayments = state?.payments || [];
 
   const selectedPayment = cleanPayments[0];
   const paymentAmount = selectedPayment
     ? (selectedPayment.amount !== undefined ? selectedPayment.amount : (selectedPayment.netAmount || 0))
     : 0;
 
-  // Retrieve matching invoice data or fallback to mock values
+  // The invoice this payment settled, or null. It used to synthesise one when
+  // no match was found — inventing a SAP MIRO number as "510560" + the last
+  // four digits of the payment id, plus a back-computed 18% tax split. A
+  // number shaped exactly like SAP's own is the worst kind of placeholder, so
+  // an unmatched payment now simply has no invoice and the fields render as
+  // dashes.
   const getInvoiceForPayment = (payment) => {
     if (!payment) return null;
-    const inv = (state?.invoices || []).find(i => i.id === payment.invoiceId || i.invoiceNumber === payment.invoiceId);
-    if (inv) return inv;
-
-    // Prefilled fallback values based on payment attributes
-    const payAmt = payment.amount !== undefined ? payment.amount : (payment.netAmount || 0);
-    const paymentIdStr = String(payment.id || payment._id || '0000');
-    return {
-      id: payment.invoiceId,
-      invoiceNumber: payment.invoiceId,
-      sapMiroDoc: `510560${paymentIdStr.slice(-4)}`,
-      totalAmount: payAmt,
-      subTotal: Math.round(payAmt / 1.18),
-      taxAmount: Math.round(payAmt - (payAmt / 1.18)),
-      status: 'Paid',
-      invoiceDate: payment.paymentDate
-    };
+    return (state?.invoices || []).find(
+      (i) => i.id === payment.invoiceId || i.invoiceNumber === payment.invoiceId,
+    ) || null;
   };
-  const invoice = getInvoiceForPayment(selectedPayment);
-  const tdsAmount = selectedPayment
-    ? (selectedPayment.tdsDeducted !== undefined ? selectedPayment.tdsDeducted : Math.round(paymentAmount * 0.01))
-    : 0;
+  // Amounts come off the payment SAP reported. Only the gross falls back, and
+  // only arithmetically — net plus the TDS actually deducted, never a guessed
+  // rate applied to a number nobody supplied.
+  const tdsAmount = Number(selectedPayment?.tdsDeducted) || 0;
   const grossAmount = selectedPayment
     ? (selectedPayment.grossAmount !== undefined ? selectedPayment.grossAmount : paymentAmount + tdsAmount)
     : 0;
   const deductorTan = state?.profile?.tanNo || 'MUMB12345A';
   const deducteePan = state?.profile?.panNo || 'ABCDE1234F';
 
-  // TDS Certificates Dataset
-  const tdsCertificates = [
-    {
-      id: 'TDS-2026-Q1',
-      fiscalYear: '2025-2026',
-      quarter: 'Q1 (Apr - Jun)',
-      section: 'SEC 194C',
-      deducteePan: deducteePan,
-      deductorTan: deductorTan,
-      taxWithheld: 7160,
-      filingDate: '2026-07-15',
-      status: 'Filed & Signed',
-      refNo: 'TDS16A-202607159'
-    },
-    {
-      id: 'TDS-2025-Q4',
-      fiscalYear: '2024-2025',
-      quarter: 'Q4 (Jan - Mar)',
-      section: 'SEC 194C',
-      deducteePan: deducteePan,
-      deductorTan: deductorTan,
-      taxWithheld: 18400,
-      filingDate: '2025-04-15',
-      status: 'Filed & Signed',
-      refNo: 'TDS16A-202504153'
-    },
-    {
-      id: 'TDS-2025-Q3',
-      fiscalYear: '2024-2025',
-      quarter: 'Q3 (Oct - Dec)',
-      section: 'SEC 194C',
-      deducteePan: deducteePan,
-      deductorTan: deductorTan,
-      taxWithheld: 14250,
-      filingDate: '2025-01-15',
-      status: 'Filed & Signed',
-      refNo: 'TDS16A-202501157'
-    },
-    {
-      id: 'TDS-2025-Q2',
-      fiscalYear: '2024-2025',
-      quarter: 'Q2 (Jul - Sep)',
-      section: 'SEC 194C',
-      deducteePan: deducteePan,
-      deductorTan: deductorTan,
-      taxWithheld: 11900,
-      filingDate: '2024-10-15',
-      status: 'Filed & Signed',
-      refNo: 'TDS16A-202410152'
-    },
-    {
-      id: 'TDS-2025-Q1',
-      fiscalYear: '2024-2025',
-      quarter: 'Q1 (Apr - Jun)',
-      section: 'SEC 194C',
-      deducteePan: deducteePan,
-      deductorTan: deductorTan,
-      taxWithheld: 9800,
-      filingDate: '2024-07-15',
-      status: 'Filed & Signed',
-      refNo: 'TDS16A-202407156'
-    }
-  ];
+  // TDS deducted per fiscal quarter, from the payments this portal has actually
+  // recorded (GET /payments/tds-summary). This is deliberately NOT a Form 16A:
+  // that is a statutory certificate the buyer issues from TRACES after filing
+  // its quarterly Form 26Q return, and nothing here knows whether that was
+  // filed. This screen used to render five hardcoded quarters — invented
+  // amounts and reference numbers, badged "Filed & Signed" — against the
+  // supplier's real PAN.
+  const tdsSummary = state?.tdsSummary;
+  const tdsQuarters = tdsSummary?.quarters || [];
+  const tdsLoading = tdsSummary === null || tdsSummary === undefined;
+
+  // Offered from the data rather than hardcoded, so the filter cannot list a
+  // year the supplier has no deductions in.
+  const tdsYears = [...new Set(tdsQuarters.map((row) => row.fiscalYearLabel))];
 
   // Sync TDS page to 1 when TDS filters change (no-op retained for filter reset)
 
   // Filter TDS Certificates
-  const filteredTds = tdsCertificates.filter(cert => {
-    const matchesYear = tdsYearFilter === 'all' || cert.fiscalYear === tdsYearFilter;
-    const matchesQuarter = tdsQuarterFilter === 'all' || cert.quarter.startsWith(tdsQuarterFilter);
+  const filteredTds = tdsQuarters.filter(row => {
+    const matchesYear = tdsYearFilter === 'all' || row.fiscalYearLabel === tdsYearFilter;
+    const matchesQuarter = tdsQuarterFilter === 'all' || row.quarter === tdsQuarterFilter;
     return matchesYear && matchesQuarter;
   });
 
@@ -298,11 +235,11 @@ export default function PaymentTrackingView({ state }) {
   // No dedicated backend CSV export endpoint exists, so build one client-side from the
   // already-filtered ledger rows (keeps the export consistent with what's on screen).
   const handleExportLedger = () => {
-    const headers = ['Invoice Number', 'SAP Document No.', 'Clearing Date', 'Gross Amount', 'TDS Deducted', 'Net Disbursed', 'UTR Reference', 'Method'];
+    const headers = ['Invoice Number', 'Buyer Reference', 'Payment Date', 'Gross Amount', 'TDS Deducted', 'Net Disbursed', 'UTR Reference', 'Method'];
     const rows = filteredPayments.map(payment => {
       const invData = getInvoiceForPayment(payment);
       const payAmt = payment.amount !== undefined ? payment.amount : (payment.netAmount || 0);
-      const tdsAmt = payment.tdsDeducted !== undefined ? payment.tdsDeducted : Math.round(payAmt * 0.01);
+      const tdsAmt = Number(payment.tdsDeducted) || 0; // never a guessed rate
       const grossAmt = payment.grossAmount !== undefined ? payment.grossAmount : payAmt + tdsAmt;
       return [
         invData?.invoiceNumber || payment.invoiceId || '',
@@ -332,26 +269,30 @@ export default function PaymentTrackingView({ state }) {
   };
 
   // No dedicated dispute/query backend endpoint exists yet, so route the inquiry through
-  // the real Communications Hub chat endpoint so it actually reaches a buyer officer.
+  // the same chat endpoint the (now-removed) Communications tab used to send —
+  // it still reaches a buyer officer, there's just no thread view for it in the portal.
   const handleRaiseInquiry = async (payment) => {
     const invData = getInvoiceForPayment(payment);
     const message = `Raising a query regarding settlement UTR: ${payment.utrCode || payment.id}, Invoice: ${invData?.invoiceNumber || payment.invoiceId || 'N/A'}. Please review and advise.`;
     try {
       await portal.dashboardHook.sendChatMessage(message);
-      portal.addToast('success', 'Your inquiry has been sent to the Communications Hub. A buyer officer will respond shortly.');
+      portal.addToast('success', 'Your inquiry has been sent to your buyer. A buyer officer will respond shortly.');
     } catch (err) {
       portal.addToast('error', 'Failed to send inquiry. Please try again.');
     }
   };
 
-  // There is no backend document generation for Form 16A certificates (the TDS registry
-  // below is illustrative data, not a real filing record), so rather than faking a download
-  // we route the request through the same real chat endpoint so Finance actually gets it.
-  const handleRequestForm16A = async (cert) => {
-    const message = `Requesting Form 16A TDS certificate — ${cert.quarter}, FY ${cert.fiscalYear}, PAN: ${cert.deducteePan}, Ref: ${cert.refNo}.`;
+  // Form 16A is issued by the buyer from TRACES after filing its quarterly
+  // return — the portal cannot generate one, and the registry below is a
+  // deduction ledger rather than a filing record. So the request goes through
+  // the same chat endpoint to Finance instead of faking a download.
+  const handleRequestForm16A = async (row) => {
+    const message = `Requesting Form 16A TDS certificate — ${row.quarterLabel}, FY ${row.fiscalYearLabel}`
+      + `${row.deducteePan ? `, PAN: ${row.deducteePan}` : ''}`
+      + `, TDS deducted ₹${Number(row.taxWithheld).toLocaleString('en-IN')} across ${row.paymentCount} payment(s).`;
     try {
       await portal.dashboardHook.sendChatMessage(message);
-      portal.addToast('info', 'Form 16A certificates are issued by Finance and are not available for direct download yet. Your request has been sent to the Communications Hub.');
+      portal.addToast('info', 'Form 16A certificates are issued by Finance and are not available for direct download yet. Your request has been sent to your buyer.');
     } catch (err) {
       portal.addToast('error', 'Failed to send certificate request. Please try again.');
     }
@@ -378,7 +319,7 @@ export default function PaymentTrackingView({ state }) {
             <Landmark className="size-5 text-primary shrink-0" /> Payment Tracking
           </h2>
           <p className="text-text-tertiary text-xs font-semibold">
-            Track bank settlements (F110 runs), clear invoice ledgers, and download TDS certificates
+            See which invoices have been paid, when the money was sent, and how much TDS was deducted
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
@@ -411,7 +352,7 @@ export default function PaymentTrackingView({ state }) {
               : 'border-transparent text-text-tertiary hover:text-text-primary hover:border-border'
               }`}
           >
-            <CheckCircle2 className="size-4 shrink-0" /> Payment Ledger Status
+            <CheckCircle2 className="size-4 shrink-0" /> Payment status
           </button>
           <button
             onClick={() => setDetailTab('tds')}
@@ -434,7 +375,7 @@ export default function PaymentTrackingView({ state }) {
                 <div className="flex-1 min-w-[240px] relative">
                   <input
                     type="text"
-                    placeholder="       Search by Invoice No, SAP Document, UTR, or Date..."
+                    placeholder="       Search by invoice number, reference, UTR, or date..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="!pl-8 h-9"
@@ -490,14 +431,15 @@ export default function PaymentTrackingView({ state }) {
                   <thead className="sticky top-0 z-10">
                     <tr>
                       <th className="w-36">Invoice Number</th>
-                      <th className="w-36">SAP Document No.</th>
-                      <th className="w-28">Clearing Date</th>
+                      <th className="w-36">Buyer&apos;s reference</th>
+                      <th className="w-28">Payment date</th>
                       <th className="w-32 text-right">Gross Amount</th>
                       <th className="w-32 text-right">TDS Deducted</th>
                       <th className="w-32 text-right">Net Disbursed</th>
                       <th className="min-w-[150px]">UTR / Reference</th>
                       <th className="w-24">Method</th>
                       <th className="w-24">Status</th>
+                      <th className="w-28 text-center">Confirmed</th>
                       <th className="text-center w-36">Actions</th>
                     </tr>
                   </thead>
@@ -505,11 +447,11 @@ export default function PaymentTrackingView({ state }) {
                     {filteredPayments.map((payment, idx) => {
                       const invData = getInvoiceForPayment(payment);
                       const payAmt = payment.amount !== undefined ? payment.amount : (payment.netAmount || 0);
-                      const tdsAmt = payment.tdsDeducted !== undefined ? payment.tdsDeducted : Math.round(payAmt * 0.01);
+                      const tdsAmt = Number(payment.tdsDeducted) || 0; // never a guessed rate
                       const grossAmt = payment.grossAmount !== undefined ? payment.grossAmount : payAmt + tdsAmt;
 
                       return (
-                        <tr key={payment.id || payment._id || idx}>
+                        <tr key={payment.id || idx}>
                           <td className="whitespace-nowrap">
                             <span className="text-primary font-bold hover:underline cursor-pointer select-all whitespace-nowrap">
                               {invData?.invoiceNumber || payment.invoiceId}
@@ -540,6 +482,19 @@ export default function PaymentTrackingView({ state }) {
                             <StatusBadge label="Cleared" variant={paymentStatusVariant('Cleared')} />
                           </td>
                           <td className="text-center whitespace-nowrap">
+                            {sapPayments == null ? (
+                              <Loader2 className="size-3.5 animate-spin text-text-tertiary inline-block" />
+                            ) : isConfirmedBySap(payment) ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400" title="Your buyer’s payment records confirm this payment">
+                                <ShieldCheck className="size-3.5" /> Confirmed
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-400" title="Not yet in your buyer’s payment records">
+                                <ShieldAlert className="size-3.5" /> Not confirmed yet
+                              </span>
+                            )}
+                          </td>
+                          <td className="text-center whitespace-nowrap">
                             <div className="flex items-center justify-center gap-1.5">
                               <Button
                                 variant="outline"
@@ -564,13 +519,97 @@ export default function PaymentTrackingView({ state }) {
                     })}
                     {filteredPayments.length === 0 && (
                       <tr>
-                        <td colSpan={10} className="!border-b-0">
+                        <td colSpan={11} className="!border-b-0">
                           <EmptyState title="No matching payments" description="No cleared invoice matching the filters found." />
                         </td>
                       </tr>
                     )}
                   </tbody>
                 </table>
+              </div>
+
+              {/* SAP'S OWN PAYMENT LEDGER — what the ERP says, unfiltered.
+                  Kept as a separate block rather than merged into the table
+                  above, because a row here that has no counterpart above is
+                  itself the useful signal: SAP paid something the portal has
+                  no record of. */}
+              <div className="card">
+                <div className="p-3 border-b border-border flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xs font-bold text-text-primary tracking-wider uppercase flex items-center gap-2">
+                      <ShieldCheck className="size-4 text-primary shrink-0" /> Payments recorded by your buyer
+                    </h3>
+                    <p className="text-[10px] text-text-tertiary font-semibold mt-1">
+                      Payments read straight from your buyer’s records for your company, shown exactly as they were reported
+                    </p>
+                  </div>
+                  <span className="text-[10px] font-bold font-mono bg-surface2 border border-border px-2.5 py-1 rounded-md text-text-secondary tabular-nums">
+                    {sapPayments == null ? 'Reading…' : `${sapPayments.length} payment(s)`}
+                  </span>
+                </div>
+
+                {sapPayments == null ? (
+                  <div className="p-4"><TableSkeleton rows={3} cols={6} /></div>
+                ) : sapPayments.length === 0 ? (
+                  <EmptyState
+                    title="No payments recorded yet"
+                    description="Your buyer has not recorded any completed payments to your company yet."
+                  />
+                ) : (
+                  <div className="w-full overflow-x-auto overflow-y-auto max-h-[420px] custom-scrollbar">
+                    <table className="w-full text-left border-collapse min-w-[1000px] table-sticky">
+                      <thead className="sticky top-0 z-10">
+                        <tr>
+                          <th className="w-36">Invoice reference</th>
+                          <th className="w-36">Payment reference</th>
+                          <th className="w-28">Payment date</th>
+                          <th className="w-32 text-right">Gross Amount</th>
+                          <th className="w-32 text-right">TDS Deducted</th>
+                          <th className="w-32 text-right">Net Disbursed</th>
+                          <th className="min-w-[150px]">UTR / Reference</th>
+                          <th className="w-24">Method</th>
+                          <th className="w-24">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sapPayments.map((row, idx) => (
+                          <tr key={row.clearingDocument || row.miroDoc || idx}>
+                            <td className="font-mono font-bold text-text-primary whitespace-nowrap">
+                              {row.miroDoc || '—'}
+                              {row.fiscalYear && (
+                                <span className="text-[9px] text-text-tertiary ml-1">/ {row.fiscalYear}</span>
+                              )}
+                            </td>
+                            <td className="font-mono font-semibold text-text-primary whitespace-nowrap">
+                              {row.clearingDocument || '—'}
+                            </td>
+                            <td className="font-medium font-mono text-text-secondary whitespace-nowrap tabular-nums">
+                              {formatDate(row.clearingDate)}
+                            </td>
+                            <td className="font-bold text-text-primary text-right font-mono whitespace-nowrap tabular-nums">
+                              ₹ {Number(row.grossAmount || 0).toLocaleString('en-IN')}
+                            </td>
+                            <td className="font-medium text-destructive text-right font-mono whitespace-nowrap tabular-nums">
+                              - ₹ {Number(row.tdsDeducted || 0).toLocaleString('en-IN')}
+                            </td>
+                            <td className="font-extrabold text-emerald-400 text-right font-mono whitespace-nowrap tabular-nums">
+                              ₹ {Number(row.netDisbursed || 0).toLocaleString('en-IN')}
+                            </td>
+                            <td className="font-mono font-bold text-text-primary select-all break-all">
+                              {row.utrReference || '—'}
+                            </td>
+                            <td className="font-semibold text-text-secondary text-xs whitespace-nowrap">
+                              {row.paymentMethod || '—'}
+                            </td>
+                            <td className="whitespace-nowrap">
+                              <StatusBadge label={row.status || 'CLEARED'} variant={paymentStatusVariant('Cleared')} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
 
             </div>
@@ -589,8 +628,7 @@ export default function PaymentTrackingView({ state }) {
                     className="h-9"
                   >
                     <option value="all">All Years</option>
-                    <option value="2025-2026">2025-2026</option>
-                    <option value="2024-2025">2024-2025</option>
+                    {tdsYears.map((year) => <option key={year} value={year}>{year}</option>)}
                   </select>
                 </div>
 
@@ -621,54 +659,65 @@ export default function PaymentTrackingView({ state }) {
                       <th className="whitespace-nowrap">Deductor TAN</th>
                       <th className="whitespace-nowrap">Deductee PAN</th>
                       <th className="text-right whitespace-nowrap">Tax Withheld</th>
-                      <th className="whitespace-nowrap">Filing Date</th>
-                      <th className="text-center whitespace-nowrap">Status</th>
+                      <th className="text-right whitespace-nowrap">Payments</th>
                       <th className="text-center whitespace-nowrap">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="font-mono text-xs">
-                    {allTds.map((cert) => (
-                      <tr key={cert.id}>
+                    {allTds.map((row) => (
+                      <tr key={row.id}>
                         <td className="font-semibold font-sans text-text-primary whitespace-nowrap">
-                          {cert.fiscalYear}
+                          {row.fiscalYearLabel}
                         </td>
                         <td className="font-bold font-sans text-text-primary whitespace-nowrap">
-                          {cert.quarter}
+                          {row.quarterLabel}
                         </td>
+                        {/* Section and TAN come from SAP's remittance advice.
+                            They are null until it supplies them — shown as a
+                            dash rather than a plausible-looking placeholder. */}
                         <td className="font-semibold text-text-secondary whitespace-nowrap">
-                          {cert.section}
+                          {row.section || '—'}
                         </td>
                         <td className="font-medium text-text-primary select-all whitespace-nowrap">
-                          {cert.deductorTan}
+                          {row.deductorTan || '—'}
                         </td>
                         <td className="font-medium text-text-primary select-all whitespace-nowrap">
-                          {cert.deducteePan}
+                          {row.deducteePan || '—'}
                         </td>
                         <td className="font-extrabold text-emerald-400 text-right whitespace-nowrap tabular-nums">
-                          ₹ {cert.taxWithheld.toLocaleString('en-IN')}.00
+                          ₹ {Number(row.taxWithheld).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
-                        <td className="whitespace-nowrap tabular-nums">
-                          {formatDate(cert.filingDate)}
-                        </td>
-                        <td className="text-center font-sans whitespace-nowrap">
-                          <StatusBadge label="Filed & Signed" variant={paymentStatusVariant(cert.status)} />
+                        <td className="text-right whitespace-nowrap tabular-nums text-text-secondary">
+                          {row.paymentCount}
                         </td>
                         <td className="text-center font-sans whitespace-nowrap">
                           <Button
                             variant="default"
                             size="xs"
-                            onClick={() => handleRequestForm16A(cert)}
-                            title="Request certificate via Communications Hub"
+                            onClick={() => handleRequestForm16A(row)}
+                            title="Request the Form 16A certificate from Finance"
                           >
                             Request Certificate
                           </Button>
                         </td>
                       </tr>
                     ))}
-                    {filteredTds.length === 0 && (
+                    {tdsLoading && (
                       <tr>
-                        <td colSpan={9} className="!border-b-0">
-                          <EmptyState title="No TDS certificates found" description="No filed TDS certificates found matching the criteria." />
+                        <td colSpan={8} className="!border-b-0">
+                          <div className="flex items-center justify-center gap-2 py-6 text-xs text-text-tertiary">
+                            <Loader2 className="size-4 animate-spin" /> Loading TDS deductions…
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    {!tdsLoading && filteredTds.length === 0 && (
+                      <tr>
+                        <td colSpan={8} className="!border-b-0">
+                          <EmptyState
+                            title="No TDS deducted yet"
+                            description="Tax withheld will appear here once payments with a TDS deduction have been recorded against your account."
+                          />
                         </td>
                       </tr>
                     )}

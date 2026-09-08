@@ -8,10 +8,8 @@ const {
   seedClient,
   asTenant,
 } = require('./helpers');
-const Vendor = require('../models/Vendor');
-const Invitation = require('../models/Invitation');
-const Client = require('../models/Client');
-const AuditLog = require('../models/AuditLog');
+const { prisma, rawPrisma } = require('../db/prisma');
+const { topLevelFieldsFor } = require('../config/tenantSettings');
 const { withoutTenantScope } = require('../utils/tenantContext');
 const { recordAudit } = require('../utils/audit');
 const { AUDIT_ACTIONS } = require('../config/auditActions');
@@ -30,10 +28,10 @@ const OTHER = { clientId: 'CLT-0002', slug: 'other', companyName: 'Other Ltd' };
 
 const setSetting = async (key, value, clientId = 'CLT-0001') => {
   const { applySettings } = require('../config/tenantSettings');
-  const client = await withoutTenantScope(() => Client.findOne({ clientId }));
-  applySettings(client, { [key]: value });
-  await client.save();
-  return client;
+  const client = await withoutTenantScope(() => rawPrisma.client.findFirst({ where: { clientId } }));
+  const changed = applySettings(client, { [key]: value });
+  const data = Object.fromEntries(topLevelFieldsFor(changed).map((field) => [field, client[field]]));
+  return withoutTenantScope(() => rawPrisma.client.update({ where: { pk: client.pk }, data }));
 };
 
 beforeEach(() => clearMails());
@@ -63,10 +61,10 @@ describe('workspace overview', () => {
     const { token } = await createAdminUser();
     const { vendor } = await registerVendor(app, {});
     await setSetting('thresholds.supplierApprovalSlaHours', 2);
-    await asTenant(() => Vendor.updateOne(
-      { vendorId: vendor.vendorId },
-      { status: VENDOR_STATUS.UNDER_REVIEW, submittedAt: new Date(Date.now() - 5 * 3600 * 1000) }
-    ));
+    await asTenant(() => prisma.vendor.updateMany({
+      where: { vendorId: vendor.vendorId },
+      data: { status: VENDOR_STATUS.UNDER_REVIEW, submittedAt: new Date(Date.now() - 5 * 3600 * 1000) },
+    }));
 
     const res = await request(app).get('/api/workspace/overview').set(auth(token));
 
@@ -115,10 +113,10 @@ describe('workspace settings', () => {
     expect(res.body.changed.sort()).toEqual(['branding.primaryColor', 'thresholds.invoiceReviewAmount']);
     expect(res.body.workspace.branding.primaryColor).toBe('#2f6f4e');
 
-    const client = await withoutTenantScope(() => Client.findOne({ clientId: 'CLT-0001' }));
+    const client = await withoutTenantScope(() => rawPrisma.client.findFirst({ where: { clientId: 'CLT-0001' } }));
     expect(client.settings.thresholds.invoiceReviewAmount).toBe(250000);
 
-    const entry = await AuditLog.findOne({ action: AUDIT_ACTIONS.SETTINGS_UPDATED });
+    const entry = await rawPrisma.auditLog.findFirst({ where: { action: AUDIT_ACTIONS.SETTINGS_UPDATED } });
     expect(entry.clientId).toBe('CLT-0001');
     expect(entry.meta.changed).toContain('branding.primaryColor');
   });
@@ -134,7 +132,7 @@ describe('workspace settings', () => {
     expect(res.status).toBe(400);
     expect(res.body.errors['branding.primaryColor']).toMatch(/hex colour/);
 
-    const client = await withoutTenantScope(() => Client.findOne({ clientId: 'CLT-0001' }));
+    const client = await withoutTenantScope(() => rawPrisma.client.findFirst({ where: { clientId: 'CLT-0001' } }));
     expect(client.settings?.thresholds?.invoiceReviewAmount).toBeUndefined();
   });
 
@@ -162,14 +160,17 @@ describe('workspace settings', () => {
 
 describe('feature flags close the API, not just the screen', () => {
   it('answers 404 on messaging for a tenant that switched it off, and 200 for one that did not', async () => {
-    const { token } = await registerVendor(app, {});
+    // Both onboarded: this is about the feature flag, and the onboarding gate
+    // would otherwise refuse messaging first, for both tenants alike.
+    const { token } = await registerVendor(app, {}, { onboarded: true });
     await seedClient(OTHER);
     const { token: otherToken } = await registerVendor(app, {
+      clientId: OTHER.clientId,
       vendorId: 'vendor_other_2',
       email: 'other2@example.com',
       gstin: '27YYYYY1234F1Z5',
       pan: 'YYYYY1234F',
-    }, { clientSlug: OTHER.slug });
+    }, { clientSlug: OTHER.slug, onboarded: true });
 
     await setSetting('features.supplierChat', false);
 
@@ -230,7 +231,7 @@ describe('supplier directory', () => {
     expect(res.body.vendor.vendorId).toMatch(/^VND-\d{5}$/);
     expect(res.body.vendor.password).toBeUndefined();
 
-    const created = await asTenant(() => Vendor.findOne({ email: supplierPayload.email }));
+    const created = await asTenant(() => prisma.vendor.findFirst({ where: { email: supplierPayload.email } }));
     expect(created.clientId).toBe('CLT-0001');
     expect(created.mustChangePassword).toBe(true);
 
@@ -239,7 +240,7 @@ describe('supplier directory', () => {
     // The link is emailed; the password is not, because there is not one.
     expect(mail.text).not.toMatch(/password:/i);
 
-    const entry = await AuditLog.findOne({ action: AUDIT_ACTIONS.VENDOR_CREATED });
+    const entry = await rawPrisma.auditLog.findFirst({ where: { action: AUDIT_ACTIONS.VENDOR_CREATED } });
     expect(entry.target.label).toBe(supplierPayload.companyName);
   });
 
@@ -290,16 +291,19 @@ describe('supplier directory', () => {
   it('tells the supplier what was decided, unless the workspace turned that off', async () => {
     const { token } = await createAdminUser();
     const { vendor } = await registerVendor(app, {});
-    await asTenant(() => Vendor.updateOne({ vendorId: vendor.vendorId }, {
-      status: VENDOR_STATUS.UNDER_REVIEW,
-      gstinVerified: true,
-      panVerified: true,
-      verifiedAt: new Date(),
+    await asTenant(() => prisma.vendor.updateMany({
+      where: { vendorId: vendor.vendorId },
+      data: {
+        status: VENDOR_STATUS.UNDER_REVIEW,
+        gstinVerified: true,
+        panVerified: true,
+        verifiedAt: new Date(),
+      },
     }));
-    const stored = await asTenant(() => Vendor.findOne({ vendorId: vendor.vendorId }));
+    const stored = await asTenant(() => prisma.vendor.findFirst({ where: { vendorId: vendor.vendorId } }));
 
     await request(app)
-      .put(`/api/vendors/${stored._id}/reject`)
+      .put(`/api/vendors/${stored.pk}/reject`)
       .set(auth(token))
       .send({ reason: 'GST certificate is illegible' })
       .expect(200);
@@ -307,14 +311,14 @@ describe('supplier directory', () => {
     const mail = lastMailTo(stored.email);
     expect(mail.template).toBe('supplierDecision');
     expect(mail.text).toMatch(/illegible/);
-    expect(await AuditLog.findOne({ action: AUDIT_ACTIONS.VENDOR_REJECTED })).not.toBeNull();
+    expect(await rawPrisma.auditLog.findFirst({ where: { action: AUDIT_ACTIONS.VENDOR_REJECTED } })).not.toBeNull();
 
     clearMails();
     await setSetting('notifications.supplierDecisionEmail', false);
-    await asTenant(() => Vendor.updateOne({ _id: stored._id }, { status: VENDOR_STATUS.UNDER_REVIEW }));
+    await asTenant(() => prisma.vendor.updateMany({ where: { pk: stored.pk }, data: { status: VENDOR_STATUS.UNDER_REVIEW } }));
 
     await request(app)
-      .put(`/api/vendors/${stored._id}/reject`)
+      .put(`/api/vendors/${stored.pk}/reject`)
       .set(auth(token))
       .send({ reason: 'Still illegible' })
       .expect(200);
@@ -388,7 +392,7 @@ describe('workspace audit', () => {
     const { user } = await createTenantUser({ role: ROLES.BUYER, email: 'buyer2@example.com' });
 
     await request(app)
-      .patch(`/api/users/${user._id}`)
+      .patch(`/api/users/${user.pk}`)
       .set(auth(token))
       .send({ role: ROLES.FINANCE })
       .expect(200);
@@ -415,6 +419,6 @@ describe('invitations remain tenant-scoped', () => {
 
     const res = await request(app).get('/api/users/invitations').set(auth(token));
     expect(res.body.invitations).toHaveLength(0);
-    expect(await withoutTenantScope(() => Invitation.countDocuments({}))).toBe(1);
+    expect(await withoutTenantScope(() => rawPrisma.invitation.count({}))).toBe(1);
   });
 });

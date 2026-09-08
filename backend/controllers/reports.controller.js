@@ -1,13 +1,10 @@
 const PDFDocument = require('pdfkit');
-const Payment = require('../models/Payment');
-const Invoice = require('../models/Invoice');
-const Vendor = require('../models/Vendor');
-const PurchaseOrder = require('../models/PurchaseOrder');
-const RFQ = require('../models/RFQ');
+const { prisma } = require('../db/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 
 const { requireVendorScope } = require('../utils/requestScope');
+const { toNumber } = require('../utils/money');
 
 // Helper to draw horizontal lines
 const drawLine = (doc, y) => {
@@ -23,10 +20,10 @@ const drawLine = (doc, y) => {
 // @access  Public
 const generateStatement = asyncHandler(async (req, res, next) => {
   const vendorId = requireVendorScope(req);
-  const vendor = await Vendor.findOne({ $or: [{ vendorId }, { clerkId: vendorId }] });
-  
+  const vendor = await prisma.vendor.findFirst({ where: { OR: [{ vendorId }, { clerkId: vendorId }] } });
+
   // Get all payments for this vendor
-  const payments = await Payment.find({ vendorId }).sort({ paymentDate: -1 });
+  const payments = await prisma.payment.findMany({ where: { vendorId }, orderBy: { paymentDate: 'desc' } });
 
   const doc = new PDFDocument({ margin: 50, size: 'A4' });
 
@@ -38,11 +35,11 @@ const generateStatement = asyncHandler(async (req, res, next) => {
   // Title / Branding Header
   doc.fillColor('#004080').font('Helvetica-Bold').fontSize(18).text('VendorConnect Portal', 50, 50);
   doc.fillColor('#1c1c1c').font('Helvetica').fontSize(10).text('Enterprise Supplier Self-Service Platform', 50, 70);
-  
+
   doc.fillColor('#004080').font('Helvetica-Bold').fontSize(12).text('ACCOUNT STATEMENT', 350, 50, { align: 'right' });
   doc.fillColor('#1c1c1c').font('Helvetica-Bold').fontSize(9).text('Period: Q1 FY 2026-27', 350, 68, { align: 'right' });
   doc.font('Helvetica').text(`Run Date: ${new Date().toLocaleDateString('en-IN')}`, 350, 80, { align: 'right' });
-  
+
   drawLine(doc, 100);
 
   // Vendor Information Block
@@ -88,9 +85,14 @@ const generateStatement = asyncHandler(async (req, res, next) => {
       const pmtDate = new Date(pmt.paymentDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
       const utr = pmt.utrCode || pmt.id;
       const invRef = pmt.invoiceNumber || 'INV-REF';
-      const gross = pmt.grossAmount || pmt.amount;
-      const tds = pmt.tdsDeducted || 0;
-      const net = pmt.netAmount || pmt.amount;
+      // grossAmount/tdsDeducted/netAmount are Decimal-typed columns — converted
+      // here rather than left to `totalGross += gross` below's string-
+      // concatenation trap (see utils/money.js), and because Decimal's own
+      // toLocaleString() silently ignores the locale/fraction-digit options
+      // passed to it further down, unlike a plain number's.
+      const gross = toNumber(pmt.grossAmount) || 0;
+      const tds = toNumber(pmt.tdsDeducted) || 0;
+      const net = toNumber(pmt.netAmount) || 0;
 
       totalGross += gross;
       totalTds += tds;
@@ -149,13 +151,13 @@ const generateInvoicePDF = asyncHandler(async (req, res, next) => {
   const { id } = req.params;
   const vendorId = requireVendorScope(req);
 
-  const invoice = await Invoice.findOne({ id });
+  const invoice = await prisma.invoice.findFirst({ where: { id }, include: { items: true } });
   if (!invoice) {
     return next(ApiError.notFound('Invoice document not found'));
   }
 
-  const vendor = await Vendor.findOne({ $or: [{ vendorId: invoice.vendorId }, { clerkId: invoice.vendorId }] });
-  const po = await PurchaseOrder.findOne({ id: invoice.poId });
+  const vendor = await prisma.vendor.findFirst({ where: { OR: [{ vendorId: invoice.vendorId }, { clerkId: invoice.vendorId }] } });
+  const po = await prisma.purchaseOrder.findFirst({ where: { id: invoice.poId } });
 
   const doc = new PDFDocument({ margin: 50, size: 'A4' });
 
@@ -217,9 +219,13 @@ const generateInvoicePDF = asyncHandler(async (req, res, next) => {
     doc.text(`${item.materialCode}\n${item.description}`, 90, y, { width: 180 });
     doc.text(String(item.quantity), 280, y, { width: 50, align: 'right' });
     doc.text('EA', 340, y, { width: 35 });
-    doc.text(item.unitPrice.toFixed(2), 385, y, { width: 70, align: 'right' });
-    doc.text(item.amount.toFixed(2), 465, y, { width: 85, align: 'right' });
-    
+    // unitPrice/amount are Decimal-typed — their own .toFixed() happens to
+    // match Number.prototype.toFixed's output, but converting first keeps this
+    // consistent with the subTotal/taxVal/totalAmount block below, where a raw
+    // Decimal's .toLocaleString() does NOT match (see there for why).
+    doc.text(toNumber(item.unitPrice).toFixed(2), 385, y, { width: 70, align: 'right' });
+    doc.text(toNumber(item.amount).toFixed(2), 465, y, { width: 85, align: 'right' });
+
     y += 28;
     doc.strokeColor('#f0f4f8').lineWidth(0.5).moveTo(50, y - 5).lineTo(550, y - 5).stroke();
   });
@@ -228,9 +234,17 @@ const generateInvoicePDF = asyncHandler(async (req, res, next) => {
   drawLine(doc, y);
   y += 10;
 
-  // Subtotals and GST rates display
-  const subTotal = invoice.subTotal || (invoice.totalAmount / 1.18);
-  const taxVal = invoice.taxAmount || (invoice.totalAmount - subTotal);
+  // Subtotals and GST rates display. subTotal/taxAmount/totalAmount are
+  // Decimal-typed columns: a raw Decimal's own .toLocaleString() silently
+  // ignores the locale/fraction-digit options passed to it below (ignored,
+  // not thrown — it just renders "1234.5" instead of "1,234.50"), unlike a
+  // plain number's. Converting here, before either fallback expression runs,
+  // keeps every downstream use — including the ones below that only "happen"
+  // to work today because `/` and `-` force numeric coercion — on the same
+  // plain-number footing.
+  const totalAmount = toNumber(invoice.totalAmount);
+  const subTotal = toNumber(invoice.subTotal) || (totalAmount / 1.18);
+  const taxVal = toNumber(invoice.taxAmount) || (totalAmount - subTotal);
 
   doc.font('Helvetica').fontSize(9);
   doc.text('Subtotal (Net Taxable Value):', 300, y, { align: 'right', width: 150 });
@@ -251,7 +265,7 @@ const generateInvoicePDF = asyncHandler(async (req, res, next) => {
 
   doc.font('Helvetica-Bold').fontSize(10).fillColor('#004080');
   doc.text('INVOICE TOTAL (INR):', 300, y, { align: 'right', width: 150 });
-  doc.text(`₹${invoice.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 465, y, { align: 'right', width: 85 });
+  doc.text(`₹${totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 465, y, { align: 'right', width: 85 });
 
   // Digital footnote validation stamps
   y += 45;
@@ -269,16 +283,18 @@ const generateInvoicePDF = asyncHandler(async (req, res, next) => {
 // @route   GET /api/reports/metrics
 // @access  Admin/Private
 const getPlatformMetrics = asyncHandler(async (req, res, next) => {
-  const totalVendors = await Vendor.countDocuments({});
-  const totalRfqs = await RFQ.countDocuments({});
-  const totalPOs = await PurchaseOrder.countDocuments({});
-  const totalInvoices = await Invoice.countDocuments({});
-  const totalPayments = await Payment.countDocuments({});
-
-  const paymentVolume = await Payment.aggregate([
-    { $group: { _id: null, total: { $sum: "$netAmount" } } }
+  const [totalVendors, totalRfqs, totalPOs, totalInvoices, totalPayments, paymentVolume] = await Promise.all([
+    prisma.vendor.count({}),
+    prisma.rFQ.count({}),
+    prisma.purchaseOrder.count({}),
+    prisma.invoice.count({}),
+    prisma.payment.count({}),
+    prisma.payment.aggregate({ _sum: { netAmount: true } }),
   ]);
-  const totalVolume = paymentVolume.length > 0 ? paymentVolume[0].total : 0;
+  // Prisma's aggregate _sum over a Decimal column returns a Decimal, not a
+  // plain number — left unconverted this reaches res.json() below and
+  // serializes as a string (see utils/money.js).
+  const totalVolume = toNumber(paymentVolume._sum.netAmount) || 0;
 
   res.json({
     totalVendors,

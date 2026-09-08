@@ -23,7 +23,6 @@
     "helmet": "^8.2.0",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^1.17.0",
-    "mongoose": "^9.6.3",
     "morgan": "^1.11.0",
     "multer": "^2.1.1",
     "next": "16.2.7",

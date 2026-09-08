@@ -53,7 +53,10 @@ const GROUPS = [
 const SETTINGS = [
   {
     key: 'branding.logo',
-    path: 'branding.logo',
+    // A flat scalar column (brandingLogo), not a nested subdocument — Client's
+    // Mongoose `branding: {logo, primaryColor}` subdocument became two plain
+    // columns in the Prisma schema (see prisma/schema.prisma).
+    path: 'brandingLogo',
     group: 'branding',
     type: 'url',
     default: '',
@@ -63,7 +66,7 @@ const SETTINGS = [
   },
   {
     key: 'branding.primaryColor',
-    path: 'branding.primaryColor',
+    path: 'brandingColor',
     group: 'branding',
     type: 'color',
     default: '',
@@ -294,17 +297,28 @@ const applySettings = (client, patch = {}) => {
     throw error;
   }
 
+  // Applies each change to the in-memory `client` object (plain object
+  // mutation — no Mongoose markModified() needed here, since the caller
+  // persists explicitly afterwards; see workspace.controller.js's
+  // updateSettings, which turns the top-level segments named by `changed`'s
+  // paths into a Prisma `update` payload).
   const changed = [];
   for (const { setting, value } of staged) {
     if (settingValue(client, setting.key) === value) continue;
     writePath(client, setting.path, value);
-    // Mixed subtrees do not track their own mutations.
-    client.markModified(setting.path.split('.')[0]);
     changed.push(setting.key);
   }
 
   return changed;
 };
+
+// The distinct top-level Client columns a set of changed setting keys
+// touched — e.g. ['thresholds.invoiceReviewAmount'] -> ['settings']. What
+// workspace.controller.js's updateSettings uses to build the Prisma `data`
+// payload after applySettings has mutated the in-memory client object.
+const topLevelFieldsFor = (changedKeys) => [
+  ...new Set(changedKeys.map((key) => BY_KEY.get(key).path.split('.')[0])),
+];
 
 module.exports = {
   SETTING_GROUPS: GROUPS,
@@ -313,4 +327,5 @@ module.exports = {
   settingValue,
   describeSettings,
   applySettings,
+  topLevelFieldsFor,
 };

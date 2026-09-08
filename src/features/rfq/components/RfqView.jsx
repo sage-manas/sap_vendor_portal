@@ -6,14 +6,19 @@ import {
   ClipboardList,
   Search,
   ChevronsLeft,
-  Menu
+  Menu,
+  Loader2,
+  FileText,
+  IndianRupee
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import SkeletonLoader from '@/components/shared/SkeletonLoader';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import StatusBadge from '@/components/ui/StatusBadge';
 import EmptyState from '@/components/ui/EmptyState';
+import Modal from '@/components/ui/Modal';
 import { rfqStatusVariant } from '@/lib/statusColors';
+import { mergeSapDocuments, countByType, commonPurchasingOrg } from '@/lib/sapDocuments';
 
 const formatDate = (dateStr) => {
   if (!dateStr) return '';
@@ -21,6 +26,10 @@ const formatDate = (dateStr) => {
   if (typeof dateStr === 'string' && dateStr.includes('T')) {
     dateStr = dateStr.split('T')[0];
   }
+  // SAP's date fields (EKKO-BEDAT, via the ME43/ME48 reads) arrive as a bare
+  // YYYYMMDD like 20251112, which Date() rejects outright.
+  const sapDate = /^(\d{4})(\d{2})(\d{2})$/.exec(String(dateStr));
+  if (sapDate) return `${sapDate[3]}.${sapDate[2]}.${sapDate[1]}`;
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return dateStr;
   const day = String(d.getDate()).padStart(2, '0');
@@ -130,6 +139,7 @@ export default function RfqView({
   selectedRfqId,
   setSelectedRfqId,
   handleBidSubmit,
+  handleSapQuotePriceUpdate,
   addToast
 }) {
   const [isPageLoading, setIsPageLoading] = useState(true);
@@ -143,7 +153,8 @@ export default function RfqView({
   const isApproved = state.profile.status === 'Approved';
   const currentVendorCode = state.profile.sapVendorCode || 'VND-CURRENT';
 
-  // Tab selector state: 'monitor' (RFQ list & history) or 'me47' (Submit Quotation)
+  // Tab selector: 'monitor' (RFQ list & history), 'me47' (Submit Quotation),
+  // or 'me48' (what SAP itself holds against this vendor's code).
   const [activeProcTab, setActiveProcTab] = useState('monitor');
   const [listSearch, setListSearch] = useState('');
   const [showRfqList, setShowRfqList] = useState(true);
@@ -151,10 +162,76 @@ export default function RfqView({
   const [isLoading, setIsLoading] = useState(false);
   const [tabLoading, setTabLoading] = useState(false);
 
-  // ME47 Submit Quotation form states
+  // Submit Quotation form states
   const [quoteForm, setQuoteForm] = useState(getInitialQuoteForm);
 
   const [quoteErrors, setQuoteErrors] = useState({});
+
+  // The merged SAP ledger holds quotations and purchase orders together, so
+  // the tab offers the same split (see lib/sapDocuments.js).
+  const [documentTypeFilter, setDocumentTypeFilter] = useState('all');
+
+  // "Update Price (ME47)" modal — pushes a net price for a SAP-native
+  // quotation document. Line numbers/materials come from a portal RFQ the
+  // vendor picks (the ones they already see in RFQ Monitor & History), since
+  // SAP's own quotation display returns no line items to price against.
+  const [priceUpdateDoc, setPriceUpdateDoc] = useState(null);
+  const [priceUpdateRfqId, setPriceUpdateRfqId] = useState('');
+  const [priceUpdatePrices, setPriceUpdatePrices] = useState({});
+  const [priceUpdateLoading, setPriceUpdateLoading] = useState(false);
+
+  const openPriceUpdate = (doc) => {
+    setPriceUpdateDoc(doc);
+    setPriceUpdateRfqId('');
+    setPriceUpdatePrices({});
+  };
+
+  const closePriceUpdate = () => {
+    if (priceUpdateLoading) return;
+    setPriceUpdateDoc(null);
+    setPriceUpdateRfqId('');
+    setPriceUpdatePrices({});
+  };
+
+  const priceUpdateRfq = state.rfqs.find((r) => r.id === priceUpdateRfqId);
+
+  const handlePriceUpdateRfqChange = (rfqId) => {
+    setPriceUpdateRfqId(rfqId);
+    const rfq = state.rfqs.find((r) => r.id === rfqId);
+    if (!rfq) {
+      setPriceUpdatePrices({});
+      return;
+    }
+    // Pre-fill from this vendor's own bid on the RFQ, if one exists, else the
+    // target reference price — either way the vendor edits before submitting.
+    const ownBid = rfq.bids?.find((b) => b.vendorId === state.profile.vendorId);
+    const prices = {};
+    rfq.items.forEach((item) => {
+      const existing = ownBid?.unitPrices?.[item.line] ?? ownBid?.unitPrices?.get?.(String(item.line));
+      prices[item.line] = existing ?? item.targetPrice ?? '';
+    });
+    setPriceUpdatePrices(prices);
+  };
+
+  const submitPriceUpdate = async () => {
+    if (!priceUpdateDoc || !priceUpdateRfq) return;
+    const items = priceUpdateRfq.items
+      .map((item) => ({ line: item.line, netPrice: Number(priceUpdatePrices[item.line]) }))
+      .filter((item) => item.netPrice > 0);
+
+    if (items.length === 0) {
+      addToast('error', 'Enter a net price for at least one line item.');
+      return;
+    }
+
+    setPriceUpdateLoading(true);
+    const result = await handleSapQuotePriceUpdate(priceUpdateRfq.id, priceUpdateDoc.documentNumber, items);
+    setPriceUpdateLoading(false);
+
+    if (result?.success) {
+      closePriceUpdate();
+    }
+  };
 
   useEffect(() => {
     if (activeProcTab === 'me47') {
@@ -170,10 +247,16 @@ export default function RfqView({
   // cause a server/client render mismatch during hydration).
   useEffect(() => {
     const quoteDraft = loadDraft(QUOTE_DRAFT_KEY);
+    // Restoring a saved draft into the live form state. It cannot be the
+    // initial useState value (localStorage is absent during the server render,
+    // so hydration would mismatch) and it cannot be derived, because the form
+    // is edited from fourteen other places afterwards. One extra render on
+    // mount, not a cascade.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (quoteDraft?.quoteForm) setQuoteForm(quoteDraft.quoteForm);
   }, []);
 
-  // Submit ME47 Quotation (Submit Quotation Tab)
+  // Submit the quotation (Submit Quotation tab)
   const handleQuotationSubmit = async (e) => {
     if (e) e.preventDefault();
 
@@ -278,7 +361,16 @@ export default function RfqView({
               : 'border-transparent text-text-tertiary hover:text-text-primary'
               }`}
           >
-            <Percent className="size-4" /> Submit Quotation (ME47)
+            <Percent className="size-4" /> Submit Quotation
+          </button>
+          <button
+            onClick={() => { setActiveProcTab('me48'); setListSearch(''); }}
+            className={`pb-2.5 px-5 text-xs font-bold border-b-2 transition-colors duration-150 cursor-pointer flex items-center gap-2 ${activeProcTab === 'me48'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-text-tertiary hover:text-text-primary'
+              }`}
+          >
+            <FileText className="size-4" /> My Documents
           </button>
         </div>
         {activeProcTab === 'monitor' && (
@@ -294,7 +386,7 @@ export default function RfqView({
         )}
       </div>
 
-      {activeProcTab !== 'me47' ? (
+      {activeProcTab === 'monitor' ? (
         <div className="card flex overflow-hidden min-h-[500px]">
           {/* LEFT SIDEBAR PANEL: RFQ LIST */}
           <div className={`shrink-0 bg-surface flex flex-col h-[calc(100vh-13.5rem)] transition-all duration-300 ease-in-out overflow-hidden ${
@@ -455,10 +547,10 @@ export default function RfqView({
                     </FormSection>
 
                     {/* PROCESS DETAILS (AUDIT WORKFLOW STATUS) */}
-                    <FormSection number="03" title="Audit process &amp; SAP status tracking">
+                    <FormSection number="03" title="Progress of this request">
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
                         <div className="p-3 border border-border rounded-md bg-surface2/30">
-                          <span className="text-[9px] text-text-tertiary uppercase block font-bold">ME41 Create</span>
+                          <span className="text-[9px] text-text-tertiary uppercase block font-bold">Request published</span>
                           <span className="font-bold text-text-primary flex items-center gap-1.5 mt-1.5">
                             <CheckCircle2 className="size-3.5 text-green-600" /> Published
                           </span>
@@ -466,7 +558,7 @@ export default function RfqView({
                         </div>
 
                         <div className="p-3 border border-border rounded-md bg-surface2/30">
-                          <span className="text-[9px] text-text-tertiary uppercase block font-bold">ME47 Quotation</span>
+                          <span className="text-[9px] text-text-tertiary uppercase block font-bold">Quotes received</span>
                           <span className={`font-bold mt-1.5 flex items-center gap-1.5 ${activeRfq.bids?.length > 0 ? 'text-text-primary' : 'text-text-tertiary'}`}>
                             {activeRfq.bids?.length > 0 ? (
                               <>
@@ -482,7 +574,7 @@ export default function RfqView({
                         </div>
 
                         <div className="p-3 border border-border rounded-md bg-surface2/30">
-                          <span className="text-[9px] text-text-tertiary uppercase block font-bold">ME48 Evaluation</span>
+                          <span className="text-[9px] text-text-tertiary uppercase block font-bold">Evaluation</span>
                           <span className={`font-bold mt-1.5 flex items-center gap-1.5 ${activeRfq.status === 'Awarded' || activeRfq.status === 'Under Review' ? 'text-text-primary' : 'text-text-tertiary'}`}>
                             {activeRfq.status === 'Awarded' ? (
                               <>
@@ -500,11 +592,11 @@ export default function RfqView({
                         </div>
 
                         <div className="p-3 border border-border rounded-md bg-surface2/30">
-                          <span className="text-[9px] text-text-tertiary uppercase block font-bold">ME58 PO Generation</span>
+                          <span className="text-[9px] text-text-tertiary uppercase block font-bold">Order raised</span>
                           <span className={`font-bold mt-1.5 flex items-center gap-1.5 ${activeRfq.status === 'Awarded' ? 'text-text-primary' : 'text-text-tertiary'}`}>
                             {activeRfq.status === 'Awarded' ? (
                               <>
-                                <CheckCircle2 className="size-3.5 text-green-600" /> PO Synced
+                                <CheckCircle2 className="size-3.5 text-green-600" /> Order raised
                               </>
                             ) : (
                               'PO Pending'
@@ -535,8 +627,130 @@ export default function RfqView({
             })()}
           </div>
         </div>
+      ) : activeProcTab === 'me48' ? (
+        /* TAB: EVERY PURCHASING DOCUMENT SAP HOLDS ON THIS VENDOR CODE.
+           Two reads, one list — ME43 (ZME43/ME43) reports the RFQ/quotation
+           documents, ME48 (ZCL_ME48/vendor) the whole purchasing set including
+           those same quotations. Both are vendor-scoped, neither takes an RFQ
+           id, and the overlap is deduplicated in lib/sapDocuments.js. */
+        (() => {
+          const documents = mergeSapDocuments({
+            rfqDocuments: state.sapRfqDocuments,
+            quotationDocuments: state.sapQuotationDocuments,
+          });
+
+          return (
+            <div className="card p-5 space-y-4 animate-fade-in">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-[15px] font-bold text-text-primary">My purchasing documents</h3>
+                  <p className="text-[11px] text-text-tertiary mt-1 max-w-3xl">
+                    Read straight from your buyer&rsquo;s system for supplier ID{' '}
+                    <span className="font-mono font-bold text-text-secondary">{currentVendorCode}</span>.
+                    These are your buyer&rsquo;s own records, so they are listed separately from the
+                    requests shown in the monitor.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="label mb-0 whitespace-nowrap">Type</span>
+                  <select className="h-9" value={documentTypeFilter} onChange={(e) => setDocumentTypeFilter(e.target.value)}>
+                    <option value="all">All documents</option>
+                    <option value="Quotation">Quotations</option>
+                    <option value="Purchase Order">Purchase orders</option>
+                  </select>
+                </div>
+              </div>
+
+              {documents === null ? (
+                <div className="flex items-center gap-2 text-xs text-text-tertiary py-6 justify-center">
+                  <Loader2 className="size-3.5 animate-spin" /> Loading your buyer&rsquo;s records for your company...
+                </div>
+              ) : documents.length === 0 ? (
+                <EmptyState
+                  icon={FileText}
+                  title="Nothing on file yet"
+                  description="Your buyer has no documents on file for your company yet. Quotations and purchase orders appear here once they do."
+                />
+              ) : (() => {
+                const counts = countByType(documents);
+                const org = commonPurchasingOrg(documents);
+                const shown = documentTypeFilter === 'all'
+                  ? documents
+                  : documents.filter((doc) => doc.documentType === documentTypeFilter);
+
+                return (
+                  <>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-text-tertiary">
+                      <span><span className="font-bold text-text-secondary tabular-nums">{counts.quotations}</span> quotation(s)</span>
+                      <span><span className="font-bold text-text-secondary tabular-nums">{counts.purchaseOrders}</span> purchase order(s)</span>
+                      {/* Shown once as context rather than repeated down a
+                          column: it is the same value on every row. */}
+                      {org && <span>Buying unit <span className="font-mono font-bold text-text-secondary">{org}</span></span>}
+                    </div>
+
+                    {shown.length === 0 ? (
+                      <EmptyState
+                        icon={FileText}
+                        title="No documents of this type"
+                        description="Your buyer has documents for your company, but none of the selected type."
+                      />
+                    ) : (
+                      <div className="overflow-x-auto overflow-y-auto max-h-[520px] custom-scrollbar border border-border">
+                        <table className="w-full text-left border-collapse table-sticky">
+                          <thead className="sticky top-0 z-10">
+                            <tr>
+                              <th>Document No.</th>
+                              <th>Type</th>
+                              <th>Date</th>
+                              <th>Currency</th>
+                              {!org && <th>Buying unit</th>}
+                              <th className="text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {shown.map((doc, index) => (
+                              <tr key={`${doc.documentNumber || 'unnumbered'}-${index}`}>
+                                <td className="font-mono font-bold text-text-primary select-all">{doc.documentNumber || '—'}</td>
+                                <td>
+                                  <StatusBadge
+                                    label={doc.documentType}
+                                    variant={doc.documentType === 'Quotation' ? 'info' : 'pending'}
+                                  />
+                                </td>
+                                <td className="font-mono text-text-tertiary tabular-nums whitespace-nowrap">{formatDate(doc.date)}</td>
+                                <td className="font-mono text-text-secondary">{doc.currency || '—'}</td>
+                                {!org && <td className="font-mono text-text-secondary">{doc.purchasingOrg || '—'}</td>}
+                                <td className="text-right">
+                                  {doc.documentType === 'Quotation' && (
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => openPriceUpdate(doc)}
+                                      className="gap-1.5"
+                                    >
+                                      <IndianRupee className="size-3.5" /> Update Price
+                                    </Button>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    <p className="text-[10px] text-text-tertiary">
+                      Showing {shown.length} of {documents.length} document(s), newest first.
+                    </p>
+                  </>
+                );
+              })()}
+            </div>
+          );
+        })()
       ) : (
-        /* TAB: ME47 MAINTAIN QUOTATION FORM */
+        /* TAB: SUBMIT QUOTATION FORM */
         <div className="space-y-6">
           {tabLoading ? (
             <div className="card space-y-6 animate-fade-in p-6">
@@ -561,15 +775,15 @@ export default function RfqView({
               {isLoading && (
                 <div className="absolute inset-0 bg-surface/85 backdrop-blur-xs flex flex-col items-center justify-center z-30 min-h-[400px]">
                   <div className="size-10 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4" />
-                  <p className="text-xs font-bold text-text-primary uppercase tracking-widest font-mono">BAPI_QUOTATION_CREATE Posting to SAP ERP...</p>
-                  <p className="text-[10px] text-text-secondary mt-1">Updating Info Records &amp; synchronization with SAP database (ME47)...</p>
+                  <p className="text-xs font-bold text-text-primary uppercase tracking-widest font-mono">Submitting your quote...</p>
+                  <p className="text-[10px] text-text-secondary mt-1">Sending your prices and delivery terms to your buyer...</p>
                 </div>
               )}
 
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                  <h3 className="text-sm font-bold text-text-primary">Submit Quotation (ME47)</h3>
-                  <p className="text-[11px] text-text-secondary mt-0.5">Submit proposal prices, discount structures and delivery timelines directly to SAP</p>
+                  <h3 className="text-sm font-bold text-text-primary">Submit Quotation</h3>
+                  <p className="text-[11px] text-text-secondary mt-0.5">Send your prices, discounts and delivery timelines to your buyer</p>
                 </div>
               </div>
 
@@ -580,8 +794,8 @@ export default function RfqView({
                   <div className={`p-4 bg-surface2/30 border rounded-md space-y-4 ${quoteErrors.rfqId ? 'border-rose-500 ring-1 ring-rose-500/50 bg-rose-50/5' : 'border-border'}`}>
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                       <div>
-                        <h4 className="text-[11px] font-bold text-text-secondary uppercase tracking-wider font-mono">Select RFQ Document</h4>
-                        <p className="text-[10px] text-text-tertiary mt-0.5 font-semibold">Choose an active RFQ from the SAP ERP system to quote for</p>
+                        <h4 className="text-[11px] font-bold text-text-secondary uppercase tracking-wider font-mono">Choose a request</h4>
+                        <p className="text-[10px] text-text-tertiary mt-0.5 font-semibold">Pick one of the open requests you have been invited to quote for</p>
                       </div>
                       <div>
                         <select
@@ -865,6 +1079,90 @@ export default function RfqView({
           )}
         </div>
       )}
+
+      {/* UPDATE PRICE (ME47) MODAL — pushes a net price to a SAP-native
+          quotation document, sourced from a portal RFQ's own line items. */}
+      <Modal
+        open={!!priceUpdateDoc}
+        onClose={closePriceUpdate}
+        title={`Update Price (ME47) — ${priceUpdateDoc?.documentNumber || ''}`}
+        footer={
+          <>
+            <Button type="button" variant="outline" onClick={closePriceUpdate} disabled={priceUpdateLoading}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="default"
+              onClick={submitPriceUpdate}
+              disabled={priceUpdateLoading || !priceUpdateRfq}
+              className="gap-1.5"
+            >
+              {priceUpdateLoading && <Loader2 className="size-3.5 animate-spin" />}
+              Send to SAP
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-[11px] text-text-tertiary">
+            Pick the request in RFQ Monitor &amp; History whose line items this SAP document corresponds to,
+            then enter the net price per line to send to your buyer&rsquo;s system.
+          </p>
+
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-bold text-text-secondary uppercase tracking-wide">Linked RFQ</label>
+            <select
+              value={priceUpdateRfqId}
+              onChange={(e) => handlePriceUpdateRfqChange(e.target.value)}
+              className="w-full font-semibold"
+              disabled={priceUpdateLoading}
+            >
+              <option value="">-- Choose RFQ --</option>
+              {state.rfqs.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.id} - {r.description}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {priceUpdateRfq && (
+            <div className="border border-border rounded-md overflow-hidden">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr>
+                    <th>Line</th>
+                    <th>Material</th>
+                    <th className="text-right">Net Price (₹)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {priceUpdateRfq.items.map((item) => (
+                    <tr key={item.line}>
+                      <td className="font-mono font-bold text-text-tertiary">{item.line}</td>
+                      <td className="font-mono font-bold text-text-primary whitespace-nowrap">{item.materialCode}</td>
+                      <td className="text-right">
+                        <input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={priceUpdatePrices[item.line] ?? ''}
+                          onChange={(e) =>
+                            setPriceUpdatePrices((prev) => ({ ...prev, [item.line]: e.target.value }))
+                          }
+                          disabled={priceUpdateLoading}
+                          className="w-[12ch] text-right font-mono font-semibold"
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </Modal>
 
       </div>
     </ErrorBoundary>

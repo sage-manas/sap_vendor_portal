@@ -1,3 +1,4 @@
+const { prisma } = require('../db/prisma');
 const ApiError = require('./ApiError');
 const { runWithTenant } = require('./tenantContext');
 
@@ -19,18 +20,19 @@ const against = (used, limit) => ({
   breached: Boolean(limit && used > limit),
 });
 
-// One entry per metered thing, lazily requiring its model so this module can
-// be pulled in from anywhere without dragging in the whole model graph.
+// One entry per metered thing. `limitField` is the flattened column on Client
+// (models/Client.js's nested `limits.*` became limitVendors/limitRfqsPerMonth/
+// limitStorageMb in the Prisma schema — see prisma/schema.prisma).
 const METRICS = {
   vendors: {
-    limitKey: 'vendors',
+    limitField: 'limitVendors',
     label: 'suppliers',
-    count: () => require('../models/Vendor').countDocuments({}),
+    count: () => prisma.vendor.count({}),
   },
   rfqsPerMonth: {
-    limitKey: 'rfqsPerMonth',
+    limitField: 'limitRfqsPerMonth',
     label: 'RFQs this month',
-    count: () => require('../models/RFQ').countDocuments({ createdAt: { $gte: startOfMonth() } }),
+    count: () => prisma.rFQ.count({ where: { createdAt: { gte: startOfMonth() } } }),
   },
 };
 
@@ -41,8 +43,8 @@ const usageAgainstLimits = (client) => runWithTenant(client.clientId, async () =
     METRICS.rfqsPerMonth.count(),
   ]);
   return {
-    vendors: against(vendors, client.limits?.vendors),
-    rfqsThisMonth: against(rfqsThisMonth, client.limits?.rfqsPerMonth),
+    vendors: against(vendors, client[METRICS.vendors.limitField]),
+    rfqsThisMonth: against(rfqsThisMonth, client[METRICS.rfqsPerMonth.limitField]),
   };
 });
 
@@ -52,7 +54,7 @@ const usageAgainstLimits = (client) => runWithTenant(client.clientId, async () =
 // registration) that has no bound context yet, as well as from one that does.
 const assertCanCreate = (client, metricName) => runWithTenant(client.clientId, async () => {
   const metric = METRICS[metricName];
-  const limit = client.limits?.[metric.limitKey];
+  const limit = client[metric.limitField];
   // Null/undefined means unlimited; 0 is a real limit ("no room at all") and
   // must not be read the same way `!limit` would read it.
   if (limit == null) return;

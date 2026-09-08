@@ -47,6 +47,9 @@ const AUDIT_ACTIONS = {
   SAP_CONNECTION_UPDATED: 'sap.connection_updated',
   SAP_CONNECTION_TESTED: 'sap.connection_tested',
   SAP_CONNECTION_PROMOTED: 'sap.connection_promoted',
+
+  // SAP job runtime (Phase 1 of docs/04-sap-runtime-engineering-plan.md)
+  JOB_RETRIED: 'job.retried',
 };
 
 const ALL_AUDIT_ACTIONS = Object.values(AUDIT_ACTIONS);

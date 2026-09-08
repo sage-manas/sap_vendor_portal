@@ -15,5 +15,9 @@ export const profileService = {
 
   async submitRegistration(data) {
     return apiClient.post('/vendors/profile/submit', data);
+  },
+
+  async getSapReferenceData() {
+    return apiClient.get('/vendors/sap-reference-data');
   }
 };

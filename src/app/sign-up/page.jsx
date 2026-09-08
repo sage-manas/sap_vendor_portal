@@ -104,7 +104,7 @@ export default function SignUpPage() {
   return (
     <div className="w-full max-w-[460px] p-8 card animate-fadeUp my-8">
       {/* Whose front door this is (workspace-realm.js) */}
-      <WorkspaceBrand workspace={workspace} caption="Supplier registration · ERP synchronized" />
+      <WorkspaceBrand workspace={workspace} caption="Supplier registration" />
 
       {/* Error Output */}
       {error && (

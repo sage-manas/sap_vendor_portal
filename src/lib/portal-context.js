@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useShell } from '@/lib/shell-context';
 import { useProfile } from '@/features/profile/hooks/useProfile';
 import { useRFQs } from '@/features/rfq/hooks/useRFQs';
@@ -10,7 +10,13 @@ import { usePayments } from '@/features/payments/hooks/usePayments';
 import { useDashboard } from '@/features/dashboard/hooks/useDashboard';
 import { usePathname, useRouter } from 'next/navigation';
 import { initSocket, closeSocket } from '@/lib/socket';
-import { isPlatformPath } from '@/lib/planes';
+import { isPlatformPath, isAuthPath } from '@/lib/planes';
+import { useWhoami } from '@/lib/whoami';
+
+// Where an account on a provisioned temporary password is sent until it is
+// replaced. Not an auth path — it needs a session — so the redirect below has to
+// exempt it explicitly or it would bounce against itself.
+const CHANGE_PASSWORD_PATH = '/change-password';
 import ToastNotification from '@/components/portal/ToastNotification';
 
 const PortalContext = createContext(undefined);
@@ -22,7 +28,7 @@ export function PortalProvider({ children }) {
   const paymentHook = usePayments();
   const invoiceHook = useInvoices(profileHook.profile, poHook.setInvoiceSubmittedForGrn, paymentHook.addPayment);
   const rfqHook = useRFQs(profileHook.profile);
-  const dashboardHook = useDashboard(profileHook.profile, shell.clearSapLogs);
+  const dashboardHook = useDashboard(profileHook.profile);
 
   const [toasts, setToasts] = useState([]);
   const [notifications, setNotifications] = useState([]);
@@ -46,12 +52,13 @@ export function PortalProvider({ children }) {
 
   const pathname = usePathname();
   const router = useRouter();
+  const { mustChangePassword } = useWhoami();
 
   // Redirect to sign-in if no token is found and not on auth pages
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const token = localStorage.getItem('jwt_token');
-      const isAuthPage = pathname === '/sign-in' || pathname === '/sign-up' || pathname === '/forgot-password' || pathname === '/reset-password';
+      const isAuthPage = isAuthPath(pathname);
       // The platform console has its own session and its own sign-in flow;
       // bouncing an operator to the supplier login would be nonsense.
       if (!token && !isAuthPage && !isPlatformPath(pathname)) {
@@ -59,6 +66,17 @@ export function PortalProvider({ children }) {
       }
     }
   }, [pathname, router]);
+
+  // An account still on the temporary password it was provisioned with finishes
+  // that before anything else. The platform console enforces the same rule in
+  // its own gate; this covers the supplier portal and the tenant workspace,
+  // which share this provider and this session.
+  useEffect(() => {
+    if (!mustChangePassword) return;
+    if (isPlatformPath(pathname) || isAuthPath(pathname)) return;
+    if (pathname === CHANGE_PASSWORD_PATH) return;
+    router.push(CHANGE_PASSWORD_PATH);
+  }, [mustChangePassword, pathname, router]);
 
   // Multi-tab storage sync: logout if jwt_token is removed in another tab
   useEffect(() => {
@@ -94,33 +112,26 @@ export function PortalProvider({ children }) {
     socket.on('po:new', (po) => {
       poHook.refreshPOs();
       addToast('info', `New Purchase Order received! ID: ${po.id}`);
-      shell.addSapLog('OData', '/API_PURCHASEORDER_PROCESS_SRV', 'INBOUND', po, 'SUCCESS');
     });
 
     socket.on('grn:received', (grn) => {
       poHook.refreshGRNs();
       poHook.refreshPOs();
       poHook.refreshASNs();
-      addToast('success', `Goods Receipt Note (GRN) received for PO: ${grn.poId}. Stores accepted your goods.`);
-      shell.addSapLog('BAPI', 'BAPI_GOODSMVT_CREATE', 'INBOUND', grn, 'SUCCESS');
-      shell.addSapLog('RFC', 'BAPI_GOODSMVT_GETDETAIL', 'INBOUND', { migoDoc: grn.sapMigoDoc, items: grn.items }, 'SUCCESS');
+      addToast('success', `Delivery confirmed for order ${grn.poId}. Your buyer has accepted the goods.`);
     });
 
     socket.on('payment:cleared', (pmt) => {
       paymentHook.refreshPayments();
+      paymentHook.refreshSapPayments();
       invoiceHook.refreshInvoices();
       addToast('success', `Payment cleared! UTR: ${pmt.utrCode} · Net Amount: ₹${pmt.netAmount.toLocaleString('en-IN')}`);
-      shell.addSapLog('OData', 'FBL1N_RFITEMGL', 'INBOUND', pmt, 'SUCCESS');
     });
 
     socket.on('chat:message', (msg) => {
       if (dashboardHook?.refreshChats) {
         dashboardHook.refreshChats();
       }
-    });
-
-    socket.on('log:new', (log) => {
-      shell.addSapLog(log.type, log.name, 'INBOUND', log.payload || 'Sync', 'SUCCESS');
     });
 
     return () => {
@@ -143,22 +154,26 @@ export function PortalProvider({ children }) {
   const state = {
     profile: profileHook.profile,
     rfqs: rfqHook.rfqs,
+    sapRfqDocuments: rfqHook.sapRfqDocuments,
+    sapQuotationDocuments: rfqHook.sapQuotationDocuments,
     pos: poHook.pos,
+    sapPoOrders: poHook.sapPoOrders,
     asns: poHook.asns,
     grns: poHook.grns,
     invoices: invoiceHook.invoices,
+    sapMiroDocuments: invoiceHook.sapMiroDocuments,
+    sapPaymentDetails: invoiceHook.sapPaymentDetails,
     payments: paymentHook.payments,
+    sapPayments: paymentHook.sapPayments,
+    tdsSummary: paymentHook.tdsSummary,
     chats: dashboardHook.chats,
-    logs: shell.sapPayloadLogs,
     performance: dashboardHook.performance
   };
 
-  const [consoleOpen, setConsoleOpen] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [selectedRfqId, setSelectedRfqId] = useState(null);
   const [selectedPoId, setSelectedPoId] = useState(null);
   const [selectedGrnId, setSelectedGrnId] = useState(null);
-  const [chatInput, setChatInput] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Forms states managed locally
@@ -185,23 +200,6 @@ export function PortalProvider({ children }) {
   const [invoiceForm, setInvoiceForm] = useState({
     invoiceNumber: '', invoiceDate: ''
   });
-
-  // DOM ref pointers
-  const chatEndRef = useRef(null);
-  const consoleEndRef = useRef(null);
-
-  // Auto-scroll feeds
-  useEffect(() => {
-    if (chatEndRef.current) {
-      chatEndRef.current.scrollTop = chatEndRef.current.scrollHeight;
-    }
-  }, [state.chats]);
-
-  useEffect(() => {
-    if (consoleEndRef.current) {
-      consoleEndRef.current.scrollTop = consoleEndRef.current.scrollHeight;
-    }
-  }, [state.logs]);
 
   // Sync profile values
   useEffect(() => {
@@ -253,9 +251,19 @@ export function PortalProvider({ children }) {
     const result = await rfqHook.submitBid(rfqId, prices, leadTime, remarks, gstRate, validityDate, freight, moq, docs);
     setSelectedRfqId(null);
     if (result.success) {
-      addToast('success', `Quotation for ${rfqId} submitted and synchronized with SAP Info Records (ME47).`);
+      addToast('success', `Your quote for ${rfqId} has been submitted.`);
     } else {
       addToast('error', result.error || `Failed to submit quotation for ${rfqId}.`);
+    }
+    return result;
+  };
+
+  const handleSapQuotePriceUpdate = async (rfqId, sapRfqNumber, items) => {
+    const result = await rfqHook.updateSapQuotationPrice(rfqId, sapRfqNumber, items);
+    if (result.success) {
+      addToast('success', `Net price for ${sapRfqNumber} updated in SAP.`);
+    } else {
+      addToast('error', result.error || `Failed to update the price for ${sapRfqNumber} in SAP.`);
     }
     return result;
   };
@@ -263,7 +271,7 @@ export function PortalProvider({ children }) {
   const handleCreateRFQ = async (rfqData) => {
     const result = await rfqHook.createRFQ(rfqData);
     if (result.success) {
-      addToast('success', `RFQ ${rfqData.id} successfully created & published to SAP ERP (ME41).`);
+      addToast('success', `Request for quotation ${rfqData.id} has been created and sent to suppliers.`);
     } else {
       addToast('error', result.error || 'Failed to create RFQ.');
     }
@@ -383,14 +391,8 @@ export function PortalProvider({ children }) {
     }, 1500);
   };
 
-  const handleSendMessage = () => {
-    if (!chatInput.trim()) return;
-    dashboardHook.sendChatMessage(chatInput);
-    setChatInput('');
-  };
-
   const handleResetDatabase = () => {
-    if (confirm('Reset portal ERP database back to default state? This will clear all transactions.')) {
+    if (confirm('Reset the portal back to its default demo data? This will clear all transactions.')) {
       dashboardHook.clearAllState();
       setActiveTab('dashboard');
     }
@@ -423,16 +425,12 @@ export function PortalProvider({ children }) {
         invoiceHook,
         rfqHook,
         dashboardHook,
-        consoleOpen,
-        setConsoleOpen,
         selectedRfqId,
         setSelectedRfqId,
         selectedPoId,
         setSelectedPoId,
         selectedGrnId,
         setSelectedGrnId,
-        chatInput,
-        setChatInput,
         isSubmitting,
         setIsSubmitting,
         companyForm,
@@ -447,16 +445,14 @@ export function PortalProvider({ children }) {
         setAsnForm,
         invoiceForm,
         setInvoiceForm,
-        chatEndRef,
-        consoleEndRef,
         handleCompanySubmit,
         handleBidSubmit,
+        handleSapQuotePriceUpdate,
         handleCreateRFQ,
         handleReissueRFQ,
         handleCancelRFQ,
         handleAsnSubmit,
         handleInvoiceSubmit,
-        handleSendMessage,
         handleResetDatabase,
         logout,
         awardVendorBidWrapper,

@@ -1,7 +1,6 @@
 const crypto = require('crypto');
-const Client = require('../models/Client');
-const User = require('../models/User');
-const Vendor = require('../models/Vendor');
+const { prisma } = require('../db/prisma');
+const { hashPassword } = require('../db/credentials');
 const ApiError = require('../utils/ApiError');
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
 const { sendMail } = require('../utils/mailer');
@@ -33,14 +32,16 @@ const generatePassword = () => crypto.randomBytes(18).toString('base64url');
  */
 const nextClientId = async () => {
   const [latest] = await withoutTenantScope(() =>
-    Client.find({ clientId: new RegExp(`^${CLIENT_ID_PREFIX}\\d+$`) })
-      .sort({ clientId: -1 })
-      .limit(1)
-      .select('clientId')
+    prisma.client.findMany({
+      where: { clientId: { startsWith: CLIENT_ID_PREFIX } },
+      orderBy: { clientId: 'desc' },
+      take: 1,
+      select: { clientId: true },
+    })
   );
 
   const highest = latest ? Number(latest.clientId.slice(CLIENT_ID_PREFIX.length)) : 0;
-  return `${CLIENT_ID_PREFIX}${String(highest + 1).padStart(4, '0')}`;
+  return `${CLIENT_ID_PREFIX}${String((Number.isFinite(highest) ? highest : 0) + 1).padStart(4, '0')}`;
 };
 
 const assertSlugAvailable = async (slug) => {
@@ -52,7 +53,7 @@ const assertSlugAvailable = async (slug) => {
   if (RESERVED_SLUGS.has(normalized)) {
     throw ApiError.badRequest(`"${normalized}" is reserved and cannot be used as a workspace address`);
   }
-  if (await withoutTenantScope(() => Client.findOne({ slug: normalized }))) {
+  if (await withoutTenantScope(() => prisma.client.findFirst({ where: { slug: normalized } }))) {
     throw ApiError.conflict('That workspace address is already taken');
   }
 
@@ -65,7 +66,8 @@ const assertSlugAvailable = async (slug) => {
 const assertEmailAvailable = async (email) => {
   const normalized = String(email || '').toLowerCase().trim();
   const taken = await withoutTenantScope(async () =>
-    (await User.findOne({ email: normalized })) || (await Vendor.findOne({ email: normalized })));
+    (await prisma.user.findFirst({ where: { email: normalized } })) ||
+    (await prisma.vendor.findFirst({ where: { email: normalized } })));
 
   if (taken) {
     throw ApiError.conflict('An account already exists for this email');
@@ -79,18 +81,22 @@ const assertEmailAvailable = async (email) => {
  * so it cannot end up in an API response, a log line or an audit entry.
  */
 const issueClientAdmin = async ({ client, email, name, invitedBy }) => {
-  const password = generatePassword();
+  const plainPassword = generatePassword();
+  const { password, passwordChangedAt } = await hashPassword(plainPassword);
 
-  const admin = await runWithTenant(client.clientId, () => User.create({
-    email,
-    name: name || email,
-    role: ROLES.CLIENT_ADMIN,
-    status: 'Active',
-    password,
-    mustChangePassword: true,
-    invitedBy,
-    invitedAt: new Date(),
-    activatedAt: new Date(),
+  const admin = await runWithTenant(client.clientId, () => prisma.user.create({
+    data: {
+      email,
+      name: name || email,
+      role: ROLES.CLIENT_ADMIN,
+      status: 'Active',
+      password,
+      passwordChangedAt,
+      mustChangePassword: true,
+      invitedBy,
+      invitedAt: new Date(),
+      activatedAt: new Date(),
+    },
   }));
 
   await sendMail({
@@ -100,7 +106,7 @@ const issueClientAdmin = async ({ client, email, name, invitedBy }) => {
       name: admin.name,
       companyName: client.companyName,
       email: admin.email,
-      temporaryPassword: password,
+      temporaryPassword: plainPassword,
       loginUrl: `${frontendUrl()}/sign-in?workspace=${encodeURIComponent(client.slug)}`,
     },
   });
@@ -113,7 +119,7 @@ const issueClientAdmin = async ({ client, email, name, invitedBy }) => {
  *
  * If the administrator cannot be created the Client is removed again: a tenant
  * with no way in is worse than no tenant, and there is no transaction to lean
- * on (the deployment target is not guaranteed to be a replica set).
+ * on across the two calls (issueClientAdmin sends an email in between).
  */
 const provisionTenant = async ({ companyName, slug, plan, limits, branding, featureFlags, admin, createdBy }) => {
   const normalizedSlug = await assertSlugAvailable(slug);
@@ -121,16 +127,25 @@ const provisionTenant = async ({ companyName, slug, plan, limits, branding, feat
 
   const clientId = await nextClientId();
 
-  const client = await withoutTenantScope(() => Client.create({
-    clientId,
-    companyName,
-    slug: normalizedSlug,
-    status: 'Trial',
-    plan: plan || 'trial',
-    ...(limits && { limits }),
-    ...(branding && { branding }),
-    ...(featureFlags && { featureFlags }),
-    createdBy,
+  const client = await withoutTenantScope(() => prisma.client.create({
+    data: {
+      clientId,
+      companyName,
+      slug: normalizedSlug,
+      status: 'Trial',
+      plan: plan || 'trial',
+      ...(limits && {
+        ...(limits.vendors != null && { limitVendors: limits.vendors }),
+        ...(limits.rfqsPerMonth != null && { limitRfqsPerMonth: limits.rfqsPerMonth }),
+        ...(limits.storageMb != null && { limitStorageMb: limits.storageMb }),
+      }),
+      ...(branding && {
+        ...(branding.logo != null && { brandingLogo: branding.logo }),
+        ...(branding.primaryColor != null && { brandingColor: branding.primaryColor }),
+      }),
+      ...(featureFlags && { featureFlags }),
+      createdBy,
+    },
   }));
 
   try {
@@ -142,7 +157,7 @@ const provisionTenant = async ({ companyName, slug, plan, limits, branding, feat
     });
     return { client, clientAdmin };
   } catch (error) {
-    await withoutTenantScope(() => Client.deleteOne({ _id: client._id }));
+    await withoutTenantScope(() => prisma.client.delete({ where: { pk: client.pk } }));
     throw error;
   }
 };
@@ -152,15 +167,17 @@ const provisionTenant = async ({ companyName, slug, plan, limits, branding, feat
  * email" path. Only ever resets a password; it never creates a second admin.
  */
 const reissueAdminCredentials = async ({ client, userId }) => {
-  const admin = await runWithTenant(client.clientId, () => User.findById(userId).select('+password'));
+  const admin = await runWithTenant(client.clientId, () => prisma.user.findFirst({ where: { pk: userId } }));
   if (!admin) {
     throw ApiError.notFound('Not found');
   }
 
-  const password = generatePassword();
-  admin.password = password;
-  admin.mustChangePassword = true;
-  await runWithTenant(client.clientId, () => admin.save());
+  const plainPassword = generatePassword();
+  const { password, passwordChangedAt } = await hashPassword(plainPassword);
+  await runWithTenant(client.clientId, () => prisma.user.update({
+    where: { pk: admin.pk },
+    data: { password, passwordChangedAt, mustChangePassword: true },
+  }));
 
   await sendMail({
     to: admin.email,
@@ -169,7 +186,7 @@ const reissueAdminCredentials = async ({ client, userId }) => {
       name: admin.name,
       companyName: client.companyName,
       email: admin.email,
-      temporaryPassword: password,
+      temporaryPassword: plainPassword,
       loginUrl: `${frontendUrl()}/sign-in?workspace=${encodeURIComponent(client.slug)}`,
     },
   });

@@ -44,5 +44,9 @@ export function useWhoami() {
     workspace: me?.workspace || null,
     // The back office belongs to the buying organisation, never to a supplier.
     isTenantStaff: me?.auth?.plane === 'tenant',
+    // Still on the temporary password they were provisioned with. Reported on
+    // the session rather than only in the login response, so refreshing the page
+    // is not a way around the change.
+    mustChangePassword: Boolean(me?.auth?.mustChangePassword),
   };
 }

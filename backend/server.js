@@ -158,7 +158,11 @@ app.use(cors({
     }
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  // PATCH is live (PATCH /users/:id, PATCH /workspace/settings) — it was
+  // missing here, which browsers enforce silently: a PATCH from the app
+  // itself failed CORS preflight while curl/Supertest, which skip preflight,
+  // never saw the problem.
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   // x-vendor-id is gone (ADR-0010): the JWT is the only identity the API accepts.
   allowedHeaders: ['Content-Type', 'Authorization', 'x-client-slug'],
 }));

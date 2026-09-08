@@ -82,6 +82,13 @@ export default function ReportsAnalyticsView({ state }) {
   const { addToast } = usePortal();
   const [detailTab, setDetailTab] = useState('procurement'); // 'procurement' | 'finance' | 'selfservice' | 'library'
 
+  // The AP-aging buckets and the ledger sort below both need "now". Reading the
+  // clock during render makes this component impure — two renders with the same
+  // props can disagree — which React Compiler rejects, and which would let an
+  // invoice silently cross the 45-day MSME threshold mid-render. Sampled once
+  // per mount instead, so a render is a function of its inputs.
+  const [now] = useState(() => Date.now());
+
   // Scheduled Reports registry
   const [scheduledReports, setScheduledReports] = useState(MOCK_SCHEDULED_REPORTS_INIT);
 
@@ -150,8 +157,8 @@ export default function ReportsAnalyticsView({ state }) {
 
   // 2. Tab 2 AP aging logs computed dynamically from Invoices list
   const apAgingData = state.invoices?.map(inv => {
-    const invoiceDate = new Date(inv.invoiceDate || Date.now());
-    const diffTime = Math.abs(new Date() - invoiceDate);
+    const invoiceDate = new Date(inv.invoiceDate || now);
+    const diffTime = Math.abs(now - invoiceDate);
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     const msmeType = state.profile?.msmeNumber ? 'Micro' : 'Non-MSME';
     
@@ -190,7 +197,7 @@ export default function ReportsAnalyticsView({ state }) {
       debit: inv.totalAmount || 0,
       credit: 0,
       status: inv.status === 'Paid' ? 'Cleared' : 'Uncleared',
-      rawDate: new Date(inv.invoiceDate || Date.now())
+      rawDate: new Date(inv.invoiceDate || now)
     });
   });
 
@@ -203,7 +210,7 @@ export default function ReportsAnalyticsView({ state }) {
       debit: 0,
       credit: pmt.netAmount || pmt.amount || 0,
       status: 'Cleared',
-      rawDate: new Date(pmt.paymentDate || pmt.createdDate || Date.now())
+      rawDate: new Date(pmt.paymentDate || pmt.createdDate || now)
     });
   });
 
@@ -268,7 +275,7 @@ export default function ReportsAnalyticsView({ state }) {
             { id: 'procurement', label: '1. Procurement Dashboard' },
             { id: 'finance', label: '2. Finance & AP Reports' },
             { id: 'selfservice', label: '3. Vendor Self-Service' },
-            { id: 'library', label: '4. Report Library (SAP Standard)' }
+            { id: 'library', label: '4. Report library' }
           ].map(t => (
             <button
               key={t.id}
@@ -385,7 +392,7 @@ export default function ReportsAnalyticsView({ state }) {
                   <span className="text-[10px] font-extrabold text-text-tertiary uppercase tracking-widest">Filter Parameters</span>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-5">
-                  <SapReadOnlyField label="Company Code" value="1000" icon={Building2} containerClassName="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 cursor-pointer" />
+                  <SapReadOnlyField label="Buying company" value="1000" icon={Building2} containerClassName="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 cursor-pointer" />
                   <SapReadOnlyField label="Plant" value="1000 - Mumbai" isMonospace={false} icon={MapPin} containerClassName="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 cursor-pointer" />
                   <SapReadOnlyField label="Date Range" value="2026-01-01 to 2026-12-31" icon={Calendar} containerClassName="bg-surface2 text-text-secondary border-border" />
                   <SapReadOnlyField label="Vendor Category" value="Domestic" isMonospace={false} icon={Users} containerClassName="bg-surface2 text-text-secondary border-border" />
@@ -438,7 +445,7 @@ export default function ReportsAnalyticsView({ state }) {
                     <thead className="sticky top-0 z-10">
                       <tr className="bg-surface2 border-b border-border text-text-primary font-bold uppercase text-[10px] tracking-wider font-sans">
                         <th className="py-2.5 px-3 border-r border-border w-32">Invoice Ref</th>
-                        <th className="py-2.5 px-3 border-r border-border w-24 text-center">Posting Date</th>
+                        <th className="py-2.5 px-3 border-r border-border w-24 text-center">Date</th>
                         <th className="py-2.5 px-3 border-r border-border min-w-[150px]">Vendor Name</th>
                         <th className="py-2.5 px-3 border-r border-border w-36">GSTIN</th>
                         <th className="py-2.5 px-3 border-r border-border w-24 text-center">MSME Type</th>
@@ -556,7 +563,7 @@ export default function ReportsAnalyticsView({ state }) {
                   <table className="w-full text-left border-collapse min-w-[850px] whitespace-nowrap">
                     <thead className="sticky top-0 z-10">
                       <tr className="bg-surface2 border-b border-border text-text-primary font-bold uppercase text-[10px] tracking-wider font-sans">
-                        <th className="py-2.5 px-3 border-r border-border w-24 text-center">Posting Date</th>
+                        <th className="py-2.5 px-3 border-r border-border w-24 text-center">Date</th>
                         <th className="py-2.5 px-3 border-r border-border w-28">Doc Type</th>
                         <th className="py-2.5 px-3 border-r border-border w-32">Document Ref</th>
                         <th className="py-2.5 px-3 border-r border-border min-w-[200px]">Description/Invoice Ref</th>
@@ -652,7 +659,7 @@ export default function ReportsAnalyticsView({ state }) {
           {/* TAB CONTENT: 4. REPORT LIBRARY */}
           {detailTab === 'library' && (
             <div className="space-y-6 animate-fade-in">
-              {/* Section 1: Standard SAP Reports */}
+              {/* Section 1: Standard reports */}
               <div className="card overflow-hidden">
                 <div className="flex items-center gap-2 px-5 py-3 border-b border-border bg-surface2/40">
                   <div className="size-1.5 rounded-full bg-blue-500"></div>
@@ -675,7 +682,7 @@ export default function ReportsAnalyticsView({ state }) {
                   <span className="text-[10px] font-extrabold text-text-tertiary uppercase tracking-widest">Custom Portal Reports</span>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-5">
-                  <SapReadOnlyField label="Vendor Master Compliance" value="COMPLIANT" isMonospace={false} icon={CheckCircle2} containerClassName="bg-emerald-50 text-emerald-700 border-emerald-300" />
+                  <SapReadOnlyField label="Supplier profile" value="COMPLIANT" isMonospace={false} icon={CheckCircle2} containerClassName="bg-emerald-50 text-emerald-700 border-emerald-300" />
                   <SapReadOnlyField label="MSME Overdue Tracker" value="₹ 0.00 (Cleared)" isMonospace={false} icon={Clock} containerClassName="bg-emerald-50 text-emerald-700 border-emerald-300" />
                   <SapReadOnlyField label="Scorecard Summary Report" value="95.0 / 100" icon={Activity} containerClassName="bg-blue-50 text-blue-700 border-blue-200" />
                   <SapReadOnlyField label="Invoice Rejection Analysis" value="0% Rejection Rate" isMonospace={false} icon={AlertTriangle} containerClassName="bg-emerald-50 text-emerald-700 border-emerald-300" />
@@ -736,7 +743,7 @@ export default function ReportsAnalyticsView({ state }) {
                     </select>
                   </SapInputField>
 
-                  <SapInputField label="Company Code Filter" required icon={Building2}>
+                  <SapInputField label="Buying company" required icon={Building2}>
                     <select
                       value={schedulerForm.companyCode}
                       onChange={e => setSchedulerForm({ ...schedulerForm, companyCode: e.target.value })}

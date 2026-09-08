@@ -1,12 +1,14 @@
 const crypto = require('crypto');
-const Vendor = require('../models/Vendor');
-const User = require('../models/User');
+const { prisma } = require('../db/prisma');
 const { withoutTenantScope } = require('./tenantContext');
 
 // Supplier login identities. A supplier can now arrive two ways — self-service
 // registration, or created from a tenant's directory — and both need the same
 // answers to "what is their vendorId?" and "is this email already someone?".
 // They ask here rather than each growing their own copy.
+
+const exists = async (model, where) =>
+  Boolean(await withoutTenantScope(() => prisma[model].findFirst({ where, select: { pk: true } })));
 
 /**
  * Assigns a vendorId server-side so nothing client-supplied has to be trusted
@@ -15,10 +17,10 @@ const { withoutTenantScope } = require('./tenantContext');
  */
 const generateVendorId = async () => {
   let vendorId;
-  let exists = true;
-  while (exists) {
+  let taken = true;
+  while (taken) {
     vendorId = `VND-${Math.floor(10000 + Math.random() * 90000)}`;
-    exists = await withoutTenantScope(() => Vendor.exists({ vendorId }));
+    taken = await exists('vendor', { vendorId });
   }
   return vendorId;
 };
@@ -35,12 +37,12 @@ const identityConflict = async ({ vendorId, email, gstin }) => {
   const normEmail = email ? String(email).toLowerCase() : null;
   const normGstin = gstin ? String(gstin).toUpperCase() : null;
 
-  if (vendorId && await withoutTenantScope(() => Vendor.exists({ vendorId }))) return 'vendorId';
+  if (vendorId && await exists('vendor', { vendorId })) return 'vendorId';
   if (normEmail && (
-    await withoutTenantScope(() => Vendor.exists({ email: normEmail })) ||
-    await withoutTenantScope(() => User.exists({ email: normEmail }))
+    await exists('vendor', { email: normEmail }) ||
+    await exists('user', { email: normEmail })
   )) return 'email';
-  if (normGstin && await withoutTenantScope(() => Vendor.exists({ gstin: normGstin }))) return 'gstin';
+  if (normGstin && await exists('vendor', { gstin: normGstin })) return 'gstin';
 
   return null;
 };

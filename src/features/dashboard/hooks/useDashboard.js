@@ -5,10 +5,17 @@ import { INITIAL_CHATS, INITIAL_PERFORMANCE } from '../constants';
 import { hasOwnChrome } from '../../../lib/planes';
 import { dashboardService } from '../services/dashboardService';
 
+// Only a supplier login caches a vendor profile (see sign-in/page.jsx) — a
+// tenant-staff token present on a supplier-chrome page (e.g. mid-redirect to
+// /workspace) must not trigger a vendor-scoped fetch, since staff have no
+// scopeVendorId and the backend will 400 it.
 const canFetchVendorData = () =>
-  typeof window !== 'undefined' && localStorage.getItem('jwt_token') && !hasOwnChrome(window.location.pathname);
+  typeof window !== 'undefined'
+  && localStorage.getItem('jwt_token')
+  && localStorage.getItem('sap_vendor_profile_data')
+  && !hasOwnChrome(window.location.pathname);
 
-export function useDashboard(profile, clearAllLogs) {
+export function useDashboard(profile) {
   const [chats, setChats] = useState([]);
 
   const [performance, setPerformance] = useState(INITIAL_PERFORMANCE);
@@ -19,6 +26,14 @@ export function useDashboard(profile, clearAllLogs) {
     try {
       const savedPerf = localStorage.getItem('sap_vendor_portal_performance');
       if (savedPerf) {
+        // Seeding mutable state from an external store on mount. It cannot move
+        // into the initial useState value (localStorage does not exist during
+        // the server render, so the two passes would disagree and hydration
+        // would fail) and it cannot become derived state, because the same
+        // `performance` value is subsequently replaced by the API response
+        // below and cleared by the reset path. One extra render on mount is the
+        // real cost of reading a browser-only cache, not a cascade.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setPerformance(JSON.parse(savedPerf));
       }
     } catch (e) {
@@ -68,7 +83,7 @@ export function useDashboard(profile, clearAllLogs) {
   }, []);
 
   useEffect(() => {
-    refreshChats();
+    void (async () => { await refreshChats(); })();
   }, [refreshChats]);
 
   const sendChatMessage = async (text) => {
@@ -113,9 +128,8 @@ export function useDashboard(profile, clearAllLogs) {
     localStorage.removeItem('sap_vendor_portal_payments');
     localStorage.removeItem('sap_vendor_portal_chats');
     localStorage.removeItem('sap_vendor_portal_performance');
-    
-    if (clearAllLogs) clearAllLogs();
-    
+    localStorage.removeItem('sap_vendor_portal_logs');
+
     // Refresh page to reset states
     if (typeof window !== 'undefined') {
       window.location.reload();

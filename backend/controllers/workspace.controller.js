@@ -1,18 +1,13 @@
-const Vendor = require('../models/Vendor');
-const RFQ = require('../models/RFQ');
-const PurchaseOrder = require('../models/PurchaseOrder');
-const Invoice = require('../models/Invoice');
-const User = require('../models/User');
-const Invitation = require('../models/Invitation');
-const AuditLog = require('../models/AuditLog');
+const { prisma } = require('../db/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { recordAudit } = require('../utils/audit');
 const { formatAuditEntry, actionsForSubject, auditQuery } = require('../utils/auditView');
 const { AUDIT_ACTIONS, AUDIT_SUBJECTS } = require('../config/auditActions');
-const { describeSettings, applySettings, settingValue } = require('../config/tenantSettings');
+const { describeSettings, applySettings, settingValue, topLevelFieldsFor } = require('../config/tenantSettings');
 const { VENDOR_STATUS, VENDOR_AWAITING_DECISION } = require('../config/statuses');
 const { usageAgainstLimits } = require('../utils/usage');
+const { toNumber } = require('../utils/money');
 
 // The tenant back office. Everything here runs inside a bound tenant, so there
 // is no clientId parameter in this file: a client_admin sees their workspace
@@ -46,24 +41,41 @@ const getOverview = asyncHandler(async (req, res) => {
     suppliersApproved,
     awaitingDecision,
     overdueDecision,
+    rfqsTotal,
     openRfqs,
+    awardedRfqs,
+    posTotal,
     openPos,
+    invoicesTotal,
     invoicesOpen,
     invoicesOverThreshold,
+    invoicesOpenValue,
+    paymentTotals,
     staffActive,
     pendingInvitations,
     usage,
   ] = await Promise.all([
-    Vendor.countDocuments({}),
-    Vendor.countDocuments({ status: VENDOR_STATUS.APPROVED }),
-    Vendor.countDocuments({ status: { $in: VENDOR_AWAITING_DECISION } }),
-    Vendor.countDocuments({ status: { $in: VENDOR_AWAITING_DECISION }, submittedAt: { $lt: slaCutoff } }),
-    RFQ.countDocuments({ status: 'Bidding Open' }),
-    PurchaseOrder.countDocuments({ status: { $in: ['Open', 'Acknowledged'] } }),
-    Invoice.countDocuments({ status: { $nin: ['Cleared'] } }),
-    Invoice.countDocuments({ status: { $nin: ['Cleared'] }, totalAmount: { $gte: reviewAmount } }),
-    User.countDocuments({ status: 'Active' }),
-    Invitation.countDocuments({ status: 'Pending' }),
+    prisma.vendor.count({}),
+    prisma.vendor.count({ where: { status: VENDOR_STATUS.APPROVED } }),
+    prisma.vendor.count({ where: { status: { in: VENDOR_AWAITING_DECISION } } }),
+    prisma.vendor.count({ where: { status: { in: VENDOR_AWAITING_DECISION }, submittedAt: { lt: slaCutoff } } }),
+    // Sourcing and finance below are deliberately tenant-wide, not scoped to
+    // any one vendor — this endpoint runs for client_admin/buyer/finance, and
+    // "how is sourcing/finance doing" means across every supplier in the
+    // tenant, the same way the supplier counts above already are.
+    prisma.rFQ.count({}),
+    prisma.rFQ.count({ where: { status: 'Bidding Open' } }),
+    prisma.rFQ.count({ where: { status: 'Awarded' } }),
+    prisma.purchaseOrder.count({}),
+    prisma.purchaseOrder.count({ where: { status: { in: ['Open', 'Acknowledged'] } } }),
+    prisma.invoice.count({}),
+    prisma.invoice.count({ where: { status: { notIn: ['Cleared'] } } }),
+    prisma.invoice.count({ where: { status: { notIn: ['Cleared'] }, totalAmount: { gte: reviewAmount } } }),
+    prisma.invoice.aggregate({ where: { status: { notIn: ['Cleared'] } }, _sum: { totalAmount: true } }),
+    // count/sum in one round trip rather than four separate counts+aggregates.
+    prisma.payment.aggregate({ _count: true, _sum: { grossAmount: true, netAmount: true, tdsDeducted: true } }),
+    prisma.user.count({ where: { status: 'Active' } }),
+    prisma.invitation.count({ where: { status: 'Pending' } }),
     usageAgainstLimits(client),
   ]);
 
@@ -75,10 +87,22 @@ const getOverview = asyncHandler(async (req, res) => {
       approved: suppliersApproved,
       awaitingDecision,
       overdueDecision,
-      limit: client.limits?.vendors ?? null,
+      limit: client.limitVendors ?? null,
     },
-    sourcing: { openRfqs, openPos },
-    finance: { invoicesOpen, invoicesOverThreshold, reviewAmount },
+    sourcing: { rfqsTotal, openRfqs, awardedRfqs, posTotal, openPos },
+    finance: {
+      invoicesTotal,
+      invoicesOpen,
+      invoicesOverThreshold,
+      invoicesOpenValue: toNumber(invoicesOpenValue._sum.totalAmount) || 0,
+      reviewAmount,
+      payments: {
+        count: paymentTotals._count,
+        grossPaid: toNumber(paymentTotals._sum.grossAmount) || 0,
+        netPaid: toNumber(paymentTotals._sum.netAmount) || 0,
+        tdsDeducted: toNumber(paymentTotals._sum.tdsDeducted) || 0,
+      },
+    },
     staff: { active: staffActive, pendingInvitations },
     thresholds: { supplierApprovalSlaHours: slaHours, invoiceReviewAmount: reviewAmount },
     usage,
@@ -105,9 +129,14 @@ const updateSettings = asyncHandler(async (req, res, next) => {
     return next(ApiError.badRequest('settings must be an object of { key: value }'));
   }
 
+  // applySettings mutates a plain-object copy of req.client in place; the
+  // Prisma row itself is only written below, once, with just the top-level
+  // columns (settings/featureFlags/brandingLogo/brandingColor) those changed
+  // keys actually touched.
+  const working = { ...req.client };
   let changed;
   try {
-    changed = applySettings(req.client, patch);
+    changed = applySettings(working, patch);
   } catch (error) {
     if (!error.fields) throw error;
     // The same key → message shape a zod failure produces, so the settings
@@ -115,23 +144,27 @@ const updateSettings = asyncHandler(async (req, res, next) => {
     return next(ApiError.badRequest('One or more settings are invalid', { errors: error.fields }));
   }
 
+  let client = req.client;
   if (changed.length) {
-    await req.client.save();
+    const fields = topLevelFieldsFor(changed);
+    const data = Object.fromEntries(fields.map((field) => [field, working[field]]));
+    client = await prisma.client.update({ where: { pk: req.client.pk }, data });
+
     // The keys that changed and their new values — a settings value is
     // configuration, never a secret, so it is recorded in full.
     await recordAudit({
       action: AUDIT_ACTIONS.SETTINGS_UPDATED,
       req,
-      target: { type: 'Client', id: req.client.clientId, label: req.client.companyName },
-      meta: { changed, values: Object.fromEntries(changed.map((key) => [key, settingValue(req.client, key)])) },
+      target: { type: 'Client', id: client.clientId, label: client.companyName },
+      meta: { changed, values: Object.fromEntries(changed.map((key) => [key, settingValue(client, key)])) },
     });
   }
 
   res.json({
     success: true,
     changed,
-    workspace: workspaceIdentity(req.client),
-    groups: describeSettings(req.client),
+    workspace: workspaceIdentity(client),
+    groups: describeSettings(client),
   });
 });
 
@@ -147,14 +180,14 @@ const listAudit = asyncHandler(async (req, res) => {
   const { action, subject, actorId } = req.query;
   const { range, perPage, currentPage, skip } = auditQuery(req.query, 100);
 
-  const filter = { ...range, clientId: req.clientId };
-  if (actorId) filter.actorId = actorId;
-  if (action) filter.action = action;
-  if (!action && subject) filter.action = { $in: actionsForSubject(subject) };
+  const where = { ...range, clientId: req.clientId };
+  if (actorId) where.actorId = actorId;
+  if (action) where.action = action;
+  if (!action && subject) where.action = { in: actionsForSubject(subject) };
 
   const [entries, total] = await Promise.all([
-    AuditLog.find(filter).sort({ at: -1 }).skip(skip).limit(perPage),
-    AuditLog.countDocuments(filter),
+    prisma.auditLog.findMany({ where, orderBy: { at: 'desc' }, skip, take: perPage }),
+    prisma.auditLog.count({ where }),
   ]);
 
   res.json({

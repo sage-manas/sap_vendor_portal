@@ -1,11 +1,11 @@
 import React from 'react';
-import { Receipt, CheckCircle2, Clock, RefreshCw, Landmark } from 'lucide-react';
+import { Receipt, CheckCircle2, Clock, RefreshCw, Landmark, ShieldCheck, ShieldAlert, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import StatusBadge from '@/components/ui/StatusBadge';
 import EmptyState from '@/components/ui/EmptyState';
 import { invoiceStatusVariant } from '@/lib/statusColors';
 
-// Enterprise Field Card (Fiori Inspired Row Layout)
+// Enterprise Field Card (single-row label + field layout)
 function EnterpriseFieldCard({ label, required, error, labelWidth, children }) {
   return (
     <div className={`h-full py-1.5 px-3 bg-surface transition-colors duration-150 flex flex-col sm:flex-row sm:items-center gap-2 select-none ${
@@ -35,6 +35,13 @@ export default function InvoiceProcessingView({
 }) {
   const uninvoicedGRNs = (state.grns || []).filter(g => !g.invoiceSubmitted);
   const submittedInvoices = state.invoices;
+  const sapMiroDocuments = state.sapMiroDocuments;
+  // Filtered, and guarded below: an invoice carries no MIRO number until AP has
+  // posted it and reconciliation has recognised it, and `new Set([null])
+  // .has(null)` would badge every unposted invoice as confirmed by SAP.
+  const sapMiroDocNumbers = new Set((sapMiroDocuments || []).map(d => d.miroDoc).filter(Boolean));
+  const isConfirmedInSap = (inv) => Boolean(inv.sapMiroDoc) && sapMiroDocNumbers.has(inv.sapMiroDoc);
+  const sapPaymentDetails = state.sapPaymentDetails || {};
 
   return (
     <div className="space-y-6 max-w-full mx-auto animate-fade-in pb-12">
@@ -42,29 +49,29 @@ export default function InvoiceProcessingView({
       <div className="card p-4 flex items-center justify-between">
         <div>
           <h2 className="text-[22px] font-bold text-text-primary flex items-center gap-2">
-            <Receipt className="size-4.5 text-text-secondary" /> Invoice Verification &amp; Posting (MIRO)
+            <Receipt className="size-4.5 text-text-secondary" /> Invoice Submission
           </h2>
           <p className="text-[11px] text-text-tertiary mt-1 font-semibold">
-            Evaluate inbound warehouse Goods Receipt notes (MIGO 101) and post supplier financial billing invoices
+            Review the delivery receipts your buyer has confirmed, then submit an invoice against them
           </p>
         </div>
         <div className="text-xs font-bold font-mono bg-surface2 border border-border px-3 py-1.5 rounded-md text-text-primary tabular-nums">
-          Awaiting Billing: {uninvoicedGRNs.length} GRN(s)
+          Ready to invoice: {uninvoicedGRNs.length} delivery receipt(s)
         </div>
       </div>
 
       {/* AWAITING INVOICING CLEARANCE */}
       <div className="space-y-3">
         <h3 className="label">
-          Warehouse Receipts Pending MIRO Verification
+          Delivery Receipts Ready to Invoice
         </h3>
 
         {uninvoicedGRNs.length === 0 ? (
           <div className="card">
             <EmptyState
               icon={CheckCircle2}
-              title="All Goods Receipts are Invoiced"
-              description="No pending warehouse receipts available. Submit new PO shipments first."
+              title="Every delivery receipt has been invoiced"
+              description="Nothing is waiting to be invoiced. Ship an order first, and its delivery receipt will appear here."
             />
           </div>
         ) : (
@@ -88,15 +95,15 @@ export default function InvoiceProcessingView({
                           {grn.id}
                         </span>
                         <span className="text-[10px] text-text-tertiary font-mono bg-surface2 border border-border px-2 py-0.5 rounded-md">
-                          SAP MIGO Doc: {grn.sapMigoDoc}
+                          Receipt no: {grn.sapMigoDoc}
                         </span>
                       </div>
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-[10px] text-text-tertiary font-bold uppercase tracking-wider font-mono">
-                        <span>PO Ref: <span className="text-text-primary">{grn.poId}</span></span>
+                        <span>Order: <span className="text-text-primary">{grn.poId}</span></span>
                         <span>&bull;</span>
-                        <span>Posting Date: <span className="text-text-primary">{grn.postingDate}</span></span>
+                        <span>Received on: <span className="text-text-primary">{grn.postingDate}</span></span>
                         <span>&bull;</span>
-                        <span>Inspector: <span className="text-text-primary">{grn.receivedBy}</span></span>
+                        <span>Received by: <span className="text-text-primary">{grn.receivedBy}</span></span>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
@@ -105,36 +112,36 @@ export default function InvoiceProcessingView({
                         variant={isActive ? 'secondary' : 'default'}
                         size="sm"
                       >
-                        {isActive ? 'Collapse Panel' : 'Execute MIRO Billing'}
+                        {isActive ? 'Close' : 'Create invoice'}
                       </Button>
                     </div>
                   </div>
 
-                  {/* 3-WAY MATCH VALIDATION FORM */}
+                  {/* ORDER / DELIVERY / INVOICE CHECK FORM */}
                   {isActive && (
                     <div className="p-5 border-t border-border space-y-6 animate-fade-in">
                       <div className="bg-surface2/50 border border-border p-3.5 rounded-md flex items-center justify-between">
                         <div>
                           <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider flex items-center gap-2 select-none">
-                            <Receipt className="size-4 text-text-secondary" /> BAPI_INCOMINGINVOICE_CREATE Verification Matrix
+                            <Receipt className="size-4 text-text-secondary" /> Check before you submit
                           </h4>
-                          <p className="text-[10px] text-text-tertiary mt-0.5">Please verify that PO values, GRN quantities, and invoice parameters align (3-Way Match).</p>
+                          <p className="text-[10px] text-text-tertiary mt-0.5">Check that the order, the delivery receipt, and your invoice all agree before submitting.</p>
                         </div>
-                        <StatusBadge label="AWAITING POSTING" variant="info" />
+                        <StatusBadge label="NOT SUBMITTED YET" variant="info" />
                       </div>
 
                       {/* ITEMS COMPARATIVE TABLE */}
                       <div className="space-y-1.5">
-                        <span className="text-[9px] font-bold text-text-tertiary uppercase tracking-wider block font-mono">Line Item Receipt Quantities</span>
+                        <span className="text-[9px] font-bold text-text-tertiary uppercase tracking-wider block font-mono">Quantities received</span>
                         <div className="border border-border rounded-none overflow-x-auto">
                           <table className="w-full text-left table-sticky">
                             <thead>
                               <tr>
                                 <th className="w-12 text-center">Line</th>
-                                <th>Material &amp; Description</th>
-                                <th className="text-right">MIGO Received Qty</th>
-                                <th className="text-right">Accepted Qty (Billing)</th>
-                                <th className="text-right">Rejected Qty</th>
+                                <th>Item &amp; description</th>
+                                <th className="text-right">Received qty</th>
+                                <th className="text-right">Accepted qty (billable)</th>
+                                <th className="text-right">Rejected qty</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -170,7 +177,7 @@ export default function InvoiceProcessingView({
                         <div className="flex flex-col lg:flex-row divide-y lg:divide-y-0 lg:divide-x divide-border">
                           <div className="w-[320px] shrink-0">
                             <EnterpriseFieldCard
-                              label="Vendor Invoice Ref No."
+                              label="Your invoice number"
                               required
                               labelWidth="sm:w-36"
                             >
@@ -219,11 +226,11 @@ export default function InvoiceProcessingView({
                         >
                           {isSubmitting ? (
                             <>
-                              <RefreshCw className="size-3.5 animate-spin" /> Simulating 3-Way Match...
+                              <RefreshCw className="size-3.5 animate-spin" /> Checking your invoice...
                             </>
                           ) : (
                             <>
-                              Execute 3-Way Match &amp; Post MIRO
+                              Submit invoice
                             </>
                           )}
                         </Button>
@@ -240,15 +247,15 @@ export default function InvoiceProcessingView({
       {/* SUBMITTED INVOICES REGISTRY */}
       <div className="space-y-3 pt-4">
         <h3 className="label">
-          Financial Invoice Registry (SAP MIRO ledger)
+          Submitted Invoices
         </h3>
 
         {submittedInvoices.length === 0 ? (
           <div className="card">
             <EmptyState
               icon={Landmark}
-              title="No Posted Invoices Found"
-              description="Execute MIRO billing against goods receipts to post invoices to the SAP general ledger."
+              title="No invoices submitted yet"
+              description="Create an invoice against a delivery receipt and it will appear here."
             />
           </div>
         ) : (
@@ -256,23 +263,32 @@ export default function InvoiceProcessingView({
             <table className="w-full text-left table-sticky">
               <thead>
                 <tr>
-                  <th>Invoice Ref</th>
-                  <th>SAP MIRO Reference</th>
-                  <th>PO Contract ID</th>
+                  <th>Your invoice</th>
+                  <th>Buyer&apos;s reference</th>
+                  <th>Order</th>
                   <th className="text-right">GST Invoice Value (18%)</th>
-                  <th className="text-center">Settlement Status</th>
+                  <th className="text-center">Status</th>
+                  <th className="text-center">Confirmed</th>
+                  <th>Payment details</th>
                 </tr>
               </thead>
               <tbody>
-                {submittedInvoices.map(inv => (
+                {submittedInvoices.map(inv => {
+                const paymentDetail = sapPaymentDetails[inv.sapMiroDoc];
+                return (
                   <tr key={inv.id}>
                     <td>
                       <p className="font-bold text-text-primary uppercase font-mono">{inv.invoiceNumber}</p>
                       <p className="text-[10px] text-text-tertiary font-mono mt-0.5">Date: {inv.invoiceDate}</p>
                     </td>
                     <td className="font-mono">
-                      <p className="text-text-primary font-bold">MIRO: {inv.sapMiroDoc}</p>
-                      <p className="text-[9px] text-text-tertiary mt-0.5">UUID: {inv.id}</p>
+                      {/* The portal posts nothing to SAP: this number exists
+                          only once AP has posted the invoice and the
+                          reconciliation has recognised it. */}
+                      <p className={inv.sapMiroDoc ? 'text-text-primary font-bold' : 'text-text-tertiary'}>
+                        {inv.sapMiroDoc ? inv.sapMiroDoc : 'Awaiting the buyer’s finance team'}
+                      </p>
+                      <p className="text-[9px] text-text-tertiary mt-0.5">Ref: {inv.id}</p>
                     </td>
                     <td className="font-mono font-bold text-text-secondary">
                       {inv.poId}
@@ -282,13 +298,46 @@ export default function InvoiceProcessingView({
                     </td>
                     <td className="text-center">
                       {inv.status === 'Paid' ? (
-                        <StatusBadge label="Paid (F110 Cleared)" variant={invoiceStatusVariant(inv.status)} />
+                        <StatusBadge label="Paid" variant={invoiceStatusVariant(inv.status)} />
                       ) : (
-                        <StatusBadge label="Posted (Open)" variant={invoiceStatusVariant(inv.status)} />
+                        <StatusBadge label="Submitted" variant={invoiceStatusVariant(inv.status)} />
+                      )}
+                    </td>
+                    <td className="text-center">
+                      {sapMiroDocuments === null ? (
+                        <Loader2 className="size-3.5 animate-spin text-text-tertiary inline-block" />
+                      ) : isConfirmedInSap(inv) ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400" title="The buyer’s finance system confirms this invoice">
+                          <ShieldCheck className="size-3.5" /> Confirmed
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-400" title="The buyer’s finance team has not recorded this invoice yet">
+                          <ShieldAlert className="size-3.5" /> Not confirmed yet
+                        </span>
+                      )}
+                    </td>
+                    <td>
+                      {paymentDetail ? (
+                        <div className="text-[10px] font-mono leading-relaxed">
+                          <p className="text-text-primary font-bold">
+                            {paymentDetail.status} · Net ₹{Number(paymentDetail.netDisbursed).toLocaleString('en-IN')}
+                          </p>
+                          <p className="text-text-tertiary">
+                            TDS ₹{Number(paymentDetail.tdsDeducted).toLocaleString('en-IN')} · Paid on {paymentDetail.clearingDate || '—'}
+                          </p>
+                          {paymentDetail.utrReference && (
+                            <p className="text-text-tertiary">UTR: {paymentDetail.utrReference}</p>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-text-tertiary">
+                          {isConfirmedInSap(inv) ? 'Not yet cleared' : '—'}
+                        </span>
                       )}
                     </td>
                   </tr>
-                ))}
+                );
+                })}
               </tbody>
             </table>
           </div>

@@ -17,25 +17,23 @@ const SAP_TRANSACTIONS = {
   VENDOR_REJECT:      { code: 'OData_VENDOR_REJECT',       type: 'OData', direction: 'INBOUND',  label: 'Vendor master rejected' },
   VENDOR_KYC_VERIFY:  { code: 'GSTIN_PAN_VERIFY',          type: 'KYC',   direction: 'OUTBOUND', label: 'GSTIN and PAN verification' },
 
-  // Sourcing (ME41 / ME47 family)
-  RFQ_CREATE:         { code: 'BAPI_RFQ_CREATE',           type: 'BAPI',  direction: 'OUTBOUND', label: 'Create request for quotation' },
-  RFQ_CANCEL:         { code: 'RFC_RFQ_CANCEL',            type: 'RFC',   direction: 'OUTBOUND', label: 'Cancel request for quotation' },
-  RFQ_REISSUE:        { code: 'RFC_RFQ_REISSUE',           type: 'RFC',   direction: 'OUTBOUND', label: 'Reissue request for quotation' },
-  RFQ_SUBMIT_BID:     { code: 'RFC_RFQ_SUBMIT_BID',        type: 'RFC',   direction: 'OUTBOUND', label: 'Submit quotation' },
-  INFORECORD_CREATE:  { code: 'BAPI_INFORECORD_CREATE',    type: 'BAPI',  direction: 'OUTBOUND', label: 'Create purchasing info record' },
-
-  // Purchase orders (ME21N / ME29N)
-  PO_INBOUND_SYNC:    { code: 'OData_PO_INBOUND_SYNC',     type: 'OData', direction: 'INBOUND',  label: 'Purchase order inbound sync' },
-  PO_PROCESS_SRV:     { code: '/API_PURCHASEORDER_PROCESS_SRV', type: 'OData', direction: 'INBOUND', label: 'Purchase order process service' },
+  // Purchase orders. The portal creates none — ME21N is SAP's own. The only
+  // outbound call is a supplier acknowledging an order SAP already owns.
   PO_ACKNOWLEDGE:     { code: 'RFC_PO_ACKNOWLEDGE',        type: 'RFC',   direction: 'OUTBOUND', label: 'Acknowledge purchase order' },
 
-  // Inbound delivery and goods receipt (VL31N / MIGO)
-  DELIVERY_CREATE:    { code: 'BAPI_DELIVERYPROCESSING_EXEC', type: 'RFC', direction: 'OUTBOUND', label: 'Create inbound delivery' },
+  // Invoicing plan (ME22N item → Invoicing Plan; FPLA header + FPLT dates).
+  // The second write the portal makes to an order SAP already owns.
+  PO_INVOICE_PLAN_UPDATE: { code: 'ZPO_INVPLAN_UPDATE',    type: 'OData', direction: 'OUTBOUND', label: 'Update purchase order invoicing plan' },
+
+  // Quotation (ME47). The one sourcing write SAP actually exposes: updating
+  // the net price on line items of a quotation document SAP already holds.
+  QUOTATION_PRICE_UPDATE: { code: 'ZQUOT_NETPR_UPDPR',     type: 'OData', direction: 'OUTBOUND', label: 'Update quotation net price' },
+
+  // Goods receipt (MIGO). Discovered in SAP, never posted by the portal.
   GOODS_RECEIPT:      { code: 'BAPI_GOODSMVT_CREATE',      type: 'BAPI',  direction: 'INBOUND',  label: 'Post goods receipt' },
   GOODS_RECEIPT_READ: { code: 'BAPI_GOODSMVT_GETDETAIL',   type: 'RFC',   direction: 'INBOUND',  label: 'Read goods receipt detail' },
 
   // Invoice and payment (MIRO / F110 / FBL1N)
-  INVOICE_CREATE:     { code: 'BAPI_INCOMINGINVOICE_CREATE', type: 'BAPI', direction: 'OUTBOUND', label: 'Post incoming invoice' },
   PAYMENT_RUN:        { code: 'FBL1N_RFITEMGL',            type: 'OData', direction: 'INBOUND',  label: 'Payment run clearing' },
 
   // Connectivity — not a business document, but it is a call to SAP and it

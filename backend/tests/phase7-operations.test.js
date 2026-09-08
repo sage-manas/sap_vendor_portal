@@ -2,7 +2,7 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
 
-const Client = require('../models/Client');
+const { rawPrisma } = require('../db/prisma');
 const { withoutTenantScope } = require('../utils/tenantContext');
 const { ROLES } = require('../config/roles');
 const {
@@ -16,8 +16,14 @@ const {
 const app = buildTestApp();
 const bearer = (token) => ({ Authorization: `Bearer ${token}` });
 
+// Client.limits was a nested Mongoose subdocument; it's flattened columns now
+// (limitVendors/limitRfqsPerMonth/limitStorageMb — see prisma/schema.prisma).
+const LIMIT_FIELD = { vendors: 'limitVendors', rfqsPerMonth: 'limitRfqsPerMonth', storageMb: 'limitStorageMb' };
 const setLimits = (clientId, limits) => withoutTenantScope(() =>
-  Client.updateOne({ clientId }, { $set: Object.fromEntries(Object.entries(limits).map(([k, v]) => [`limits.${k}`, v])) }));
+  rawPrisma.client.updateMany({
+    where: { clientId },
+    data: Object.fromEntries(Object.entries(limits).map(([k, v]) => [LIMIT_FIELD[k], v])),
+  }));
 
 const futureDate = (days = 7) => new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
 const rfqPayload = (overrides = {}) => ({

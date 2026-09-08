@@ -1,15 +1,16 @@
-const mongoose = require('mongoose');
+const { rawPrisma } = require('../db/prisma');
 const logger = require('../utils/logger');
 
+// Prisma connects lazily on first query, so this exists purely to fail fast
+// at startup rather than on the first request — the same reason
+// mongoose.connect() used to be awaited here before the Postgres rewrite.
 const connectDB = async () => {
-  const connString = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/sap_vendor_portal';
   try {
-    const conn = await mongoose.connect(connString, {
-      serverSelectionTimeoutMS: 3000
-    });
-    logger.info(`✅ MongoDB Connected: ${conn.connection.host}`);
+    await rawPrisma.$connect();
+    logger.info('✅ PostgreSQL connected');
   } catch (err) {
-    logger.warn(`⚠️ Could not connect to MongoDB at ${connString}: ${err.message}. Server running in mock mode.`);
+    logger.error(`❌ Could not connect to PostgreSQL: ${err.message}`);
+    throw err;
   }
 };
 

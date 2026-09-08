@@ -20,8 +20,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "SAP Vendor Portal | Integrated Digital Supply Chain",
-  description: "End-to-end supplier onboarding, RFQ management, purchase orders, ASN, GRN, MIRO posting, and payment tracking integrated with SAP ERP.",
+  title: "Supplier Portal",
+  description: "Register as a supplier, quote for requests, manage purchase orders and shipments, submit invoices, and track payments — all in one place.",
 };
 
 export default function RootLayout({ children }) {
@@ -38,7 +38,7 @@ export default function RootLayout({ children }) {
           dangerouslySetInnerHTML={{ __html: themeScript }}
         />
       </head>
-      <body className="min-h-full flex flex-col bg-base text-text-primary">
+      <body className="min-h-full flex flex-col bg-base text-text-primary" suppressHydrationWarning>
         <a href="#main-content" className="skip-link">Skip to main content</a>
         <ThemeProvider>
           <ShellProvider>

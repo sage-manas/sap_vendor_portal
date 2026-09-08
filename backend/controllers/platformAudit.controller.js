@@ -1,7 +1,5 @@
-const AuditLog = require('../models/AuditLog');
-const Client = require('../models/Client');
+const { prisma } = require('../db/prisma');
 const asyncHandler = require('../utils/asyncHandler');
-const { withoutTenantScope } = require('../utils/tenantContext');
 const { ALL_AUDIT_ACTIONS, AUDIT_SUBJECTS } = require('../config/auditActions');
 const { formatAuditEntry, actionsForSubject, auditQuery } = require('../utils/auditView');
 
@@ -20,16 +18,16 @@ const listAudit = asyncHandler(async (req, res) => {
   const { clientId, action, subject, actorId, plane } = req.query;
   const { range, perPage, currentPage, skip } = auditQuery(req.query);
 
-  const filter = { ...range };
-  if (clientId) filter.clientId = clientId;
-  if (actorId) filter.actorId = actorId;
-  if (plane) filter.plane = plane;
-  if (action) filter.action = action;
-  if (!action && subject) filter.action = { $in: actionsForSubject(subject) };
+  const where = { ...range };
+  if (clientId) where.clientId = clientId;
+  if (actorId) where.actorId = actorId;
+  if (plane) where.plane = plane;
+  if (action) where.action = action;
+  if (!action && subject) where.action = { in: actionsForSubject(subject) };
 
   const [entries, total] = await Promise.all([
-    AuditLog.find(filter).sort({ at: -1 }).skip(skip).limit(perPage),
-    AuditLog.countDocuments(filter),
+    prisma.auditLog.findMany({ where, orderBy: { at: 'desc' }, skip, take: perPage }),
+    prisma.auditLog.count({ where }),
   ]);
 
   res.json({
@@ -49,8 +47,10 @@ const listAudit = asyncHandler(async (req, res) => {
 // list built from what has happened so far hides the actions that have not
 // happened yet, which are exactly the ones an operator is hunting for.
 const auditFilters = asyncHandler(async (req, res) => {
-  const clients = await withoutTenantScope(() =>
-    Client.find({}).select('clientId companyName').sort({ clientId: 1 }));
+  const clients = await prisma.client.findMany({
+    select: { clientId: true, companyName: true },
+    orderBy: { clientId: 'asc' },
+  });
 
   res.json({
     success: true,
