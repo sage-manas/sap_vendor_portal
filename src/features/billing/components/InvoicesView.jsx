@@ -36,18 +36,18 @@ export default function InvoicesView({
       <div className="space-y-8 max-w-6xl animate-fade-in">
       <div>
         <h2 className="text-[22px] font-bold text-text-primary">Invoice Submission</h2>
-        <p className="text-text-tertiary text-xs mt-0.5">Post logistics billing invoices against cleared warehouse GRNs (SAP MIRO LIV).</p>
+        <p className="text-text-tertiary text-xs mt-0.5">Submit invoices against delivery receipts your buyer has confirmed.</p>
       </div>
 
       {/* UNINVOICED BILLING ITEMS */}
       <div className="space-y-3">
-        <h3 className="label">Awaiting Billing Clearance</h3>
+        <h3 className="label">Ready to invoice</h3>
         {uninvoicedGRNs.length === 0 ? (
           <div className="card">
             <EmptyState
               icon={Receipt}
-              title="No pending Goods Receipts"
-              description="Complete PO shipments and warehouse receipts before billing."
+              title="No delivery receipts waiting"
+              description="Ship an order and wait for the buyer to confirm delivery before invoicing."
             />
           </div>
         ) : (
@@ -57,17 +57,17 @@ export default function InvoicesView({
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-bold text-text-primary font-mono">{grn.id}</span>
-                    <span className="text-[10px] text-text-tertiary font-mono">(SAP GRN MIGO: {grn.sapMigoDoc})</span>
+                    <span className="text-[10px] text-text-tertiary font-mono">(Receipt no: {grn.sapMigoDoc})</span>
                     {grn.items.some(i => i.rejectedQuantity > 0) && (
-                      <StatusBadge label="Stores rejection discrepant" variant="suspended" />
+                      <StatusBadge label="Some items rejected" variant="suspended" />
                     )}
                   </div>
                   <div className="flex items-center gap-4 text-[10px] text-text-tertiary mt-1">
-                    <span>PO Ref: {grn.poId}</span>
+                    <span>Order: {grn.poId}</span>
                     <span>•</span>
-                    <span>GR Date: {grn.postingDate}</span>
+                    <span>Received on: {grn.postingDate}</span>
                     <span>•</span>
-                    <span>Receiver: {grn.receivedBy}</span>
+                    <span>Received by: {grn.receivedBy}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -76,7 +76,7 @@ export default function InvoicesView({
                     variant="default"
                     size="sm"
                   >
-                    Execute MIRO Billing
+                    Create invoice
                   </Button>
                 </div>
 
@@ -84,18 +84,18 @@ export default function InvoicesView({
                 {selectedGrnId === grn.id && (
                   <div className="w-full mt-4 p-4 rounded-none border border-border bg-surface2 space-y-4 sm:col-span-2 animate-slide-down order-last">
                     <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider border-b border-border pb-2 flex items-center gap-2">
-                      <Receipt className="size-4 text-emerald-text" /> MIRO Invoice Verification & 3-Way Match Check
+                      <Receipt className="size-4 text-emerald-text" /> Check the order, delivery, and invoice agree
                     </h4>
 
-                    {/* GRN ITEM LISTING */}
+                    {/* DELIVERY RECEIPT ITEM LISTING */}
                     <div className="border border-border rounded-none overflow-x-auto">
                       <table className="w-full text-left table-sticky">
                         <thead>
                           <tr>
-                            <th>Material description</th>
-                            <th className="text-right">Receipt Qty</th>
-                            <th className="text-right">Accepted Qty</th>
-                            <th className="text-right">Rejected Qty</th>
+                            <th>Item description</th>
+                            <th className="text-right">Received qty</th>
+                            <th className="text-right">Accepted qty</th>
+                            <th className="text-right">Rejected qty</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -117,7 +117,7 @@ export default function InvoicesView({
                     {/* INPUTS */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-1">
-                        <label className="label">Vendor Invoice Ref Code *</label>
+                        <label className="label">Your invoice number *</label>
                         <input
                           type="text" required maxLength={16} placeholder="TAX-2026-INV-1092"
                           value={invoiceForm.invoiceNumber}
@@ -126,7 +126,7 @@ export default function InvoicesView({
                         />
                       </div>
                       <div className="space-y-1">
-                        <label className="label">Billing Document Date *</label>
+                        <label className="label">Invoice date *</label>
                         <input
                           type="date" required value={invoiceForm.invoiceDate}
                           onChange={e => setInvoiceForm({ ...invoiceForm, invoiceDate: e.target.value })}
@@ -147,10 +147,10 @@ export default function InvoicesView({
                       >
                         {isSubmitting ? (
                           <>
-                            <RefreshCw className="size-3.5 animate-spin" /> Verifying matching integrity...
+                            <RefreshCw className="size-3.5 animate-spin" /> Checking your invoice...
                           </>
                         ) : (
-                          'Execute 3-Way Match & MIRO Post'
+                          'Submit invoice'
                         )}
                       </Button>
                     </div>
@@ -164,21 +164,21 @@ export default function InvoicesView({
 
       {/* BILLING ARCHIVE */}
       <div className="space-y-3">
-        <h3 className="label">Submitted Invoices Registry</h3>
+        <h3 className="label">Submitted invoices</h3>
         {submittedInvoices.length === 0 ? (
           <div className="card">
-            <EmptyState title="No logistics invoices submitted" />
+            <EmptyState title="No invoices submitted yet" />
           </div>
         ) : (
           <div className="card overflow-x-auto">
             <table className="w-full text-left table-sticky">
               <thead>
                 <tr>
-                  <th>Invoice ref</th>
-                  <th>SAP MIRO Reference</th>
-                  <th>PO Contract ID</th>
+                  <th>Your invoice</th>
+                  <th>Buyer&apos;s reference</th>
+                  <th>Order</th>
                   <th className="text-right">GST Total (18%)</th>
-                  <th className="text-center">Settlement Status</th>
+                  <th className="text-center">Status</th>
                   <th className="text-center">Actions</th>
                 </tr>
               </thead>
@@ -190,14 +190,14 @@ export default function InvoicesView({
                       <p className="text-[10px] text-text-tertiary mt-0.5">Date: {inv.invoiceDate}</p>
                     </td>
                     <td className="font-mono">
-                      <p className="text-text-primary font-bold">MIRO: {inv.sapMiroDoc}</p>
-                      <p className="text-[9px] text-text-tertiary">Local ID: {inv.id}</p>
+                      <p className="text-text-primary font-bold">{inv.sapMiroDoc}</p>
+                      <p className="text-[9px] text-text-tertiary">Ref: {inv.id}</p>
                     </td>
                     <td className="font-mono">{inv.poId}</td>
                     <td className="text-right font-mono text-text-primary font-bold tabular-nums">₹{inv.totalAmount.toLocaleString()}</td>
                     <td className="text-center">
                       <StatusBadge
-                        label={inv.status === 'Paid' ? 'Paid (F110 Cleared)' : 'Posted (Open)'}
+                        label={inv.status === 'Paid' ? 'Paid' : 'Submitted'}
                         variant={invoiceStatusVariant(inv.status)}
                       />
                     </td>

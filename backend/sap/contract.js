@@ -29,35 +29,123 @@ const SAP_METHODS = {
   testConnection:   { transaction: 'PING',              logged: false },
   health:           { transaction: null,                logged: false },
 
-  // Vendor master
+  // Vendor master. Approval is a portal-only decision (never SAP-driven), so
+  // vendorCreate is called from approveVendor once the client admin has said
+  // yes — not at submission, and there is no deferred "SAP approves" method.
   vendorCreate:        { transaction: 'VENDOR_CREATE' },
   vendorVerifyKyc:     { transaction: 'VENDOR_KYC_VERIFY' },
-  vendorConfirm:       { transaction: 'VENDOR_CONFIRM' },
   vendorReject:        { transaction: 'VENDOR_REJECT' },
-  awaitVendorApproval: { transaction: 'VENDOR_CONFIRM', deferred: true },
 
-  // Sourcing
-  rfqCreate:         { transaction: 'RFQ_CREATE' },
-  rfqCancel:         { transaction: 'RFQ_CANCEL' },
-  rfqReissue:        { transaction: 'RFQ_REISSUE' },
-  rfqSubmitBid:      { transaction: 'RFQ_SUBMIT_BID' },
-  infoRecordCreate:  { transaction: 'INFORECORD_CREATE' },
+  // Reference data VENDOR_CR's own fields are coded against (region, payment
+  // terms, payment method) — read-only master-data lookups, not a business
+  // transaction, so not logged to the tenant's SAP log like the methods above.
+  vendorRegionCatalogue:        { transaction: null, logged: false },
+  vendorPaymentTermsCatalogue:  { transaction: null, logged: false },
+  vendorPaymentMethodCatalogue: { transaction: null, logged: false },
+
+  // What SAP itself has posted (MIRO) for a vendor — a read against SAP's own
+  // records, used to cross-check our internal Invoice/Payment tracking rather
+  // than to drive it. Read-only, so not logged like a business transaction.
+  vendorMiroDisplay: { transaction: null, logged: false },
+
+  // Clearing/payment detail for one specific MIRO document (belnr+gjahr) —
+  // the natural follow-up read once vendorMiroDisplay has told us which
+  // documents SAP actually has. Also read-only.
+  invoicePaymentDetail: { transaction: null, logged: false },
+
+  // Every payment SAP has made to a vendor — the ledger behind the Payment
+  // Tracking tab. Keyed on the vendor code alone, so unlike
+  // invoicePaymentDetail it does not need to be told which documents to ask
+  // about. Read-only, so not logged like a business transaction.
+  vendorPaymentDisplay: { transaction: null, logged: false },
+
+  // What SAP itself has issued (ME43 Display RFQ) to a vendor. Same family as
+  // vendorMiroDisplay: a read against SAP's own records for cross-check, not
+  // a correlation to our internal RFQ ids — this app's RFQ documents don't
+  // carry an SAP RFQ number (sourcing is portal-internal — see below),
+  // so this is shown as SAP's own ledger, not matched line-by-line.
+  vendorRfqDisplay: { transaction: null, logged: false },
+
+  // Every PO SAP has for a vendor, with line items and GRNs nested in —
+  // fetched by vendor code directly. This is how purchase orders reach the
+  // portal: read from SAP, never created here. Read-only, so not logged like a
+  // business transaction.
+  vendorPoGrnDisplay: { transaction: null, logged: false },
+
+  // Every purchasing document SAP holds against a vendor code (ME48 Display
+  // Quotation). Same read-only cross-check family as vendorRfqDisplay, but
+  // note the name is SAP's, not a description: verified against the live
+  // sandbox, ZCL_ME48/vendor returns the vendor's whole EKKO set — POs in the
+  // 45xxxxxxx range as well as the 6xxxxxxx quotation/RFQ documents ME43
+  // returns — with no document-category filter. Surfaced as what it is, a
+  // purchasing-document ledger, rather than mislabelled "quotations".
+  vendorQuotationDisplay: { transaction: null, logged: false },
+
+  // Sourcing is portal-internal, with one confirmed exception.
+  //
+  // There is no rfqCreate/rfqCancel/rfqReissue/infoRecordCreate. Core S/4
+  // exposes no public API for issuing an RFQ to, or capturing a bid from, an
+  // external portal vendor — that is SAP Ariba/Business Network territory —
+  // so these called a custom Z-OData "sourcing" service that was never built,
+  // and threw on every real tenant. RFQs, bids and awards live in this
+  // application; what SAP itself holds is read back through vendorRfqDisplay
+  // and vendorQuotationDisplay.
+  //
+  // quotationUpdatePrice (ME47, ZQUOT_NETPR/QUOT_UPDPR) is the exception:
+  // confirmed live against the sandbox, it updates the net price of line
+  // items on a document SAP already holds (an `ebeln` from vendorRfqDisplay /
+  // vendorQuotationDisplay's 6xxxxxxx range) — it does not create a bid
+  // against a portal RFQ, which is why rfqSubmitBid above stays gone.
+  quotationUpdatePrice: { transaction: 'QUOTATION_PRICE_UPDATE' },
 
   // Purchase orders
-  poInboundSync:     { transaction: 'PO_INBOUND_SYNC' },
-  // Two halves of one exchange: SAP hands over a purchase order, we give it a
-  // per-tenant business id, and only then can the inbound call be logged
-  // against a document reference that means something.
-  poProvision:       { transaction: null, logged: false },
-  poProvisioned:     { transaction: 'PO_PROCESS_SRV' },
+  // The portal does not create purchase orders in SAP, and does not announce
+  // ones it holds. POST /pos/simulate and its poProvision/poProvisioned pair
+  // are gone, and so is poInboundSync: awarding an RFQ creates a local order
+  // with no SAP number, and real orders are read from SAP via
+  // vendorPoGrnDisplay. Acknowledgement is the one thing a supplier tells SAP
+  // about an order, and it is a change to a document SAP already owns.
   poAcknowledge:     { transaction: 'PO_ACKNOWLEDGE' },
 
-  // Delivery and goods receipt
-  deliveryCreate:    { transaction: 'DELIVERY_CREATE' },
+  // Invoicing plans (ME22N → item → Invoicing Plan; tables FPLA/FPLT).
+  //
+  // A PO line item can carry an invoicing plan instead of being invoiced
+  // against goods receipts: a periodic plan for a recurring charge, or a
+  // partial plan splitting the line across milestone dates. Two methods,
+  // because the plan is a thing SAP owns but the portal has to be able to both
+  // read and set:
+  //
+  //   poInvoicePlanDisplay — read the plan SAP holds for an order. Read-only,
+  //                          so unlogged like the other display methods.
+  //   poInvoicePlanUpdate  — write a plan the buyer configured in the portal
+  //                          back to the order. This IS a change to a document
+  //                          SAP owns, same category as poAcknowledge, so it is
+  //                          logged as a business transaction.
+  //
+  // poInvoicePlanDisplay is confirmed against the live sandbox
+  // (GET /zinv_milestone/plan, keyed on the FPLA plan number rather than the
+  // PO — see the note on it in s4odata.driver.js for what that changes).
+  // poInvoicePlanUpdate has not been run against a live system yet; its path
+  // and field names in s4odata.driver.js remain a provisional guess.
+  poInvoicePlanDisplay: { transaction: null, logged: false },
+  poInvoicePlanUpdate:  { transaction: 'PO_INVOICE_PLAN_UPDATE' },
+
+  // Delivery and goods receipt.
+  //
+  // There is no deliveryCreate: the portal does not write an inbound delivery
+  // into SAP. A supplier's dispatch notice is recorded here and the goods
+  // receipt is discovered by polling SAP's own PO/GRN ledger, matched on the
+  // purchase order number rather than on a delivery document we issued.
   awaitGoodsReceipt: { transaction: 'GOODS_RECEIPT', deferred: true },
 
-  // Invoice and payment
-  invoiceCreate:     { transaction: 'INVOICE_CREATE' },
+  // Invoice and payment.
+  //
+  // There is no invoiceCreate either, and deliberately so: MIRO is invoice
+  // verification, an AP clerk's transaction against the buyer's own books, not
+  // something a supplier performs. The portal collects the invoice; AP posts it
+  // in SAP on their own schedule; awaitPaymentRun finds the document SAP
+  // actually holds (matched on invoice number, PO and amount) and follows it to
+  // its payment. Nothing here mints a document number.
   awaitPaymentRun:   { transaction: 'PAYMENT_RUN', deferred: true },
 };
 

@@ -3,11 +3,9 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
 
-const Client = require('../models/Client');
-const SapConnection = require('../models/SapConnection');
-const SapConnectionAudit = require('../models/SapConnectionAudit');
-const SapLog = require('../models/SapLog');
-const AuditLog = require('../models/AuditLog');
+const { prisma, rawPrisma } = require('../db/prisma');
+const { setSecrets, decryptSecrets, secretNames } = require('../db/sapConnectionHelpers');
+const { SapLogType, SapLogDirection } = require('@prisma/client');
 
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
 const { encrypt, decrypt, generateDataKey, wrapDataKey, unwrapDataKey, encryptWithDataKey, decryptWithDataKey } = require('../utils/secretBox');
@@ -39,8 +37,8 @@ describe('the SapAdapter contract', () => {
   });
 
   it('every registered transaction declares a type and a direction the SapLog accepts', () => {
-    const types = SapLog.schema.path('type').enumValues;
-    const directions = SapLog.schema.path('direction').enumValues;
+    const types = Object.values(SapLogType);
+    const directions = Object.values(SapLogDirection);
 
     for (const entry of Object.values(SAP_TRANSACTIONS)) {
       expect(types).toContain(entry.type);
@@ -58,26 +56,25 @@ describe('the SapAdapter contract', () => {
 
   it('refuses to build a driver that is missing a method', () => {
     const incomplete = { ...notImplementedDriver('broken') };
-    delete incomplete.invoiceCreate;
+    delete incomplete.vendorCreate;
 
-    expect(() => assertImplements(incomplete, 'broken')).toThrow(/missing invoiceCreate/);
+    expect(() => assertImplements(incomplete, 'broken')).toThrow(/missing vendorCreate/);
   });
 
   it('the ecc_rfc skeleton throws not_implemented rather than pretending', async () => {
     const adapter = buildTransientAdapter({ clientId: 'CLT-0001', driver: 'ecc_rfc', config: {}, secrets: {} });
 
-    await expect(runWithTenant('CLT-0001', () => adapter.rfqCreate({ rfq: { id: 'RFQ-1' } })))
+    await expect(runWithTenant('CLT-0001', () => adapter.vendorCreate({ vendor: { vendorId: 'v' } })))
       .rejects.toMatchObject({ code: 'not_implemented' });
   });
 
-  it('s4_odata is implemented but fails loudly without a configured sourcing service or reachable gateway', async () => {
+  it('s4_odata is implemented, so it fails on the unreachable gateway rather than reporting not_implemented', async () => {
     const adapter = buildTransientAdapter({ clientId: 'CLT-0001', driver: 's4_odata', config: {}, secrets: {} });
 
-    // rfqCreate has no standard S/4 API — it needs config.services.sourcing,
-    // which is unset here, so it fails with a clear configuration error
-    // rather than the generic not_implemented a skeleton reports.
-    await expect(runWithTenant('CLT-0001', () => adapter.rfqCreate({ rfq: { id: 'RFQ-1' } })))
-      .rejects.toMatchObject({ code: 'sap_call_failed', message: expect.stringContaining('e-sourcing') });
+    // The distinction that matters: a skeleton says "not built"; a real driver
+    // that cannot reach its gateway says so. s4_odata is the latter.
+    await expect(runWithTenant('CLT-0001', () => adapter.vendorCreate({ vendor: { vendorId: 'v' } })))
+      .rejects.toMatchObject({ code: 'sap_call_failed' });
   });
 
   it('stamps every result with its source and freshness', async () => {
@@ -89,7 +86,7 @@ describe('the SapAdapter contract', () => {
   });
 
   it('declares exactly the deferred methods the drivers schedule', () => {
-    expect(DEFERRED_METHODS.sort()).toEqual(['awaitGoodsReceipt', 'awaitPaymentRun', 'awaitVendorApproval']);
+    expect(DEFERRED_METHODS.sort()).toEqual(['awaitGoodsReceipt', 'awaitPaymentRun']);
   });
 });
 
@@ -118,42 +115,54 @@ describe('envelope encryption', () => {
   });
 
   it('a connection stores credentials encrypted and never serialises them', async () => {
-    const connection = new SapConnection({ clientId: 'CLT-0001', environment: 'sandbox', driver: 's4_odata' });
-    connection.setSecrets({ username: 'RFCUSER', password: 'hunter2' });
-    await withoutTenantScope(() => connection.save());
+    const connection = await withoutTenantScope(() => rawPrisma.sapConnection.create({
+      data: { clientId: 'CLT-0001', environment: 'sandbox', driver: 's4_odata' },
+      omit: { wrappedDataKey: false },
+    }));
+    const wrappedDataKey = await setSecrets(connection, { username: 'RFCUSER', password: 'hunter2' });
+    await withoutTenantScope(() => rawPrisma.sapConnection.update({ where: { pk: connection.pk }, data: { wrappedDataKey } }));
 
-    const raw = await withoutTenantScope(() =>
-      SapConnection.collection.findOne({ clientId: 'CLT-0001', environment: 'sandbox' }));
+    const secretRow = await rawPrisma.sapConnectionSecret.findFirst({ where: { connectionPk: connection.pk, name: 'password' } });
+    expect(secretRow.ciphertext).not.toContain('hunter2');
+    expect(secretRow.ciphertext.startsWith('v2:')).toBe(true);
 
-    expect(JSON.stringify(raw)).not.toContain('hunter2');
-    expect(raw.secrets.password.startsWith('v2:')).toBe(true);
-
-    // The obvious accident — res.json(connection) — cannot leak either half.
-    const serialised = JSON.stringify(connection.toJSON());
+    // The obvious accident — res.json(connection) — cannot leak either half:
+    // wrappedDataKey/secrets are omitted from a default (non-raw) fetch.
+    const forDisplay = await withoutTenantScope(() => prisma.sapConnection.findFirst({ where: { clientId: 'CLT-0001' } }));
+    const serialised = JSON.stringify(forDisplay);
     expect(serialised).not.toContain('hunter2');
-    expect(serialised).not.toContain(raw.wrappedDataKey);
+    expect(serialised).not.toContain(wrappedDataKey);
 
     const reloaded = await withoutTenantScope(() =>
-      SapConnection.findOne({ clientId: 'CLT-0001' }).select('+wrappedDataKey'));
-    expect(reloaded.decryptSecrets()).toEqual({ username: 'RFCUSER', password: 'hunter2' });
-    expect(reloaded.secretNames()).toEqual(['password', 'username']);
+      rawPrisma.sapConnection.findFirst({ where: { clientId: 'CLT-0001' }, omit: { wrappedDataKey: false } }));
+    expect(await decryptSecrets(reloaded)).toEqual({ username: 'RFCUSER', password: 'hunter2' });
+    expect(await secretNames(reloaded)).toEqual(['password', 'username']);
   });
 
   it('cannot decrypt a connection loaded without its wrapped key', async () => {
-    const connection = new SapConnection({ clientId: 'CLT-0001', environment: 'sandbox', driver: 's4_odata' });
-    connection.setSecrets({ password: 'hunter2' });
-    await withoutTenantScope(() => connection.save());
+    const connection = await withoutTenantScope(() => rawPrisma.sapConnection.create({
+      data: { clientId: 'CLT-0001', environment: 'sandbox', driver: 's4_odata' },
+      omit: { wrappedDataKey: false },
+    }));
+    const wrappedDataKey = await setSecrets(connection, { password: 'hunter2' });
+    await withoutTenantScope(() => rawPrisma.sapConnection.update({ where: { pk: connection.pk }, data: { wrappedDataKey } }));
 
-    const forDisplay = await withoutTenantScope(() => SapConnection.findOne({ clientId: 'CLT-0001' }));
-    expect(forDisplay.decryptSecrets()).toEqual({});
+    // The default fetch omits wrappedDataKey — decryptSecrets() needs it and
+    // has nothing to work with.
+    const forDisplay = await withoutTenantScope(() => prisma.sapConnection.findFirst({ where: { clientId: 'CLT-0001' } }));
+    expect(await decryptSecrets(forDisplay)).toEqual({});
   });
 
   it('clears a credential when it is set to empty, and leaves untouched ones alone', async () => {
-    const connection = new SapConnection({ clientId: 'CLT-0001', environment: 'sandbox', driver: 's4_odata' });
-    connection.setSecrets({ username: 'RFCUSER', password: 'hunter2' });
-    connection.setSecrets({ password: '' });
+    const connection = await withoutTenantScope(() => rawPrisma.sapConnection.create({
+      data: { clientId: 'CLT-0001', environment: 'sandbox', driver: 's4_odata' },
+      omit: { wrappedDataKey: false },
+    }));
+    const wrappedDataKey = await setSecrets(connection, { username: 'RFCUSER', password: 'hunter2' });
+    const updated = { ...connection, wrappedDataKey };
+    await setSecrets(updated, { password: '' });
 
-    expect(connection.secretNames()).toEqual(['username']);
+    expect(await secretNames(updated)).toEqual(['username']);
   });
 });
 
@@ -213,8 +222,8 @@ describe('getSapAdapterForClient', () => {
     const first = await getSapAdapterForClient('CLT-0001');
     expect(await getSapAdapterForClient('CLT-0001')).toBe(first);
 
-    await withoutTenantScope(() => SapConnection.create({
-      clientId: 'CLT-0001', environment: 'sandbox', driver: 's4_odata', config: { baseUrl: 'https://s4.example.com', sapClient: '100' },
+    await withoutTenantScope(() => prisma.sapConnection.create({
+      data: { clientId: 'CLT-0001', environment: 'sandbox', driver: 's4_odata', config: { baseUrl: 'https://s4.example.com', sapClient: '100' } },
     }));
 
     const second = await getSapAdapterForClient('CLT-0001');
@@ -224,9 +233,9 @@ describe('getSapAdapterForClient', () => {
 
   it('follows the tenant onto production once it has been promoted', async () => {
     await withoutTenantScope(async () => {
-      await SapConnection.create({ clientId: 'CLT-0001', environment: 'sandbox', driver: 'mock' });
-      await SapConnection.create({ clientId: 'CLT-0001', environment: 'production', driver: 'ecc_rfc', config: { ashost: 'sap.example.com', sysnr: '00', sapClient: '100' } });
-      await Client.updateOne({ clientId: 'CLT-0001' }, { sapEnvironment: 'production' });
+      await prisma.sapConnection.create({ data: { clientId: 'CLT-0001', environment: 'sandbox', driver: 'mock' } });
+      await prisma.sapConnection.create({ data: { clientId: 'CLT-0001', environment: 'production', driver: 'ecc_rfc', config: { ashost: 'sap.example.com', sysnr: '00', sapClient: '100' } } });
+      await rawPrisma.client.updateMany({ where: { clientId: 'CLT-0001' }, data: { sapEnvironment: 'production' } });
     });
 
     const adapter = await getSapAdapterForClient('CLT-0001');
@@ -258,7 +267,7 @@ describe('the mock driver', () => {
       po: { id: 'PO-2026-0001', vendorId: 'vendor_1', acknowledgedAt: new Date() },
     }));
 
-    const entry = await runWithTenant('CLT-0001', () => SapLog.findOne({ documentRef: 'PO-2026-0001' }));
+    const entry = await runWithTenant('CLT-0001', () => prisma.sapLog.findFirst({ where: { documentRef: 'PO-2026-0001' } }));
     expect(entry).toMatchObject({
       name: SAP_TRANSACTIONS.PO_ACKNOWLEDGE.code,
       type: SAP_TRANSACTIONS.PO_ACKNOWLEDGE.type,
@@ -309,7 +318,7 @@ describe('the mock driver', () => {
     );
 
     await settle();
-    const logs = await runWithTenant('CLT-0001', () => SapLog.countDocuments({}));
+    const logs = await runWithTenant('CLT-0001', () => prisma.sapLog.count({}));
     expect(logs).toBe(0);
   });
 
@@ -321,7 +330,7 @@ describe('the mock driver', () => {
       { invoice: { id: 'INV-1', vendorId: 'v', totalAmount: 1000 }, vendorId: 'v' },
       async () => {
         // A query here would throw if the tenant were not bound.
-        boundInsideHandler = await SapLog.countDocuments({});
+        boundInsideHandler = await prisma.sapLog.count({});
         return { id: 'PMT-1' };
       },
     );
@@ -329,17 +338,17 @@ describe('the mock driver', () => {
     await settle();
     expect(boundInsideHandler).toBe(0);
 
-    const entry = await runWithTenant('CLT-0001', () => SapLog.findOne({ documentRef: 'PMT-1' }));
+    const entry = await runWithTenant('CLT-0001', () => prisma.sapLog.findFirst({ where: { documentRef: 'PMT-1' } }));
     expect(entry.name).toBe(SAP_TRANSACTIONS.PAYMENT_RUN.code);
   });
 
   it('records a failed call rather than losing it', async () => {
     const adapter = buildTransientAdapter({ clientId: 'CLT-0001', driver: 'ecc_rfc', config: {}, secrets: {} });
 
-    await expect(runWithTenant('CLT-0001', () => adapter.invoiceCreate({ invoice: { id: 'INV-9' }, vendorId: 'v' })))
+    await expect(runWithTenant('CLT-0001', () => adapter.vendorCreate({ vendor: { vendorId: 'v' } })))
       .rejects.toMatchObject({ code: 'not_implemented' });
 
-    const entry = await runWithTenant('CLT-0001', () => SapLog.findOne({ name: SAP_TRANSACTIONS.INVOICE_CREATE.code }));
+    const entry = await runWithTenant('CLT-0001', () => prisma.sapLog.findFirst({ where: { name: SAP_TRANSACTIONS.VENDOR_CREATE.code } }));
     expect(entry.status).toBe('FAILED');
     expect(entry.errorMessage).toMatch(/not_implemented/);
   });
@@ -347,14 +356,15 @@ describe('the mock driver', () => {
   // Phase 7: VENDOR_CR contract — mock accepts the { vendor, settings } args
   // the real driver now needs and logs the tenant's account group alongside
   // the vendor's own fields.
-  it('vendorCreate accepts the tenant sapVendorCreate settings and logs a PENDING entry', async () => {
+  it('vendorCreate accepts the tenant sapVendorCreate settings and returns a code on the spot', async () => {
     const adapter = await getSapAdapterForClient('CLT-0001');
     const vendor = { _id: 'v1', vendorId: 'vendor_1', companyName: 'Acme Pvt Ltd', gstin: '27AAAPL1234C1ZV', pan: 'AAAPL1234C', email: 'a@b.com' };
 
-    await runWithTenant('CLT-0001', () => adapter.vendorCreate({ vendor, settings: { accountGroup: 'LIEF' } }));
+    const result = await runWithTenant('CLT-0001', () => adapter.vendorCreate({ vendor, settings: { accountGroup: 'LIEF' } }));
+    expect(result.sapVendorCode).toMatch(/^VND-\d{5}$/);
 
-    const entry = await runWithTenant('CLT-0001', () => SapLog.findOne({ documentRef: 'v1' }));
-    expect(entry.status).toBe('PENDING');
+    const entry = await runWithTenant('CLT-0001', () => prisma.sapLog.findFirst({ where: { documentRef: 'v1' } }));
+    expect(entry.status).toBe('SUCCESS');
     expect(JSON.parse(entry.payload).accountGroup).toBe('LIEF');
   });
 });
@@ -396,10 +406,21 @@ describe('platform SAP configuration', () => {
   });
 
   it('the catalogue carries field names but no values', () => {
-    const serialised = JSON.stringify(driverCatalogue());
+    const catalogue = driverCatalogue();
+    const serialised = JSON.stringify(catalogue);
+
+    // A credential's *name* is public; its value never is.
     expect(serialised).toContain('password');
-    expect(serialised).not.toContain('create');
-    expect(serialised).not.toContain('validateConfig');
+
+    // The registry's internals — the driver factory and its validator — must
+    // not be serialised out to the console. Asserted on the keys rather than as
+    // a substring of the JSON: config field names and their defaults legitimately
+    // contain these words (vendorCrPath defaults to "/zvendor_create/VENDOR_CR"),
+    // and a substring check reads that as a leak.
+    for (const entry of catalogue) {
+      expect(Object.keys(entry)).not.toContain('create');
+      expect(Object.keys(entry)).not.toContain('validateConfig');
+    }
   });
 
   it('stores a connection, and never returns the credentials', async () => {
@@ -461,11 +482,11 @@ describe('platform SAP configuration', () => {
     expect(res.status).toBe(200);
     expect(res.body.result).toMatchObject({ ok: true, driver: 'mock', testedBy: operator.email });
 
-    const trail = await withoutTenantScope(() => SapConnectionAudit.findOne({ action: AUDIT_ACTIONS.SAP_CONNECTION_TESTED }));
+    const trail = await withoutTenantScope(() => rawPrisma.sapConnectionAudit.findFirst({ where: { action: AUDIT_ACTIONS.SAP_CONNECTION_TESTED } }));
     expect(trail).toMatchObject({ clientId: 'CLT-0001', environment: 'sandbox', actorEmail: operator.email });
     expect(trail.result.ok).toBe(true);
 
-    const audit = await withoutTenantScope(() => AuditLog.findOne({ action: AUDIT_ACTIONS.SAP_CONNECTION_TESTED }));
+    const audit = await withoutTenantScope(() => rawPrisma.auditLog.findFirst({ where: { action: AUDIT_ACTIONS.SAP_CONNECTION_TESTED } }));
     expect(audit.clientId).toBe('CLT-0001');
   });
 
@@ -475,7 +496,7 @@ describe('platform SAP configuration', () => {
     await configure(token, 'sandbox', s4Body());
     await configure(token, 'sandbox', s4Body({ config: { baseUrl: 'https://s4-new.example.com', sapClient: '200' }, secrets: { password: 'newpass' } }));
 
-    const entries = await withoutTenantScope(() => SapConnectionAudit.find({ clientId: 'CLT-0001' }).sort({ at: 1 }));
+    const entries = await withoutTenantScope(() => rawPrisma.sapConnectionAudit.findMany({ where: { clientId: 'CLT-0001' }, orderBy: { at: 'asc' } }));
 
     expect(entries.map((entry) => entry.action)).toEqual([
       AUDIT_ACTIONS.SAP_CONNECTION_CREATED,
@@ -491,11 +512,10 @@ describe('platform SAP configuration', () => {
     const { token } = await createOperatorSession();
     await configure(token, 'sandbox', { driver: 'mock', config: {}, secrets: {} });
 
-    const entry = await withoutTenantScope(() => SapConnectionAudit.findOne({ clientId: 'CLT-0001' }));
-    entry.actorEmail = 'someone.else@example.com';
+    const entry = await withoutTenantScope(() => rawPrisma.sapConnectionAudit.findFirst({ where: { clientId: 'CLT-0001' } }));
 
-    await expect(withoutTenantScope(() => entry.save())).rejects.toThrow(/append-only/);
-    await expect(withoutTenantScope(() => SapConnectionAudit.deleteMany({}))).rejects.toThrow(/append-only/);
+    await expect(withoutTenantScope(() => prisma.sapConnectionAudit.update({ where: { pk: entry.pk }, data: { actorEmail: 'someone.else@example.com' } }))).rejects.toThrow(/append-only/);
+    await expect(withoutTenantScope(() => prisma.sapConnectionAudit.deleteMany({}))).rejects.toThrow(/append-only/);
   });
 });
 
@@ -520,7 +540,7 @@ describe('promotion to production', () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/Test the production connection/);
 
-    const client = await withoutTenantScope(() => Client.findOne({ clientId: 'CLT-0001' }));
+    const client = await withoutTenantScope(() => rawPrisma.client.findFirst({ where: { clientId: 'CLT-0001' } }));
     expect(client.sapEnvironment).toBe('sandbox');
   });
 
@@ -538,7 +558,7 @@ describe('promotion to production', () => {
     const adapter = await getSapAdapterForClient('CLT-0001');
     expect(adapter.environment).toBe('production');
 
-    const trail = await withoutTenantScope(() => SapConnectionAudit.findOne({ action: AUDIT_ACTIONS.SAP_CONNECTION_PROMOTED }));
+    const trail = await withoutTenantScope(() => rawPrisma.sapConnectionAudit.findFirst({ where: { action: AUDIT_ACTIONS.SAP_CONNECTION_PROMOTED } }));
     expect(trail.changes.activeEnvironment).toMatchObject({ from: 'sandbox', to: 'production' });
     expect(trail.actorEmail).toBe(operator.email);
   });
@@ -546,8 +566,8 @@ describe('promotion to production', () => {
   it('lets a tenant be rolled back to sandbox without qualifying for it', async () => {
     const { token } = await createOperatorSession();
     await withoutTenantScope(async () => {
-      await SapConnection.create({ clientId: 'CLT-0001', environment: 'sandbox', driver: 'mock' });
-      await Client.updateOne({ clientId: 'CLT-0001' }, { sapEnvironment: 'production' });
+      await prisma.sapConnection.create({ data: { clientId: 'CLT-0001', environment: 'sandbox', driver: 'mock' } });
+      await rawPrisma.client.updateMany({ where: { clientId: 'CLT-0001' }, data: { sapEnvironment: 'production' } });
     });
 
     const res = await promote(token, 'sandbox', 'incident rollback');
@@ -621,7 +641,7 @@ describe('one tenant’s SAP configuration is invisible to another', () => {
     await runWithTenant('CLT-0001', () => a.poAcknowledge({ po: { id: 'PO-A', vendorId: 'v', acknowledgedAt: new Date() } }));
     await runWithTenant('CLT-0002', () => b.poAcknowledge({ po: { id: 'PO-B', vendorId: 'v', acknowledgedAt: new Date() } }));
 
-    const seenByA = await runWithTenant('CLT-0001', () => SapLog.find({}));
+    const seenByA = await runWithTenant('CLT-0001', () => prisma.sapLog.findMany({}));
     expect(seenByA).toHaveLength(1);
     expect(seenByA[0].documentRef).toBe('PO-A');
   });

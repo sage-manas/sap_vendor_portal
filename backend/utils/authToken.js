@@ -38,7 +38,7 @@ const signToken = (account, { mfa = false } = {}) => {
 
   return jwt.sign(
     {
-      sub: String(account._id),
+      sub: account.pk,
       accountType,
       role: account.role,
       roleScope: plane,
@@ -47,7 +47,7 @@ const signToken = (account, { mfa = false } = {}) => {
       ...(accountType === ACCOUNT_TYPES.PLATFORM ? { mfa: Boolean(mfa) } : {}),
       // Suppliers keep their business identity in the token: controllers scope
       // supplier reads by vendorId, and it saves a lookup on every request.
-      ...(accountType === ACCOUNT_TYPES.VENDOR ? { vendorId: account.vendorId, id: account._id } : {}),
+      ...(accountType === ACCOUNT_TYPES.VENDOR ? { vendorId: account.vendorId, id: account.pk } : {}),
     },
     secret(),
     { expiresIn: process.env.JWT_EXPIRES_IN || '30d' }

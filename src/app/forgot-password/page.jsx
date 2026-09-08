@@ -46,7 +46,7 @@ export default function ForgotPasswordPage() {
         </div>
         <h2 className="text-xl font-bold text-text-primary tracking-wide">Reset Your Password</h2>
         <p className="text-[10px] text-text-tertiary font-mono tracking-wider uppercase mt-1">
-          SAP INTEGRATED PARTNER GATEWAY
+          SUPPLIER PARTNER PORTAL
         </p>
       </div>
 

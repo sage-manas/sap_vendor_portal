@@ -34,7 +34,7 @@ export default function WorkspaceOverviewPage() {
     <>
       <PageHeader
         title={data?.workspace?.companyName || workspace?.companyName || 'Workspace'}
-        caption={`${data?.workspace?.plan || '—'} plan · SAP ${data?.workspace?.sapEnvironment || '—'} · ${data?.workspace?.clientId || ''}`}
+        caption={`${data?.workspace?.plan || '—'} plan · ${data?.workspace?.sapEnvironment || '—'} environment · ${data?.workspace?.clientId || ''}`}
       />
 
       <Notice tone="error">{error}</Notice>
@@ -68,17 +68,28 @@ export default function WorkspaceOverviewPage() {
           </section>
 
           <section className="space-y-2">
-            <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-tertiary">Sourcing and finance</h2>
+            <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-tertiary">Sourcing</h2>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <Tile label="RFQs open for bidding" value={data.sourcing.openRfqs} href="/rfqs" />
-              <Tile label="Purchase orders open" value={data.sourcing.openPos} href="/pos" />
-              <Tile label="Invoices not yet cleared" value={data.finance.invoicesOpen} href="/invoices" />
+              <Tile label="RFQs open for bidding" value={data.sourcing.openRfqs} caption={`${data.sourcing.rfqsTotal} total`} href="/workspace/rfqs" />
+              <Tile label="RFQs awarded" value={data.sourcing.awardedRfqs} href="/workspace/rfqs" />
+              <Tile label="Purchase orders open" value={data.sourcing.openPos} caption={`${data.sourcing.posTotal} total`} href="/workspace/purchase-orders" />
+              <Tile label="Purchase orders, all" value={data.sourcing.posTotal} href="/workspace/purchase-orders" />
+            </div>
+          </section>
+
+          <section className="space-y-2">
+            <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-tertiary">Finance</h2>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <Tile label="Invoices not yet cleared" value={data.finance.invoicesOpen} caption={money(data.finance.invoicesOpenValue)} href="/workspace/invoices" />
               <Tile
                 label="Above the review amount"
                 value={data.finance.invoicesOverThreshold}
                 caption={`At or above ${money(data.finance.reviewAmount)}`}
-                href="/invoices"
+                href="/workspace/invoices"
+                tone={data.finance.invoicesOverThreshold > 0 ? 'alert' : 'normal'}
               />
+              <Tile label="Payments made" value={data.finance.payments.count} caption={money(data.finance.payments.netPaid)} href="/workspace/payments" />
+              <Tile label="TDS deducted" value={money(data.finance.payments.tdsDeducted)} href="/workspace/payments" />
             </div>
           </section>
 

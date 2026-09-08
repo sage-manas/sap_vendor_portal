@@ -1,8 +1,7 @@
-const Client = require('../models/Client');
-const User = require('../models/User');
+const { prisma } = require('../db/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
-const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
+const { runWithTenant } = require('../utils/tenantContext');
 const { recordAudit } = require('../utils/audit');
 const { AUDIT_ACTIONS } = require('../config/auditActions');
 const { tenantModels } = require('../config/tenantModels');
@@ -18,23 +17,27 @@ const { usageAgainstLimits } = require('../utils/usage');
 //
 // Everything here reads and writes tenant *configuration*. Not one endpoint
 // returns an RFQ, a PO or an invoice: the per-tenant numbers below are counts
-// and totals, produced by `countDocuments` inside the tenant's own scope, and
-// the export is an explicit, audited operator action rather than a browse.
+// and totals, produced by `count` inside the tenant's own scope, and the
+// export is an explicit, audited operator action rather than a browse.
 
 const STATUS = { TRIAL: 'Trial', ACTIVE: 'Active', SUSPENDED: 'Suspended', TERMINATED: 'Terminated' };
 
 // The shape the console renders. Everything on Client is operator-visible —
-// there is no secret on this model (SAP credentials live on SapConnection in
-// Phase 4, encrypted and never returned).
+// there is no secret on this model (SAP credentials live on SapConnection,
+// encrypted and never returned).
 const formatClient = (client) => ({
   clientId: client.clientId,
   companyName: client.companyName,
   slug: client.slug,
   status: client.status,
   plan: client.plan,
-  branding: client.branding || {},
+  branding: { logo: client.brandingLogo ?? null, primaryColor: client.brandingColor ?? null },
   featureFlags: client.featureFlags || {},
-  limits: client.limits,
+  limits: {
+    vendors: client.limitVendors,
+    rfqsPerMonth: client.limitRfqsPerMonth,
+    storageMb: client.limitStorageMb,
+  },
   createdBy: client.createdBy,
   createdAt: client.createdAt,
   activatedAt: client.activatedAt,
@@ -42,18 +45,18 @@ const formatClient = (client) => ({
   terminatedAt: client.terminatedAt,
 });
 
-// Counts one tenant's rows, inside that tenant's scope so the plugin does the
-// filtering rather than a hand-written clientId that could be forgotten.
+// Counts one tenant's rows, inside that tenant's scope so the extension does
+// the filtering rather than a hand-written clientId that could be forgotten.
 const countsFor = (clientId) =>
   runWithTenant(clientId, async () => {
     const entries = await Promise.all(
-      tenantModels().map(async ({ name, model }) => [name, await model.countDocuments({})])
+      tenantModels().map(async ({ name, count }) => [name, await count()])
     );
     return Object.fromEntries(entries);
   });
 
 const findClientOr404 = async (clientId) => {
-  const client = await withoutTenantScope(() => Client.findOne({ clientId }));
+  const client = await prisma.client.findFirst({ where: { clientId } });
   if (!client) throw ApiError.notFound('Not found');
   return client;
 };
@@ -64,20 +67,24 @@ const findClientOr404 = async (clientId) => {
 const listTenants = asyncHandler(async (req, res) => {
   const { status, plan, q, page = 1, limit = 25 } = req.query;
 
-  const filter = {};
-  if (status) filter.status = status;
-  if (plan) filter.plan = plan;
+  const where = {};
+  if (status) where.status = status;
+  if (plan) where.plan = plan;
   if (q) {
-    const term = new RegExp(String(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-    filter.$or = [{ companyName: term }, { slug: term }, { clientId: term }];
+    const term = String(q);
+    where.OR = [
+      { companyName: { contains: term, mode: 'insensitive' } },
+      { slug: { contains: term, mode: 'insensitive' } },
+      { clientId: { contains: term, mode: 'insensitive' } },
+    ];
   }
 
   const perPage = Math.min(Number(limit) || 25, 100);
   const skip = (Math.max(Number(page) || 1, 1) - 1) * perPage;
 
-  const [clients, total] = await withoutTenantScope(async () => [
-    await Client.find(filter).sort({ createdAt: -1 }).skip(skip).limit(perPage),
-    await Client.countDocuments(filter),
+  const [clients, total] = await Promise.all([
+    prisma.client.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: perPage }),
+    prisma.client.count({ where }),
   ]);
 
   res.json({
@@ -96,13 +103,16 @@ const getTenant = asyncHandler(async (req, res) => {
   const client = await findClientOr404(req.params.clientId);
 
   const admins = await runWithTenant(client.clientId, () =>
-    User.find({ role: ROLES.CLIENT_ADMIN }).select('email name status lastLoginAt mustChangePassword createdAt'));
+    prisma.user.findMany({
+      where: { role: ROLES.CLIENT_ADMIN },
+      select: { pk: true, email: true, name: true, status: true, lastLoginAt: true, mustChangePassword: true, createdAt: true },
+    }));
 
   res.json({
     success: true,
     tenant: formatClient(client),
     administrators: admins.map((admin) => ({
-      id: admin._id,
+      id: admin.pk,
       email: admin.email,
       name: admin.name,
       status: admin.status,
@@ -136,7 +146,7 @@ const createTenant = asyncHandler(async (req, res) => {
     req,
     action: AUDIT_ACTIONS.TENANT_ADMIN_PROVISIONED,
     clientId: client.clientId,
-    target: { type: 'User', id: String(clientAdmin._id), label: clientAdmin.email },
+    target: { type: 'User', id: clientAdmin.pk, label: clientAdmin.email },
     // The password is not here, and cannot be: provisionTenant never returns it.
     meta: { role: clientAdmin.role, delivery: 'email' },
   });
@@ -146,7 +156,7 @@ const createTenant = asyncHandler(async (req, res) => {
   res.status(201).json({
     success: true,
     tenant: formatClient(client),
-    administrator: { id: clientAdmin._id, email: clientAdmin.email, name: clientAdmin.name },
+    administrator: { id: clientAdmin.pk, email: clientAdmin.email, name: clientAdmin.name },
     message: `Workspace created. Credentials have been emailed to ${clientAdmin.email}.`,
   });
 });
@@ -154,7 +164,20 @@ const createTenant = asyncHandler(async (req, res) => {
 // Fields an operator may change after creation. `clientId` and `slug` are
 // absent on purpose: the first identifies the tenant everywhere, the second is
 // its login realm, and both are load-bearing for data already written.
-const EDITABLE = ['companyName', 'plan', 'limits', 'branding', 'featureFlags'];
+// Maps a request-body field to how it lands on the flattened Client columns —
+// `limits`/`branding` were nested Mongoose subdocuments and are now separate
+// scalar columns (see prisma/schema.prisma), so editing them is a merge
+// across several `data` keys rather than one.
+const applyLimitsPatch = (client, patch = {}) => ({
+  ...(patch.vendors !== undefined && { limitVendors: patch.vendors }),
+  ...(patch.rfqsPerMonth !== undefined && { limitRfqsPerMonth: patch.rfqsPerMonth }),
+  ...(patch.storageMb !== undefined && { limitStorageMb: patch.storageMb }),
+});
+
+const applyBrandingPatch = (client, patch = {}) => ({
+  ...(patch.logo !== undefined && { brandingLogo: patch.logo }),
+  ...(patch.primaryColor !== undefined && { brandingColor: patch.primaryColor }),
+});
 
 // @desc    Edit a tenant's configuration
 // @route   PUT /api/platform/tenants/:clientId
@@ -162,24 +185,38 @@ const EDITABLE = ['companyName', 'plan', 'limits', 'branding', 'featureFlags'];
 const updateTenant = asyncHandler(async (req, res) => {
   const client = await findClientOr404(req.params.clientId);
 
+  const data = {};
   const changed = {};
-  for (const field of EDITABLE) {
-    if (req.body[field] === undefined) continue;
-    // Nested objects are merged, not replaced: a console that sends only
-    // `limits.vendors` must not blank out the other two.
-    const next = ['limits', 'branding', 'featureFlags'].includes(field)
-      ? { ...(client[field]?.toObject?.() ?? client[field] ?? {}), ...req.body[field] }
-      : req.body[field];
 
-    changed[field] = { from: client[field], to: next };
-    client[field] = next;
+  if (req.body.companyName !== undefined) {
+    changed.companyName = { from: client.companyName, to: req.body.companyName };
+    data.companyName = req.body.companyName;
+  }
+  if (req.body.plan !== undefined) {
+    changed.plan = { from: client.plan, to: req.body.plan };
+    data.plan = req.body.plan;
+  }
+  if (req.body.limits !== undefined) {
+    const before = { vendors: client.limitVendors, rfqsPerMonth: client.limitRfqsPerMonth, storageMb: client.limitStorageMb };
+    changed.limits = { from: before, to: { ...before, ...req.body.limits } };
+    Object.assign(data, applyLimitsPatch(client, req.body.limits));
+  }
+  if (req.body.branding !== undefined) {
+    const before = { logo: client.brandingLogo, primaryColor: client.brandingColor };
+    changed.branding = { from: before, to: { ...before, ...req.body.branding } };
+    Object.assign(data, applyBrandingPatch(client, req.body.branding));
+  }
+  if (req.body.featureFlags !== undefined) {
+    const next = { ...(client.featureFlags || {}), ...req.body.featureFlags };
+    changed.featureFlags = { from: client.featureFlags, to: next };
+    data.featureFlags = next;
   }
 
   if (!Object.keys(changed).length) {
     return res.json({ success: true, tenant: formatClient(client) });
   }
 
-  await withoutTenantScope(() => client.save());
+  const updated = await prisma.client.update({ where: { pk: client.pk }, data });
   await recordAudit({
     req,
     action: AUDIT_ACTIONS.TENANT_UPDATED,
@@ -188,7 +225,7 @@ const updateTenant = asyncHandler(async (req, res) => {
     meta: { fields: Object.keys(changed), changed },
   });
 
-  res.json({ success: true, tenant: formatClient(client) });
+  res.json({ success: true, tenant: formatClient(updated) });
 });
 
 // The three lifecycle moves, each expressed as "from these states, to that
@@ -234,9 +271,10 @@ const transition = (name) => asyncHandler(async (req, res, next) => {
   }
 
   const from = client.status;
-  client.status = rule.to;
-  client[rule.stamp] = new Date();
-  await withoutTenantScope(() => client.save());
+  const updated = await prisma.client.update({
+    where: { pk: client.pk },
+    data: { status: rule.to, [rule.stamp]: new Date() },
+  });
 
   await recordAudit({
     req,
@@ -246,9 +284,9 @@ const transition = (name) => asyncHandler(async (req, res, next) => {
     meta: { from, to: rule.to, reason: req.body?.reason },
   });
 
-  await getBillingProvider().onTenantStatusChanged({ client, from, to: rule.to });
+  await getBillingProvider().onTenantStatusChanged({ client: updated, from, to: rule.to });
 
-  res.json({ success: true, tenant: formatClient(client), message: rule.message });
+  res.json({ success: true, tenant: formatClient(updated), message: rule.message });
 });
 
 // @desc    Export a tenant's data (offboarding, or a support request)
@@ -264,10 +302,11 @@ const exportTenant = asyncHandler(async (req, res) => {
 
   const collections = await runWithTenant(client.clientId, async () => {
     const entries = await Promise.all(
-      tenantModels().map(async ({ name, label, model }) => {
-        // Credentials and reset tokens are `select: false` on the identity
-        // collections, so they are absent here by construction.
-        const documents = await model.find({}).lean();
+      tenantModels().map(async ({ name, label, findMany }) => {
+        // Credentials and reset tokens are omitted by default on the identity
+        // collections (see backend/db/prisma.js), so they are absent here by
+        // construction.
+        const documents = await findMany();
         return [name, { label, count: documents.length, documents }];
       })
     );
@@ -306,7 +345,7 @@ const reissueCredentials = asyncHandler(async (req, res) => {
     req,
     action: AUDIT_ACTIONS.TENANT_ADMIN_CREDENTIALS_REISSUED,
     clientId: client.clientId,
-    target: { type: 'User', id: String(admin._id), label: admin.email },
+    target: { type: 'User', id: admin.pk, label: admin.email },
     meta: { delivery: 'email' },
   });
 

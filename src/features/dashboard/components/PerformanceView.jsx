@@ -19,7 +19,7 @@ export default function PerformanceView({ state }) {
             <Activity className="size-4.5 text-text-secondary" /> Supplier Performance scorecard
           </h2>
           <p className="text-[11px] text-text-secondary mt-1 font-semibold">
-            Quality grades and logistics compliance KPI records evaluated dynamically against SAP transactional histories
+            Your quality and delivery scores, calculated from your order, delivery, and invoice history
           </p>
         </div>
         <div className="size-14 rounded-md border border-border bg-surface2 flex flex-col items-center justify-center shrink-0 select-none">
@@ -50,9 +50,9 @@ export default function PerformanceView({ state }) {
         <div className="space-y-4.5 max-w-2xl">
           {[
             { name: 'On-Time Delivery (OTIF)', val: perf.deliveryOTIF, target: 95 },
-            { name: 'Quality Stores Acceptance', val: perf.qualityAcceptance, target: 98 },
-            { name: 'Invoice Billing Accuracy', val: 83, target: 90 },
-            { name: 'Planners Response Speed', val: 92, target: 85 }
+            { name: 'Quality acceptance rate', val: perf.qualityAcceptance, target: 98 },
+            { name: 'Invoice accuracy', val: 83, target: 90 },
+            { name: 'Response speed', val: 92, target: 85 }
           ].map((bar, idx) => {
             const isTargetMet = bar.val >= bar.target;
             const barColor = isTargetMet ? 'bg-emerald-500' : 'bg-amber-500';
@@ -83,21 +83,21 @@ export default function PerformanceView({ state }) {
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-xs text-text-secondary leading-relaxed">
           <div className="space-y-1 border-r border-border pr-4 last:border-r-0 last:pr-0">
-            <h4 className="font-extrabold text-text-primary uppercase text-[10px] tracking-wider mb-1">Quality Stores Rejections</h4>
+            <h4 className="font-extrabold text-text-primary uppercase text-[10px] tracking-wider mb-1">Rejections on delivery</h4>
             <p className="text-text-secondary leading-normal">
-              Inspection discrepancies logged at store gates during MIGO posting directly reduce the Quality index. Verify and securely pack materials to avoid QC rejections.
+              Items your buyer rejects when checking a delivery lower your quality score. Check and pack goods carefully to avoid rejections.
             </p>
           </div>
           <div className="space-y-1 border-r border-border pr-4 last:border-r-0 last:pr-0">
             <h4 className="font-extrabold text-text-primary uppercase text-[10px] tracking-wider mb-1">Lead-Time Compliance</h4>
             <p className="text-text-secondary leading-normal">
-              OTIF scores compare tracking dispatch stamps against agreed contractual delivery dates. Keeping dispatches within allocated slots preserves your priority vendor status.
+              Your delivery score compares when you dispatched against the delivery date agreed on the order. Shipping on time keeps your preferred-supplier standing.
             </p>
           </div>
           <div className="space-y-1 border-r border-border pr-4 last:border-r-0 last:pr-0">
-            <h4 className="font-extrabold text-text-primary uppercase text-[10px] tracking-wider mb-1">LIV Invoice Consistency</h4>
+            <h4 className="font-extrabold text-text-primary uppercase text-[10px] tracking-wider mb-1">Invoice accuracy</h4>
             <p className="text-text-secondary leading-normal">
-              Quantities and prices listed in posted invoices are checked against PO schedules and GRN MIGO records. Perfect match entries speed up settlement cycles.
+              The quantities and prices on your invoices are checked against the order and the delivery receipt. Invoices that match exactly get paid faster.
             </p>
           </div>
         </div>

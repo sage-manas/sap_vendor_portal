@@ -1,10 +1,8 @@
-const Client = require('../models/Client');
-const SapConnection = require('../models/SapConnection');
-const SapConnectionAudit = require('../models/SapConnectionAudit');
+const { prisma, rawPrisma } = require('../db/prisma');
+const { setSecrets, decryptSecrets, secretNames, ENVIRONMENTS } = require('../db/sapConnectionHelpers');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const logger = require('../utils/logger');
-const { withoutTenantScope } = require('../utils/tenantContext');
 const { recordAudit } = require('../utils/audit');
 const { AUDIT_ACTIONS } = require('../config/auditActions');
 const { driverDefinition, driverCatalogue, DEFAULT_DRIVER } = require('../sap/drivers');
@@ -17,8 +15,6 @@ const { buildTransientAdapter, invalidateSapAdapter } = require('../sap');
 // returns a credential, and no endpoint reads a tenant's RFQs, POs or invoices.
 // An operator configures the pipe; what flows through it stays the tenant's.
 
-const ENVIRONMENTS = SapConnection.ENVIRONMENTS;
-
 const assertEnvironment = (environment) => {
   if (!ENVIRONMENTS.includes(environment)) {
     throw ApiError.badRequest(`Unknown environment "${environment}" — expected ${ENVIRONMENTS.join(' or ')}`);
@@ -27,14 +23,14 @@ const assertEnvironment = (environment) => {
 };
 
 const findClientOr404 = async (clientId) => {
-  const client = await withoutTenantScope(() => Client.findOne({ clientId }));
+  const client = await prisma.client.findFirst({ where: { clientId } });
   if (!client) throw ApiError.notFound('Not found');
   return client;
 };
 
 // What the console sees. `secrets` becomes a list of names — enough to render
 // "password: configured", never enough to learn one.
-const formatConnection = (connection, { active }) => {
+const formatConnection = async (connection, { active }) => {
   if (!connection) return null;
 
   return {
@@ -42,7 +38,7 @@ const formatConnection = (connection, { active }) => {
     environment: connection.environment,
     driver: connection.driver,
     config: connection.config || {},
-    configuredSecrets: connection.secretNames(),
+    configuredSecrets: await secretNames(connection),
     lastTest: connection.lastTest || null,
     promotedAt: connection.promotedAt || null,
     promotedBy: connection.promotedBy || null,
@@ -65,12 +61,14 @@ const actorFor = (req) => ({
 // names, never a value.
 const recordConnectionAudit = async ({ req, clientId, environment, action, driver, changes, secretsChanged, result }) => {
   try {
-    await SapConnectionAudit.create({
-      clientId, environment, action, driver,
-      changes: changes || {},
-      secretsChanged: secretsChanged || [],
-      result,
-      ...actorFor(req),
+    await prisma.sapConnectionAudit.create({
+      data: {
+        clientId, environment, action, driver,
+        changes: changes || {},
+        secretsChanged: secretsChanged || [],
+        result,
+        ...actorFor(req),
+      },
     });
   } catch (error) {
     logger.error(`[sap] failed to write SapConnectionAudit for ${clientId}/${environment}: ${error.message}`);
@@ -97,10 +95,15 @@ const diffConfig = (before = {}, after = {}) => {
 const getSapConfiguration = asyncHandler(async (req, res) => {
   const client = await findClientOr404(req.params.clientId);
 
-  const connections = await withoutTenantScope(() =>
-    SapConnection.find({ clientId: client.clientId }));
-
+  const connections = await prisma.sapConnection.findMany({ where: { clientId: client.clientId } });
   const byEnvironment = Object.fromEntries(connections.map((entry) => [entry.environment, entry]));
+
+  const connectionRows = await Promise.all(ENVIRONMENTS.map(async (environment) => ({
+    environment,
+    connection: await formatConnection(byEnvironment[environment], {
+      active: (client.sapEnvironment || 'sandbox') === environment,
+    }),
+  })));
 
   res.json({
     success: true,
@@ -110,12 +113,7 @@ const getSapConfiguration = asyncHandler(async (req, res) => {
     // The console renders a form per driver from this, which is why there is
     // one SAP screen rather than one per driver.
     drivers: driverCatalogue(),
-    connections: ENVIRONMENTS.map((environment) => ({
-      environment,
-      connection: formatConnection(byEnvironment[environment], {
-        active: (client.sapEnvironment || 'sandbox') === environment,
-      }),
-    })),
+    connections: connectionRows,
   });
 });
 
@@ -140,24 +138,39 @@ const configureSap = asyncHandler(async (req, res) => {
     throw ApiError.badRequest(`The ${definition.label} driver has no credential named ${unknownSecrets.join(', ')}`);
   }
 
-  const existing = await withoutTenantScope(() =>
-    SapConnection.findOne({ clientId: client.clientId, environment }).select('+wrappedDataKey'));
+  const existing = await rawPrisma.sapConnection.findFirst({
+    where: { clientId: client.clientId, environment },
+    omit: { wrappedDataKey: false },
+  });
 
   const isNew = !existing;
-  const connection = existing || new SapConnection({ clientId: client.clientId, environment, createdBy: req.auth?.email });
+  const before = { driver: existing?.driver, ...(existing?.config || {}) };
 
-  const before = { driver: connection.driver, ...(connection.config || {}) };
-
-  connection.driver = driver;
-  connection.config = config;
-  connection.updatedBy = req.auth?.email;
   // A configuration change invalidates any previous proof that it worked. An
   // operator seeing a green tick against settings they have since edited is
   // exactly the kind of false comfort this phase exists to remove.
-  connection.lastTest = null;
-  connection.setSecrets(secrets);
+  let connection = existing
+    ? await prisma.sapConnection.update({
+      where: { pk: existing.pk },
+      data: { driver, config, updatedBy: req.auth?.email, lastTest: null },
+      omit: { wrappedDataKey: false },
+    })
+    : await prisma.sapConnection.create({
+      data: {
+        clientId: client.clientId, environment, driver, config,
+        createdBy: req.auth?.email, updatedBy: req.auth?.email,
+      },
+      omit: { wrappedDataKey: false },
+    });
 
-  await connection.save();
+  // setSecrets needs the row's real pk (and its current wrappedDataKey) to
+  // write SapConnectionSecret rows, so it runs after create/update above,
+  // not before — a new connection has no pk until this point.
+  const wrappedDataKey = await setSecrets(connection, secrets);
+  if (wrappedDataKey !== connection.wrappedDataKey) {
+    connection = await prisma.sapConnection.update({ where: { pk: connection.pk }, data: { wrappedDataKey } });
+  }
+
   invalidateSapAdapter(client.clientId);
 
   const changes = diffConfig(before, { driver, ...config });
@@ -169,7 +182,7 @@ const configureSap = asyncHandler(async (req, res) => {
     action,
     req,
     clientId: client.clientId,
-    target: { type: 'SapConnection', id: String(connection._id), label: `${client.clientId}/${environment}` },
+    target: { type: 'SapConnection', id: connection.pk, label: `${client.clientId}/${environment}` },
     // Secret *names* only. recordAudit would redact a value anyway, but the
     // rule is that one never gets this far.
     meta: { driver, environment, changedFields: Object.keys(changes), credentialsSet: secretsChanged },
@@ -177,7 +190,7 @@ const configureSap = asyncHandler(async (req, res) => {
 
   res.json({
     success: true,
-    connection: formatConnection(connection, { active: (client.sapEnvironment || 'sandbox') === environment }),
+    connection: await formatConnection(connection, { active: (client.sapEnvironment || 'sandbox') === environment }),
   });
 });
 
@@ -188,8 +201,10 @@ const testSapConnection = asyncHandler(async (req, res) => {
   const client = await findClientOr404(req.params.clientId);
   const environment = assertEnvironment(req.params.environment);
 
-  const connection = await withoutTenantScope(() =>
-    SapConnection.findOne({ clientId: client.clientId, environment }).select('+wrappedDataKey'));
+  const connection = await rawPrisma.sapConnection.findFirst({
+    where: { clientId: client.clientId, environment },
+    omit: { wrappedDataKey: false },
+  });
 
   if (!connection) throw ApiError.badRequest(`No ${environment} connection is configured for this tenant`);
 
@@ -199,7 +214,7 @@ const testSapConnection = asyncHandler(async (req, res) => {
     clientId: client.clientId,
     driver: connection.driver,
     config: connection.config,
-    secrets: connection.decryptSecrets(),
+    secrets: await decryptSecrets(connection),
   });
 
   let result;
@@ -210,8 +225,8 @@ const testSapConnection = asyncHandler(async (req, res) => {
     result = { ok: false, message: error.message, latencyMs: null, driver: connection.driver };
   }
 
-  connection.lastTest = { ...result, at: new Date(), testedBy: req.auth?.email };
-  await connection.save();
+  const lastTest = { ...result, at: new Date(), testedBy: req.auth?.email };
+  const updated = await prisma.sapConnection.update({ where: { pk: connection.pk }, data: { lastTest } });
 
   await recordConnectionAudit({
     req, clientId: client.clientId, environment, driver: connection.driver,
@@ -222,11 +237,11 @@ const testSapConnection = asyncHandler(async (req, res) => {
     action: AUDIT_ACTIONS.SAP_CONNECTION_TESTED,
     req,
     clientId: client.clientId,
-    target: { type: 'SapConnection', id: String(connection._id), label: `${client.clientId}/${environment}` },
+    target: { type: 'SapConnection', id: connection.pk, label: `${client.clientId}/${environment}` },
     meta: { driver: connection.driver, environment, ok: result.ok, latencyMs: result.latencyMs },
   });
 
-  res.json({ success: true, result: connection.lastTest });
+  res.json({ success: true, result: updated.lastTest });
 });
 
 // @desc    Switch which environment the tenant runs against
@@ -241,9 +256,7 @@ const promoteSapEnvironment = asyncHandler(async (req, res) => {
     throw ApiError.badRequest(`This tenant is already running against ${environment}`);
   }
 
-  const connection = await withoutTenantScope(() =>
-    SapConnection.findOne({ clientId: client.clientId, environment }));
-
+  const connection = await prisma.sapConnection.findFirst({ where: { clientId: client.clientId, environment } });
   if (!connection) throw ApiError.badRequest(`No ${environment} connection is configured for this tenant`);
 
   // Promotion to production is deliberately gated on a passing test. Going the
@@ -253,12 +266,11 @@ const promoteSapEnvironment = asyncHandler(async (req, res) => {
     throw ApiError.badRequest('Test the production connection successfully before promoting the tenant onto it');
   }
 
-  client.sapEnvironment = environment;
-  await client.save();
-
-  connection.promotedAt = new Date();
-  connection.promotedBy = req.auth?.email;
-  await connection.save();
+  await prisma.client.update({ where: { pk: client.pk }, data: { sapEnvironment: environment } });
+  await prisma.sapConnection.update({
+    where: { pk: connection.pk },
+    data: { promotedAt: new Date(), promotedBy: req.auth?.email },
+  });
 
   invalidateSapAdapter(client.clientId);
 
@@ -285,16 +297,16 @@ const listSapAudit = asyncHandler(async (req, res) => {
   const client = await findClientOr404(req.params.clientId);
   const { environment, action, page = 1, limit = 50 } = req.query;
 
-  const filter = { clientId: client.clientId };
-  if (environment) filter.environment = assertEnvironment(environment);
-  if (action) filter.action = action;
+  const where = { clientId: client.clientId };
+  if (environment) where.environment = assertEnvironment(environment);
+  if (action) where.action = action;
 
   const perPage = Math.min(Number(limit) || 50, 200);
   const skip = (Math.max(Number(page) || 1, 1) - 1) * perPage;
 
-  const [entries, total] = await withoutTenantScope(async () => [
-    await SapConnectionAudit.find(filter).sort({ at: -1 }).skip(skip).limit(perPage),
-    await SapConnectionAudit.countDocuments(filter),
+  const [entries, total] = await Promise.all([
+    prisma.sapConnectionAudit.findMany({ where, orderBy: { at: 'desc' }, skip, take: perPage }),
+    prisma.sapConnectionAudit.count({ where }),
   ]);
 
   res.json({

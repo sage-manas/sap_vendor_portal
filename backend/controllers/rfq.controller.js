@@ -1,12 +1,61 @@
-const RFQ = require('../models/RFQ');
-const PurchaseOrder = require('../models/PurchaseOrder');
-const Vendor = require('../models/Vendor');
+const { prisma } = require('../db/prisma');
+const { getTenantId } = require('../utils/tenantContext');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { getSapAdapterForClient } = require('../sap');
+const { EVENTS, emitToVendor } = require('../utils/socketEmitter');
 
-const { requireVendorScope, vendorScope } = require('../utils/requestScope');
+const { requireVendorScope, vendorScope, isSupplier } = require('../utils/requestScope');
 const { assertCanCreate } = require('../utils/usage');
+const { toNumber } = require('../utils/money');
+const { formatPo } = require('../db/poHelpers');
+
+// The full nested shape a controller/frontend expects an RFQ in, matching
+// what the Mongoose document used to serialize as. `items`/`invitedVendors`
+// are child tables now (RfqItem/RfqInvitedVendor) but map back onto plain
+// arrays; `bids[].unitPrices` was a Mongoose `Map<lineNo, Number>` and is now
+// its own child table (RfqBidUnitPrice) — reassembled here into the same
+// `{ [line]: price }` object shape callers already expect.
+const RFQ_INCLUDE = {
+  items: true,
+  invitedVendors: true,
+  bids: { include: { unitPrices: true, uploadedDocs: true } },
+};
+
+// unitPrices[].price and freight are Decimal-typed columns — converted to
+// plain numbers here, the one place every consumer (API responses, the
+// evaluation matrix and awardBid's own price math below) reads a bid back
+// through. See utils/money.js for why a raw Decimal can't be left in either.
+const formatBid = (bid) => ({
+  vendorId: bid.vendorId,
+  vendorDbId: bid.vendorPk,
+  vendorName: bid.vendorName,
+  unitPrices: Object.fromEntries(bid.unitPrices.map((u) => [String(u.lineNumber), toNumber(u.price)])),
+  gstRate: bid.gstRate,
+  taxCode: bid.taxCode,
+  freight: toNumber(bid.freight),
+  deliveryLeadTimeDays: bid.deliveryLeadTimeDays,
+  vendorRating: bid.vendorRating,
+  technicalScore: bid.technicalScore,
+  validityDate: bid.validityDate,
+  moq: bid.moq,
+  remarks: bid.remarks,
+  uploadedDocs: bid.uploadedDocs.map((d) => ({ documentId: d.documentId, originalName: d.originalName, url: d.url })),
+  submittedAt: bid.submittedAt,
+});
+
+// targetPrice is likewise Decimal-typed.
+const formatRfqItem = ({ pk, clientId, rfqPk, targetPrice, ...item }) => ({
+  ...item,
+  targetPrice: toNumber(targetPrice),
+});
+
+const formatRfq = (rfq) => ({
+  ...rfq,
+  items: (rfq.items || []).map(formatRfqItem),
+  invitedVendors: (rfq.invitedVendors || []).map((v) => ({ id: v.vendorExtId, name: v.name, status: v.status, rating: v.rating })),
+  bids: (rfq.bids || []).map(formatBid),
+});
 
 // Helper for tax codes
 const gstToTaxCode = (gstRate) => {
@@ -24,26 +73,26 @@ const gstToTaxCode = (gstRate) => {
 const getRFQs = asyncHandler(async (req, res, next) => {
   const { status, page = 1, limit = 20 } = req.query;
 
-  // A supplier only ever sees RFQs they were invited to.
+  // A supplier only ever sees RFQs they were invited to. `?all=true` widens the
+  // view for tenant staff and for them only — a supplier who asked for it used
+  // to receive every RFQ in the tenant, competitors' invitations included.
   const vendorId = vendorScope(req);
-  let query = {};
-  if (vendorId && req.query.all !== 'true') {
-    query = { 'invitedVendors.id': vendorId };
+  let where = {};
+  if (vendorId && (isSupplier(req) || req.query.all !== 'true')) {
+    where = { invitedVendors: { some: { vendorExtId: vendorId } } };
   }
   if (status) {
-    query.status = status;
+    where.status = status;
   }
 
   const skip = (page - 1) * limit;
-  const rfqs = await RFQ.find(query)
-    .sort({ createdDate: -1 })
-    .skip(skip)
-    .limit(Number(limit));
-
-  const total = await RFQ.countDocuments(query);
+  const [rfqs, total] = await Promise.all([
+    prisma.rFQ.findMany({ where, include: RFQ_INCLUDE, orderBy: { createdDate: 'desc' }, skip, take: Number(limit) }),
+    prisma.rFQ.count({ where }),
+  ]);
 
   res.json({
-    rfqs,
+    rfqs: rfqs.map(formatRfq),
     pagination: {
       total,
       page: Number(page),
@@ -53,16 +102,109 @@ const getRFQs = asyncHandler(async (req, res, next) => {
   });
 });
 
+// @desc    What SAP itself has issued (ME43 Display RFQ) to this vendor —
+//          a cross-check against our internal RFQ tracking, not a
+//          document-by-document match (our RFQs carry no SAP RFQ number).
+// @route   GET /api/rfqs/sap-status
+// @access  Public
+const getSapRfqStatus = asyncHandler(async (req, res, next) => {
+  const vendorId = requireVendorScope(req);
+  const vendor = await prisma.vendor.findFirst({ where: { vendorId } });
+  if (!vendor) {
+    return next(ApiError.notFound('Vendor not found'));
+  }
+
+  const rfqs = await prisma.rFQ.findMany({ where: { invitedVendors: { some: { vendorExtId: vendorId } } }, include: RFQ_INCLUDE });
+
+  const sap = await getSapAdapterForClient(req.clientId);
+  const result = await sap.vendorRfqDisplay({ vendor, rfqs: rfqs.map(formatRfq) });
+
+  res.json({ documents: result.documents });
+});
+
+// @desc    Every purchasing document SAP holds against this vendor's code
+//          (ME48 Display Quotation). Despite the transaction name the endpoint
+//          returns POs alongside quotations — see vendorQuotationDisplay in
+//          sap/drivers/s4odata.driver.js — so this is presented as SAP's
+//          purchasing-document ledger, with `documentType` splitting the two.
+//          Read-only cross-check, like sap-status above; not matched to our
+//          internal RFQ ids.
+// @route   GET /api/rfqs/sap-quotations
+// @access  Public
+const getSapQuotationStatus = asyncHandler(async (req, res, next) => {
+  const vendorId = requireVendorScope(req);
+  const vendor = await prisma.vendor.findFirst({ where: { vendorId } });
+  if (!vendor) {
+    return next(ApiError.notFound('Vendor not found'));
+  }
+
+  // Without a vendor code the underlying SAP endpoint returns every document
+  // in the client, for every supplier. Stop here rather than let that be
+  // asked for — the driver guards it too, but this vendor genuinely has
+  // nothing to show until SAP has given them a code.
+  if (!String(vendor.sapVendorCode || '').trim()) {
+    return res.json({ documents: [] });
+  }
+
+  // The mock driver has no database of its own; the real one keys off the
+  // vendor code alone and ignores both of these.
+  const [rfqs, pos] = await Promise.all([
+    prisma.rFQ.findMany({ where: { invitedVendors: { some: { vendorExtId: vendorId } } }, include: RFQ_INCLUDE }),
+    prisma.purchaseOrder.findMany({ where: { vendorId }, include: { items: true } }),
+  ]);
+
+  const sap = await getSapAdapterForClient(req.clientId);
+  const result = await sap.vendorQuotationDisplay({ vendor, rfqs: rfqs.map(formatRfq), pos });
+
+  const { type } = req.query;
+  const documents = type
+    ? result.documents.filter((doc) => doc.documentType === type)
+    : result.documents;
+
+  res.json({ documents });
+});
+
 // @desc    Get RFQ by ID (string id)
 // @route   GET /api/rfqs/:id
 // @access  Public
 const getRFQById = asyncHandler(async (req, res, next) => {
-  const rfq = await RFQ.findOne({ id: req.params.id });
+  const rfq = await prisma.rFQ.findFirst({ where: { id: req.params.id }, include: RFQ_INCLUDE });
   if (!rfq) {
     return next(ApiError.notFound('RFQ not found'));
   }
-  res.json(rfq);
+  res.json(formatRfq(rfq));
 });
+
+// The next free RFQ-<year>-<seq> for this tenant. Read-then-write with no
+// lock, same race condition under concurrent creates as before the
+// migration, kept deliberately (migration plan explicit decision point:
+// scan-and-increment vs. a real Postgres sequence).
+//
+// What is NOT deliberate: this used to pick the "latest" id with
+// `orderBy: { id: 'desc' }` and take the first row — a plain string sort,
+// which is only correct while every suffix has the same digit width. Once a
+// tenant passes 999 RFQs (or 9999 POs) in a year, the padding no longer
+// holds — "...-1000" sorts *before* "...-999" as a string, since '1' < '9' at
+// the first differing character — so this would forever find "999" as the
+// latest, forever recompute "1000", and forever fail the create against the
+// row that's already there. Comparing the numeric suffixes themselves, not
+// the id strings, is what the padding was supposed to give it for free and
+// stopped doing once a suffix outgrew its own padding.
+// `client` defaults to the module's own tenant-scoped `prisma`; awardBid
+// passes its transaction's `tx` instead, so the read happens inside the same
+// transaction as the create that follows it.
+const nextSequentialId = async (model, prefix, padLength, client = prisma) => {
+  const rows = await client[model].findMany({
+    where: { id: { startsWith: prefix } },
+    select: { id: true },
+  });
+  let seq = 1;
+  for (const row of rows) {
+    const match = row.id.match(/-(\d+)$/);
+    if (match) seq = Math.max(seq, parseInt(match[1], 10) + 1);
+  }
+  return `${prefix}${String(seq).padStart(padLength, '0')}`;
+};
 
 // @desc    Create RFQ
 // @route   POST /api/rfqs
@@ -76,64 +218,62 @@ const createRFQ = asyncHandler(async (req, res, next) => {
 
   await assertCanCreate(req.client, 'rfqsPerMonth');
 
-  // Generate RFQ sequential ID: RFQ-YYYY-SEQ
   const year = new Date().getFullYear();
-  const prefix = `RFQ-${year}-`;
-  const lastRfq = await RFQ.findOne({ id: new RegExp('^' + prefix) }).sort({ id: -1 });
-  let seq = 1;
-  if (lastRfq) {
-    const match = lastRfq.id.match(/-(\d+)$/);
-    if (match) {
-      seq = parseInt(match[1]) + 1;
-    }
-  }
-  const id = `${prefix}${String(seq).padStart(3, '0')}`;
+  const id = await nextSequentialId('rFQ', `RFQ-${year}-`, 3);
 
-  const rfq = await RFQ.create({
-    id,
-    description,
-    deadlineDate: new Date(deadlineDate),
-    rfqType: rfqType || 'AN',
-    paymentTerms: paymentTerms || 'NET 30 Days',
-    deliveryLocation: deliveryLocation || 'Plant 1000',
-    items: items.map(item => ({
-      line: item.line,
-      materialCode: item.materialCode,
-      description: item.description,
-      quantity: item.quantity,
-      uom: item.uom || 'EA',
-      targetPrice: item.targetPrice,
-      plant: item.plant || '1000',
-      deliveryDate: item.deliveryDate ? new Date(item.deliveryDate) : undefined
-    })),
-    invitedVendors: invitedVendors || []
+  // items/invitedVendors are nested writes — Prisma Client Extensions do not
+  // re-intercept a nested `create`, so clientId must be stamped explicitly
+  // here (see backend/db/tenantExtension.js's note on this). The top-level
+  // RFQ row itself still gets clientId injected automatically.
+  const clientId = getTenantId();
+  const rfq = await prisma.rFQ.create({
+    data: {
+      id,
+      description,
+      deadlineDate: new Date(deadlineDate),
+      rfqType: rfqType || 'AN',
+      paymentTerms: paymentTerms || 'NET 30 Days',
+      deliveryLocation: deliveryLocation || 'Plant 1000',
+      items: {
+        create: items.map((item) => ({
+          clientId,
+          line: item.line,
+          materialCode: item.materialCode,
+          description: item.description,
+          quantity: item.quantity,
+          uom: item.uom || 'EA',
+          targetPrice: item.targetPrice,
+          plant: item.plant || '1000',
+          deliveryDate: item.deliveryDate ? new Date(item.deliveryDate) : null,
+        })),
+      },
+      invitedVendors: {
+        create: (invitedVendors || []).map((v) => ({
+          clientId,
+          vendorExtId: v.id,
+          name: v.name,
+          status: v.status || 'Pending',
+          rating: v.rating,
+        })),
+      },
+    },
+    include: RFQ_INCLUDE,
   });
 
-  const sap = await getSapAdapterForClient(req.clientId);
-  await sap.rfqCreate({
-    rfq,
-    vendorId: invitedVendors && invitedVendors.length ? invitedVendors[0].id : 'SYSTEM'
-  });
-
-  res.status(201).json(rfq);
+  res.status(201).json(formatRfq(rfq));
 });
 
 // @desc    Cancel RFQ
 // @route   PUT /api/rfqs/:id/cancel
 // @access  Public
 const cancelRFQ = asyncHandler(async (req, res, next) => {
-  const rfq = await RFQ.findOne({ id: req.params.id });
+  const rfq = await prisma.rFQ.findFirst({ where: { id: req.params.id } });
   if (!rfq) {
     return next(ApiError.notFound('RFQ not found'));
   }
 
-  rfq.status = 'Closed';
-  await rfq.save();
-
-  const sap = await getSapAdapterForClient(req.clientId);
-  await sap.rfqCancel({ rfq });
-
-  res.json({ message: 'RFQ cancelled successfully', rfq });
+  const updated = await prisma.rFQ.update({ where: { pk: rfq.pk }, data: { status: 'Closed' }, include: RFQ_INCLUDE });
+  res.json({ message: 'RFQ cancelled successfully', rfq: formatRfq(updated) });
 });
 
 // @desc    Reissue RFQ
@@ -145,19 +285,17 @@ const reissueRFQ = asyncHandler(async (req, res, next) => {
     return next(ApiError.badRequest('New deadlineDate is required'));
   }
 
-  const rfq = await RFQ.findOne({ id: req.params.id });
+  const rfq = await prisma.rFQ.findFirst({ where: { id: req.params.id } });
   if (!rfq) {
     return next(ApiError.notFound('RFQ not found'));
   }
 
-  rfq.deadlineDate = new Date(deadlineDate);
-  rfq.status = 'Bidding Open';
-  await rfq.save();
-
-  const sap = await getSapAdapterForClient(req.clientId);
-  await sap.rfqReissue({ rfq });
-
-  res.json({ message: 'RFQ reissued successfully', rfq });
+  const updated = await prisma.rFQ.update({
+    where: { pk: rfq.pk },
+    data: { deadlineDate: new Date(deadlineDate), status: 'Bidding Open' },
+    include: RFQ_INCLUDE,
+  });
+  res.json({ message: 'RFQ reissued successfully', rfq: formatRfq(updated) });
 });
 
 // @desc    Submit Quotation / Bid (ME47)
@@ -171,7 +309,7 @@ const submitBid = asyncHandler(async (req, res, next) => {
     return next(ApiError.badRequest('unitPrices map is required'));
   }
 
-  const rfq = await RFQ.findOne({ id: req.params.id });
+  const rfq = await prisma.rFQ.findFirst({ where: { id: req.params.id }, include: { items: true, invitedVendors: true } });
   if (!rfq) {
     return next(ApiError.notFound('RFQ not found'));
   }
@@ -184,19 +322,21 @@ const submitBid = asyncHandler(async (req, res, next) => {
     return next(ApiError.badRequest('RFQ submission deadline has passed'));
   }
 
-  // Fetch Vendor's DB ID & Rating
-  const vendor = await Vendor.findOne({ $or: [{ vendorId }, { clerkId: vendorId }] });
+  // Fetch Vendor's DB row & rating
+  const vendor = await prisma.vendor.findFirst({ where: { OR: [{ vendorId }, { clerkId: vendorId }] } });
 
   // Verify vendor is invited or dynamically invite them in dev/unauth mode
-  let invitation = rfq.invitedVendors.find(v => v.id === vendorId);
+  let invitation = rfq.invitedVendors.find((v) => v.vendorExtId === vendorId);
   if (!invitation) {
-    invitation = {
-      id: vendorId,
-      name: vendor ? vendor.companyName : 'Test Vendor',
-      status: 'Pending',
-      rating: 95
-    };
-    rfq.invitedVendors.push(invitation);
+    invitation = await prisma.rfqInvitedVendor.create({
+      data: {
+        rfqPk: rfq.pk,
+        vendorExtId: vendorId,
+        name: vendor ? vendor.companyName : 'Test Vendor',
+        status: 'Pending',
+        rating: 95,
+      },
+    });
   }
 
   // Verify all line items are priced
@@ -206,57 +346,105 @@ const submitBid = asyncHandler(async (req, res, next) => {
     }
   }
 
-  const vendorDbId = vendor ? vendor._id : null;
   const rating = invitation.rating || 80;
-
   const taxCode = gstToTaxCode(gstRate);
 
-  const newBid = {
+  const bidFields = {
     vendorId,
-    vendorDbId,
+    vendorPk: vendor ? vendor.pk : null,
     vendorName: vendor ? vendor.companyName : 'Test Vendor',
-    unitPrices: new Map(Object.entries(unitPrices).map(([k, v]) => [k, Number(v)])),
     gstRate: String(gstRate),
     taxCode,
     freight: Number(freight || 0),
     deliveryLeadTimeDays: Number(deliveryLeadTimeDays || 7),
     vendorRating: Number(rating),
     technicalScore: 80, // standard default
-    validityDate: validityDate ? new Date(validityDate) : undefined,
+    validityDate: validityDate ? new Date(validityDate) : null,
     remarks,
-    uploadedDocs: uploadedDocs || [],
-    submittedAt: new Date()
+    submittedAt: new Date(),
   };
 
-  // Check if vendor already bid, replace or push
-  const existingBidIdx = rfq.bids.findIndex(b => b.vendorId === vendorId);
-  if (existingBidIdx > -1) {
-    rfq.bids[existingBidIdx] = newBid;
+  // Check if vendor already bid, replace or insert
+  let bid = await prisma.rfqBid.findFirst({ where: { rfqPk: rfq.pk, vendorId } });
+  if (bid) {
+    bid = await prisma.rfqBid.update({ where: { pk: bid.pk }, data: bidFields });
+    await prisma.rfqBidUnitPrice.deleteMany({ where: { bidPk: bid.pk } });
+    await prisma.rfqBidDocument.deleteMany({ where: { bidPk: bid.pk } });
   } else {
-    rfq.bids.push(newBid);
+    bid = await prisma.rfqBid.create({ data: { rfqPk: rfq.pk, ...bidFields } });
+  }
+
+  await prisma.rfqBidUnitPrice.createMany({
+    data: Object.entries(unitPrices).map(([line, price]) => ({
+      bidPk: bid.pk, lineNumber: Number(line), price: Number(price),
+    })),
+  });
+  if (uploadedDocs?.length) {
+    await prisma.rfqBidDocument.createMany({
+      data: uploadedDocs.map((doc) => ({
+        bidPk: bid.pk, documentId: doc.documentId, originalName: doc.originalName, url: doc.url,
+      })),
+    });
   }
 
   // If first bid, set status to Submitted
   if (rfq.status === 'Bidding Open') {
-    rfq.status = 'Submitted';
+    await prisma.rFQ.update({ where: { pk: rfq.pk }, data: { status: 'Submitted' } });
   }
-  await rfq.save();
+
+  const bidsCount = await prisma.rfqBid.count({ where: { rfqPk: rfq.pk } });
+  res.json({ message: 'Bid submitted successfully', bidsCount });
+});
+
+// @desc    Push an updated net price for a SAP-native quotation document
+//          (ME47, ZQUOT_NETPR/QUOT_UPDPR) — a real SAP write, distinct from
+//          submitBid above. `sapRfqNumber` is the SAP document (ebeln, e.g.
+//          "6000000062") the vendor is responding to, taken from what
+//          ME48/ME43 already show them in the SAP Documents tab; `items`
+//          reuses this portal RFQ's own line numbers so the vendor is only
+//          ever pricing lines they can already see in RFQ Monitor & History.
+// @route   POST /api/rfqs/:id/sap-quote-price
+// @access  Public
+const updateSapQuotationPrice = asyncHandler(async (req, res, next) => {
+  const vendorId = requireVendorScope(req);
+  const { sapRfqNumber, items } = req.body;
+
+  const rfq = await prisma.rFQ.findFirst({ where: { id: req.params.id }, include: { items: true } });
+  if (!rfq) {
+    return next(ApiError.notFound('RFQ not found'));
+  }
+
+  const validLines = new Set(rfq.items.map((item) => String(item.line)));
+  const unknownLine = items.find((item) => !validLines.has(String(item.line)));
+  if (unknownLine) {
+    return next(ApiError.badRequest(`Line ${unknownLine.line} is not part of RFQ ${rfq.id}`));
+  }
+
+  const vendor = await prisma.vendor.findFirst({ where: { OR: [{ vendorId }, { clerkId: vendorId }] } });
+  if (!vendor) {
+    return next(ApiError.notFound('Vendor not found'));
+  }
 
   const sap = await getSapAdapterForClient(req.clientId);
-  await sap.rfqSubmitBid({
-    rfq,
-    vendorId,
-    bid: { unitPrices, taxCode, deliveryLeadTimeDays, validityDate }
+  const result = await sap.quotationUpdatePrice({
+    vendor,
+    sapRfqNumber,
+    items: items.map(({ line, netPrice }) => ({ item: line, netPrice })),
   });
 
-  res.json({ message: 'Bid submitted successfully', bidsCount: rfq.bids.length });
+  const io = req.app.get('io');
+  if (result.transaction) {
+    emitToVendor(io, req.clientId, vendorId, EVENTS.LOG_NEW, { type: result.transaction.type, name: result.transaction.code });
+  }
+
+  res.json({ message: result.message || 'Quotation price updated in SAP', sapRfqNumber: result.sapRfqNumber });
 });
 
 // @desc    Get Evaluation Matrix (ME48)
 // @route   GET /api/rfqs/:id/evaluate
 // @access  Public
 const getEvaluationMatrix = asyncHandler(async (req, res, next) => {
-  const rfq = await RFQ.findOne({ id: req.params.id });
+  const rfq = await prisma.rFQ.findFirst({ where: { id: req.params.id }, include: RFQ_INCLUDE });
   if (!rfq) {
     return next(ApiError.notFound('RFQ not found'));
   }
@@ -266,10 +454,11 @@ const getEvaluationMatrix = asyncHandler(async (req, res, next) => {
   }
 
   // Calculate total costs and find minimums
-  const vendorsAnalysis = rfq.bids.map(bid => {
+  const vendorsAnalysis = rfq.bids.map((bid) => {
+    const prices = new Map(bid.unitPrices.map((u) => [String(u.lineNumber), u.price]));
     let totalCost = 0;
-    rfq.items.forEach(item => {
-      const price = bid.unitPrices.get(String(item.line)) || 0;
+    rfq.items.forEach((item) => {
+      const price = prices.get(String(item.line)) || 0;
       totalCost += price * item.quantity;
     });
     // Add freight
@@ -327,7 +516,7 @@ const awardBid = asyncHandler(async (req, res, next) => {
     return next(ApiError.badRequest('Winner vendorId is required'));
   }
 
-  const rfq = await RFQ.findOne({ id: req.params.id });
+  const rfq = await prisma.rFQ.findFirst({ where: { id: req.params.id }, include: RFQ_INCLUDE });
   if (!rfq) {
     return next(ApiError.notFound('RFQ not found'));
   }
@@ -336,31 +525,28 @@ const awardBid = asyncHandler(async (req, res, next) => {
     return next(ApiError.badRequest('This RFQ has already been awarded'));
   }
 
-  const winningBid = rfq.bids.find(b => b.vendorId === vendorId);
+  const winningBid = rfq.bids.find((b) => b.vendorId === vendorId);
   if (!winningBid) {
     return next(ApiError.notFound('Bid not found for the specified vendor'));
   }
+  // u.price is a Decimal-typed column — converted to a plain number here
+  // rather than left to `netValue: unitPrice * item.quantity` below's implicit
+  // coercion (see utils/money.js for why that split behavior isn't something
+  // to lean on, even where `*` happens to get it right).
+  const winningPrices = new Map(winningBid.unitPrices.map((u) => [String(u.lineNumber), toNumber(u.price)]));
 
-  // Get Vendor DB doc
-  const vendor = await Vendor.findOne({ $or: [{ vendorId }, { clerkId: vendorId }] });
+  // Get Vendor DB row
+  const vendor = await prisma.vendor.findFirst({ where: { OR: [{ vendorId }, { clerkId: vendorId }] } });
 
-  // Generate sequential PO ID: PO-YYYY-SEQ
   const year = new Date().getFullYear();
-  const prefix = `PO-${year}-`;
-  const lastPo = await PurchaseOrder.findOne({ id: new RegExp('^' + prefix) }).sort({ id: -1 });
-  let seq = 1;
-  if (lastPo) {
-    const match = lastPo.id.match(/-(\d+)$/);
-    if (match) {
-      seq = parseInt(match[1]) + 1;
-    }
-  }
-  const poId = `${prefix}${String(seq).padStart(4, '0')}`;
 
-  // Map RFQ items and bid prices to PO items
-  const poItems = rfq.items.map(item => {
-    const unitPrice = winningBid.unitPrices.get(String(item.line)) || 0;
+  const clientId = getTenantId();
+  // Map RFQ items and bid prices to PO items — a nested write, so clientId is
+  // stamped explicitly on each item (see createRFQ's note above).
+  const poItemsData = rfq.items.map((item) => {
+    const unitPrice = winningPrices.get(String(item.line)) || 0;
     return {
+      clientId,
       line: item.line,
       materialCode: item.materialCode,
       description: item.description,
@@ -368,39 +554,83 @@ const awardBid = asyncHandler(async (req, res, next) => {
       grnQuantity: 0,
       unitPrice,
       netValue: unitPrice * item.quantity,
-      uom: item.uom || 'EA'
+      uom: item.uom || 'EA',
     };
   });
 
-  // Create Purchase Order
-  const po = await PurchaseOrder.create({
-    id: poId,
-    sapPoNumber: '4500' + Math.floor(100000 + Math.random() * 900000),
-    vendorId,
-    vendorDbId: vendor ? vendor._id : winningBid.vendorDbId,
-    buyerName: 'SAP System Procurement',
-    plant: rfq.items[0]?.plant || '1000',
-    paymentTerms: rfq.paymentTerms || 'NET 30 Days',
-    currency: rfq.currency || 'INR',
-    deliveryAddress: rfq.deliveryLocation || 'Plant 1000 Address',
-    status: 'Open',
-    fromRfqId: rfq.id,
-    items: poItems
+  // Create Purchase Order.
+  //
+  // sapPoNumber is deliberately null. This used to invent one — '4500' plus six
+  // random digits, indistinguishable from a real SAP order number to anyone
+  // reading the screen. The portal does not create purchase orders in SAP, so
+  // the order carries no SAP number until it is matched against SAP's own
+  // ledger (vendorPoGrnDisplay). The goods-receipt and payment polls both wait
+  // on that number rather than acting on a fabricated one.
+  //
+  // The RFQ's flip to Awarded and the PO create are one transaction, and the
+  // flip is a conditional update (`status: { not: 'Awarded' }`) run FIRST —
+  // this is what actually closes the race the early status check above only
+  // optimises for. Two concurrent awards of the same RFQ both pass that
+  // check and both reach here; without the conditional update, both would go
+  // on to create a real PO from one RFQ. Postgres serialises the two UPDATEs
+  // against the same row: the second one blocks until the first commits, then
+  // re-evaluates its WHERE against the now-committed row and matches zero
+  // rows. `count === 0` is this transaction's signal that it lost the race,
+  // and throwing inside a `$transaction` callback rolls back everything in
+  // it, so the loser leaves nothing behind.
+  //
+  // Flipping the RFQ before generating the PO id (rather than after, or
+  // before the transaction at all) matters for a reason distinct from the
+  // race above: nextSequentialId scans for "not yet used", and two
+  // transactions racing to award the *same* RFQ would otherwise both compute
+  // the same next PO number before either commits — surfacing as a confusing
+  // duplicate-id 409 for the loser instead of the "already awarded" 400 that
+  // actually explains what happened. Only the transaction that wins the flip
+  // above ever reaches the id generation below, so that collision can no
+  // longer happen for this RFQ. (A *different* RFQ awarded in the same
+  // instant can still momentarily compute the same next number — the
+  // pre-existing, deliberately-kept race nextSequentialId's own comment
+  // documents; unrelated to what this closes.)
+  const po = await prisma.$transaction(async (tx) => {
+    const flipped = await tx.rFQ.updateMany({
+      where: { pk: rfq.pk, status: { not: 'Awarded' } },
+      data: {
+        status: 'Awarded',
+        awardedVendorId: vendorId,
+        awardedVendorName: vendor ? vendor.companyName : winningBid.vendorName,
+        awardedAt: new Date(),
+      },
+    });
+
+    if (flipped.count === 0) {
+      throw ApiError.badRequest('This RFQ has already been awarded');
+    }
+
+    const poId = await nextSequentialId('purchaseOrder', `PO-${year}-`, 4, tx);
+    const created = await tx.purchaseOrder.create({
+      data: {
+        id: poId,
+        sapPoNumber: null,
+        vendorId,
+        vendorPk: vendor ? vendor.pk : winningBid.vendorPk,
+        buyerName: 'SAP System Procurement',
+        plant: rfq.items[0]?.plant || '1000',
+        paymentTerms: rfq.paymentTerms || 'NET 30 Days',
+        currency: rfq.currency || 'INR',
+        deliveryAddress: rfq.deliveryLocation || 'Plant 1000 Address',
+        status: 'Open',
+        fromRfqId: rfq.id,
+        items: { create: poItemsData },
+      },
+      include: { items: true },
+    });
+
+    await tx.rFQ.update({ where: { pk: rfq.pk }, data: { convertedPoId: created.id } });
+
+    return created;
   });
 
-  // Update RFQ Award details
-  rfq.status = 'Awarded';
-  rfq.awardedVendorId = vendorId;
-  rfq.awardedVendorName = vendor ? vendor.companyName : winningBid.vendorName;
-  rfq.awardedAt = new Date();
-  rfq.convertedPoId = po.id;
-  await rfq.save();
-
-  const sap = await getSapAdapterForClient(req.clientId);
-  await sap.infoRecordCreate({ rfq, vendorId, items: poItems });
-  await sap.poInboundSync({ po, vendorId });
-
-  res.json({ message: 'RFQ awarded and Purchase Order created successfully', po });
+  res.json({ message: 'RFQ awarded and Purchase Order created successfully', po: formatPo(po) });
 });
 
 module.exports = {
@@ -411,5 +641,8 @@ module.exports = {
   reissueRFQ,
   submitBid,
   getEvaluationMatrix,
-  awardBid
+  awardBid,
+  getSapRfqStatus,
+  getSapQuotationStatus,
+  updateSapQuotationPrice
 };

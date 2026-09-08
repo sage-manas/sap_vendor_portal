@@ -43,7 +43,7 @@ filtered on either. A 500 always logs at `error` with the stack; 4xx logs at
 | `429` responses from one tenant's own users | `tenantLimiter` (per-tenant rate limit, `middleware/rateLimiter.js`) — expected under a load spike or a runaway integration, not a bug | Raise `TENANT_RATE_LIMIT_MAX` if legitimate, or find the runaway caller |
 | `402` on vendor/RFQ creation | Plan limit reached (`utils/usage.js` `assertCanCreate`) | Confirm with the tenant, raise `Client.limits` via `PUT /api/platform/tenants/:clientId` if warranted |
 | Mass `401 session is stale` | A role was changed or an account suspended (ADR-0013 — token role is re-checked every request) | Expected behaviour; tell the affected user to sign in again |
-| Database unreachable | Network/Atlas issue, or `MONGO_URI` misconfigured | Check the deployment's connectivity to the configured `MONGO_URI` first, application code second |
+| Database unreachable | Network issue, or `DATABASE_URL` misconfigured | Check the deployment's connectivity to the configured `DATABASE_URL` (Postgres) first, application code second |
 
 ## 5. After
 

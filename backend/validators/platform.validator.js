@@ -1,7 +1,7 @@
 const { z } = require('zod');
 const { PLATFORM_ROLES } = require('../config/roles');
 const { DRIVER_KEYS } = require('../sap/drivers');
-const { ENVIRONMENTS } = require('../models/SapConnection');
+const { ENVIRONMENTS } = require('../db/sapConnectionHelpers');
 
 // Request shapes for the platform console. Roles come from the registry, so a
 // seventh role is still a one-file change.

@@ -2,7 +2,7 @@
 
 > **Purpose of this file.** A single, self-contained reference that gives any developer or AI agent the *complete* mental model of this project — architecture, data model, every module, every API endpoint, the SAP-simulation design, conventions, and known gotchas — **without needing the codebase open**. Read this top to bottom and you can navigate, extend, or debug the system.
 >
-> **Last synced with code:** 2026-08-13 (SaaS Phase 7 complete). If code and this file disagree, the code wins — but please update this file.
+> **Last synced with code:** 2026-09-08 (Postgres/Prisma migration confirmed complete — Mongoose corpse removed, see §0/§6). If code and this file disagree, the code wins — but please update this file.
 >
 > ⚠️ **This app is now multi-tenant** (SaaS Phase 1 complete). Every tenant-scoped query
 > runs inside a bound tenant context or it *throws*. Read §5.5 before writing any backend
@@ -17,12 +17,12 @@
 **VendorConnect Portal** is a full-stack, SAP-integrated **supplier self-service platform** for Indian manufacturing procurement. It digitizes the entire **Procure-to-Pay (P2P)** lifecycle — vendor onboarding → RFQ/bidding → PO → dispatch (ASN) → goods receipt (GRN) → invoice (MIRO) → payment (F110) — and surfaces every step as **simulated SAP BAPI/RFC/OData/IDoc payloads** in a live console.
 
 - **Frontend:** Next.js 16 (App Router) + React 19 + Tailwind CSS v4, one client-side SPA shell. `src/`
-- **Backend:** Express 5 REST API + Socket.io + MongoDB (Mongoose). `backend/`
+- **Backend:** Express 5 REST API + Socket.io + PostgreSQL (Prisma). `backend/`
 - **Auth:** JWT (bcrypt password hashing), **six roles across three planes** — `super_admin`/`sap_manager` (platform) · `client_admin`/`buyer`/`finance` (tenant) · `vendor` (supplier) — **tenant-scoped**: the token carries `clientId` + `roleScope`. There is no `admin` role any more.
 - **Three front ends, one app:** the supplier portal (`/`), the platform console (`/platform`, §8.8) and the tenant back office (`/workspace`, §8.9). Each has its own layout, session and permission-filtered nav registry; they share the design system.
-- **Multi-tenant:** every business document belongs to a `Client` tenant; isolation is enforced in the ODM, not by convention (§5.5).
+- **Multi-tenant:** every business document belongs to a `Client` tenant; isolation is enforced by a Prisma Client extension, not by convention (§5.5).
 - **SAP is simulated** — no real RFC connection. "SAP sync" = writing `SapLog` records + `setTimeout`-driven fake GRN/payment runs. This is intentional and clearly boundaried in code.
-- **Two separate npm packages** with two separate test suites: root (frontend, Vitest) and `backend/` (Jest + Supertest + mongodb-memory-server).
+- **Two separate npm packages** with two separate test suites: root (frontend, Vitest) and `backend/` (Jest + Supertest, against a real Postgres instance — `tests/setup.js` resets it between tests, see §10).
 
 > ⚠️ **AGENTS.md warning (repo-wide):** This is a *modified* Next.js 16 — APIs/conventions may differ from training data. Before writing Next.js code, read the relevant guide under `node_modules/next/dist/docs/`.
 
@@ -33,15 +33,17 @@
 ```
 sap_vendor_portal/
 ├── src/                     ← Next.js frontend (App Router SPA)
-├── backend/                 ← Express + Mongoose API server (own package.json)
+├── backend/                 ← Express + Prisma/Postgres API server (own package.json)
 ├── public/                  ← static assets
-├── mongodb_data/            ← a committed local MongoDB data dir (WiredTiger files) *
+├── deploy/                  ← ecosystem.config.js (PM2) and deploy tooling
+├── docs/                    ← runbooks (docs/runbooks/) and forward-looking engineering plans
 ├── workflow/                ← long-form design/architecture/roadmap docs (see §12)
+├── docker-compose.yml       ← local Postgres service matching DATABASE_URL
 ├── .github/workflows/test.yml ← CI: runs BOTH frontend + backend test suites
 ├── AGENTS.md / CLAUDE.md    ← agent instructions (CLAUDE.md just @-includes AGENTS.md)
-├── PRODUCT.md               ← product brief (users, purpose, brand, a11y)
+├── DECISIONS.md             ← the ADR log — every numbered decision cited elsewhere in this file
 ├── DESIGN.md                ← "Kinetic Industrial Console" design system (tokens + rules)
-├── IMPLEMENTATION_PLAN.md   ← detailed audit + phased remediation log (Phases 1–6, mostly done)
+├── HOSTING_PROVIDER_HANDOFF.md, SERVER_SETUP_QUICK_READ.md, PROJECT_ARCHITECTURE_FLOW.md ← deploy/ops reference
 ├── README.md                ← stock create-next-app readme (not project-specific)
 ├── package.json             ← FRONTEND package (Next, React, some backend deps duplicated)
 ├── next.config.ts           ← reactCompiler: true
@@ -51,9 +53,9 @@ sap_vendor_portal/
 └── .cursor/ .gemini/ .impeccable/ ← "impeccable" design-linter tool skill (dev tooling, ignorable)
 ```
 
-\* `mongodb_data/` and `backend/logs/`, `backend/uploads/` are committed artifacts (local dev data / winston logs / an uploaded PDF). They are **not** application source.
+`backend/logs/` and `backend/uploads/` are committed artifacts (winston logs / an uploaded PDF) — **not** application source. The old `mongodb_data/` (a committed local MongoDB data dir) was removed once the Postgres migration was confirmed complete; nothing recreates it.
 
-**Note on `package.json` duplication:** the root (frontend) package.json lists backend-ish deps (express, mongoose, socket.io, bcryptjs, jsonwebtoken…) *and* frontend deps. The **actual backend** runs from `backend/package.json` (its own `node_modules`). When touching the API, use `backend/`.
+**Note on `package.json` duplication:** the root (frontend) package.json lists backend-ish deps (express, socket.io, bcryptjs, jsonwebtoken…) *and* frontend deps. The **actual backend** runs from `backend/package.json` (its own `node_modules`). When touching the API, use `backend/`.
 
 ---
 
@@ -70,22 +72,22 @@ sap_vendor_portal/
 | Realtime (client) | socket.io-client | ^4.8 | `src/lib/socket.js` |
 | Frontend tests | Vitest | ^4.1 | `npm test` at root |
 | Backend framework | Express | ^5.2 | v5 async error propagation |
-| DB / ODM | MongoDB / Mongoose | ^9.6 | |
+| DB / ORM | PostgreSQL / Prisma | `@prisma/client` ^6.16 | `backend/prisma/schema.prisma`; `db/prisma.js` is the single client |
 | Realtime (server) | socket.io | ^4.8 | per-vendor rooms + `procurement` room |
 | Auth | jsonwebtoken + bcryptjs | ^9 / ^3 | 30-day JWT default |
 | Validation | zod | ^4 | `backend/validators/*` via `validate` middleware |
-| Security | helmet, cors, express-rate-limit, express-mongo-sanitize, hpp, compression | — | see `server.js` |
+| Security | helmet, cors, express-rate-limit, express-mongo-sanitize, hpp, compression | — | see `server.js`. `express-mongo-sanitize` is kept post-migration — despite the name it's a generic `$`/`.`-key stripper on request bodies, not Mongo-specific |
 | Logging | winston + winston-daily-rotate-file, morgan | — | `backend/logs/` |
 | PDF | pdfkit | ^0.19 | statement / invoice PDFs (`reports.controller`) |
 | Uploads | multer | ^2.1 | `backend/uploads/` |
-| Backend tests | jest + supertest + mongodb-memory-server | — | `backend` package; `NODE_ENV=test`, `--forceExit` |
+| Backend tests | jest + supertest, against a real Postgres instance | — | `backend` package; `NODE_ENV=test`, `--forceExit`; `tests/setup.js` resets between tests (§10) |
 | Node | v22.x | | |
 
 ---
 
 ## 3. How to Run
 
-**Backend** (`cd backend`): copy `.env.example` → `.env`, set `MONGO_URI` (Atlas or local), then `npm install` → `npm run dev` (nodemon, port **5000**) or `npm start`. Tests: `npm test`.
+**Backend** (`cd backend`): copy `.env.example` → `.env`, set `DATABASE_URL` (`docker compose up -d postgres` at repo root starts a matching local instance), run `npx prisma migrate deploy` (or `migrate dev` for a fresh schema change), then `npm install` → `npm run dev` (nodemon, port **5000**) or `npm start`. Tests: `npm test` (needs migrations already applied against `DATABASE_URL`).
 
 **Frontend** (repo root): `npm install` → `npm run dev` (Next dev, port **3000**). Build: `npm run build`. Tests: `npm test` (Vitest). Lint: `npm run lint`.
 
@@ -100,7 +102,7 @@ Frontend talks to backend via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
 | Var | Purpose |
 |---|---|
 | `PORT` | API port (default 5000) |
-| `MONGO_URI` | MongoDB connection string |
+| `DATABASE_URL` | Postgres connection string for Prisma (`backend/db/prisma.js`, `backend/prisma/schema.prisma`). `docker compose up -d postgres` (repo root) starts a matching local instance. **Strictly required** — the app refuses to start without it (`config/validateEnv.js`). |
 | `FRONTEND_URL`, `ALLOWED_ORIGINS` | CORS allowlist (localhost:3000-3002/5173 always allowed) |
 | `NODE_ENV` | `development` \| `test` \| `production`. Gates rate limiting, mailer transport selection, and the dev-only "Reset ERP Database" UI. |
 | `JWT_SECRET` | JWT signing key (falls back to `'secret'` outside production; **required** in production or boot fails) |
@@ -127,7 +129,7 @@ Frontend uses `NEXT_PUBLIC_API_URL` only.
 
 ## 5. Domain Model & the P2P Lifecycle
 
-The whole app models one pipeline. Each stage produces a MongoDB document and emits SAP log(s):
+The whole app models one pipeline. Each stage produces a Postgres row and emits SAP log(s):
 
 ```
 Vendor onboarding → RFQ (bidding) → award → Purchase Order → ASN (dispatch)
@@ -135,7 +137,7 @@ Vendor onboarding → RFQ (bidding) → award → Purchase Order → ASN (dispat
 ```
 
 **SAP transaction-code mapping** (simulated, surfaced in UI/logs):
-ME41 create RFQ · ME47 submit quotation · ME48 evaluate · ME58 award→PO · VL31N ASN/inbound delivery · MIGO/MB01 goods receipt · MIRO invoice verification · F110 payment run · FBL1N ledger clearing · XK01/FI02 vendor master.
+ME41 create RFQ · ME47 submit quotation · ME48 evaluate · ME58 award→PO · MIGO/MB01 goods receipt · MIRO invoice verification · F110 payment run · FBL1N ledger clearing · XK01/FI02 vendor master. **The portal writes only the vendor master (XK01) and sourcing documents; MIGO, MIRO and F110 are read, never posted.**
 
 **Three deferred "SAP pushes" — since Phase 4 they are driver behaviour, not controller timers** (see §5.6):
 - After **ASN submit** → MIGO goods receipt after `timings.goodsReceiptMs` (default 10s), creating a GRN and emitting `grn:received`.
@@ -158,12 +160,18 @@ mechanisms enforce it; none of them is optional:
    Out-of-request work (scripts, jobs) must re-bind it itself with
    `runWithTenant(clientId, fn)`. Deferred SAP answers no longer do this by hand — the
    adapter wrapper re-binds the tenant before calling the handler (§5.6).
-2. **Tenant plugin** (`models/plugins/tenantPlugin.js`) — applied to all ten tenant-scoped
-   schemas. Auto-injects `clientId` into find/findOne/update/delete/count/distinct/
-   aggregate, auto-stamps it on save/insertMany, ignores caller-supplied `clientId`,
-   refuses to move a document between tenants, and **throws `MissingTenantContextError`
-   when nothing is bound**. `estimatedDocumentCount` is not intercepted (it takes no
-   filter) — use `countDocuments`.
+2. **Tenant extension** (`db/tenantExtension.js`, a Prisma Client extension) — applied to
+   every tenant-scoped model listed in `TENANT_SCOPED_MODELS` (mirrors
+   `config/tenantModels.js` plus the relational child/line-item tables the Mongoose
+   version didn't have, e.g. `RfqItem`, `PurchaseOrderItem`). Auto-injects `clientId` into
+   `findMany`/`findFirst`/`updateMany`/`deleteMany`/`count`/`aggregate`/`groupBy`,
+   auto-stamps it on `create`, ignores caller-supplied `clientId`, and **throws
+   `MissingTenantContextError` when nothing is bound**. `Client`, `AuditLog`,
+   `SapConnection`, `SapConnectionAudit` and `PlatformUser` are deliberately absent —
+   no plugin was ever applied to them under Mongoose either. **Nested writes bypass the
+   extension** (a nested `create` on a relation doesn't re-enter it) — a child row must
+   either carry `clientId` explicitly in the nested payload or be written as a top-level
+   call.
 3. **Socket rooms** — `client:{clientId}:vendor:{vendorId}` and
    `client:{clientId}:procurement`. The handshake requires a JWT carrying a `clientId`;
    `emitToVendor(io, clientId, vendorId, …)` and `emitToProcurement(io, clientId, …)` take
@@ -174,9 +182,10 @@ platform-plane work and the handful of pre-authentication lookups (login, regist
 password reset, `protect`'s own account lookup) that must run before a tenant is known.
 Never call it from a tenant endpoint.
 
-**Gotcha that will bite you:** a Mongoose Query is lazy, so it must be *executed* inside
-the context. `runWithTenant`/`withoutTenantScope` await their callback for exactly this
-reason; if you write your own wrapper, do the same.
+**Gotcha that will bite you:** a Prisma query is a lazily-started `PrismaPromise`, so it
+must be *awaited* inside the context — returning one un-awaited executes it after the
+store has unwound and the tenant filter is lost. `runWithTenant`/`withoutTenantScope`
+await their callback for exactly this reason; if you write your own wrapper, do the same.
 
 **JWT** now carries `clientId` and `roleScope` (plane). **Roles → planes live in one
 registry**, `config/roles.js` — never inline a role list. Platform-plane accounts are
@@ -200,7 +209,7 @@ Since Phase 4 there is exactly one way to talk to SAP:
 
 ```js
 const sap = await getSapAdapterForClient(req.clientId);   // backend/sap/index.js
-const { sapMiroDoc, transaction } = await sap.invoiceCreate({ invoice, vendorId });
+const { documents } = await sap.vendorMiroDisplay({ vendor });   // the portal reads; it never posts
 ```
 
 **`backend/sap/`**
@@ -214,6 +223,58 @@ const { sapMiroDoc, transaction } = await sap.invoiceCreate({ invoice, vendorId 
 | `circuitBreaker.js` | one breaker per tenant adapter: closed → open after N consecutive failures → half-open after a cooldown. State is computed on read, so an idle tenant costs nothing. |
 | `index.js` | `getSapAdapterForClient` / `invalidateSapAdapter` / `buildTransientAdapter`, and the wrapper described below. |
 | `conformance/runner.js` · `conformance/fixtures.js` | Phase 8's conformance suite (ADR-0036): runs every contract method against a live adapter and reports `passed`/`not_implemented`/`failed` per method, with a timeout so a driver that never answers can't hang it. `scripts/sap-conformance.js` is the CLI — `--client <id>` against a configured tenant, `--driver s4_odata --config f.json --secrets f.json` against a throwaway adapter for a sandbox with no tenant yet. This is the tool to point at a design-partner sandbox the moment one exists; `s4_odata`/`ecc_rfc` themselves are still the Phase 4 skeletons. |
+
+**The portal does not write documents into SAP (except the vendor master).**
+The contract is now read-mostly. Removed by design: `invoiceCreate`,
+`deliveryCreate`, `poProvision`/`poProvisioned`, `poInboundSync`, and the five
+sourcing writes (`rfqCreate`, `rfqCancel`, `rfqReissue`, `rfqSubmitBid`,
+`infoRecordCreate`). What remains that writes: `vendorCreate` (the vendor master,
+on approval), `poAcknowledge` (a supplier confirming an order SAP already
+owns), `quotationUpdatePrice` (ME47 net price on a document SAP holds) and
+`poInvoicePlanUpdate` (the invoicing plan on an order SAP holds — a buyer's
+change to a document SAP owns, same category as the acknowledgement, and paired
+with the read-only `poInvoicePlanDisplay`; **neither has been run against a live
+system**, so its paths and field names in `s4odata.driver.js` are provisional
+config, flagged inline). Why:
+
+- **MIRO is AP's transaction, not a supplier's.** Invoice verification is a
+  three-way match performed against the buyer's own books; a portal that posts it
+  on the vendor's behalf puts the supplier inside the buyer's ledger and skips the
+  AP review the `finance` role exists for. `POST /invoices` records the invoice and
+  leaves `sapMiroDoc` **null**. `awaitPaymentRun` then does two reads: it
+  *discovers* the document AP posted by matching `zmiro_display/MIRO` on purchase
+  order and gross amount (`sap/mappings/invoice-match.js`), then follows it to its
+  clearing via `zpayment_api/payment`. The discovered number is written back, so a
+  match happens once. The matcher returns null on ambiguity rather than guessing —
+  paying against the wrong invoice is worse than showing one as unrecognised.
+- **No inbound delivery either.** The supplier's dispatch notice is recorded in the
+  portal; `awaitGoodsReceipt` polls SAP's own PO/GRN ledger keyed on the **purchase
+  order number**, which never referenced a delivery document anyway. `ASN.sapInboundDelivery`
+  is always null.
+- **Sourcing is portal-internal.** Core S/4 exposes no public API for issuing an
+  RFQ to, or capturing a bid from, an external portal vendor — that is SAP
+  Ariba/Business Network territory. The five sourcing methods called a custom
+  Z-OData `sourcing` service that was never built, so **`POST /rfqs`, cancel,
+  reissue and bid submission all threw a 502 on any tenant using `s4_odata`**;
+  only the mock made them appear to work. RFQs, bids and awards now live entirely
+  in this application, and what SAP holds is read back through `vendorRfqDisplay`
+  and `vendorQuotationDisplay`.
+- **The portal creates no purchase orders in SAP.** `POST /pos/simulate` (the
+  "Simulate SAP PO (ME21N)" button) and its `poProvision`/`poProvisioned` pair are
+  gone. Awarding an RFQ still creates the local `PurchaseOrder` the ASN → GRN →
+  invoice chain hangs off, but `sapPoNumber` is now **null**: it used to be
+  `'4500' + six random digits`, indistinguishable from a real SAP order number.
+  An order gets a real number only by being matched against SAP's own ledger
+  (`vendorPoGrnDisplay`). **Consequence:** `awaitGoodsReceipt` and
+  `awaitPaymentRun` both key on `sapPoNumber`, so a portal-awarded order sits
+  waiting until SAP's order is correlated — honest, but it means the end-to-end
+  chain only completes for orders SAP actually knows about.
+- **There is no simulation fallback in `s4_odata`.** It used to fall back to the mock
+  when the OData gateway had no credentials, which handed a misconfigured tenant an
+  invented MIRO number and, seconds later, a fabricated payment — a made-up UTR and
+  TDS figure a supplier could reconcile their books against. A tenant that declares a
+  real SAP now waits for real answers; the simulator is reachable only by selecting the
+  `mock` driver outright.
 
 **What the wrapper does, so no driver has to:** runs the call through the tenant's circuit
 breaker; writes the `SapLog` entry using the transaction registry's own code, type and
@@ -244,7 +305,7 @@ next call.
 | **Billing** | `services/billing.service.js` | `getBillingProvider()` — one interface (`onTenantCreated`, `onTenantStatusChanged`, `reportUsage`), one implementation today (`null`, logs and no-ops), selected by `BILLING_PROVIDER`. Wired into tenant create/suspend/reactivate/terminate; `POST /platform/tenants/:clientId/billing/sync-usage` reports on demand (operator-triggered — there is no job runner in this codebase). |
 | **Structured logging** | `middleware/requestLogger.js` | `req.log.{info,warn,error}` stamps `requestId` and, once bound, `clientId` on every call automatically. The request-completion and error-handler log lines carry `clientId` too, so any log line can be traced to the tenant and request that produced it. |
 | **Per-tenant rate limits** | `middleware/rateLimiter.js` `tenantLimiter` | Keyed on `req.clientId` (falls back to IP), mounted after `protect` on every tenant/supplier route (`routes/index.js` `protectTenant = [protect, tenantLimiter]`). Independent of `apiLimiter`, which is per-IP and production-only — this one guards against one noisy tenant regardless of how many addresses it calls from. Disabled under `NODE_ENV=test`. `TENANT_RATE_LIMIT_MAX` (default 300/min). |
-| **Backup/restore drill** | `scripts/backup-restore-drill.js`, `npm run backup:drill` | Dumps every collection to JSON, restores into a scratch database, asserts counts match, drops the scratch database. No `mongodump` binary required. Talks to the real `MONGO_URI` over the network (read-only against the source) — see `docs/runbooks/backup-restore.md` before running it. |
+| **Backup/restore drill** | `scripts/backup-restore-drill.js`, `npm run backup:drill` | Dumps every table to JSON, restores into a scratch schema, asserts counts match, drops the scratch schema. No `pg_dump`/`pg_restore` binary required — goes through the Prisma driver directly. Talks to the real `DATABASE_URL` over the network (read-only against `public`) — see `docs/runbooks/backup-restore.md` before running it. |
 | **Status page** | `GET /api/status` (`controllers/status.controller.js`) | Public, unauthenticated, deliberately anonymous — aggregate counts only (DB connectivity, count of operational tenants, summed SAP call/failure rate), never a tenant name, slug or `clientId`. JSON by default; renders a minimal HTML page for a browser (`Accept: text/html`). Per-tenant detail stays behind `GET /platform/health`. |
 | **Runbooks** | `docs/runbooks/` | Incident response, tenant suspension/termination, key rotation (`JWT_SECRET` vs `MASTER_KEY` — very different blast radius), the backup drill, and diagnosing a SAP outage. |
 
@@ -257,16 +318,16 @@ alongside enforcement to avoid touching an already-tested read path. Don't copy 
 
 ---
 
-## 6. Database Schemas (Mongoose, `backend/models/`)
+## 6. Database Schemas (Prisma / Postgres, `backend/prisma/schema.prisma`)
 
-**All ten transactional collections carry a required, indexed `clientId`** (added by the
-tenant plugin, not written by hand) plus compound indexes — `{clientId, id}` unique,
-`{clientId, vendorId}`, `{clientId, status}`. **Business IDs are unique per tenant, not
-globally**: two tenants may both hold `RFQ-2026-001`. The exception is `Vendor`, whose
+**Every tenant-scoped table carries a required, indexed `clientId`** (stamped by
+`db/tenantExtension.js`, not written by hand) plus compound indexes — `{clientId, id}`
+unique, `{clientId, vendorId}`, `{clientId, status}`. **Business IDs are unique per tenant,
+not globally**: two tenants may both hold `RFQ-2026-001`. The exception is `Vendor`, whose
 `vendorId`/`email`/`gstin` remain globally unique because they are login identities
 (ADR-0002); its `sapVendorCode` is per-tenant.
 
-### Client (`Client.js`) — the tenant. **Not** tenant-scoped; only the platform plane owns it
+### Client — the tenant. **Not** tenant-scoped; only the platform plane owns it
 - `clientId` (`CLT-0001`, unique), `companyName`, `slug` (subdomain, unique), `status`
   (`Trial|Active|Suspended|Terminated`), `plan`, `branding{logo,primaryColor}`,
   `featureFlags{}`, `settings{}` (thresholds + notification policy; shape declared by
@@ -276,9 +337,14 @@ globally**: two tenants may both hold `RFQ-2026-001`. The exception is `Vendor`,
   which `SapConnection` the tenant's traffic uses; **only** the promote endpoint writes it).
 - `isOperational()` — only `Trial`/`Active` tenants may authenticate or transact.
 
-All string business IDs (`id`, `vendorId`, `poId`, …) are human-readable and unique; `_id` is the Mongo ObjectId. `vendorId` (a string like `VND-40013`) is the cross-collection link to a vendor — **not** the Mongo `_id`. Legacy field `clerkId`/`vendorId` are matched with `$or` in several places.
+Every table has its own Postgres-generated `pk` (a UUID, the Prisma `@id`) that nothing
+outside its own row ever references. All string business IDs (`id`, `vendorId`, `poId`, …)
+are the human-readable, application-level identifiers everything else is joined and
+displayed on. `vendorId` (a string like `VND-40013`) is the cross-table link to a vendor —
+**not** its `pk`. Legacy field `clerkId`/`vendorId` are matched with a Prisma `OR` in
+several places (a holdover from the abandoned Clerk-auth plan, §4).
 
-### Vendor (`Vendor.js`) — master data / auth principal
+### Vendor — master data / auth principal
 - `vendorId` (unique, e.g. `VND-40013`), `clerkId` (deprecated), `role` (`vendor`|`admin`, default `vendor`).
 - `password` (bcrypt, `select:false`), `resetPasswordToken`/`resetPasswordExpires` (`select:false`).
 - Company: `companyName`(req), `tradeName`, `businessType`, `incorporationDate`, `gstin`(req, unique, upper), `gstType`, `pan`(req, upper), `cin`, `msmeNumber`, `tdsSection`, `email`(req, unique, lower), `phone`.
@@ -288,47 +354,48 @@ All string business IDs (`id`, `vendorId`, `poId`, …) are human-readable and u
 - SAP/status: `sapVendorCode` (unique sparse), `status` (`Draft`|`Pending`|`Pending Approval`|`Under Review`|`Approved`|`Rejected`, default `Draft`), `rejectionReason`, `vendorCategory`, `submittedAt`, `approvedAt`.
 - Hooks: pre-save bcrypt hash; `comparePassword()` method.
 
-### RFQ (`RFQ.js`) — transaction, embeds bids
-- `id` `RFQ-YYYY-NNN` (unique, sequential), `description`, `status` (`Draft`|`Bidding Open`|`Submitted`|`Under Review`|`Awarded`|`Closed`, default `Bidding Open`), `deadlineDate`, `rfqType` (`AN`|`AB`), `paymentTerms`, `purchasingOrg`/`companyCode` (`1000`), `currency` (`INR`), `deliveryLocation`.
-- `items[]`: `line, materialCode, description, quantity, uom(EA), targetPrice, plant(1000), deliveryDate`.
-- `bids[]`: `vendorId, vendorDbId(ObjectId), vendorName, unitPrices(Map<lineNo,price>), gstRate, taxCode(G1..G4), freight, deliveryLeadTimeDays, vendorRating, technicalScore(80), validityDate, moq, remarks, uploadedDocs[], submittedAt`.
-- `invitedVendors[]`: `{id, name, status, rating}`; plus `awardedVendorId/Name/awardedAt/convertedPoId`.
+### RFQ — transaction; bids and items are **child tables**, not embedded documents
+- `id` `RFQ-YYYY-NNN` (unique, sequential), `description`, `status` (`Draft`|`Bidding Open`|`Submitted`|`Under Review`|`Awarded`|`Closed`, default `Bidding Open`), `deadlineDate`, `rfqType` (`AN`|`AB`), `paymentTerms`, `purchasingOrg`/`companyCode` (`1000`), `currency` (`INR`), `deliveryLocation`; plus `awardedVendorId/Name/awardedAt/convertedPoId`.
+- `RfqItem[]` (`rfqPk` FK, cascade delete): `line, materialCode, description, quantity, uom(EA), targetPrice, plant(1000), deliveryDate`.
+- `RfqBid[]` (`rfqPk` FK): `vendorId` (legacy external id string) + optional `vendorPk` FK to `Vendor`, `vendorName, gstRate, taxCode(G1..G4), freight, deliveryLeadTimeDays, vendorRating, technicalScore(80), validityDate, moq, remarks, submittedAt`. Its own children: `RfqBidUnitPrice[]` (`lineNumber, price` — replaces the old Mongoose `Map<lineNo,price>` with a joinable row per line) and `RfqBidDocument[]` (`documentId, originalName, url`).
+- `RfqInvitedVendor[]` (`rfqPk` FK): `vendorExtId, name, status, rating`.
 
-### PurchaseOrder (`PurchaseOrder.js`)
-- `id` `PO-YYYY-NNNN`, `sapPoNumber` (`4500######`), `vendorId`, `vendorDbId`, `buyerName`, `plant`, `paymentTerms`, `currency`, `incoterms`, `deliveryAddress`, `status` (`Open`|`Acknowledged`|`Dispatched`|`Delivered`|`Invoiced`|`Paid`), `acknowledgedAt`, `fromRfqId`.
-- `items[]`: `line, materialCode, description, quantity, grnQuantity, unitPrice, netValue, uom`.
+### PurchaseOrder
+- `id` `PO-YYYY-NNNN`, `sapPoNumber` (`4500######`), `vendorId` + optional `vendorPk` FK, `buyerName`, `plant`, `paymentTerms`, `currency`, `incoterms`, `deliveryAddress`, `status` (`Open`|`Acknowledged`|`Dispatched`|`Delivered`|`Invoiced`|`Paid`), `acknowledgedAt`, `fromRfqId`.
+- `PurchaseOrderItem[]` (`poPk` FK, cascade delete): `line, materialCode, description, quantity, grnQuantity, unitPrice, netValue, uom`, and a 1:1 optional `InvoicePlan`.
+- `InvoicePlan` (one row per item, `itemPk` unique FK) — SAP's invoicing plan (FPLA header + FPLT dates), **off unless `enabled`**: `enabled, planNumber (FPLA-FPLNR), type` (`Periodic`|`Partial`)`, startDate, endDate, frequency` (`Weekly`|`Monthly`|`Quarterly`|`Half-Yearly`|`Yearly`)`, invoicingRule` (`Advance`|`Arrears`, FPLA-FAKKO)`, periodicAmount, currency, reference, source` (`portal`|`sap`)`, syncedAt`, and `InvoicePlanLine[]` — the FPLT dates: `lineNumber (FPLTR), description, settlementDate (AFDAT), billingDate (FKDAT), percentage (FPROZ), amount (FAKWR), status` (`Open`|`Invoiced`|`Blocked`|`Cancelled`, from FKSAF)`, blocked (FAKSP), invoiceId, invoiceNumber, invoicedAt, sapMiroDoc`.
+- **A line with an invoicing plan is not invoiced against goods receipts.** Periodic bills the same amount each period; partial splits the line value across milestone dates that must reconcile to it exactly. The arithmetic lives in `services/invoicePlan.service.js` (pure — periodic dates are anchored to the plan start date, not stepped, so a 31 Jan monthly plan is twelve dates and not thirteen; a partial split absorbs its rounding remainder into the last instalment). Re-planning a schedule carries every already-invoiced date forward untouched.
 
-### ASN (`ASN.js`) — advance shipping notice
-- `id` `ASN-######`, `poId`, `vendorId`, `status` (`Submitted`|`In Transit`|`Received`), `shipDate`, `estimatedDeliveryDate`, `carrierName`, `trackingNumber`, `vehicleNumber`, `invoiceReference`, `ewayBillNo`, `sapInboundDelivery`, `documentIds[]`, `items[]` (`line, materialCode, description, shippedQuantity, uom`).
+### ASN — advance shipping notice
+- `id` `ASN-######`, `poId`, `vendorId`, `status` (`Submitted`|`In Transit`|`Received`), `shipDate`, `estimatedDeliveryDate`, `carrierName`, `trackingNumber`, `vehicleNumber`, `invoiceReference`, `ewayBillNo`, `sapInboundDelivery`. `AsnItem[]` (`asnPk` FK): `line, materialCode, description, shippedQuantity, uom`.
 
-### GRN (`GRN.js`) — goods receipt (MIGO)
-- `id` `GRN-…`, `poId`, `asnId`, `vendorId`, `sapMigoDoc`, `postingDate`, `receivedBy`, `invoiceSubmitted`.
-- `items[]`: `line, materialCode, description, receivedQuantity, acceptedQuantity, rejectedQuantity, rejectionReason, uom`.
-- Virtuals: `totalAccepted`, `rejectionRate` (serialized to JSON).
+### GRN — goods receipt (MIGO)
+- `id` `GRN-…`, `poId`, `asnId`, `vendorId`, `sapMigoDoc`, `postingDate`, `receivedBy`, `invoiceSubmitted`. `GrnItem[]` (`grnPk` FK): `line, materialCode, description, receivedQuantity, acceptedQuantity, rejectedQuantity, rejectionReason, uom`.
+- `totalAccepted`/`rejectionRate` were Mongoose virtuals; now an app-layer compute-after-fetch helper over `GrnItem[]` (same formula), not a stored/generated column.
 
-### Invoice (`Invoice.js`)
-- `id`, `grnId`, `poId`, `vendorId`, `invoiceNumber`, `invoiceDate`, `sapMiroDoc`, `status` (`Submitted`|`Under Review`|`Match Warning`|`Approved`|`Posted in SAP`|`Cleared`), `subTotal`, `taxAmount`, `totalAmount`, `taxCode`(G1), `currency`, `matchWarning`, `items[]`, `postedAt`, `clearedAt`. Tax is computed at **18% GST**.
+### Invoice
+- `id`, `grnId` (**optional, nullable FK** — a plan invoice has no goods receipt; mutually exclusive with `invoicePlanRef` via a CHECK constraint in the migration SQL, since Prisma has no native cross-field CHECK), `invoicePlanRef` (Json: `line, planLineNumber, planType, settlementDate` — set instead of `grnId` when the invoice bills an invoicing-plan date), `poId`, `vendorId`, `invoiceNumber`, `invoiceDate`, `sapMiroDoc`, `status` (`Submitted`|`Under Review`|`Match Warning`|`Approved`|`Posted in SAP`|`Cleared`), `subTotal`, `taxAmount`, `totalAmount`, `taxCode`(G1), `currency`, `matchWarning`, `postedAt`, `clearedAt`; `InvoiceItem[]` (`invoicePk` FK): `line, materialCode, description, quantity, unitPrice, amount`. Tax is computed at **18% GST**. Decimal columns (`Decimal(14,2)`) — read via `utils/money.js` `toNumber()`, never implicit coercion.
 
-### Payment (`Payment.js`) — F110
+### Payment — F110
 - `id`, `invoiceId`, `poId`, `vendorId`, `invoiceRef`, `invoiceNumber`, `sapMiroDoc`, `grossAmount`, `tdsDeducted`, `netAmount`, `paymentDate`, `utrCode`, `paymentMethod` (`NEFT`|`RTGS`|`IMPS`), `sapPaymentDoc`, `bankName`, `runId` (F110 run). TDS certificate fields: `fiscalYear, quarter, tdsSection, deducteePan, deductorTan, totalTds`.
 
-### ChatMessage (`ChatMessage.js`) — Communications hub
-- `vendorId`, `sender` (`Vendor`|`Buyer`|`System`|`Finance`|`Quality`|`Warehouse`), `message`(≤1000), `linkedPoId`, `linkedRfqId`, `timestamp`, `isRead`.
+### ChatMessage — communications hub
+- `vendorId`, `sender` (`Vendor`|`Buyer`|`System`|`Finance`|`Quality`|`Warehouse`), `message`, `linkedPoId`, `linkedRfqId`, `timestamp`, `isRead`.
 
-### SapLog (`SapLog.js`) — the BAPI/RFC audit trail (drives the console)
-- `vendorId`, `type` (`BAPI`|`RFC`|`OData`|`IDoc`|`SYS`|`KYC`), `direction` (`OUTBOUND`|`INBOUND`), `name` (e.g. `BAPI_RFQ_CREATE`), `payload` (JSON string), `status` (`SUCCESS`|`PENDING`|`FAILED`), `errorMessage`, `documentRef`, `timestamp`. **TTL index auto-purges after 30 days.**
+### SapLog — the BAPI/RFC audit trail (drives the console)
+- `vendorId`, `type` (`BAPI`|`RFC`|`OData`|`IDoc`|`SYS`|`KYC`), `direction` (`OUTBOUND`|`INBOUND`), `name` (e.g. `BAPI_RFQ_CREATE`), `payload` (JSON-serialized **string**, kept verbatim — deliberately not a `Json` column), `status` (`SUCCESS`|`PENDING`|`FAILED`), `errorMessage`, `documentRef`, `timestamp`. Mongoose's TTL index auto-purged rows after 30 days for free; **Postgres has no schema-level equivalent, and nothing currently replicates it** (the schema comment flags `pg_cron` / an app cron as the intended replacement — not yet built, so `sap_logs` grows unbounded until one exists).
 
-### AuditLog (`AuditLog.js`) — the platform + tenant action trail. **Not** tenant-scoped (ADR-0014)
-- `clientId` (optional — null for platform actions concerning no tenant), `actorId`, `actorRole`, `actorEmail`, `plane`, `action` (enum from `config/auditActions.js`), `target{type,id,label}`, `meta` (secrets redacted), `ip`, `at`. Indexes: `{at:-1}`, `{clientId,at:-1}`, `{action,at:-1}`, `{actorId,at:-1}`. **Append-only** — update/delete hooks throw. Written only through `utils/audit.js`.
+### AuditLog — the platform + tenant action trail. **Not** tenant-scoped (ADR-0014)
+- `clientId` (optional — null for platform actions concerning no tenant), `actorId`, `actorRole`, `actorEmail`, `plane`, `action` (from `config/auditActions.js`), `target` (Json `{type,id,label}`), `meta` (Json, secrets redacted), `ip`, `at`. Indexes: `{at desc}`, `{clientId,at desc}`, `{action,at desc}`, `{actorId,at desc}`. **Append-only** — enforced by `db/appendOnlyExtension.js` plus a Postgres `REVOKE` on `UPDATE`/`DELETE`, not a Mongoose hook. Written only through `utils/audit.js`.
 
-### SapConnection (`SapConnection.js`) — one tenant's SAP config, per environment. **Not** tenant-scoped (ADR-0019)
-- `clientId` (indexed), `environment` (`sandbox|production`), `driver` (`mock|s4_odata|ecc_rfc`), `config` (Mixed, validated by the driver), `secrets` (Map of name → `v2:` ciphertext), `wrappedDataKey` (**`select:false`** — a document loaded for display cannot decrypt), `lastTest{ok,message,latencyMs,driver,detail,at,testedBy}`, `promotedAt`/`promotedBy`, `createdBy`/`updatedBy`. Unique on `{clientId, environment}`.
-- `setSecrets(values)` (empty string clears a name, absent names are left alone), `decryptSecrets()` (one caller: the driver factory), `secretNames()` (what the API returns). `toJSON` strips `secrets` and `wrappedDataKey`.
+### SapConnection — one tenant's SAP config, per environment. **Not** tenant-scoped (ADR-0019)
+- `clientId` (indexed), `environment` (`sandbox|production`), `driver` (`mock|s4_odata|ecc_rfc`), `config` (Json, validated by the driver), `wrappedDataKey` (never returned — see `omit` in `db/prisma.js`), `lastTest` (Json: `ok,message,latencyMs,driver,detail,at,testedBy`), `promotedAt`/`promotedBy`, `createdBy`/`updatedBy`. Unique on `{clientId, environment}`. Its own child table `SapConnectionSecret[]` (`connectionPk` FK, unique on `{connectionPk, name}`) replaces Mongoose's `Map<String,String>` of `v2:`-prefixed ciphertext with one row per credential name.
+- `setSecrets(values)` (empty string clears a name, absent names are left alone), `decryptSecrets()` (one caller: the driver factory), `secretNames()` (what the API returns) — now plain functions in `db/sapConnectionHelpers.js`/`utils/secretBox.js`, not model methods.
 
-### SapConnectionAudit (`SapConnectionAudit.js`) — the connection change trail. **Not** tenant-scoped, **append-only**
-- `clientId`, `environment`, `action` (a `sap.*` value from `config/auditActions.js`), `driver`, `changes` (field-level `{from,to}` for **non-secret** config), `secretsChanged` (credential **names** only — never a value, hash or length), `result` (test outcomes), `actorId`/`actorEmail`/`actorRole`/`ip`, `at`. Update/delete hooks throw, same as `AuditLog`.
+### SapConnectionAudit — the connection change trail. **Not** tenant-scoped, **append-only**
+- `clientId`, `environment`, `action` (a `sap.*` value from `config/auditActions.js`), `driver`, `changes` (Json, field-level `{from,to}` for **non-secret** config), `secretsChanged` (`String[]` — credential **names** only, never a value, hash or length), `result` (Json test outcomes), `actorId`/`actorEmail`/`actorRole`/`ip`, `at`. Append-only the same way as `AuditLog`.
 
-### Document (`Document.js`) — uploaded files metadata
+### Document — uploaded files metadata
 - `vendorId`, `fileName`, `originalName`, `mimeType`, `size`, `filePath`, `linkedTo` (`ASN`|`RFQ`|`Profile`|`Invoice`). Actual files land in `backend/uploads/`.
 
 ---
@@ -362,6 +429,7 @@ All string business IDs (`id`, `vendorId`, `poId`, …) are human-readable and u
 - `protectPlatform` — the same resolution for `/api/platform/*`, but binds **no** tenant, and answers **404** to a tenant-plane account so the console's existence is never confirmed.
 - `requireMfa` — the platform plane's second gate (ADR-0016). Requires that the operator has enrolled an authenticator **and** that this token cleared it (`mfa: true` claim, minted only by `POST /platform/auth/mfa/verify`). Its two refusals are distinguishable via the response's `reason`: `mfa_enrolment_required` vs `mfa_verification_required`.
 - `requirePermission(permission)` — the only route guard. Reads `config/permissions.js`; the declaration is discoverable as `fn.permission`, which `tests/route-role-matrix.test.js` walks.
+- `requireOnboarded` (`middleware/requireOnboarded.js`) — the **second** supplier gate, and not a permission. Holding `rfq:bid` is a fact about the role; whether the supplier has actually registered is a fact about the record, and a `Draft` account holds the whole supplier permission set from the moment it exists. Refuses `403 { reason: 'registration_incomplete' }` to a supplier whose status is in `VENDOR_PRE_SUBMISSION` (`Draft`/`Pending`/`Rejected` — `config/statuses.js`). Mounted in `routes/index.js` as `protectOnboarded` on rfqs, pos, grns, invoices, payments, chats, reports, asns and logs; deliberately **not** on `/vendors`, `/uploads` or `/dashboard`, which are the registration form, the documents it collects and the shell it renders in. Tenant staff pass through untouched. The frontend mirror is `src/lib/onboarding.js`, and `onboarding.test.js` checks the two status lists against each other.
 - `requirePlane(...planes)` — plane assertion for permissions held on more than one plane.
 
 **Other middleware:** `errorHandler` (central, uses `ApiError`), `rateLimiter` (`apiLimiter`), `requestLogger`, `validate(schema)` (zod), `upload` (multer).
@@ -409,6 +477,7 @@ Base path `/api`. Auth column: **Public** / the permission the route declares (s
 | GET | `/vendors` | `vendor:read` | `?status` (validated against the registry) · `?search` (name/ID/email/GSTIN) · paginated; response carries `filters.statuses` |
 | PUT | `/vendors/:id/approve` | `vendor:approve` | approve; audits `vendor.approved`, emails the supplier if the workspace wants that |
 | PUT | `/vendors/:id/reject` | `vendor:approve` | reject (`rejectVendorSchema`); audits `vendor.rejected` |
+| GET | `/vendors/:id` | `vendor:read` | **one supplier in full** — profile, KYC state and documents, plus `activity` (PO/invoice counts and values by status, payments net of TDS, RFQ invitations, GRNs, ASNs — all aggregated live), `recentOrders` (5) and `awaitingDecision` from the status registry. Accepts either the Postgres `pk` (uuid) or the `vendorId`. **Registered last**, or `/:id` swallows `/profile`, `/performance` and `/sap-reference-data` above it |
 
 **Workspace — the tenant back office** (`workspace.routes.js`, behind `protect`; nothing here takes a `clientId`, it comes from the token):
 | Method | Path | Auth | Notes |
@@ -417,6 +486,10 @@ Base path `/api`. Auth column: **Public** / the permission the route declares (s
 | GET | `/workspace/settings` | `settings:read` | the registry, grouped, with effective values |
 | PATCH | `/workspace/settings` | `settings:manage` | `{settings:{key:value}}`; rejected whole on any bad key (`errors` map); audits `settings.updated` |
 | GET | `/workspace/audit` | `audit:read` | this tenant's rows only; platform actors anonymised (ADR-0025) |
+
+**The RFQ screen's three tabs** (`src/features/rfq/components/RfqView.jsx`): *RFQ Monitor & History* (this app's own RFQs), *Submit Quotation* (portal-internal — a bid is recorded here and **not** transmitted to SAP), and *My SAP Documents*. The last merges the two vendor-scoped SAP reads — `GET /rfqs/sap-status` (ME43, `ZME43/ME43`) and `GET /rfqs/sap-quotations` (ME48, `ZCL_ME48/vendor`) — into one deduplicated list. **ME48 returns the vendor's whole EKKO set including the 6xxxxxxx documents ME43 reports**, so the same quotation arrives from both; `src/lib/sapDocuments.js` normalises the two shapes (`sapRfqNumber` vs `documentNumber`), merges on document number, and sorts newest first. Both reads are kept rather than trusting ME48 to be a complete superset. Neither takes an RFQ id — they are keyed on `sapVendorCode` alone, which is why this is a tab and not a panel inside one RFQ's detail pane. Live-payload contract tests: `backend/tests/sap-read-contracts.test.js`, merge rules: `src/lib/sapDocuments.test.js`.
+
+Each row in the *My SAP Documents* table whose type is `Quotation` (the 6xxxxxxx `ebeln` range) carries an **Update Price (ME47)** action — a genuine SAP write, `POST /rfqs/:id/sap-quote-price` → `quotationUpdatePrice` → `ZQUOT_NETPR/QUOT_UPDPR`, confirmed live against the sandbox. This is the one sourcing write that survived the "sourcing is portal-internal" decision above: it updates the net price on line items of a document **SAP already holds**, not a bid against a portal RFQ. Because ME48/ME43 return no line items to price against, the modal has the vendor pick one of their own portal RFQs (from RFQ Monitor & History) to supply the line numbers/materials, and the `:id` in the route is that portal RFQ — its items are what `sap-quote-price` validates against, `sapRfqNumber` in the body is the unrelated SAP document number the vendor is pricing. See `contract.js`'s `quotationUpdatePrice` and `sapTransactions.js`'s `QUOTATION_PRICE_UPDATE` for the full rationale.
 
 **RFQs** (`rfq.routes.js`, all JWT):
 | Method | Path | Notes |
@@ -427,20 +500,34 @@ Base path `/api`. Auth column: **Public** / the permission the route declares (s
 | PUT | `/rfqs/:id/cancel` | → status `Closed` |
 | PUT | `/rfqs/:id/reissue` | new deadline, status → `Bidding Open` (`reissueRfqSchema`) |
 | POST | `/rfqs/:id/bid` | submit quotation (`bidSchema`); validates deadline/status/all-lines-priced; GST→taxCode; first bid flips status to `Submitted` |
+| POST | `/rfqs/:id/sap-quote-price` | ME47 — pushes a net price to a SAP-native quotation document (real SAP write, see above); `:id` is the portal RFQ supplying the line numbers |
 | GET | `/rfqs/:id/evaluate` | ME48 weighted scoring matrix |
 | POST | `/rfqs/:id/award` | award winner → creates PO with bid prices, status `Awarded` |
 
 **Evaluation formula (ME48):** `weighted = price*0.40 + technical*0.30 + delivery*0.20 + rating*0.10`, where `priceScore = lowestTotalCost/vendorTotalCost*100`, `deliveryScore = shortestLeadTime/vendorLeadTime*100`, technical default 80. **GST→tax code:** 5%→G3, 12%→G2, 18%→G1, 28%→G4.
 
-**POs** (`po.routes.js`, JWT): `GET /pos`, `POST /pos/simulate` (spawn a demo inbound PO), `GET /pos/:id`, `PUT /pos/:id/acknowledge`, `PUT /pos/:id/status`, `POST /pos/:id/asn` (`asnCreateSchema` → fakes GRN in ~10s), `GET /pos/:id/asn`.
+**POs** (`po.routes.js`, JWT): `GET /pos`, `GET /pos/sap-status` (SAP's own PO/GRN ledger), `GET /pos/:id`, `PUT /pos/:id/acknowledge`, `PUT /pos/:id/status`, `POST /pos/:id/asn` (`asnCreateSchema`; recorded locally, GRN discovered from SAP), `GET /pos/:id/asn`. `POST /pos/simulate` is **gone** — see §5.6.
+Invoicing plans: `GET /pos/:id/invoice-plan` (`po:read` — the plans on the order, each with a summary, plus a flat `billable[]` of what may be invoiced today), `PUT /pos/:id/items/:line/invoice-plan` (`po:manage`, `invoicePlanSchema` — configures or replaces a plan and pushes it to SAP before saving), `DELETE /pos/:id/items/:line/invoice-plan` (`po:manage`; refused once a date has been billed), `PUT /pos/:id/items/:line/invoice-plan/lines/:lineNumber/block` (`po:manage` — FPLT-FAKSP, withholds one date without touching the schedule), `POST /pos/:id/invoice-plan/sync` (`po:manage` — adopt what SAP holds). Suppliers hold `po:read` but never `po:manage`, so they read a plan and bill it; they do not set one.
 
 **ASNs** (`asn.routes.js`, JWT): `GET /asns`.
 
 **GRNs** (`grn.routes.js`, JWT): `GET /grns`, `GET /grns/:id`.
 
-**Invoices** (`invoice.routes.js`, JWT): `GET /invoices`, `POST /invoices` (`invoiceCreateSchema` → fakes F110 payment in ~12s), `GET /invoices/:id`, `PUT /invoices/:id/status`, `POST /invoices/:id/miro` (post MIRO doc).
+**Invoices** (`invoice.routes.js`, JWT): `GET /invoices`, `POST /invoices` (`invoiceCreateSchema`; records the supplier's invoice — **nothing is posted to SAP**), `GET /invoices/:id`, `PUT /invoices/:id/status`, `POST /invoices/plan` (`planInvoiceSchema` — one invoice against one invoicing-plan date; the **plan** sets the amount, the supplier states only their invoice number, date and tax, and a date cannot be billed before its settlement date, twice, or while blocked. A plan invoice does not move the PO's status — a periodic plan has more instalments to come), `GET /invoices/sap-status` (reconciliation against SAP's own MIRO ledger). `POST /invoices/:id/miro` and the `invoice:post` permission are **gone** — see §5.6.
 
-**Payments** (`payment.routes.js`, JWT): `GET /payments`, `POST /payments`, `GET /payments/:id`, `PUT /payments/:id/status`.
+**Payments** (`payment.routes.js`, JWT): `GET /payments`, `POST /payments`, `GET /payments/sap-status` (SAP's own ledger for this vendor), `GET /payments/tds-summary` (TDS deducted per fiscal quarter — see below), `GET /payments/:id`, `PUT /payments/:id/status`.
+
+**TDS and Form 16A.** `GET /payments/tds-summary` aggregates the tenant's own `Payment`
+rows by **Indian fiscal quarter** (`utils/fiscalPeriod.js` — FY runs Apr–Mar, Q1 is
+Apr–Jun; the older code filed rows by *calendar* quarter of *now*, which put a January
+payment in the wrong return period). It reports tax actually withheld, and leaves
+`section`/`deductorTan` **null** until SAP supplies them — they need the withholding-tax
+reporting API. It is deliberately **not** a Form 16A: that is a statutory certificate the
+buyer issues from TRACES after filing its quarterly Form 26Q, and the portal cannot know
+whether that happened, so no row carries a filing status. The screen's "Request
+Certificate" action routes to Finance through the chat endpoint. Until Phase 8 this
+registry was five **hardcoded** quarters with invented amounts and reference numbers,
+badged "Filed & Signed" against the supplier's real PAN.
 
 **Chats** (`chat.routes.js`, JWT): `GET /chats`, `POST /chats` (`chatMessageSchema`) — also used as the generic "reach a human" channel (payment disputes, Form 16A requests).
 
@@ -501,7 +588,7 @@ This *is* a real multi-route App Router app (the older `workflow/` docs describi
 | `/performance` | `PerformanceView` | dashboard |
 | `/analytics` | `ReportsAnalyticsView` | dashboard |
 | `/admin` | — | **gone**: redirects to `/workspace` (Phase 5 promoted it, ADR-0024) |
-| `/workspace`, `/workspace/suppliers`, `/workspace/users`, `/workspace/settings`, `/workspace/audit` | the tenant back office | **a different plane** — see §8.9 |
+| `/workspace`, `/workspace/suppliers`, `/workspace/suppliers/[id]` (one supplier in full — profile, compliance documents, trading history; the row click from the directory), `/workspace/users`, `/workspace/settings`, `/workspace/audit` | the tenant back office | **a different plane** — see §8.9 |
 | `/sign-in`, `/sign-up`, `/forgot-password`, `/reset-password` | auth pages | rendered in a centered "auth-mode" layout, no shell |
 | `/platform`, `/platform/tenants`, `/platform/tenants/[clientId]`, `/platform/operators`, `/platform/audit`, `/platform/reset-password` | the platform console | **a different plane** — see §8.8 |
 
@@ -583,21 +670,24 @@ The third plane: the client's own back office, for `client_admin` / `buyer` / `f
 - **Password reset**: `forgot-password` issues a SHA-256-hashed 1h token and **emails** the link (ADR-0011), returning a generic message (no user enumeration); `reset-password` consumes it. The same mechanism gives a tenant-created supplier their first password (ADR-0026).
 - **RBAC**: every route declares one permission with `requirePermission(...)`; `config/permissions.js` decides who holds it, and `route-role-matrix.test.js` fails CI on a route that declares none. Nav registries on all three planes filter on the permission list `/auth/me` reports, so a hidden tab and a refused request are the same rule (UX only; the server is the boundary).
 - **Identity is server-derived**: the frontend no longer sends `x-vendor-id`; JWT is the source of truth. The `x-vendor-id` header only works as a **dev/test** fallback and is inert when `NODE_ENV=production`.
+- **A supplier's scope is not negotiable.** `?all=true` widens a list for tenant staff only. `GET /rfqs` and `GET /logs` used to honour it for anyone, which handed a supplier every RFQ in the tenant and every SAP log payload in it — `VENDOR_CREATE` entries carry other suppliers' bank details. Both now check `isSupplier(req)` first; every other list endpoint already went through `withVendorScope`, which is unconditional. `tests/rbac-hardening.test.js` covers it.
+- **Temporary passwords are enforced, not just reported.** Tenant provisioning and operator creation both issue a generated password with `mustChangePassword`. `req.auth.mustChangePassword` is reported on **every** session by `GET /auth/me` (not only in the login response), and `lib/portal-context.js` redirects to `/change-password` until it clears — so a refresh is not a way past it. The platform console enforces the same rule in its own gate (`lib/platform-session.js`).
+- **Invitations land on `/accept-invitation`.** `POST /users/invitations` and `POST /vendors/invitations` email a link to that page, which previews the invitation, then creates the staff account outright or hands a supplier off to `/sign-up` when the API answers `next: 'register'`. The public-path list the layout, the session provider and `api-client.js` each need lives once, in `lib/planes.js` (`isAuthPath`).
 
 ---
 
 ## 10. Testing
 
-**Backend** (`backend/`, Jest + Supertest + `mongodb-memory-server`, `NODE_ENV=test`, `--forceExit`):
-`tests/setup.js` (in-memory Mongo), `tests/testApp.js` (real routes + errorHandler, no sockets/CORS/rate-limit), `tests/helpers.js` (`registerVendor`, `createTenantUser`, `createPlatformUser`, `createOperatorSession` — an operator who has already cleared MFA — and `asTenant`). Suites: `auth.test.js`, `auth-middleware.test.js`, `vendor.test.js`, `rfq.test.js` (full lifecycle + scoring math + award), `password-reset.test.js`, `identity.test.js`, **`route-role-matrix.test.js`** (walks the real router; a route with no permission fails CI), **`tenant-plugin.test.js`** (the enforcement layer), **`tenant-isolation.test.js`** (2 tenants × every model × read/update/delete/count, plus API-level 404s), **`migrate-tenancy.test.js`**, **`platform-console.test.js`** (tenant lifecycle, the end-to-end provisioning acceptance test, MFA gating, operator management, audit, health, plane separation), **`crypto-primitives.test.js`** (TOTP against the RFC 6238 vectors; AES-GCM round-trip and tamper rejection), **`sap-adapter.test.js`**, **`workspace.test.js`** (the tenant back office: overview scoping and SLA counting, the settings registry and its whole-or-nothing patch, feature flags closing `/api/chats` for one tenant and not another, self-registration closed but invitations still admitted, tenant-side supplier creation, decision emails, and the audit view's tenant scope and operator anonymisation), **`tenant-realm.test.js`** (subdomain resolution and its reserved labels, the header ignored in production, the public realm endpoint's 404s, registration and login addressed to one workspace), **`lifecycle-e2e.test.js`** (the phase-6 acceptance test: a full RFQ→bid→award→PO→ASN→GRN→invoice→payment cycle on the mock driver, with a second tenant running the same cycle and seeing none of it — 404 per document, empty lists, no cross-realm login; ADR-0029). 289 passing.
+**Backend** (`backend/`, Jest + Supertest against a real Postgres instance, `NODE_ENV=test`, `--forceExit`):
+`tests/setup.js` resets every table (`DELETE` with `session_replication_role = 'replica'` to skip FK-trigger ordering, falling back to `TRUNCATE ... CASCADE` if the DB role lacks the privilege) before and after each test — needs `npx prisma migrate deploy` already run against `DATABASE_URL`; `tests/testApp.js` (real routes + errorHandler, no sockets/CORS/rate-limit), `tests/helpers.js` (`registerVendor`, `createTenantUser`, `createPlatformUser`, `createOperatorSession` — an operator who has already cleared MFA — and `asTenant`). Suites include: `auth.test.js`, `auth-middleware.test.js`, `vendor.test.js`, `vendor-detail.test.js`, `vendor-create-map.test.js`, `rfq.test.js` (full lifecycle + scoring math + award), `rfq-sap-quotations.test.js`, `password-reset.test.js`, `identity.test.js`, **`route-role-matrix.test.js`** (walks the real router; a route with no permission fails CI), **`tenant-isolation.test.js`** (2 tenants × every model × read/update/delete/count, plus API-level 404s), **`tenant-wide-visibility.test.js`**, **`rbac-hardening.test.js`**, **`platform-console.test.js`** (tenant lifecycle, the end-to-end provisioning acceptance test, MFA gating, operator management, audit, health, plane separation), **`crypto-primitives.test.js`** (TOTP against the RFC 6238 vectors; AES-GCM round-trip and tamper rejection), **`sap-adapter.test.js`**, **`sap-conformance.test.js`**, **`sap-read-contracts.test.js`**, **`po-sap-status.test.js`**, **`decimal-money-fields.test.js`**, **`sequential-id-overflow.test.js`**, **`id-collision-retry.test.js`**, **`prisma-error-mapping.test.js`**, **`tds-summary.test.js`**, **`phase7-operations.test.js`**, **`invoice-plan.test.js`**, **`workspace.test.js`** (the tenant back office: overview scoping and SLA counting, the settings registry and its whole-or-nothing patch, feature flags closing `/api/chats` for one tenant and not another, self-registration closed but invitations still admitted, tenant-side supplier creation, decision emails, and the audit view's tenant scope and operator anonymisation), **`tenant-realm.test.js`** (subdomain resolution and its reserved labels, the header ignored in production, the public realm endpoint's 404s, registration and login addressed to one workspace), **`lifecycle-e2e.test.js`** (the phase-6 acceptance test: a full RFQ→bid→award→PO→ASN→GRN→invoice→payment cycle on the mock driver, with a second tenant running the same cycle and seeing none of it — 404 per document, empty lists, no cross-realm login; ADR-0029). 29 suites, 448 passing + 2 skipped as of the Postgres/Mongoose-removal baseline (§0).
 
-**Running them.** `npx jest --runInBand` in `backend/`. Several suites in parallel each start their own `mongodb-memory-server`, which is unreliable on Windows — serial is the dependable way to run the whole suite locally.
+**Running them.** `npx jest --runInBand` in `backend/` — parallel is unreliable (shared Postgres instance, table-reset races), so serial is the dependable way to run the whole suite locally and in CI.
 
 `tests/setup.js` seeds the `CLT-0001` tenant before each test, because every request path now resolves one. Test code touching models directly must bind a tenant with the `asTenant()` helper — the same rule application code follows.
 
-**Frontend** (root, Vitest, `src/**/*.test.{js,jsx}`): `src/features/profile/validation.test.js`, `src/lib/platformNav.test.js` and `src/lib/workspaceNav.test.js` — the two nav registries are checked against the real backend permission map via `createRequire`, so the two languages cannot drift silently. 24 tests. Route/component smoke tests deferred (need a mocked `PortalProvider` with fetch + socket.io).
+**Frontend** (root, Vitest, `src/**/*.test.{js,jsx}`): `src/features/profile/validation.test.js`, `src/lib/platformNav.test.js` and `src/lib/workspaceNav.test.js` — the two nav registries are checked against the real backend permission map via `createRequire`, so the two languages cannot drift silently — plus `src/lib/branding.test.js`, `src/lib/onboarding.test.js` and `src/lib/sapDocuments.test.js`. 6 files, 62 tests. Route/component smoke tests deferred (need a mocked `PortalProvider` with fetch + socket.io).
 
-**Bugs found & fixed by tests (documented in IMPLEMENTATION_PLAN.md):** RFQ `submitBid` TDZ crash on non-invited vendors; password hash leaking in register/login responses.
+**Bugs found & fixed by tests (historical — the audit log that documented these, `IMPLEMENTATION_PLAN.md`, has since been removed; see `git log` for detail):** RFQ `submitBid` TDZ crash on non-invited vendors; password hash leaking in register/login responses.
 
 **Known product quirk:** the first submitted bid flips RFQ status `Bidding Open`→`Submitted`, which then blocks a *second* vendor from bidding ("Bidding is closed"). Tests seed multi-bid scenarios directly via the model. Flagged for a product decision.
 
@@ -618,11 +708,13 @@ High-density, high-contrast **industrial terminal** aesthetic (think Bloomberg, 
 
 ---
 
-## 12. Docs in `workflow/` (context, but partly stale)
+## 12. Docs in `workflow/` and `docs/` (context, but partly stale)
 
-`architecture_document.md` (huge v1.0 architecture doc — **stale in places**: it predates auth + Mongoose models + the multi-route migration, and describes a single-page `activeTab` router and "no authentication"; use it for the SAP field-mapping catalog and P2P/BAPI reference, not current wiring), plus `SAP_Communication.md`, `socket_io_architecture.md`, `frontend_transition.md`, `sprint_roadmap.md`, `walkthrough.md`, `working.md`, `task.md`, `README.md`. `PRODUCT.md` = product brief. `IMPLEMENTATION_PLAN.md` = the authoritative recent audit + remediation log (Phases 1–6).
+`workflow/architecture_document.md` (huge v1.0 architecture doc — **stale in places**: it predates auth + the original Mongoose models + the multi-route migration, and describes a single-page `activeTab` router and "no authentication"; use it for the SAP field-mapping catalog and P2P/BAPI reference, not current wiring), plus `SAP_Communication.md`, `socket_io_architecture.md`, `frontend_transition.md`, `sprint_roadmap.md`, `walkthrough.md`, `working.md`, `task.md`, `README.md`. `PRODUCT.md` and `IMPLEMENTATION_PLAN.md` (the earlier audit + remediation log) have been removed from the repo root; consult `git log`/`git show` for their content if needed.
 
-**When docs conflict with code, trust the code**, then this PROJECT_CONTEXT.md, then IMPLEMENTATION_PLAN.md, then the `workflow/` docs (oldest).
+`docs/runbooks/` holds the operational playbooks (incident response, tenant suspension/termination, key rotation, the backup drill — §5.7). `docs/*.md` at that level holds forward-looking engineering plans meant to be executed phase-by-phase (e.g. `docs/04-sap-runtime-engineering-plan.md`) — read a plan's own "Status" line before assuming it's still current against the code.
+
+**When docs conflict with code, trust the code**, then this PROJECT_CONTEXT.md, then `docs/`, then the `workflow/` docs (oldest).
 
 ---
 
@@ -630,14 +722,14 @@ High-density, high-contrast **industrial terminal** aesthetic (think Bloomberg, 
 
 1. **Two packages, two test suites.** Backend changes → `cd backend`. Frontend build/test at root.
 2. **SAP goes through the adapter, always.** No controller imports a driver or writes a SapLog: it calls `getSapAdapterForClient(req.clientId)` and then a contract method (§5.6). The simulator is the `mock` driver. Adding a call means adding a transaction to `config/sapTransactions.js`, a method to `sap/contract.js`, and an implementation to every driver — the skeletons inherit `not_implemented` automatically.
-3. **`vendorId` (string) is the link, not `_id`.** Many queries use `$or: [{vendorId}, {clerkId: vendorId}]` for legacy compat.
+3. **`vendorId` (string) is the link, not `pk`.** Many queries use `OR: [{vendorId}, {clerkId: vendorId}]` for legacy compat.
 4. **`clerk*` names are legacy.** Clerk auth was abandoned for local JWT; `clerkUserId`/`clerkId` persist as identifiers only.
 5. **App Router is real** — pages live in `src/app/*/page.jsx`; navigation is `router.push`. Ignore older "activeTab-only SPA" descriptions.
 6. **Feature-sliced pattern:** put new domain logic in `src/features/<domain>/{components,hooks,services}`; hooks return `{success, error}`; don't swallow errors; surface via `addToast`.
 7. **Design rules are strict:** 0px radius, no shadows, mono font for data. See §11.
-8. **Admin role** only via `ADMIN_BOOTSTRAP_EMAILS` at first registration. There is no role-elevation endpoint. Roles and their planes live in `config/roles.js` — never inline a role list.
+8. **There is no role-elevation endpoint, and no `admin` role.** `ADMIN_BOOTSTRAP_EMAILS` was removed by ADR-0009 and the server refuses to start if it is still set (§4) — staff arrive by invitation or tenant provisioning. Roles and their planes live in `config/roles.js`; statuses in `config/statuses.js` — never inline either list.
 9. **Modified Next.js 16** — consult `node_modules/next/dist/docs/` before using Next APIs (AGENTS.md mandate).
-10. **Committed artifacts** (`mongodb_data/`, `backend/logs/`, `backend/uploads/`, root `node_modules` entries in git) are not source; don't treat them as such.
+10. **Committed artifacts** (`backend/logs/`, `backend/uploads/`, root `node_modules` entries in git) are not source; don't treat them as such.
 11. **`apiClient` returns `null` on network failure** (doesn't throw) — callers must handle null.
 12. **Backend tests need `--forceExit`** because `submitRegistration` schedules a 5s auto-approve timer.
 ```

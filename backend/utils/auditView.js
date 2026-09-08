@@ -15,7 +15,7 @@ const formatAuditEntry = (entry, { revealPlatformActor = true } = {}) => {
   const hide = platformActor && !revealPlatformActor;
 
   return {
-    id: entry._id,
+    id: entry.pk,
     source: 'audit',
     at: entry.at,
     clientId: entry.clientId,
@@ -41,7 +41,7 @@ const auditQuery = ({ from, to, page = 1, limit = 50 }, maxLimit = 200) => {
   const currentPage = Math.max(Number(page) || 1, 1);
 
   const range = (from || to)
-    ? { at: { ...(from && { $gte: new Date(from) }), ...(to && { $lte: new Date(to) }) } }
+    ? { at: { ...(from && { gte: new Date(from) }), ...(to && { lte: new Date(to) }) } }
     : {};
 
   return { range, perPage, currentPage, skip: (currentPage - 1) * perPage };

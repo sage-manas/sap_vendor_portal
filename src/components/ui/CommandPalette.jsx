@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Search, FileText, ShoppingBag, Receipt, CreditCard, LayoutDashboard,
-  UserCheck, Activity, BarChart3, Database, Terminal, Sun, Moon, LogOut,
+  UserCheck, Activity, BarChart3, Database, Sun, Moon, LogOut,
   CornerDownLeft, ArrowUp, ArrowDown, Hash
 } from 'lucide-react';
 import { usePortal } from '@/lib/portal-context';
 import { useTheme } from '@/lib/theme-context';
 import { useWhoami } from '@/lib/whoami';
+import { modulesFor } from '@/lib/onboarding';
 
 // Lightweight subsequence-aware substring match across a record's searchable text.
 const matches = (haystack, needle) =>
@@ -20,7 +21,7 @@ export default function CommandPalette() {
   const listRef = useRef(null);
 
   const {
-    setActiveTab, state, setConsoleOpen, handleResetDatabase, logout,
+    setActiveTab, state, handleResetDatabase, logout,
     setSelectedPoId, setSelectedRfqId
   } = usePortal();
   const { theme, toggleTheme } = useTheme();
@@ -39,9 +40,12 @@ export default function CommandPalette() {
   const close = useCallback(() => setIsOpen(false), []);
 
   // ── Navigation entries ─────────────────────────────────────────────────
+  // Same split as Sidebar.jsx: the dashboard (and, for staff, the back
+  // office) are always reachable; the transacting modules go through the
+  // same onboarding/approval gate so the palette never offers a tab the
+  // sidebar has hidden.
   const navItems = useMemo(() => {
-    const items = [
-      { id: 'dashboard', name: 'Vendor Dashboard', icon: LayoutDashboard },
+    const allModules = [
       { id: 'registration', name: 'Vendor Registration', icon: UserCheck },
       { id: 'rfqs', name: 'RFQ Management', icon: FileText },
       { id: 'pos', name: 'Purchase Orders', icon: ShoppingBag },
@@ -49,6 +53,10 @@ export default function CommandPalette() {
       { id: 'payments', name: 'Payment Tracking', icon: CreditCard },
       { id: 'performance', name: 'Performance', icon: Activity },
       { id: 'analytics', name: 'Reports & Analytics', icon: BarChart3 },
+    ];
+    const items = [
+      { id: 'dashboard', name: 'Vendor Dashboard', icon: LayoutDashboard },
+      ...modulesFor(allModules, { isSupplier: !isTenantStaff, profile: state.profile }),
     ];
     if (isTenantStaff) items.push({ id: 'workspace', name: 'Workspace Back Office', icon: Database });
     return items.map((n) => ({
@@ -60,7 +68,7 @@ export default function CommandPalette() {
       search: n.name,
       perform: () => setActiveTab(n.id),
     }));
-  }, [isTenantStaff, setActiveTab]);
+  }, [isTenantStaff, setActiveTab, state.profile]);
 
   // ── Action entries ─────────────────────────────────────────────────────
   const actionItems = useMemo(() => [
@@ -74,22 +82,13 @@ export default function CommandPalette() {
       perform: () => toggleTheme(),
       keepOpen: true,
     },
-    {
-      key: 'act-console',
-      group: 'Actions',
-      name: 'Open BAPI / SAP Console',
-      subtitle: 'Diagnostics',
-      icon: Terminal,
-      search: 'bapi sap console logs rfc odata diagnostics payload',
-      perform: () => setConsoleOpen(true),
-    },
     ...(process.env.NODE_ENV !== 'production' ? [{
       key: 'act-reset',
       group: 'Actions',
-      name: 'Reset ERP Database',
+      name: 'Reset demo data',
       subtitle: 'Danger (dev only)',
       icon: Database,
-      search: 'reset erp database clear transactions',
+      search: 'reset demo data database clear transactions',
       perform: () => handleResetDatabase(),
     }] : []),
     {
@@ -101,7 +100,7 @@ export default function CommandPalette() {
       search: 'log out sign out logout session',
       perform: () => logout(),
     },
-  ], [theme, toggleTheme, setConsoleOpen, handleResetDatabase, logout]);
+  ], [theme, toggleTheme, handleResetDatabase, logout]);
 
   // ── Record entries (only when searching, capped per type) ───────────────
   const recordItems = useMemo(() => {

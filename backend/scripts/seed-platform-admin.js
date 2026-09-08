@@ -13,8 +13,8 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const crypto = require('crypto');
-const mongoose = require('mongoose');
-const PlatformUser = require('../models/PlatformUser');
+const { rawPrisma } = require('../db/prisma');
+const { hashPassword } = require('../db/credentials');
 const { ROLES } = require('../config/roles');
 
 const log = (...args) => console.log('[seed-platform-admin]', ...args);
@@ -37,47 +37,47 @@ const run = async () => {
     process.exit(1);
   }
 
-  const uri = process.env.MONGO_URI;
-  if (!uri) {
-    console.error('MONGO_URI is not set');
+  if (!process.env.DATABASE_URL) {
+    console.error('DATABASE_URL is not set');
     process.exit(1);
   }
 
-  await mongoose.connect(uri);
-  log(`connected to ${mongoose.connection.name}`);
-
-  const existing = await PlatformUser.findOne({ email });
+  const existing = await rawPrisma.platformUser.findFirst({ where: { email } });
   if (existing) {
     log(`operator ${email} already exists (role: ${existing.role}) — nothing to do`);
-    await mongoose.disconnect();
+    await rawPrisma.$disconnect();
     return;
   }
 
-  const password = suppliedPassword || generatePassword();
+  const plainPassword = suppliedPassword || generatePassword();
+  const { password, passwordChangedAt } = await hashPassword(plainPassword);
 
-  const operator = await PlatformUser.create({
-    email,
-    name,
-    role: ROLES.SUPER_ADMIN,
-    status: 'Active',
-    password,
-    mustChangePassword: !suppliedPassword,
-    createdBy: 'seed-platform-admin',
+  const operator = await rawPrisma.platformUser.create({
+    data: {
+      email,
+      name,
+      role: ROLES.SUPER_ADMIN,
+      status: 'Active',
+      password,
+      passwordChangedAt,
+      mustChangePassword: !suppliedPassword,
+      createdBy: 'seed-platform-admin',
+    },
   });
 
-  log(`created super admin ${operator.email} (${operator._id})`);
+  log(`created super admin ${operator.email} (${operator.pk})`);
   if (!suppliedPassword) {
     log('');
-    log(`  temporary password: ${password}`);
+    log(`  temporary password: ${plainPassword}`);
     log('  This is shown once. Sign in at /platform and change it immediately.');
     log('');
   }
 
-  await mongoose.disconnect();
+  await rawPrisma.$disconnect();
 };
 
 run().catch(async (error) => {
   console.error('[seed-platform-admin] failed:', error.message);
-  await mongoose.disconnect().catch(() => {});
+  await rawPrisma.$disconnect().catch(() => {});
   process.exit(1);
 });

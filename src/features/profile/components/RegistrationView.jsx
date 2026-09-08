@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { validateField } from '../validation';
+import { profileService } from '../services/profileService';
 import {
   Clock,
   CheckCircle2,
@@ -68,7 +69,7 @@ const INDIAN_STATES = [
 // the pre-existing INDIAN_STATES codes); other countries get a short
 // placeholder region list. Region codes are unverified against what SAP's
 // `region` field (T005S-BLAND-style) actually expects for non-India
-// countries — confirm with SAP/ABAP before relying on them.
+// countries — confirm with the buyer’s system before relying on them.
 const COUNTRIES = [
   { code: 'IN', name: 'India', regions: INDIAN_STATES },
   {
@@ -518,7 +519,6 @@ export default function RegistrationView({
   companyForm,
   setCompanyForm,
   handleCompanySubmit,
-  approveRegistration,
   saveDraft,
   submitRegistration
 }) {
@@ -534,6 +534,20 @@ export default function RegistrationView({
   const [blockedStepAlert, setBlockedStepAlert] = useState('');
   const [ifscLookup, setIfscLookup] = useState({ status: 'idle', error: '' });
   const [pincodeLookup, setPincodeLookup] = useState({ status: 'idle', error: '' });
+
+  // VENDOR_CR rejects free text for region and payment terms — they're SAP
+  // master-data codes (T005S / T052), not descriptive strings — so the form's
+  // dropdowns for these two fields are populated from the tenant's own SAP,
+  // not a hardcoded guess. Fetched once; this data changes as rarely as SAP
+  // config does.
+  const [sapReference, setSapReference] = useState({ regions: null, paymentTerms: null, paymentMethods: null, status: 'loading' });
+  useEffect(() => {
+    let cancelled = false;
+    profileService.getSapReferenceData()
+      .then((data) => { if (!cancelled && data) setSapReference({ ...data, status: 'ready' }); })
+      .catch(() => { if (!cancelled) setSapReference((prev) => ({ ...prev, status: 'error' })); });
+    return () => { cancelled = true; };
+  }, []);
 
   // Field definitions to calculate metadata counts dynamically
   const stepConfigs = [
@@ -583,6 +597,24 @@ export default function RegistrationView({
     setValidationErrors(prev => ({ ...prev, [stepIdx]: stepErrors }));
     return stepValid;
   };
+
+  // What's left across every step, from the live form values — not just the
+  // current step's errors. A vendor fixing a rejection (or resuming a draft)
+  // should see the whole remaining checklist up front rather than discover it
+  // one "Continue" click at a time. Read-only: unlike validateStep, this never
+  // touches validationErrors, so nothing turns red before the vendor reaches it.
+  const outstandingByStep = stepConfigs.reduce((acc, config, idx) => {
+    const items = [];
+    config.sections.forEach(sec => {
+      sec.fields.forEach(field => {
+        const error = validateField(field, companyForm[field]);
+        if (error) items.push(error);
+      });
+    });
+    if (items.length > 0) acc.push({ stepNum: idx + 1, stepName: config.name, items });
+    return acc;
+  }, []);
+  const outstandingCount = outstandingByStep.reduce((n, g) => n + g.items.length, 0);
 
   // Auto-fetch bank name/branch whenever a valid IFSC code is entered
   useEffect(() => {
@@ -648,9 +680,13 @@ export default function RegistrationView({
         const postOffice = record?.Status === 'Success' ? record.PostOffice?.[0] : null;
         if (!postOffice) throw new Error('No location found for this PIN code');
 
-        const stateMatch = INDIAN_STATES.find(
-          s => s.name.toLowerCase() === (postOffice.State || '').toLowerCase()
-        );
+        // Prefer the SAP-sourced region code (what VENDOR_CR actually wants)
+        // over the curated INDIAN_STATES abbreviation once the catalogue has
+        // loaded — matched by state name either way.
+        const stateName = (postOffice.State || '').toLowerCase();
+        const sapRegionMatch = sapReference.regions?.find(r => r.label.toLowerCase() === stateName);
+        const legacyStateMatch = INDIAN_STATES.find(s => s.name.toLowerCase() === stateName);
+        const regionCode = sapRegionMatch?.code || legacyStateMatch?.code;
 
         setCompanyForm(prev => {
           const phone = (prev.phone || '').trim();
@@ -658,8 +694,8 @@ export default function RegistrationView({
             ...prev,
             city: postOffice.District || prev.city,
             country: 'IN',
-            region: stateMatch ? stateMatch.code : prev.region,
-            state: stateMatch ? stateMatch.code : prev.state, // legacy mirror, see Vendor.js
+            region: regionCode || prev.region,
+            state: legacyStateMatch ? legacyStateMatch.code : prev.state, // legacy mirror, see Vendor.js
             phone: phone.startsWith('+') ? prev.phone : (phone ? `+91 ${phone}` : '+91 ')
           };
         });
@@ -832,7 +868,7 @@ export default function RegistrationView({
           </div>
         </div>
 
-        {/* 3. BUSINESS VIEW VS SAP VIEW TOGGLE REMOVED */}
+        {/* 3. BUSINESS VIEW VS TECHNICAL VIEW TOGGLE REMOVED */}
       </div>
 
       {/* 4. TABBED PROGRESS INDICATOR */}
@@ -859,14 +895,58 @@ export default function RegistrationView({
             <div className="p-4.5 rounded-none border border-rose-900/50 bg-rose-900/20 text-rose-400 flex items-start gap-3 shadow-sm select-none">
               <AlertTriangle className="size-5 shrink-0 mt-0.5 text-rose-400" />
               <div>
-                <h4 className="font-bold text-sm">ERP Verification Rejected</h4>
+                <h4 className="font-bold text-sm">Registration not approved</h4>
                 <p className="text-xs mt-1 text-rose-400/80">
-                  The uploaded compliance documents or banking parameters failed approval checks. Reason:
+                  Some of your documents or bank details did not pass your buyer’s checks. Reason:
                   <span className="font-semibold block mt-0.5 text-rose-300 italic">
-                    &quot;{state.profile.rejectionReason || 'GSTN registration / Bank settlement key discrepancies detected.'}&quot;
+                    &quot;{state.profile.rejectionReason || 'Your GST registration or bank details did not match.'}&quot;
                   </span>
                 </p>
               </div>
+            </div>
+          )}
+
+          {/* WHAT'S LEFT — the full remaining checklist, not just this step's */}
+          {outstandingCount > 0 ? (
+            <div className="p-4.5 rounded-none border border-amber-300 bg-amber-50 text-amber-900 space-y-3 shadow-sm select-none">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="size-5 shrink-0 mt-0.5 text-amber-600" />
+                <div>
+                  <h4 className="font-bold text-sm">
+                    {state.profile.status === 'Rejected' ? 'What to fix before resubmitting' : "What's left to complete your registration"}
+                  </h4>
+                  <p className="text-xs mt-0.5 text-amber-800/80">
+                    {outstandingCount} item{outstandingCount === 1 ? '' : 's'} still need{outstandingCount === 1 ? 's' : ''} your attention.
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-8">
+                {outstandingByStep.map(group => (
+                  <button
+                    key={group.stepNum}
+                    type="button"
+                    onClick={() => setCurrentStep(group.stepNum)}
+                    className="text-left p-3 rounded-md border border-amber-200 bg-white/60 hover:bg-white transition-colors duration-150 cursor-pointer"
+                  >
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-amber-700 mb-1.5">
+                      Step {group.stepNum} &middot; {group.stepName}
+                    </p>
+                    <ul className="space-y-1">
+                      {group.items.map((msg, i) => (
+                        <li key={i} className="text-xs text-amber-900 flex items-start gap-1.5">
+                          <span className="mt-1.5 size-1 rounded-full bg-amber-500 shrink-0" />
+                          <span>{msg}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="p-4 rounded-none border border-emerald-300 bg-emerald-50 text-emerald-900 flex items-center gap-3 shadow-sm select-none">
+              <CheckCircle2 className="size-5 shrink-0 text-emerald-600" />
+              <p className="text-xs font-semibold">Everything required is filled in. You can submit your registration.</p>
             </div>
           )}
 
@@ -920,8 +1000,16 @@ export default function RegistrationView({
                     <SearchableSelect
                       value={companyForm.region}
                       onChange={val => handleFieldChange('region', val)}
-                      options={regionsForCountry(companyForm.country)}
-                      placeholder={companyForm.country ? 'Select State / Region' : 'Select a country first'}
+                      options={
+                        companyForm.country === 'IN' && sapReference.regions
+                          ? sapReference.regions.map(r => ({ code: r.code, name: r.label }))
+                          : regionsForCountry(companyForm.country)
+                      }
+                      placeholder={
+                        !companyForm.country ? 'Select a country first'
+                          : companyForm.country === 'IN' && sapReference.status === 'loading' ? 'Loading regions…'
+                          : 'Select State / Region'
+                      }
                     />
                   </div>
                 </EnterpriseFieldCard>
@@ -942,17 +1030,35 @@ export default function RegistrationView({
               </FormSection>
 
               <FormSection number="03" title="Trade & payment terms">
-                <EnterpriseFieldCard label="Payment terms" hint="e.g. Net 30, Net 45">
-                  <input type="text" maxLength={35} value={companyForm.paymentTerms || ''} onChange={e => handleFieldChange('paymentTerms', e.target.value)} placeholder="Net 30" className="w-[20ch] max-w-full" />
-                </EnterpriseFieldCard>
-                <EnterpriseFieldCard label="Payment method" hint="How you're normally paid">
-                  <select value={companyForm.paymentMethod || ''} onChange={e => handleFieldChange('paymentMethod', e.target.value)} className="w-[25ch] max-w-full">
-                    <option value="">Select method</option>
-                    <option value="NEFT">Bank transfer (NEFT)</option>
-                    <option value="RTGS">Bank transfer (RTGS)</option>
-                    <option value="CHECK">Cheque</option>
-                    <option value="WIRE">Wire transfer</option>
+                <EnterpriseFieldCard label="Payment terms" hint="Choose one of the options your buyer accepts">
+                  <select
+                    value={companyForm.paymentTerms || ''}
+                    onChange={e => handleFieldChange('paymentTerms', e.target.value)}
+                    disabled={sapReference.status !== 'ready'}
+                    className="w-[20ch] max-w-full"
+                  >
+                    <option value="">
+                      {sapReference.status === 'loading' ? 'Loading…' : sapReference.status === 'error' ? 'Unavailable — try reloading' : 'Select payment terms'}
+                    </option>
+                    {(sapReference.paymentTerms || []).map(code => (
+                      <option key={code} value={code}>{code}</option>
+                    ))}
                   </select>
+                </EnterpriseFieldCard>
+                <EnterpriseFieldCard label="Payment method" hint="Choose one of the options your buyer accepts">
+                  <select
+                    value={companyForm.paymentMethod || ''}
+                    onChange={e => handleFieldChange('paymentMethod', e.target.value)}
+                    disabled={sapReference.status !== 'ready'}
+                    className="w-[25ch] max-w-full"
+                  >
+                    <option value="">
+                      {sapReference.status === 'loading' ? 'Loading…' : sapReference.status === 'error' ? 'Unavailable — try reloading' : 'Select method'}
+                    </option>
+                    {(sapReference.paymentMethods || []).map(({ code, label }) => (
+                      <option key={code} value={code}>{label} ({code})</option>
+                    ))}
+                   </select>
                 </EnterpriseFieldCard>
                 <EnterpriseFieldCard label="Currency" hint="Currency you invoice in">
                   <select value={companyForm.currency || ''} onChange={e => handleFieldChange('currency', e.target.value)} className="w-[20ch] max-w-full">
@@ -1291,21 +1397,18 @@ export default function RegistrationView({
             <Clock className="size-6 animate-pulse" />
           </div>
           <div className="space-y-2">
-            <h3 className="text-base font-bold text-text-primary">Compliance Processing in Progress</h3>
+            <h3 className="text-base font-bold text-text-primary">Awaiting Approval</h3>
             <p className="text-xs text-text-tertiary max-w-sm mx-auto leading-relaxed">
-              We are checking compliance registries, tax registrations, and banking clearance links in SAP ERP. A master record synchronization will run shortly.
+              Your registration is with your buyer&apos;s team for review. Your supplier account is set up once they approve it — this page updates automatically when a decision is made.
             </p>
           </div>
           <div className="w-full bg-surface2 h-1.5 rounded-full overflow-hidden border border-border">
             <div className="h-full w-2/3 rounded-full animate-[pulse_1.5s_infinite]" style={{ backgroundColor: 'rgb(var(--color-emerald-default-rgb))' }}></div>
           </div>
-          <Button type="button" onClick={approveRegistration} variant="default">
-            Acknowledge compliance checks manually
-          </Button>
         </div>
       )}
 
-      {/* 7. APPROVED / WORKFLOW COMPLETED VIEW (SAP Vendor Ledger Summary) */}
+      {/* 7. APPROVED / COMPLETED VIEW (supplier account summary) */}
       {isApproved && (
         <div className="space-y-6 animate-fade-in select-none">
           <div className="p-6 card flex items-start gap-4">
@@ -1313,15 +1416,15 @@ export default function RegistrationView({
               <CheckCircle2 className="size-5.5 stroke-[2.5]" />
             </div>
             <div className="space-y-1">
-              <h3 className="text-base font-bold text-text-primary">SAP Vendor Master Record Synced</h3>
+              <h3 className="text-base font-bold text-text-primary">Your supplier account is active</h3>
               <p className="text-xs text-text-tertiary leading-normal">
-                Tax profiles and clearing bank settlement parameters are synced successfully to SAP. Assigned Vendor Code:
+                Your tax and bank details have been accepted by your buyer. Your supplier ID:
                 <span className="font-mono text-text-primary font-bold bg-surface2 border border-border px-2 py-0.5 rounded ml-1.5 text-xs tabular-nums">
                   {state.profile.sapVendorCode}
                 </span>
               </p>
               <div className="flex items-center gap-4 text-[10px] text-text-tertiary mt-2.5 font-semibold font-mono">
-                <span className="tabular-nums">SYNC TIME: {new Date(state.profile.approvedAt || '').toLocaleString()}</span>
+                <span className="tabular-nums">APPROVED: {new Date(state.profile.approvedAt || '').toLocaleString()}</span>
                 <span>&bull;</span>
                 <span className="text-emerald-400 px-1.5 py-0.5 border border-border rounded text-[9px] font-bold" style={{ backgroundColor: 'var(--color-emerald-dim)' }}>STATUS: ACTIVE</span>
               </div>
@@ -1331,26 +1434,26 @@ export default function RegistrationView({
           {/* DETAILED LEDGER PROFILE INFORMATION */}
           <div className="p-6 card space-y-4">
             <h3 className="label mb-0 border-b border-border pb-2">
-              Registered Master Ledger Details
+              Your registered details
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3.5 text-xs text-text-secondary">
               {[
-                { label: 'Legal Corporate Name', val: state.profile.companyName },
+                { label: 'Registered company name', val: state.profile.companyName },
                 { label: 'Trade / Brand Name', val: state.profile.tradeName || 'Not Provided' },
-                { label: 'Business Category Type', val: state.profile.businessType || 'Not Provided' },
+                { label: 'Type of business', val: state.profile.businessType || 'Not Provided' },
                 { label: 'Incorporation Date', val: state.profile.incorporationDate || 'Not Provided' },
-                { label: 'Assigned Vendor ID (SAP)', val: state.profile.sapVendorCode, isMono: true, isGreen: true },
+                { label: 'Supplier ID', val: state.profile.sapVendorCode, isMono: true, isGreen: true },
                 { label: 'GSTIN / Tax Registration', val: state.profile.gstin, isMono: true },
-                { label: 'PAN Identity Number', val: state.profile.pan, isMono: true },
-                { label: 'CIN Number Registration', val: state.profile.cin || 'Not Applicable', isMono: true },
+                { label: 'PAN number', val: state.profile.pan, isMono: true },
+                { label: 'CIN number', val: state.profile.cin || 'Not Applicable', isMono: true },
                 { label: 'MSME Registration Number', val: state.profile.msmeNumber || 'Not Applicable', isMono: true },
-                { label: 'TDS Section Clearance Code', val: state.profile.tdsSection || 'Not Mapped' },
-                { label: 'Finance Contact Email', val: state.profile.email },
-                { label: 'Operations Phone Contact', val: state.profile.phone },
-                { label: 'Clearing Bank Institution', val: state.profile.bankName },
-                { label: 'Clearance Bank Branch', val: state.profile.bankBranch || 'Not Mapped' },
-                { label: 'Clearance Bank Account', val: `••••${state.profile.accountNumber?.slice(-4)} (${state.profile.ifscCode})`, isMono: true },
-                { label: 'Operations Plant Office', val: `${state.profile.address}, ${state.profile.city}, ${state.profile.region || state.profile.state}, ${state.profile.country || ''} - ${state.profile.postalCode}` },
+                { label: 'TDS Section', val: state.profile.tdsSection || 'Not Mapped' },
+                { label: 'Finance contact email', val: state.profile.email },
+                { label: 'Phone number', val: state.profile.phone },
+                { label: 'Bank', val: state.profile.bankName },
+                { label: 'Bank branch', val: state.profile.bankBranch || 'Not Mapped' },
+                { label: 'Bank account', val: `••••${state.profile.accountNumber?.slice(-4)} (${state.profile.ifscCode})`, isMono: true },
+                { label: 'Business address', val: `${state.profile.address}, ${state.profile.city}, ${state.profile.region || state.profile.state}, ${state.profile.country || ''} - ${state.profile.postalCode}` },
                 { label: 'Cancelled Cheque Copy Document', val: state.profile.cancelledCheque || 'Not Uploaded', isFile: true },
                 { label: 'PAN Card Copy Document', val: state.profile.panCardCopy || 'Not Uploaded', isFile: true },
                 { label: 'GST Certificate Document', val: state.profile.gstCertificate || 'Not Uploaded', isFile: true },

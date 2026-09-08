@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useShell } from '../../../lib/shell-context';
 import { hasOwnChrome } from '../../../lib/planes';
 import { invoiceService } from '../services/invoiceService';
 
@@ -13,8 +12,9 @@ const generateUtrCode = () => `UTR${new Date().toISOString().replace(/[-:TZ.]/g,
 const generateSapPaymentDoc = () => `20005${Math.floor(10000 + Math.random() * 90000)}`;
 
 export function useInvoices(profile, setInvoiceSubmittedForGrn, addPayment) {
-  const { addSapLog } = useShell();
   const [invoices, setInvoices] = useState([]);
+  const [sapMiroDocuments, setSapMiroDocuments] = useState(null);
+  const [sapPaymentDetails, setSapPaymentDetails] = useState(null);
 
   const persistLocally = (updated) => {
     try {
@@ -35,8 +35,23 @@ export function useInvoices(profile, setInvoiceSubmittedForGrn, addPayment) {
     }
   };
 
+  const refreshSapMiroStatus = async () => {
+    if (typeof window !== 'undefined' && (!localStorage.getItem('jwt_token') || hasOwnChrome(window.location.pathname))) return;
+    try {
+      const data = await invoiceService.getSapStatus();
+      if (data) {
+        setSapMiroDocuments(data.documents);
+        setSapPaymentDetails(data.paymentDetails || {});
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   useEffect(() => {
-    refreshInvoices();
+    void (async () => {
+      await Promise.all([refreshInvoices(), refreshSapMiroStatus()]);
+    })();
   }, [profile]);
 
   const submitInvoice = async (invoiceData) => {
@@ -53,6 +68,8 @@ export function useInvoices(profile, setInvoiceSubmittedForGrn, addPayment) {
 
   return {
     invoices,
+    sapMiroDocuments,
+    sapPaymentDetails,
     submitInvoice,
     refreshInvoices
   };

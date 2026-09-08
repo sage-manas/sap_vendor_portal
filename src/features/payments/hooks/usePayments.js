@@ -8,6 +8,13 @@ const STORAGE_KEY = 'sap_vendor_portal_payments';
 
 export function usePayments() {
   const [payments, setPayments] = useState([]);
+  // null until the first SAP read answers, so the UI can tell "still loading"
+  // apart from "SAP has nothing for this vendor" — same convention useInvoices
+  // uses for sapMiroDocuments.
+  const [sapPayments, setSapPayments] = useState(null);
+  // Same null-means-loading convention: a supplier with no deductions yet and a
+  // supplier whose summary has not arrived are different empty states.
+  const [tdsSummary, setTdsSummary] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const persistLocally = useCallback((updated) => {
@@ -36,9 +43,27 @@ export function usePayments() {
     }
   }, [persistLocally]);
 
+  const refreshSapPayments = useCallback(async () => {
+    if (typeof window !== 'undefined' && (!localStorage.getItem('jwt_token') || hasOwnChrome(window.location.pathname))) return;
+    try {
+      const data = await paymentService.getSapStatus();
+      if (data && Array.isArray(data.payments)) setSapPayments(data.payments);
+    } catch (_) {}
+  }, []);
+
+  const refreshTdsSummary = useCallback(async () => {
+    if (typeof window !== 'undefined' && (!localStorage.getItem('jwt_token') || hasOwnChrome(window.location.pathname))) return;
+    try {
+      const data = await paymentService.getTdsSummary();
+      if (data && Array.isArray(data.quarters)) setTdsSummary(data);
+    } catch (_) {}
+  }, []);
+
   useEffect(() => {
-    refreshPayments();
-  }, [refreshPayments]);
+    void (async () => {
+      await Promise.all([refreshPayments(), refreshSapPayments(), refreshTdsSummary()]);
+    })();
+  }, [refreshPayments, refreshSapPayments, refreshTdsSummary]);
 
   const addPayment = useCallback((newPayment) => {
     setPayments(prev => {
@@ -62,9 +87,13 @@ export function usePayments() {
 
   return {
     payments,
+    sapPayments,
+    tdsSummary,
     loading,
     addPayment,
     updatePaymentStatus,
-    refreshPayments
+    refreshPayments,
+    refreshSapPayments,
+    refreshTdsSummary
   };
 }

@@ -26,6 +26,17 @@ const VENDOR_AWAITING_DECISION = [VENDOR_STATUS.UNDER_REVIEW, VENDOR_STATUS.PEND
 // Onboarding is not finished and no one is waiting on us.
 const VENDOR_IN_ONBOARDING = [VENDOR_STATUS.DRAFT, VENDOR_STATUS.PENDING];
 
+// The supplier still owes us a submission, so the transacting modules are not
+// theirs yet — see middleware/requireOnboarded.js. Distinct from
+// VENDOR_IN_ONBOARDING because Rejected belongs here (they are back to fixing
+// their registration) but not there (a rejection is a decision, not a queue).
+// A supplier merely *awaiting* a decision has done their part and is let in.
+const VENDOR_PRE_SUBMISSION = [
+  VENDOR_STATUS.DRAFT,
+  VENDOR_STATUS.PENDING,
+  VENDOR_STATUS.REJECTED,
+];
+
 const isVendorStatus = (value) => VENDOR_STATUSES.includes(value);
 
 module.exports = {
@@ -33,5 +44,6 @@ module.exports = {
   VENDOR_STATUSES,
   VENDOR_AWAITING_DECISION,
   VENDOR_IN_ONBOARDING,
+  VENDOR_PRE_SUBMISSION,
   isVendorStatus,
 };

@@ -59,11 +59,33 @@ const rfq = {
   items: [{ line: 10, materialCode: 'MAT-1', description: 'Test material', quantity: 100, uom: 'EA' }],
 };
 
+// A partial invoicing plan on line 10 — two instalments totalling the line's
+// net value, which is what makes poInvoicePlanDisplay/Update worth calling in a
+// conformance run rather than answering an empty plan list. poInvoicePlanDisplay
+// is keyed on the plan number alone (GET /zinv_milestone/plan, not the PO), so
+// a line without one is invisible to it — planNumber has to be a real value
+// here, not null, or the display call against a live sandbox silently skips
+// this line and "passes" without ever making the request.
+const invoicePlan = {
+  enabled: true,
+  planNumber: '0000000010',
+  type: 'Partial',
+  startDate: new Date('2026-01-31T00:00:00Z'),
+  endDate: new Date('2026-03-31T00:00:00Z'),
+  currency: 'INR',
+  lines: [
+    { lineNumber: 10, description: 'On order', settlementDate: new Date('2026-01-31T00:00:00Z'), billingDate: new Date('2026-01-31T00:00:00Z'), percentage: 40, amount: 4000, status: 'Open', blocked: false },
+    { lineNumber: 20, description: 'On delivery', settlementDate: new Date('2026-03-31T00:00:00Z'), billingDate: new Date('2026-03-31T00:00:00Z'), percentage: 60, amount: 6000, status: 'Open', blocked: false },
+  ],
+};
+
 const po = {
   id: 'PO-CONFORMANCE-1',
   vendorId: 'vendor_conformance',
+  sapPoNumber: '4500000001',
+  currency: 'INR',
   acknowledgedAt: new Date(),
-  items: [{ line: 10, materialCode: 'MAT-1', description: 'Test material', quantity: 100, grnQuantity: 0, unitPrice: 100, netValue: 10000, uom: 'EA' }],
+  items: [{ line: 10, materialCode: 'MAT-1', description: 'Test material', quantity: 100, grnQuantity: 0, unitPrice: 100, netValue: 10000, uom: 'EA', invoicePlan }],
 };
 
 const asn = {
@@ -90,29 +112,15 @@ const FIXTURES = {
 
   vendorCreate: { vendor, settings: sapVendorCreateSettings },
   vendorVerifyKyc: { vendor, result: { gstinValid: true, panValid: true } },
-  vendorConfirm: { vendor },
   vendorReject: { vendor, reason: 'Conformance test rejection' },
-  awaitVendorApproval: { vendor },
 
-  rfqCreate: { rfq, vendorId: 'SYSTEM' },
-  rfqCancel: { rfq },
-  rfqReissue: { rfq },
-  rfqSubmitBid: {
-    rfq,
-    vendorId: 'vendor_conformance',
-    bid: { unitPrices: [100], taxCode: 'V0', deliveryLeadTimeDays: 7, validityDate: new Date() },
-  },
-  infoRecordCreate: { rfq, vendorId: 'vendor_conformance', items: rfq.items },
-
-  poInboundSync: { po, vendorId: 'vendor_conformance' },
-  poProvision: { vendorId: 'vendor_conformance' },
-  poProvisioned: { po, vendorId: 'vendor_conformance' },
   poAcknowledge: { po },
 
-  deliveryCreate: { asn, po, vendorId: 'vendor_conformance' },
+  poInvoicePlanDisplay: { po },
+  poInvoicePlanUpdate: { po, item: po.items[0], plan: invoicePlan },
+
   awaitGoodsReceipt: { asn, po, vendorId: 'vendor_conformance' },
 
-  invoiceCreate: { invoice, vendorId: 'vendor_conformance' },
   awaitPaymentRun: { invoice, vendor, vendorId: 'vendor_conformance' },
 };
 

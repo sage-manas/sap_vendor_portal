@@ -1,10 +1,11 @@
-const PlatformUser = require('../models/PlatformUser');
+const { prisma } = require('../db/prisma');
+const { comparePassword, hashPassword, issueResetToken, consumeResetToken, hashResetToken, RESET_TOKEN_TTL_MS } = require('../db/credentials');
+const { canPlatformUserAuthenticate } = require('../db/accountHelpers');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const logger = require('../utils/logger');
 const { signToken } = require('../utils/authToken');
 const { sendMail } = require('../utils/mailer');
-const { hashResetToken, RESET_TOKEN_TTL_MS } = require('../models/plugins/credentialsPlugin');
 const { frontendUrl } = require('../config/emailTemplates');
 const { recordAudit } = require('../utils/audit');
 const { AUDIT_ACTIONS } = require('../config/auditActions');
@@ -21,7 +22,7 @@ const totp = require('../utils/totp');
 // itself sits behind `requireMfa` and needs a token minted by `verifyMfa`.
 
 const formatOperator = (operator) => ({
-  id: operator._id,
+  id: operator.pk,
   email: operator.email,
   name: operator.name,
   role: operator.role,
@@ -34,8 +35,10 @@ const formatOperator = (operator) => ({
 // An operator identified only by a half-authenticated token: `protectPlatform`
 // has resolved them, but they may not have cleared the second factor yet. The
 // MFA secret is stored encrypted (utils/secretBox) and is only ever decrypted
-// here, in memory, to check a six-digit code.
-const withMfaSecret = (id) => PlatformUser.findById(id).select('+mfaSecret');
+// here, in memory, to check a six-digit code. `mfaSecret` is omitted by
+// default (backend/db/prisma.js) — un-omit it explicitly for this one lookup.
+const withMfaSecret = (id) =>
+  prisma.platformUser.findFirst({ where: { pk: id }, omit: { mfaSecret: false } });
 
 // @desc    Operator login
 // @route   POST /api/platform/auth/login
@@ -43,30 +46,33 @@ const withMfaSecret = (id) => PlatformUser.findById(id).select('+mfaSecret');
 const login = asyncHandler(async (req, res, next) => {
   const { email, password } = req.body;
 
-  const operator = await PlatformUser
-    .findOne({ email: String(email || '').toLowerCase() })
-    .select('+password');
+  const operator = await prisma.platformUser.findFirst({
+    where: { email: String(email || '').toLowerCase() },
+    omit: { password: false },
+  });
 
-  if (!operator || !(await operator.comparePassword(password))) {
+  if (!operator || !(await comparePassword(password, operator.password))) {
     await recordAudit({
       action: AUDIT_ACTIONS.OPERATOR_LOGIN_FAILED,
       clientId: null,
-      actor: { actorId: operator ? String(operator._id) : 'unknown', actorRole: operator?.role || 'unknown', actorEmail: String(email || '').toLowerCase(), plane: 'platform' },
+      actor: { actorId: operator ? operator.pk : 'unknown', actorRole: operator?.role || 'unknown', actorEmail: String(email || '').toLowerCase(), plane: 'platform' },
       meta: { ip: req.ip },
     });
     return next(ApiError.unauthorized('Invalid credentials'));
   }
-  if (!operator.canAuthenticate()) {
+  if (!canPlatformUserAuthenticate(operator)) {
     return next(ApiError.forbidden('This account is not active'));
   }
 
-  operator.lastLoginAt = new Date();
-  await operator.save({ validateBeforeSave: false });
+  const updated = await prisma.platformUser.update({
+    where: { pk: operator.pk },
+    data: { lastLoginAt: new Date() },
+  });
 
   await recordAudit({
     action: AUDIT_ACTIONS.OPERATOR_LOGIN,
     clientId: null,
-    actor: { actorId: String(operator._id), actorRole: operator.role, actorEmail: operator.email, plane: 'platform' },
+    actor: { actorId: operator.pk, actorRole: operator.role, actorEmail: operator.email, plane: 'platform' },
     meta: { step: 'password', ip: req.ip },
   });
 
@@ -74,13 +80,13 @@ const login = asyncHandler(async (req, res, next) => {
     success: true,
     // Half a session: good for changing a password and for enrolling or
     // clearing MFA, and for nothing else.
-    token: signToken(operator, { mfa: false }),
-    mustChangePassword: Boolean(operator.mustChangePassword),
-    mfaEnrolled: Boolean(operator.mfaEnabled),
+    token: signToken(updated, { mfa: false }),
+    mustChangePassword: Boolean(updated.mustChangePassword),
+    mfaEnrolled: Boolean(updated.mfaEnabled),
     // What the client must do next, named rather than inferred.
-    next: operator.mustChangePassword ? 'change_password'
-      : operator.mfaEnabled ? 'verify_mfa' : 'enrol_mfa',
-    operator: formatOperator(operator),
+    next: updated.mustChangePassword ? 'change_password'
+      : updated.mfaEnabled ? 'verify_mfa' : 'enrol_mfa',
+    operator: formatOperator(updated),
   });
 });
 
@@ -101,9 +107,10 @@ const enrolMfa = asyncHandler(async (req, res, next) => {
   }
 
   const secret = totp.generateSecret();
-  operator.mfaSecret = encrypt(secret);
-  operator.mfaEnabled = false;
-  await operator.save({ validateBeforeSave: false });
+  await prisma.platformUser.update({
+    where: { pk: operator.pk },
+    data: { mfaSecret: encrypt(secret), mfaEnabled: false },
+  });
 
   res.json({
     success: true,
@@ -129,25 +136,27 @@ const verifyMfa = asyncHandler(async (req, res, next) => {
   }
 
   const justEnrolled = !operator.mfaEnabled;
+  let current = operator;
   if (justEnrolled) {
-    operator.mfaEnabled = true;
-    operator.mfaEnrolledAt = new Date();
-    await operator.save({ validateBeforeSave: false });
+    current = await prisma.platformUser.update({
+      where: { pk: operator.pk },
+      data: { mfaEnabled: true, mfaEnrolledAt: new Date() },
+    });
 
     await recordAudit({
       req,
       action: AUDIT_ACTIONS.OPERATOR_MFA_ENROLLED,
       clientId: null,
-      target: { type: 'PlatformUser', id: String(operator._id), label: operator.email },
+      target: { type: 'PlatformUser', id: operator.pk, label: operator.email },
     });
   }
 
   res.json({
     success: true,
     // The full session. This is the only token `requireMfa` accepts.
-    token: signToken(operator, { mfa: true }),
+    token: signToken(current, { mfa: true }),
     enrolled: justEnrolled,
-    operator: formatOperator(operator),
+    operator: formatOperator(current),
   });
 });
 
@@ -172,28 +181,33 @@ const getMe = asyncHandler(async (req, res) => {
 const changePassword = asyncHandler(async (req, res, next) => {
   const { currentPassword, newPassword } = req.body;
 
-  const operator = await PlatformUser.findById(req.auth.id).select('+password');
-  if (!operator || !(await operator.comparePassword(currentPassword))) {
+  const operator = await prisma.platformUser.findFirst({
+    where: { pk: req.auth.id },
+    omit: { password: false },
+  });
+  if (!operator || !(await comparePassword(currentPassword, operator.password))) {
     return next(ApiError.unauthorized('Current password is incorrect'));
   }
 
-  operator.password = newPassword;
-  operator.mustChangePassword = false;
-  await operator.save();
+  const { password, passwordChangedAt } = await hashPassword(newPassword);
+  const updated = await prisma.platformUser.update({
+    where: { pk: operator.pk },
+    data: { password, passwordChangedAt, mustChangePassword: false },
+  });
 
   await recordAudit({
     req,
     action: AUDIT_ACTIONS.OPERATOR_PASSWORD_CHANGED,
     clientId: null,
-    target: { type: 'PlatformUser', id: String(operator._id), label: operator.email },
+    target: { type: 'PlatformUser', id: operator.pk, label: operator.email },
   });
 
   res.json({
     success: true,
     message: 'Password updated.',
     // The session keeps whatever second-factor standing it already had.
-    token: signToken(operator, { mfa: req.mfa?.verified === true }),
-    next: operator.mfaEnabled ? (req.mfa?.verified ? 'console' : 'verify_mfa') : 'enrol_mfa',
+    token: signToken(updated, { mfa: req.mfa?.verified === true }),
+    next: updated.mfaEnabled ? (req.mfa?.verified ? 'console' : 'verify_mfa') : 'enrol_mfa',
   });
 });
 
@@ -204,14 +218,16 @@ const GENERIC_FORGOT_MESSAGE = 'If an operator account exists for this email, a 
 // @access  Public
 const forgotPassword = asyncHandler(async (req, res) => {
   const { email } = req.body;
-  const operator = await PlatformUser.findOne({ email: String(email || '').toLowerCase() });
+  const operator = await prisma.platformUser.findFirst({
+    where: { email: String(email || '').toLowerCase() },
+  });
 
-  if (!operator || !operator.canAuthenticate()) {
+  if (!operator || !canPlatformUserAuthenticate(operator)) {
     return res.json({ success: true, message: GENERIC_FORGOT_MESSAGE });
   }
 
-  const rawToken = operator.issueResetToken();
-  await operator.save({ validateBeforeSave: false });
+  const { rawToken, fields } = issueResetToken();
+  await prisma.platformUser.update({ where: { pk: operator.pk }, data: fields });
 
   await sendMail({
     to: operator.email,
@@ -222,7 +238,7 @@ const forgotPassword = asyncHandler(async (req, res) => {
       expiresInMinutes: RESET_TOKEN_TTL_MS / 60000,
     },
   });
-  logger.info(`Platform password reset email dispatched for operator ${operator._id}`);
+  logger.info(`Platform password reset email dispatched for operator ${operator.pk}`);
 
   res.json({ success: true, message: GENERIC_FORGOT_MESSAGE });
 });
@@ -233,17 +249,19 @@ const forgotPassword = asyncHandler(async (req, res) => {
 const resetPassword = asyncHandler(async (req, res, next) => {
   const { token, password } = req.body;
 
-  const operator = await PlatformUser.findOne({
-    resetPasswordToken: hashResetToken(String(token || '')),
-    resetPasswordExpires: { $gt: new Date() },
+  const operator = await prisma.platformUser.findFirst({
+    where: {
+      resetPasswordToken: hashResetToken(String(token || '')),
+      resetPasswordExpires: { gt: new Date() },
+    },
   });
 
   if (!operator) {
     return next(ApiError.badRequest('Password reset token is invalid or has expired'));
   }
 
-  operator.consumeResetToken(password);
-  await operator.save({ validateBeforeSave: false });
+  const fields = await consumeResetToken(password);
+  await prisma.platformUser.update({ where: { pk: operator.pk }, data: fields });
 
   res.json({ success: true, message: 'Password has been reset. You can now sign in.' });
 });

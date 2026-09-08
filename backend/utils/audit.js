@@ -1,4 +1,4 @@
-const AuditLog = require('../models/AuditLog');
+const { prisma } = require('../db/prisma');
 const logger = require('./logger');
 const { getTenantId } = require('./tenantContext');
 const { isAuditAction } = require('../config/auditActions');
@@ -65,7 +65,7 @@ const recordAudit = async ({ action, req, target, meta = {}, clientId, actor }) 
   };
 
   try {
-    return await AuditLog.create(entry);
+    return await prisma.auditLog.create({ data: entry });
   } catch (error) {
     // A failed audit write must not take down the action it was describing, but
     // it must be loud: this is the log line that says the trail has a hole.

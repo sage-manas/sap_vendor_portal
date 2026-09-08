@@ -13,7 +13,6 @@ import {
   ShoppingBag,
   Receipt,
   CreditCard,
-  MessageSquare,
   Activity,
   Download,
   AlertTriangle,
@@ -63,8 +62,8 @@ export default function DashboardView({ state, setActiveTab }) {
       setApiError(null);
     } else {
       setApiError({
-        code: 'RFC_ERROR_SYSTEM_FAILURE',
-        message: 'RFC connection failed: target host 10.120.4.15 (SAP-ERP-PROD) connection timeout. Target gateway offline.'
+        code: 'CONNECTION_TIMEOUT',
+        message: 'We could not reach your buyer’s system. The connection timed out, so some data may be out of date.'
       });
     }
   };
@@ -80,15 +79,18 @@ export default function DashboardView({ state, setActiveTab }) {
     }, 1500);
   };
 
-  // Pull latest POs action trigger
-  const handleFetchPOs = () => {
+  // Pull latest POs action trigger. This used to spawn a fabricated inbound
+  // order; purchase orders come from the buyer’s system, so it re-reads them instead.
+  const handleFetchPOs = async () => {
     setIsLoading(true);
-    setTimeout(() => {
+    try {
+      await Promise.all([
+        portal?.poHook?.refreshPOs?.(),
+        portal?.poHook?.refreshSapPoStatus?.(),
+      ]);
+    } finally {
       setIsLoading(false);
-      if (portal?.poHook?.simulateIncomingPO) {
-        portal.poHook.simulateIncomingPO();
-      }
-    }, 800);
+    }
   };
 
   // Helper function to render a custom illustrative empty state
@@ -124,7 +126,7 @@ export default function DashboardView({ state, setActiveTab }) {
     alerts.push({
       type: 'warning',
       title: 'Invoice Match Discrepancy (INV-2025-0084)',
-      desc: 'Line 2 qty variance: 185 KG invoiced vs 200 KG on warehouse GRN document.',
+      desc: 'Line 2 quantity does not match: 185 KG invoiced against 200 KG on the delivery receipt.',
       actionText: 'Resolve Variance',
       tab: 'invoices',
       icon: AlertTriangle,
@@ -135,8 +137,8 @@ export default function DashboardView({ state, setActiveTab }) {
     alerts.push({
       type: 'overdue',
       title: 'Delivery Schedule Overdue (PO-2025-0071)',
-      desc: 'PO deadline was 01-Jun-2025. Please update ASN or contact Procurement.',
-      actionText: 'Post ASN Status',
+      desc: 'The order was due 01-Jun-2025. Please update your shipment details or contact the buying team.',
+      actionText: 'Update shipment',
       tab: 'pos',
       icon: Calendar,
       iconColor: 'text-red-700 bg-red-50 border-red-200'
@@ -151,17 +153,6 @@ export default function DashboardView({ state, setActiveTab }) {
       tab: 'rfqs',
       icon: Sparkles,
       iconColor: 'text-blue-700 bg-blue-50 border-blue-200'
-    });
-  }
-  if (state.chats && state.chats.length > 0) {
-    alerts.push({
-      type: 'message',
-      title: 'Clarification Request (PO-2025-0068)',
-      desc: 'Amit Sharma requested packaging mill certificates for Cold Rolled sheets.',
-      actionText: 'Send Response',
-      tab: 'chats',
-      icon: MessageSquare,
-      iconColor: 'text-muted-foreground bg-muted border-border'
     });
   }
 
@@ -243,7 +234,7 @@ export default function DashboardView({ state, setActiveTab }) {
             <div className="flex items-start gap-2.5">
               <AlertCircle className="size-4 text-red-700 shrink-0 mt-0.5" />
               <div className="space-y-1.5 flex-1">
-                <h4 className="text-xs font-bold tracking-tight">SAP Gateway Connection Failure ({apiError.code})</h4>
+                <h4 className="text-xs font-bold tracking-tight">Can&apos;t reach your buyer&apos;s system ({apiError.code})</h4>
                 <p className="text-[11px] text-red-800 leading-normal font-mono bg-red-100/50 p-1.5 rounded border border-red-200/50">
                   {apiError.message}
                 </p>
@@ -254,7 +245,7 @@ export default function DashboardView({ state, setActiveTab }) {
                     className="flex items-center gap-1 bg-red-700 hover:bg-red-800 disabled:bg-red-800/80 text-white font-bold text-[9px] px-2.5 py-1 rounded-md transition-all duration-150 cursor-pointer shadow-xs select-none"
                   >
                     <RefreshCw className={`size-2.5 ${isRetrying ? 'animate-spin' : ''}`} />
-                    <span>{isRetrying ? 'Connecting to SAP System...' : 'Reconnect & Retry'}</span>
+                    <span>{isRetrying ? 'Reconnecting...' : 'Reconnect & Retry'}</span>
                   </button>
                   <button
                     onClick={() => setApiError(null)}
@@ -279,17 +270,17 @@ export default function DashboardView({ state, setActiveTab }) {
 
           {/* INTERACTIVE STATE CONTROLS */}
           <div className="flex flex-wrap items-center gap-1.5">
-            {/* SAP GATEWAY SIMULATOR TOGGLE */}
+            {/* CONNECTION STATE TOGGLE */}
             <button
               onClick={toggleConnection}
-              title="Click to toggle SAP ERP Connection state"
+              title="Click to toggle the connection state"
               className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] font-semibold transition-all duration-150 cursor-pointer h-7 ${apiError
                 ? 'bg-[#FFF1F2] border-[#FECDD3] text-[#EF4444] animate-pulse hover:bg-red-100'
                 : 'bg-[#F0FDF4] border-[#BBF7D0] text-[#16A34A] hover:bg-green-100'
                 }`}
             >
               {apiError ? <WifiOff className="size-3" /> : <Wifi className="size-3" />}
-              <span>SAP: {apiError ? 'Offline' : 'Online'}</span>
+              <span>{apiError ? 'Disconnected' : 'Connected'}</span>
             </button>
 
             <Button
@@ -319,12 +310,12 @@ export default function DashboardView({ state, setActiveTab }) {
               {state.profile.companyName || 'Bharat Steel & Alloys Pvt. Ltd.'}
             </h3>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-white/90">
-              <span>Vendor Code: <strong className="font-mono text-white">{state.profile.sapVendorCode || 'SAP-100042'}</strong></span>
+              <span>Supplier ID: <strong className="font-mono text-white">{state.profile.sapVendorCode || '100042'}</strong></span>
               <span className="text-white/30">|</span>
               <span>GSTIN: <strong className="font-mono text-white">{state.profile.gstin || '27AABCB1234F1Z5'}</strong></span>
               <span className="px-1.5 py-0.5 rounded-sm bg-white/10 text-white border border-white/20 text-[9px] font-bold flex items-center gap-1 font-sans">
                 <span className={`size-1 rounded-full ${apiError ? 'bg-red-500' : 'bg-green-400 animate-pulse'}`}></span>
-                {apiError ? 'SAP Offline' : 'Active'}
+                {apiError ? 'Disconnected' : 'Active'}
               </span>
             </div>
           </div>
@@ -333,9 +324,8 @@ export default function DashboardView({ state, setActiveTab }) {
           <div className="flex flex-wrap items-center gap-2 border-t border-white/15 pt-4 lg:border-t-0 lg:pt-0">
             {[
               { label: 'Submit Invoice', tab: 'invoices', icon: Receipt },
-              { label: 'Create ASN', tab: 'pos', icon: ShoppingBag },
+              { label: 'Send shipment', tab: 'pos', icon: ShoppingBag },
               { label: 'View RFQs', tab: 'rfqs', icon: FileText },
-              { label: 'Messages', tab: 'chats', icon: MessageSquare },
               { label: 'Statement', tab: 'payments', icon: CreditCard },
               { label: 'TDS Certificates', tab: 'payments', icon: FileCheck }
             ].map((action, idx) => {
@@ -402,15 +392,8 @@ export default function DashboardView({ state, setActiveTab }) {
 
         {/* 4. ALERTS & NOTIFICATIONS (2x2 Grid Panel) */}
         <div className="card overflow-hidden">
-          <div className="px-3.5 py-2.5 border-b border-border flex items-center justify-between">
+          <div className="px-3.5 py-2.5 border-b border-border">
             <h4 className="label mb-0">Alerts &amp; Notifications</h4>
-            <button
-              onClick={() => setActiveTab('chats')}
-              className="text-[11px] text-text-tertiary hover:text-text-primary hover:underline font-semibold flex items-center gap-0.5 cursor-pointer transition-colors duration-150"
-            >
-              <span>View all</span>
-              <ChevronRight className="size-3" />
-            </button>
           </div>
 
           {isLoading ? (
@@ -421,7 +404,7 @@ export default function DashboardView({ state, setActiveTab }) {
           ) : alerts.length === 0 ? (
             renderEmptyState(
               'All Action Items Cleared',
-              'No pending SAP workflow alerts or notifications are registered for your account.',
+              'You have no pending alerts or notifications.',
               CheckCircle2
             )
           ) : (
@@ -479,9 +462,9 @@ export default function DashboardView({ state, setActiveTab }) {
             ) : !state.pos || state.pos.length === 0 ? (
               renderEmptyState(
                 'No Active Purchase Orders',
-                'There are no released purchase orders or contracts registered on this Lifnr code.',
+                'No purchase orders have been issued to your company yet.',
                 FolderOpen,
-                'Simulate PO Inbound',
+                'Check for new orders',
                 handleFetchPOs
               )
             ) : (
@@ -556,7 +539,7 @@ export default function DashboardView({ state, setActiveTab }) {
             ) : !state.invoices || state.invoices.length === 0 ? (
               renderEmptyState(
                 'No Invoices Logged',
-                'All logistics billing documents cleared. Post a new invoice via MIRO interface.',
+                'Every delivery receipt has been invoiced. Submit a new invoice when your next delivery is confirmed.',
                 FileText,
                 'Submit New Invoice',
                 () => setActiveTab('invoices')
@@ -690,13 +673,18 @@ export default function DashboardView({ state, setActiveTab }) {
               ) : !state.payments || state.payments.length === 0 ? (
                 renderEmptyState(
                   'No Disbursement Logs',
-                  'No bank transactions found. Payments clear automatically net 45 days post approved invoice posted in SAP.',
+                  'No payments yet. Payments are released 45 days after your buyer approves an invoice.',
                   CreditCard
                 )
               ) : (
                 <div className="flex flex-col">
                   {state.payments.slice(0, 3).map((row, idx) => {
-                    const utr = row.utrCode || row.utr || `UTR${Date.now()}`;
+                    // No invented UTR. This used to fall back to `UTR${Date.now()}`,
+                    // which both read the clock during render (impure) and put a
+                    // string indistinguishable from a real bank reference on screen
+                    // for a payment that has none yet — the same reason PO creation
+                    // stopped minting fake SAP order numbers.
+                    const utr = row.utrCode || row.utr || '—';
                     const invNumber = row.invoiceNumber || row.id || 'INV-CORP';
                     const method = row.paymentMethod || row.method || 'NEFT';
                     const grossVal = row.grossAmount || (row.amount ? row.amount * 1.01 : 124200);

@@ -36,7 +36,11 @@ describe('protect middleware', () => {
   });
 
   it('accepts a supplier JWT and scopes the request to that supplier', async () => {
-    const { token } = await registerVendor(app, { vendorId: 'vendor_scope_1', email: 'scope@example.com', gstin: '27AABCB1234F1Z6' });
+    const { token } = await registerVendor(
+      app,
+      { vendorId: 'vendor_scope_1', email: 'scope@example.com', gstin: '27AABCB1234F1Z6' },
+      { onboarded: true },
+    );
     const res = await request(app).get('/api/rfqs').set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
   });
@@ -57,8 +61,8 @@ describe('protect middleware', () => {
     const { token, user } = await createTenantUser({ role: 'buyer' });
     const { asTenant } = require('./helpers');
     await asTenant(async () => {
-      const User = require('../models/User');
-      await User.updateOne({ _id: user._id }, { role: 'finance' });
+      const { prisma } = require('../db/prisma');
+      await prisma.user.update({ where: { pk: user.pk }, data: { role: 'finance' } });
     });
 
     const res = await request(app).get('/api/auth/me').set('Authorization', `Bearer ${token}`);

@@ -2,7 +2,7 @@
 
 Operational procedures for VendorConnect. Each one assumes the reader has
 platform-console access (`super_admin` or `sap_manager`) and, for anything
-touching the database directly, a shell on a host with `MONGO_URI` set.
+touching the database directly, a shell on a host with `DATABASE_URL` set.
 
 - [incident-response.md](incident-response.md) — first steps when something is down or degraded, and where to look.
 - [tenant-suspension.md](tenant-suspension.md) — suspending, reactivating and terminating a tenant; what each does and doesn't do.

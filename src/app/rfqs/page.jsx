@@ -10,6 +10,7 @@ export default function RfqsPage() {
     selectedRfqId,
     setSelectedRfqId,
     handleBidSubmit,
+    handleSapQuotePriceUpdate,
     addToast
   } = usePortal();
 
@@ -19,6 +20,7 @@ export default function RfqsPage() {
       selectedRfqId={selectedRfqId}
       setSelectedRfqId={setSelectedRfqId}
       handleBidSubmit={handleBidSubmit}
+      handleSapQuotePriceUpdate={handleSapQuotePriceUpdate}
       addToast={addToast}
     />
   );

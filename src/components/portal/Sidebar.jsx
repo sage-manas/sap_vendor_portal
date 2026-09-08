@@ -8,7 +8,6 @@ import {
   ShoppingBag,
   Receipt,
   CreditCard,
-  MessageSquare,
   Activity,
   BarChart3,
   Building2,
@@ -18,20 +17,29 @@ import {
 } from 'lucide-react';
 import { usePortal } from '@/lib/portal-context';
 import { useWhoami } from '@/lib/whoami';
+import { modulesFor, isOnboarding } from '@/lib/onboarding';
 
 const isDevEnv = process.env.NODE_ENV !== 'production';
 
 export default function Sidebar({ activeTab, setActiveTab, state, onReset }) {
   const { sidebarCollapsed, setSidebarCollapsed, logout } = usePortal();
   const { isTenantStaff } = useWhoami();
-  const [mounted, setMounted] = React.useState(false);
   const [isHovered, setIsHovered] = React.useState(false);
 
   const isCollapsed = sidebarCollapsed && !isHovered;
 
-  React.useEffect(() => {
-    setMounted(true);
-  }, []);
+  // "Has this hydrated yet?", used below to hold back client-only values
+  // (profile, badge counts) until the client render so the server's HTML still
+  // matches. It was a useState + setState-in-effect pair, which is the same
+  // question asked in a way that always costs a second render pass and that
+  // React Compiler rejects. useSyncExternalStore answers it directly: the
+  // server snapshot is false, the client snapshot is true, and the subscribe
+  // callback never fires because the answer cannot change after hydration.
+  const mounted = React.useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
 
   const navigationItems = [
     { id: 'dashboard', name: 'Vendor Dashboard', icon: LayoutDashboard }
@@ -43,16 +51,22 @@ export default function Sidebar({ activeTab, setActiveTab, state, onReset }) {
     navigationItems.push({ id: 'workspace', name: 'Workspace Back Office', icon: Database });
   }
 
-  const moduleItems = [
+  const allModules = [
     { id: 'registration', name: 'Vendor Registration', icon: UserCheck },
     { id: 'rfqs', name: 'RFQ Management', icon: FileText },
     { id: 'pos', name: 'Purchase Orders', icon: ShoppingBag },
     { id: 'invoices', name: 'Invoice Processing', icon: Receipt },
     { id: 'payments', name: 'Payment Tracking', icon: CreditCard },
-    { id: 'chats', name: 'Communications', icon: MessageSquare },
     { id: 'performance', name: 'Performance', icon: Activity },
     { id: 'analytics', name: 'Reports & Analytics', icon: BarChart3 }
   ];
+
+  // A supplier who has not submitted their registration gets that tab alone —
+  // the server refuses the rest anyway (backend/middleware/requireOnboarded.js),
+  // and offering a module that answers 403 is a worse explanation than not
+  // offering it. Tenant staff are never gated.
+  const onboarding = !isTenantStaff && isOnboarding(state.profile);
+  const moduleItems = modulesFor(allModules, { isSupplier: !isTenantStaff, profile: state.profile });
 
   const renderLink = (item) => {
     const Icon = item.icon;
@@ -132,6 +146,13 @@ export default function Sidebar({ activeTab, setActiveTab, state, onReset }) {
         <nav className="space-y-1 w-full">
           {moduleItems.map(renderLink)}
         </nav>
+
+        {mounted && onboarding && !isCollapsed && (
+          <p className="mt-3 mx-4 p-2 border border-border bg-surface2 text-[10px] leading-relaxed text-text-tertiary">
+            Complete and submit your registration to unlock RFQs, purchase orders,
+            invoices and payments.
+          </p>
+        )}
       </div>
 
       {/* VENDOR PROFILE BOX */}
@@ -159,7 +180,7 @@ export default function Sidebar({ activeTab, setActiveTab, state, onReset }) {
               <button
                 onClick={onReset}
                 className="text-text-tertiary hover:text-red-500 flex items-center justify-center p-1.5 rounded-md hover:bg-surface2 transition-colors duration-150 cursor-pointer"
-                title="Reset ERP Database (dev only)"
+                title="Reset demo data (dev only)"
               >
                 <Database className="size-4" />
               </button>
@@ -181,7 +202,7 @@ export default function Sidebar({ activeTab, setActiveTab, state, onReset }) {
                 title="Reset local state back to defaults (dev only)"
               >
                 <Database className="size-3.5 shrink-0" />
-                <span>Reset ERP Database</span>
+                <span>Reset demo data</span>
               </button>
             )}
             <button

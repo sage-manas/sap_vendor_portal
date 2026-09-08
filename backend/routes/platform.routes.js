@@ -83,4 +83,8 @@ router.get('/audit/filters', requirePermission(PERMISSIONS.PLATFORM_AUDIT_READ),
 // Health board
 router.get('/health', requirePermission(PERMISSIONS.PLATFORM_HEALTH_READ), healthController.platformHealth);
 
+// SAP job runtime (docs/04-sap-runtime-engineering-plan.md Phase 1)
+router.get('/jobs', requirePermission(PERMISSIONS.PLATFORM_HEALTH_READ), healthController.listJobs);
+router.post('/jobs/:pk/retry', requirePermission(PERMISSIONS.TENANT_MANAGE), healthController.retryJob);
+
 module.exports = router;

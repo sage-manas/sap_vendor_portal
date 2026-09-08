@@ -26,7 +26,6 @@ export default function PurchaseOrdersPage() {
       setAsnForm={setAsnForm}
       handleAsnSubmit={handleAsnSubmit}
       acknowledgePO={poHook.acknowledgePO}
-      simulateIncomingPO={poHook.simulateIncomingPO}
       setActiveTab={setActiveTab}
       submitInvoice={invoiceHook.submitInvoice}
     />

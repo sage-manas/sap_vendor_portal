@@ -24,6 +24,30 @@ export const WORKSPACE_NAV = [
     permission: 'vendor:read',
   },
   {
+    href: '/workspace/rfqs',
+    label: 'RFQs',
+    description: 'Every request for quotation, across every supplier',
+    permission: 'rfq:read',
+  },
+  {
+    href: '/workspace/purchase-orders',
+    label: 'Purchase Orders',
+    description: 'Every order this workspace has raised, and their invoicing plans',
+    permission: 'po:read',
+  },
+  {
+    href: '/workspace/invoices',
+    label: 'Invoices',
+    description: 'Every invoice submitted, across every supplier',
+    permission: 'invoice:read',
+  },
+  {
+    href: '/workspace/payments',
+    label: 'Payments',
+    description: 'Settlements and TDS deducted, across every supplier',
+    permission: 'payment:read',
+  },
+  {
     href: '/workspace/users',
     label: 'Users',
     description: 'Buyers, finance and administrators',
@@ -43,8 +67,18 @@ export const WORKSPACE_NAV = [
   },
 ];
 
-export const navFor = (permissions = []) =>
-  WORKSPACE_NAV.filter((item) => permissions.includes(item.permission));
+// Permission strings are shared vocabulary across planes on purpose —
+// `po:read`/`rfq:read`/`invoice:read`/`payment:read` mean "may read this kind
+// of data" whether that is a supplier's own single-vendor view or a tenant
+// staff member's tenant-wide one (backend/config/permissions.js). A supplier
+// holds several of these for their own portal, so filtering on the permission
+// string alone would show them workspace tabs their account was never meant
+// to reach. `plane` is the second, non-bypassable check: it comes from the
+// server-verified JWT (`session.auth.plane` in workspace-session.js), not
+// anything a client could spoof, and nothing renders unless it is exactly
+// `'tenant'` — fail closed rather than trust the permission list alone.
+export const navFor = (permissions = [], plane) =>
+  (plane !== 'tenant' ? [] : WORKSPACE_NAV.filter((item) => permissions.includes(item.permission)));
 
 export const isActive = (item, pathname) =>
   (item.exact ? pathname === item.href : pathname.startsWith(item.href));

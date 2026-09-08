@@ -1,7 +1,6 @@
-const Invitation = require('../models/Invitation');
-const User = require('../models/User');
-const Vendor = require('../models/Vendor');
-const Client = require('../models/Client');
+const { prisma } = require('../db/prisma');
+const { hashPassword } = require('../db/credentials');
+const { hashInviteToken, newInviteToken, isRedeemable } = require('../db/invitationHelpers');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { withoutTenantScope, runWithTenant } = require('../utils/tenantContext');
@@ -11,8 +10,6 @@ const { signToken } = require('../utils/authToken');
 const { frontendUrl } = require('../config/emailTemplates');
 const { recordAudit } = require('../utils/audit');
 const { AUDIT_ACTIONS } = require('../config/auditActions');
-
-const { hashInviteToken, newInviteToken } = Invitation;
 
 const publicInvitation = (invitation, client) => ({
   email: invitation.email,
@@ -26,9 +23,9 @@ const publicInvitation = (invitation, client) => ({
 // before any tenant is known.
 const emailIsTaken = async (email) => {
   const lowered = email.toLowerCase();
-  const user = await withoutTenantScope(() => User.findOne({ email: lowered }));
+  const user = await withoutTenantScope(() => prisma.user.findFirst({ where: { email: lowered } }));
   if (user) return true;
-  return Boolean(await withoutTenantScope(() => Vendor.findOne({ email: lowered })));
+  return Boolean(await withoutTenantScope(() => prisma.vendor.findFirst({ where: { email: lowered } })));
 };
 
 const createInvitation = async ({ req, email, name, role }) => {
@@ -38,19 +35,21 @@ const createInvitation = async ({ req, email, name, role }) => {
 
   // One live invitation per email per tenant: re-inviting supersedes the old
   // token rather than leaving two valid links in two inboxes.
-  await Invitation.updateMany(
-    { email: email.toLowerCase(), status: 'Pending' },
-    { $set: { status: 'Revoked', revokedAt: new Date() } }
-  );
+  await prisma.invitation.updateMany({
+    where: { email: email.toLowerCase(), status: 'Pending' },
+    data: { status: 'Revoked', revokedAt: new Date() },
+  });
 
   const { rawToken, tokenHash, expiresAt } = newInviteToken();
-  const invitation = await Invitation.create({
-    email: email.toLowerCase(),
-    name,
-    role,
-    tokenHash,
-    expiresAt,
-    invitedBy: req.auth.email,
+  const invitation = await prisma.invitation.create({
+    data: {
+      email: email.toLowerCase(),
+      name,
+      role,
+      tokenHash,
+      expiresAt,
+      invitedBy: req.auth.email,
+    },
   });
 
   await sendMail({
@@ -68,7 +67,7 @@ const createInvitation = async ({ req, email, name, role }) => {
   await recordAudit({
     action: planeOf(role) === PLANES.SUPPLIER ? AUDIT_ACTIONS.VENDOR_INVITED : AUDIT_ACTIONS.USER_INVITED,
     req,
-    target: { type: 'Invitation', id: String(invitation._id), label: invitation.email },
+    target: { type: 'Invitation', id: invitation.pk, label: invitation.email },
     meta: { role },
   });
 
@@ -80,11 +79,13 @@ const createInvitation = async ({ req, email, name, role }) => {
 // closed self-service registration.
 const hasSupplierInvitation = async (clientId, email) => {
   if (!email) return false;
-  const invitation = await withoutTenantScope(() => Invitation.findOne({
-    clientId,
-    email: String(email).toLowerCase(),
-    role: ROLES.VENDOR,
-    status: { $in: ['Pending', 'Accepted'] },
+  const invitation = await withoutTenantScope(() => prisma.invitation.findFirst({
+    where: {
+      clientId,
+      email: String(email).toLowerCase(),
+      role: ROLES.VENDOR,
+      status: { in: ['Pending', 'Accepted'] },
+    },
   }));
   return Boolean(invitation);
 };
@@ -115,7 +116,10 @@ const inviteVendor = asyncHandler(async (req, res, next) => {
 // @access  user:read
 const listInvitations = asyncHandler(async (req, res) => {
   const { status } = req.query;
-  const invitations = await Invitation.find(status ? { status } : {}).sort({ createdAt: -1 });
+  const invitations = await prisma.invitation.findMany({
+    where: status ? { status } : {},
+    orderBy: { createdAt: 'desc' },
+  });
   res.json({ success: true, invitations });
 });
 
@@ -123,35 +127,36 @@ const listInvitations = asyncHandler(async (req, res) => {
 // @route   DELETE /api/users/invitations/:id
 // @access  user:manage
 const revokeInvitation = asyncHandler(async (req, res, next) => {
-  const invitation = await Invitation.findById(req.params.id);
+  const invitation = await prisma.invitation.findFirst({ where: { pk: req.params.id } });
   if (!invitation) {
     return next(ApiError.notFound('Invitation not found'));
   }
   if (invitation.status !== 'Pending') {
     return next(ApiError.badRequest('Only a pending invitation can be revoked'));
   }
-  invitation.status = 'Revoked';
-  invitation.revokedAt = new Date();
-  await invitation.save();
+  const updated = await prisma.invitation.update({
+    where: { pk: invitation.pk },
+    data: { status: 'Revoked', revokedAt: new Date() },
+  });
 
   await recordAudit({
     action: AUDIT_ACTIONS.USER_INVITATION_REVOKED,
     req,
-    target: { type: 'Invitation', id: String(invitation._id), label: invitation.email },
+    target: { type: 'Invitation', id: invitation.pk, label: invitation.email },
     meta: { role: invitation.role },
   });
 
-  res.json({ success: true, invitation: publicInvitation(invitation, req.client) });
+  res.json({ success: true, invitation: publicInvitation(updated, req.client) });
 });
 
 // Looks an invitation up by raw token. Pre-authentication, so it is one of the
 // few deliberately unscoped reads — the invitation itself names the tenant.
 const findByToken = async (rawToken) => {
   const tokenHash = hashInviteToken(String(rawToken || ''));
-  const invitation = await withoutTenantScope(() => Invitation.findOne({ tokenHash }));
-  if (!invitation || !invitation.isRedeemable()) return null;
-  const client = await withoutTenantScope(() => Client.findOne({ clientId: invitation.clientId }));
-  if (!client || !client.isOperational()) return null;
+  const invitation = await withoutTenantScope(() => prisma.invitation.findFirst({ where: { tokenHash } }));
+  if (!invitation || !isRedeemable(invitation)) return null;
+  const client = await withoutTenantScope(() => prisma.client.findFirst({ where: { clientId: invitation.clientId } }));
+  if (!client || !(client.status === 'Trial' || client.status === 'Active')) return null;
   return { invitation, client };
 };
 
@@ -186,9 +191,10 @@ const acceptInvitation = asyncHandler(async (req, res, next) => {
   // to complete the onboarding form, and duplicating its field list here is
   // exactly what Phase 5 forbids.
   if (planeOf(invitation.role) === PLANES.SUPPLIER) {
-    invitation.acceptedAt = new Date();
-    invitation.status = 'Accepted';
-    await runWithTenant(client.clientId, () => invitation.save());
+    await runWithTenant(client.clientId, () => prisma.invitation.update({
+      where: { pk: invitation.pk },
+      data: { status: 'Accepted', acceptedAt: new Date() },
+    }));
     return res.json({
       success: true,
       next: 'register',
@@ -198,21 +204,25 @@ const acceptInvitation = asyncHandler(async (req, res, next) => {
   }
 
   const account = await runWithTenant(client.clientId, async () => {
-    const user = await User.create({
-      email: invitation.email,
-      name: name || invitation.name || invitation.email,
-      role: invitation.role,
-      status: 'Active',
-      password,
-      invitedBy: invitation.invitedBy,
-      invitedAt: invitation.createdAt,
-      activatedAt: new Date(),
+    const { password: hashed, passwordChangedAt } = await hashPassword(password);
+    const user = await prisma.user.create({
+      data: {
+        email: invitation.email,
+        name: name || invitation.name || invitation.email,
+        role: invitation.role,
+        status: 'Active',
+        password: hashed,
+        passwordChangedAt,
+        invitedBy: invitation.invitedBy,
+        invitedAt: invitation.createdAt,
+        activatedAt: new Date(),
+      },
     });
 
-    invitation.status = 'Accepted';
-    invitation.acceptedAt = new Date();
-    invitation.acceptedAccountId = String(user._id);
-    await invitation.save();
+    await prisma.invitation.update({
+      where: { pk: invitation.pk },
+      data: { status: 'Accepted', acceptedAt: new Date(), acceptedAccountId: user.pk },
+    });
 
     return user;
   });
@@ -220,7 +230,7 @@ const acceptInvitation = asyncHandler(async (req, res, next) => {
   res.status(201).json({
     success: true,
     token: signToken(account),
-    user: { id: account._id, email: account.email, name: account.name, role: account.role },
+    user: { id: account.pk, email: account.email, name: account.name, role: account.role },
   });
 });
 

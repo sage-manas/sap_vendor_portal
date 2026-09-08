@@ -90,14 +90,14 @@ export default function UsersPage() {
   };
 
   const changeRole = (user, role) =>
-    act(() => apiClient.patch(`/users/${user._id}`, { role }), `${user.email} is now ${role}.`);
+    act(() => apiClient.patch(`/users/${user.pk}`, { role }), `${user.email} is now ${role}.`);
 
   const setStatus = (user, status) =>
-    act(() => apiClient.put(`/users/${user._id}/status`, { status }),
+    act(() => apiClient.put(`/users/${user.pk}/status`, { status }),
       `${user.email} was ${status === 'Active' ? 'reactivated' : 'suspended'}.`);
 
   const revoke = (invitation) =>
-    act(() => apiClient.delete(`/users/invitations/${invitation._id}`),
+    act(() => apiClient.delete(`/users/invitations/${invitation.pk}`),
       `The invitation to ${invitation.email} was revoked.`);
 
   if (loading) return <Loading label="Loading the team" />;
@@ -119,7 +119,7 @@ export default function UsersPage() {
       key: 'role',
       header: 'Role',
       render: (row) => (
-        manageable && row._id !== me?._id ? (
+        manageable && row.pk !== me?.pk ? (
           <select className="h-8" value={row.role} onChange={(event) => changeRole(row, event.target.value)}>
             {data.roles.map(({ role }) => <option key={role} value={role}>{role}</option>)}
           </select>
@@ -132,7 +132,7 @@ export default function UsersPage() {
       key: 'actions',
       header: '',
       render: (row) => (
-        row._id === me?._id ? <span className="text-[11px] text-text-tertiary">That’s you</span> : (
+        row.pk === me?.pk ? <span className="text-[11px] text-text-tertiary">That’s you</span> : (
           <div className="flex justify-end">
             <button
               type="button"
@@ -177,7 +177,7 @@ export default function UsersPage() {
 
       <Table
         columns={userColumns}
-        rows={data.users.map((user) => ({ ...user, key: user._id }))}
+        rows={data.users.map((user) => ({ ...user, key: user.pk }))}
         empty="No staff accounts yet."
       />
 
@@ -186,7 +186,7 @@ export default function UsersPage() {
       </h2>
       <Table
         columns={invitationColumns}
-        rows={data.invitations.map((invitation) => ({ ...invitation, key: invitation._id }))}
+        rows={data.invitations.map((invitation) => ({ ...invitation, key: invitation.pk }))}
         empty="Nobody is waiting on an invitation."
       />
 

@@ -1,8 +1,6 @@
-const mongoose = require('mongoose');
-const Vendor = require('../models/Vendor');
-const User = require('../models/User');
-const PlatformUser = require('../models/PlatformUser');
-const Client = require('../models/Client');
+const { prisma } = require('../db/prisma');
+const { isClientOperational } = require('../db/clientHelpers');
+const { canAuthenticate } = require('../db/accountHelpers');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
@@ -12,19 +10,30 @@ const { ACCOUNT_TYPES, verifyToken, normalizeClaims } = require('../utils/authTo
 
 // Identity is resolved before any tenant is known, so these lookups are
 // explicitly unscoped. They are the only unscoped reads in the request path.
+//
+// `sub` is the account's Prisma `pk` (a uuid) since every token is minted
+// fresh post-cutover (see utils/authToken.js). The vendorId fallback exists
+// for the same reason it existed against Mongoose: a `sub` that doesn't
+// resolve at all (stale/foreign token) should still get one more chance via
+// the business id carried alongside it, rather than an immediate 401.
 const ACCOUNT_LOADERS = {
   [ACCOUNT_TYPES.VENDOR]: (claims) =>
-    withoutTenantScope(() => Vendor.findOne(
-      mongoose.isValidObjectId(claims.sub) ? { _id: claims.sub } : { vendorId: claims.vendorId }
-    )),
+    withoutTenantScope(async () => {
+      const byPk = claims.sub
+        ? await prisma.vendor.findFirst({ where: { pk: claims.sub } })
+        : null;
+      if (byPk) return byPk;
+      return claims.vendorId
+        ? prisma.vendor.findFirst({ where: { vendorId: claims.vendorId } })
+        : null;
+    }),
   [ACCOUNT_TYPES.USER]: (claims) =>
-    withoutTenantScope(() => User.findById(claims.sub)),
+    withoutTenantScope(() => prisma.user.findFirst({ where: { pk: claims.sub } })),
   [ACCOUNT_TYPES.PLATFORM]: (claims) =>
-    PlatformUser.findById(claims.sub), // not tenant-scoped, no opt-out needed
+    prisma.platformUser.findFirst({ where: { pk: claims.sub } }), // not tenant-scoped, no opt-out needed
 };
 
-const findClient = (clientId) =>
-  withoutTenantScope(() => Client.findOne({ clientId }));
+const findClient = (clientId) => prisma.client.findFirst({ where: { clientId } });
 
 const bearerToken = (req) => {
   const header = req.headers.authorization;
@@ -63,7 +72,7 @@ const resolveAccount = async (req) => {
     throw ApiError.unauthorized('Not authorized, session is stale — sign in again');
   }
 
-  if (typeof account.canAuthenticate === 'function' && !account.canAuthenticate()) {
+  if (!canAuthenticate(account, claims.accountType)) {
     throw ApiError.forbidden('This account is not active');
   }
 
@@ -76,20 +85,24 @@ const attachPrincipal = (req, account, plane) => {
     accountType: plane === PLANES.SUPPLIER ? ACCOUNT_TYPES.VENDOR
       : plane === PLANES.TENANT ? ACCOUNT_TYPES.USER
         : ACCOUNT_TYPES.PLATFORM,
-    id: String(account._id),
+    id: account.pk,
     role: account.role,
     plane,
     email: account.email,
     clientId: account.clientId || null,
     permissions: permissionsFor(account.role),
+    // Reported on every session, not just the login response, so the gate
+    // survives a reload: an account still on the temporary password it was
+    // provisioned with must not be able to skip the change by refreshing.
+    mustChangePassword: Boolean(account.mustChangePassword),
   };
   req.roleScope = plane;
 };
 
 /**
  * Tenant-plane and supplier-plane authentication. Binds the account's tenant
- * for the remainder of the request, which is what makes the Mongoose tenant
- * plugin's "throw when unbound" safe rather than noisy.
+ * for the remainder of the request, which is what makes the tenant
+ * extension's "throw when unbound" safe rather than noisy.
  *
  * Platform accounts are refused here with a 403 before any query runs — they
  * have their own surface under /api/platform (see `protectPlatform`).
@@ -112,7 +125,7 @@ const protect = asyncHandler(async (req, res, next) => {
   }
 
   const client = await findClient(account.clientId);
-  if (!client || !client.isOperational()) {
+  if (!client || !isClientOperational(client)) {
     return next(ApiError.forbidden('This workspace is not active'));
   }
 

@@ -1,7 +1,6 @@
 const request = require('supertest');
-const User = require('../models/User');
-const PlatformUser = require('../models/PlatformUser');
-const Client = require('../models/Client');
+const { prisma, rawPrisma } = require('../db/prisma');
+const { hashPassword } = require('../db/credentials');
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
 const { signToken } = require('../utils/authToken');
 const { encrypt } = require('../utils/secretBox');
@@ -31,15 +30,23 @@ const baseVendor = {
 // workspace by slug before it will create anything.
 const seedClient = async ({ clientId = 'CLT-0001', slug = 'legacy', companyName = 'Legacy' } = {}) =>
   withoutTenantScope(async () => {
-    const existing = await Client.findOne({ clientId });
+    const existing = await rawPrisma.client.findFirst({ where: { clientId } });
     if (existing) return existing;
-    return Client.create({ clientId, slug, companyName, status: 'Active' });
+    return rawPrisma.client.create({ data: { clientId, slug, companyName, status: 'Active' } });
   });
+
+// Registration leaves a supplier in Draft, and the transacting modules stay shut
+// until they submit (middleware/requireOnboarded.js). A suite testing what
+// happens *after* onboarding says so with `onboarded: true` rather than walking
+// the registration form again; a suite testing the gate itself leaves it off.
+const onboardVendor = (vendorId, { clientId = 'CLT-0001', status = 'Approved' } = {}) =>
+  runWithTenant(clientId, () => prisma.vendor.updateMany({ where: { vendorId }, data: { status } }));
 
 // Registers a vendor through the real API and returns { token, vendor }.
 // `clientSlug` picks the workspace (see utils/resolveClient.js).
-const registerVendor = async (app, overrides = {}, { clientSlug = 'legacy' } = {}) => {
-  await seedClient({ slug: clientSlug, clientId: overrides.clientId || 'CLT-0001' });
+const registerVendor = async (app, overrides = {}, { clientSlug = 'legacy', onboarded = false } = {}) => {
+  const clientId = overrides.clientId || 'CLT-0001';
+  await seedClient({ slug: clientSlug, clientId });
   const payload = { ...baseVendor, ...overrides };
   delete payload.clientId;
   const res = await request(app)
@@ -49,37 +56,49 @@ const registerVendor = async (app, overrides = {}, { clientSlug = 'legacy' } = {
   if (res.status !== 201) {
     throw new Error(`Test vendor registration failed: ${JSON.stringify(res.body)}`);
   }
+  if (onboarded) {
+    await onboardVendor(res.body.vendor.vendorId, { clientId });
+  }
   return { token: res.body.token, vendor: res.body.vendor, payload };
 };
 
 const signTokenFor = (account) => signToken(account);
 
-// Tenant staff live in the User collection (ADR-0007) and are created by
+// Tenant staff live in the User table (ADR-0007) and are created by
 // invitation or provisioning, never by the public register endpoint — so tests
-// create them through the model, the same way the invite-accept flow does.
-const createTenantUser = async ({ role = ROLES.CLIENT_ADMIN, clientId = 'CLT-0001', ...rest } = {}) => {
+// create them directly, the same way the invite-accept flow does. Password
+// hashing was an implicit Mongoose pre-save hook; it is explicit here.
+const createTenantUser = async ({ role = ROLES.CLIENT_ADMIN, clientId = 'CLT-0001', password = 'secret123', ...rest } = {}) => {
   await seedClient({ clientId, slug: clientId === 'CLT-0001' ? 'legacy' : clientId.toLowerCase() });
-  const user = await runWithTenant(clientId, () => User.create({
-    email: `${role}@example.com`,
-    name: `Test ${role}`,
-    role,
-    status: 'Active',
-    password: 'secret123',
-    ...rest,
+  const { password: hashed, passwordChangedAt } = await hashPassword(password);
+  const user = await runWithTenant(clientId, () => prisma.user.create({
+    data: {
+      email: `${role}@example.com`,
+      name: `Test ${role}`,
+      role,
+      status: 'Active',
+      password: hashed,
+      passwordChangedAt,
+      ...rest,
+    },
   }));
   return { token: signTokenFor(user), user };
 };
 
 const createAdminUser = (overrides = {}) => createTenantUser({ role: ROLES.CLIENT_ADMIN, ...overrides });
 
-const createPlatformUser = async ({ role = ROLES.SUPER_ADMIN, ...rest } = {}) => {
-  const operator = await PlatformUser.create({
-    email: `${role}@platform.example.com`,
-    name: `Test ${role}`,
-    role,
-    status: 'Active',
-    password: 'secret123',
-    ...rest,
+const createPlatformUser = async ({ role = ROLES.SUPER_ADMIN, password = 'secret123', ...rest } = {}) => {
+  const { password: hashed, passwordChangedAt } = await hashPassword(password);
+  const operator = await rawPrisma.platformUser.create({
+    data: {
+      email: `${role}@platform.example.com`,
+      name: `Test ${role}`,
+      role,
+      status: 'Active',
+      password: hashed,
+      passwordChangedAt,
+      ...rest,
+    },
   });
   return { token: signTokenFor(operator), operator };
 };
@@ -107,6 +126,7 @@ const asTenant = (fn, clientId = 'CLT-0001') => runWithTenant(clientId, fn);
 module.exports = {
   baseVendor,
   registerVendor,
+  onboardVendor,
   createTenantUser,
   createAdminUser,
   createPlatformUser,

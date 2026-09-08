@@ -7,14 +7,18 @@
 // and every write as "failed" rather than "not_implemented", since it
 // genuinely tried and could not reach anything) — the same tool
 // `scripts/sap-conformance.js` points at a real sandbox once one exists.
-const SapLog = require('../models/SapLog');
+const { prisma } = require('../db/prisma');
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
-const { METHOD_NAMES, DEFERRED_METHODS } = require('../sap/contract');
+const { METHOD_NAMES, DEFERRED_METHODS, SAP_METHODS } = require('../sap/contract');
 const { buildTransientAdapter, invalidateSapAdapter } = require('../sap');
 const { runConformanceSuite } = require('../sap/conformance/runner');
 const { seedClient } = require('./helpers');
 
 beforeEach(() => invalidateSapAdapter());
+
+// A deferred answer is scheduled on a zero-delay timer under test; one turn of
+// the event loop plus the awaits inside the wrapper is enough for its logs.
+const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
 
 describe('the conformance suite', () => {
   it('passes every method against the mock driver', async () => {
@@ -68,26 +72,27 @@ describe('the conformance suite', () => {
     // Bookkeeping-only methods (mirroring the mock: they log what the caller
     // already has rather than making a network call of their own) pass even
     // with no gateway configured — same as they would against a real one.
-    for (const method of ['vendorVerifyKyc', 'vendorConfirm', 'vendorReject', 'poInboundSync', 'poProvisioned', 'poAcknowledge']) {
+    for (const method of ['vendorVerifyKyc', 'vendorReject', 'poAcknowledge']) {
       expect(byMethod[method].status).toBe('passed');
     }
 
     // Methods that genuinely have to call SAP fail without a reachable
-    // baseUrl — never the skeleton's untried not_implemented.
-    for (const method of ['vendorCreate', 'deliveryCreate', 'invoiceCreate', 'poProvision']) {
+    // baseUrl — never the skeleton's untried not_implemented. There is no
+    // invoiceCreate or deliveryCreate in the contract any more: the portal
+    // reads from SAP and never writes a document into it.
+    for (const method of ['vendorCreate']) {
       expect(byMethod[method].status).toBe('failed');
     }
 
-    // The e-sourcing methods fail on the missing custom service, with a
-    // message that actually explains why (no standard S/4 API covers this).
-    for (const method of ['rfqCreate', 'rfqCancel', 'rfqReissue', 'rfqSubmitBid', 'infoRecordCreate']) {
-      expect(byMethod[method].status).toBe('failed');
-      expect(byMethod[method].error).toMatch(/e-sourcing/);
+    // Sourcing is no longer part of the contract at all — RFQs, bids and awards
+    // are portal-internal, and what SAP holds is read back rather than written.
+    for (const method of ['rfqCreate', 'rfqSubmitBid', 'infoRecordCreate', 'poInboundSync']) {
+      expect(byMethod[method]).toBeUndefined();
     }
 
     // Deferred pollers never get a first tick inside this short a timeout —
     // a real gateway (or a longer timeoutMs) is what makes them resolve.
-    for (const method of ['awaitVendorApproval', 'awaitGoodsReceipt', 'awaitPaymentRun']) {
+    for (const method of ['awaitGoodsReceipt', 'awaitPaymentRun']) {
       expect(byMethod[method].status).toBe('failed');
       expect(byMethod[method].error).toMatch(/timed out/);
     }
@@ -110,13 +115,21 @@ describe('the conformance suite', () => {
     const adapter = buildTransientAdapter({ clientId: 'CLT-0001', driver: 'mock', config: {}, secrets: {} });
 
     await runConformanceSuite({ adapter, clientId: 'CLT-0001' });
+    // The two deferred methods answer on a timer (zero-delay under test) and
+    // their log entries are written after the suite has already returned, so
+    // counting immediately races them. This waited-for turn of the event loop
+    // is what makes the assertion below deterministic rather than lucky.
+    await settle();
 
-    const logged = await runWithTenant('CLT-0001', () => SapLog.countDocuments({}));
-    // Every contract method except the two unlogged connectivity checks and
-    // poProvision (logged by its caller once a PO id exists, not by the
-    // driver itself — see sap/contract.js) writes at least one entry;
-    // awaitVendorApproval also resolves the PENDING one vendorCreate opened.
-    expect(logged).toBeGreaterThan(METHOD_NAMES.length - 5);
+    const logged = await runWithTenant('CLT-0001', () => prisma.sapLog.count({}));
+    // Every contract method that declares itself logged writes at least one
+    // entry. Derived from the contract rather than hardcoded: the unlogged set
+    // is not just the two connectivity checks and poProvision any more — every
+    // read-only cross-check added since (the catalogues, the MIRO/payment/RFQ/
+    // PO-GRN/quotation displays) is unlogged too, and a fixed offset went stale
+    // silently each time one landed.
+    const loggedMethods = METHOD_NAMES.filter((method) => SAP_METHODS[method].logged !== false);
+    expect(logged).toBeGreaterThanOrEqual(loggedMethods.length);
   });
 
   it('keeps one tenant’s conformance run out of another’s log', async () => {
@@ -125,13 +138,13 @@ describe('the conformance suite', () => {
 
     await runConformanceSuite({ adapter, clientId: 'CLT-0002' });
 
-    const seenByOther = await runWithTenant('CLT-0001', () => SapLog.countDocuments({}));
+    const seenByOther = await runWithTenant('CLT-0001', () => prisma.sapLog.count({}));
     expect(seenByOther).toBe(0);
   });
 
   it('declares the same deferred methods the contract does', () => {
     expect(DEFERRED_METHODS).toEqual(
-      expect.arrayContaining(['awaitGoodsReceipt', 'awaitPaymentRun', 'awaitVendorApproval']),
+      expect.arrayContaining(['awaitGoodsReceipt', 'awaitPaymentRun']),
     );
   });
 });

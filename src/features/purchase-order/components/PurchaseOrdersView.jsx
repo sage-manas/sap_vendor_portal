@@ -5,7 +5,7 @@ import {
   ShoppingBag, Clock, CheckCircle2, Truck, ChevronRight, ChevronLeft, Search, Filter,
   Calendar, User, Download, AlertTriangle, MessageSquare, Plus, Send,
   FileText, X, ChevronDown, Check, MapPin, CreditCard, ArrowLeft,
-  Building, Building2, TrendingUp, Percent, ShieldCheck, RefreshCw, FileCheck, HelpCircle, Receipt
+  Building, Building2, TrendingUp, Percent, ShieldCheck, ShieldAlert, Loader2, RefreshCw, FileCheck, HelpCircle, Receipt, CalendarClock
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import FileUploadZone from '@/components/shared/FileUploadZone';
@@ -14,7 +14,10 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import EmptyState from '@/components/ui/EmptyState';
 import TableSkeleton from '@/components/ui/TableSkeleton';
 import KPICard from '@/components/ui/KPICard';
+import Modal from '@/components/ui/Modal';
 import { poStatusVariant } from '@/lib/statusColors';
+import { useWhoami } from '@/lib/whoami';
+import InvoicePlanPanel from './InvoicePlanPanel';
 
 function EnterpriseFieldCard({ label, required, error, children, icon: Icon }) {
   return (
@@ -111,7 +114,6 @@ export default function PurchaseOrdersView({
   setAsnForm,
   handleAsnSubmit,
   acknowledgePO,
-  simulateIncomingPO,
   setActiveTab,
   submitInvoice
 }) {
@@ -163,6 +165,16 @@ export default function PurchaseOrdersView({
 
   const cleanAsns = (Array.isArray(state?.asns) ? state.asns : []).filter(Boolean);
 
+  // SAP's own PO/GRN ledger for this vendor (zpo_grn_vendor/Detail) — used
+  // only to cross-check that a PO we're tracking is one SAP actually has, not
+  // to drive anything. `null` means still loading.
+  const sapPoOrders = state?.sapPoOrders;
+  // Filtered: an order the portal awarded carries no SAP number until SAP's
+  // ledger supplies one, and `new Set([null]).has(null)` is true — which badged
+  // every unmatched order as "Confirmed by SAP".
+  const sapPoNumbers = new Set((sapPoOrders || []).map(o => o.poNumber).filter(Boolean));
+  const isConfirmedInSap = (po) => Boolean(po.sapPoNumber) && sapPoNumbers.has(po.sapPoNumber);
+
   // Navigation states:
   // poSubTab tracks the main top menu: 'list' (Orders Monitor), 'grn' (Goods Receipts), 'invoice' (Invoice Ready)
   const [poSubTab, setPoSubTab] = useState('list');
@@ -173,15 +185,28 @@ export default function PurchaseOrdersView({
   const activePo = activePoState ? (cleanPOs.find(p => p.id === activePoState.id) || activePoState) : null;
   const activeGrn = activeGrnState ? (cleanGrns.find(g => g.id === activeGrnState.id) || activeGrnState) : null;
   const [localSubmissionTimes, setLocalSubmissionTimes] = useState({});
+  // Toggles the Orders Monitor table between the portal's own tracked POs
+  // and every PO SAP itself holds against this vendor code (zpo_grn_vendor/
+  // Detail, same read that badges "Confirmed"/"Not confirmed yet" above —
+  // this view is the full ledger that read pulls from, not a cross-check).
   const [isSapView, setIsSapView] = useState(false);
+  const [sapPoDetail, setSapPoDetail] = useState(null);
   const [activeLineIdx, setActiveLineIdx] = useState(0);
   const [asnLineIdx, setAsnLineIdx] = useState(0);
   const [grnLineIdx, setGrnLineIdx] = useState(0);
 
-  useEffect(() => {
+  // Selecting a different order restarts its ASN/GRN line cursors. Done as an
+  // adjustment during render rather than in an effect: an effect runs *after*
+  // the browser has already painted, so for one frame the new order was shown
+  // with the previous order's line highlighted. Comparing against the previous
+  // id and resetting inline is React's documented pattern for derived-from-prop
+  // state, and it re-renders before anything reaches the screen.
+  const [lineCursorPoId, setLineCursorPoId] = useState(activePo?.id);
+  if (activePo?.id !== lineCursorPoId) {
+    setLineCursorPoId(activePo?.id);
     setAsnLineIdx(0);
     setGrnLineIdx(0);
-  }, [activePo?.id]);
+  }
 
   // Search and Filters for Screen 1
   const [searchQuery, setSearchQuery] = useState('');
@@ -225,7 +250,22 @@ export default function PurchaseOrdersView({
   // Detail View Active Sub-tab ('po_detail' | 'create_asn' | 'grn_status')
   const [detailTab, setDetailTab] = useState('po_detail');
 
-  // Countdown timer for MIGO receipt simulation
+  // Invoice planning is a per-line setting, and the tab only exists for orders
+  // that use it — an order invoiced against goods receipts should look exactly
+  // as it did before this feature. The buying organisation's own staff see the
+  // tab on every order, because they are the ones who switch planning ON.
+  const { permissions } = useWhoami();
+  const canManagePlans = (permissions || []).includes('po:manage');
+  const hasInvoicePlan = (activePo?.items || []).some(item => item?.invoicePlan?.enabled);
+  const showInvoicePlanTab = hasInvoicePlan || canManagePlans;
+
+  // A tab that disappears must not leave the panel selected — moving from a
+  // planned order to an unplanned one would otherwise render a blank detail
+  // body. Derived rather than corrected in an effect, so there is no render
+  // where the selection and what is on screen disagree.
+  const activeDetailTab = detailTab === 'invoice_plan' && !showInvoicePlanTab ? 'po_detail' : detailTab;
+
+  // Countdown timer for the delivery-confirmation simulation
   const [countdown, setCountdown] = useState({});
 
   // Fetch unique plants and buyers from actual PO list for filters
@@ -266,7 +306,7 @@ export default function PurchaseOrdersView({
           [po.id]: [
             {
               sender: 'Buyer',
-              message: `Hi Team, PO ${po.id} has been released in SAP. Please review payment terms (${po.paymentTerms || 'NET 30'}) and delivery locations and confirm acknowledgement.`,
+              message: `Hi Team, PO ${po.id} has been issued. Please review the payment terms (${po.paymentTerms || 'NET 30'}) and delivery locations and confirm acknowledgement.`,
               timestamp: new Date(parseDateSafe(po.createdDate).getTime() + 10 * 60000).toISOString()
             }
           ]
@@ -276,34 +316,44 @@ export default function PurchaseOrdersView({
     });
   }, [cleanPOs]);
 
-  // Auto-initialize ASN form when user enters tab 2 via tab navigation
-  useEffect(() => {
-    if (detailTab === 'create_asn' && activePo && activePo.status !== 'Open') {
-      const lines = (activePo.items || []).map(item => item.line);
-      const isInitialized = lines.length > 0 && lines.every(line => dispatchQuantities[line] !== undefined);
-      if (!isInitialized) {
-        const initialQtys = {};
-        const initialErrors = {};
-        (activePo.items || []).forEach(item => {
-          const remaining = item.quantity - (item.grnQuantity || 0);
-          initialQtys[item.line] = remaining;
-          initialErrors[item.line] = '';
-        });
-        setDispatchQuantities(initialQtys);
-        setValidationErrors(initialErrors);
-        setEwayBillNo(prev => prev || `E-WAY-${Math.floor(100000000000 + Math.random() * 900000000000)}`);
-        setAsnForm(prev => ({
-          carrierName: prev.carrierName || 'DHL Global Logistics',
-          trackingNumber: prev.trackingNumber || `DHL-${Math.floor(1000000 + Math.random() * 9000000)}`,
-          vehicleNumber: prev.vehicleNumber || 'MH-12-XY-4321',
-          invoiceReference: prev.invoiceReference || `TAX-2026-${Math.floor(100 + Math.random() * 900)}`,
-          shipDate: prev.shipDate || new Date().toISOString().split('T')[0],
-          estimatedDeliveryDate: prev.estimatedDeliveryDate || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-          items: initialQtys
-        }));
-      }
-    }
-  }, [detailTab, activePo?.id]);
+  // Prefills the shipment form the first time an order's "Send shipment" tab is
+  // opened. This used to be an effect watching `detailTab`, which meant a render
+  // pass that painted the empty form before a second pass filled it in, and it
+  // generated tracking/e-way numbers from Math.random() and the clock — so it
+  // could not simply move into the render body either.
+  //
+  // Opening that tab is a user action, so the initialization belongs on the
+  // action. The "Send shipment" button at handleSendShipmentClick already did
+  // its own prefill; this covers the other way in, the tab header. The
+  // `isInitialized` guard keeps it idempotent, so re-entering the tab never
+  // overwrites quantities the supplier has already edited.
+  const ensureAsnPrefill = () => {
+    if (!activePo || activePo.status === 'Open') return;
+
+    const lines = (activePo.items || []).map(item => item.line);
+    const isInitialized = lines.length > 0 && lines.every(line => dispatchQuantities[line] !== undefined);
+    if (isInitialized) return;
+
+    const initialQtys = {};
+    const initialErrors = {};
+    (activePo.items || []).forEach(item => {
+      const remaining = item.quantity - (item.grnQuantity || 0);
+      initialQtys[item.line] = remaining;
+      initialErrors[item.line] = '';
+    });
+    setDispatchQuantities(initialQtys);
+    setValidationErrors(initialErrors);
+    setEwayBillNo(prev => prev || `E-WAY-${Math.floor(100000000000 + Math.random() * 900000000000)}`);
+    setAsnForm(prev => ({
+      carrierName: prev.carrierName || 'DHL Global Logistics',
+      trackingNumber: prev.trackingNumber || `DHL-${Math.floor(1000000 + Math.random() * 9000000)}`,
+      vehicleNumber: prev.vehicleNumber || 'MH-12-XY-4321',
+      invoiceReference: prev.invoiceReference || `TAX-2026-${Math.floor(100 + Math.random() * 900)}`,
+      shipDate: prev.shipDate || new Date().toISOString().split('T')[0],
+      estimatedDeliveryDate: prev.estimatedDeliveryDate || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      items: initialQtys
+    }));
+  };
 
   // Handle PO Row selection
   const handleOpenPoDetails = (po) => {
@@ -361,9 +411,9 @@ export default function PurchaseOrdersView({
 
     // Trigger mock response
     setTimeout(() => {
-      let reply = "We have updated the records in SAP. Let us know if you need anything else.";
+      let reply = "We have updated our records. Let us know if you need anything else.";
       if (text.toLowerCase().includes('delivery') || text.toLowerCase().includes('date') || text.toLowerCase().includes('delay')) {
-        reply = "Acknowledged. Please make sure the dispatch quantity matches the remaining quantities to avoid MIGO rejection flags.";
+        reply = "Acknowledged. Please make sure the dispatch quantity matches the quantity still outstanding, so nothing is rejected on delivery.";
       } else if (text.toLowerCase().includes('price') || text.toLowerCase().includes('tax') || text.toLowerCase().includes('gst')) {
         reply = "Our finance desk uses tax code G1 (18% GST). Standard payment terms will apply upon invoice verification.";
       } else if (text.toLowerCase().includes('issue') || text.toLowerCase().includes('dented') || text.toLowerCase().includes('rejected')) {
@@ -405,8 +455,8 @@ export default function PurchaseOrdersView({
         const matchesStatus = statusFilter === 'all' ||
           (statusFilter === 'New' && mappedStatus === 'Open') ||
           (statusFilter === 'Acknowledged' && mappedStatus === 'Acknowledged') ||
-          (statusFilter === 'ASN Submitted' && mappedStatus === 'Dispatched') ||
-          (statusFilter === 'GRN Complete' && (mappedStatus === 'Delivered' || mappedStatus === 'Invoiced' || mappedStatus === 'Paid'));
+          (statusFilter === 'Shipment Sent' && mappedStatus === 'Dispatched') ||
+          (statusFilter === 'Delivery Confirmed' && (mappedStatus === 'Delivered' || mappedStatus === 'Invoiced' || mappedStatus === 'Paid'));
 
         const matchesPlant = plantFilter === 'all' || po.plant === plantFilter;
         const matchesBuyer = buyerFilter === 'all' || po.buyerName === buyerFilter;
@@ -522,11 +572,11 @@ export default function PurchaseOrdersView({
       setCurrentView('detail');
     } catch (e) {
       console.error(e);
-      alert('Failed to submit ASN: ' + (e.message || e));
+      alert('Could not send the shipment details: ' + (e.message || e));
     }
   };
 
-  // Submit MIRO Invoice Posting
+  // Submit the invoice
   const handleMiroInvoicePost = () => {
     if (!vendorInvoiceNo.trim() || !billingDate) {
       alert('Please fill in Invoice Reference and Document Date.');
@@ -573,10 +623,10 @@ export default function PurchaseOrdersView({
     const labelMap = {
       Open: 'New',
       Acknowledged: 'Acknowledged',
-      Dispatched: 'ASN Submitted',
-      Delivered: 'GRN Complete',
+      Dispatched: 'Shipment Sent',
+      Delivered: 'Delivery Confirmed',
       Invoiced: 'Invoice Posted',
-      Paid: 'Paid (F110)'
+      Paid: 'Paid'
     };
     return (
       <StatusBadge label={labelMap[status] || status} variant={poStatusVariant(status)} className="w-fit" />
@@ -616,7 +666,7 @@ export default function PurchaseOrdersView({
                 className={`pb-2.5 text-sm font-bold border-b-2 transition-all duration-150 cursor-pointer flex items-center gap-2 ${poSubTab === 'grn' ? 'border-text-primary text-text-primary' : 'border-transparent text-text-tertiary hover:text-text-secondary'}`}
               >
                 <Truck className="size-4.5" />
-                <span>Goods Receipts (MIGO)</span>
+                <span>Delivery Receipts</span>
                 <span className="bg-surface2 text-text-secondary font-mono text-[10px] px-1.5 py-0.5 rounded-full border border-border tabular-nums">
                   {cleanGrns.length}
                 </span>
@@ -626,21 +676,11 @@ export default function PurchaseOrdersView({
                 className={`pb-2.5 text-sm font-bold border-b-2 transition-all duration-150 cursor-pointer flex items-center gap-2 ${poSubTab === 'invoice' ? 'border-text-primary text-text-primary' : 'border-transparent text-text-tertiary hover:text-text-secondary'}`}
               >
                 <FileCheck className="size-4.5" />
-                <span>Invoice Ready (MIRO)</span>
+                <span>Ready to Invoice</span>
                 <span className="bg-amber-500/10 text-amber-600 font-mono text-[10px] px-1.5 py-0.5 rounded-full border border-amber-200 font-bold tabular-nums">
                   {cleanGrns.filter(g => !g.invoiceSubmitted).length}
                 </span>
               </button>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Button
-                onClick={simulateIncomingPO}
-                variant="outline"
-              >
-                <RefreshCw className="size-3.5" />
-                <span>Simulate SAP PO (ME21N)</span>
-              </Button>
             </div>
           </div>
         )}
@@ -651,22 +691,96 @@ export default function PurchaseOrdersView({
         {currentView === 'list' && poSubTab === 'list' && (
           <div className="space-y-6">
 
+            {/* PORTAL / SAP LEDGER TOGGLE */}
+            <div className="inline-flex items-center gap-1 p-1 bg-surface2 border border-border rounded-md">
+              <button
+                type="button"
+                onClick={() => setIsSapView(false)}
+                className={`px-3 py-1.5 text-xs font-bold rounded transition-colors duration-150 cursor-pointer ${!isSapView ? 'bg-surface text-text-primary shadow-xs border border-border' : 'text-text-tertiary hover:text-text-secondary'}`}
+              >
+                Portal Orders ({cleanPOs.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsSapView(true)}
+                className={`px-3 py-1.5 text-xs font-bold rounded transition-colors duration-150 cursor-pointer ${isSapView ? 'bg-surface text-text-primary shadow-xs border border-border' : 'text-text-tertiary hover:text-text-secondary'}`}
+              >
+                All SAP Orders {Array.isArray(sapPoOrders) ? `(${sapPoOrders.length})` : ''}
+              </button>
+            </div>
+
+            {isSapView ? (
+              /* Every PO SAP itself holds against this vendor code
+                 (zpo_grn_vendor/Detail) — the full ledger, not filtered to
+                 what the portal happens to be tracking. */
+              sapPoOrders === null || sapPoOrders === undefined ? (
+                <div className="card flex items-center gap-2 text-xs text-text-tertiary py-10 justify-center">
+                  <Loader2 className="size-3.5 animate-spin" /> Loading your buyer&rsquo;s records for your company...
+                </div>
+              ) : sapPoOrders.length === 0 ? (
+                <div className="card">
+                  <EmptyState
+                    icon={ShoppingBag}
+                    title="Nothing on file yet"
+                    description="Your buyer has no purchase orders on file for your company yet."
+                  />
+                </div>
+              ) : (
+                <div className="card overflow-hidden">
+                  <div className="overflow-x-auto custom-scrollbar border border-border">
+                    <table className="w-full text-left border-collapse table-sticky">
+                      <thead>
+                        <tr>
+                          <th>PO Number</th>
+                          <th>PO Date</th>
+                          <th>Buyer</th>
+                          <th>Ship To</th>
+                          <th className="text-center">Items</th>
+                          <th className="text-right">Net Amount</th>
+                          <th className="text-center">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sapPoOrders.map((po, index) => (
+                          <tr key={`${po.poNumber || 'unnumbered'}-${index}`}>
+                            <td className="font-mono font-bold text-text-primary select-all">{po.poNumber || '—'}</td>
+                            <td className="font-mono whitespace-nowrap tabular-nums">{formatDate(po.poDate)}</td>
+                            <td className="font-semibold text-text-primary">{po.buyerName || '—'}</td>
+                            <td className="font-medium">{[po.shipToCity, po.shipToState].filter(Boolean).join(', ') || '—'}</td>
+                            <td className="text-center font-mono font-bold tabular-nums">{(po.items || []).length}</td>
+                            <td className="text-right font-mono font-bold text-text-primary whitespace-nowrap tabular-nums">
+                              {po.currency || 'INR'} {(po.netAmount || 0).toLocaleString()}
+                            </td>
+                            <td className="text-center">
+                              <Button size="xs" variant="secondary" onClick={() => setSapPoDetail(po)}>
+                                View Items
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )
+            ) : (
+              <>
             {/* KPI Cards Row */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <KPICard
-                label="Total Contract Orders"
+                label="Total orders"
                 value={<span className="tabular-nums">{cleanPOs.length}</span>}
-                sub="Synced from ERP ledger"
+                sub="From your buyer’s system"
                 icon={ShoppingBag}
               />
               <KPICard
-                label="New POs Awaiting Ack"
+                label="Orders awaiting acknowledgement"
                 value={<span className="tabular-nums">{cleanPOs.filter(p => p.status === 'Open').length}</span>}
                 sub="Requires attention"
                 icon={Clock}
               />
               <KPICard
-                label="Pending ASN Dispatches"
+                label="Shipments to send"
                 value={<span className="tabular-nums">{cleanPOs.filter(p => p.status === 'Acknowledged').length}</span>}
                 sub="Ready for shipment"
                 icon={Truck}
@@ -725,8 +839,8 @@ export default function PurchaseOrdersView({
                     <option value="all">All Statuses</option>
                     <option value="New">New (Open)</option>
                     <option value="Acknowledged">Acknowledged</option>
-                    <option value="ASN Submitted">ASN Submitted</option>
-                    <option value="GRN Complete">GRN Complete</option>
+                    <option value="Shipment Sent">Shipment Sent</option>
+                    <option value="Delivery Confirmed">Delivery Confirmed</option>
                   </select>
                 </div>
 
@@ -794,6 +908,7 @@ export default function PurchaseOrdersView({
                         <th className="cursor-pointer" onClick={() => handleSort('status')}>
                           Status {sortField === 'status' && (sortOrder === 'asc' ? '▲' : '▼')}
                         </th>
+                        <th className="text-center">Confirmed</th>
                         <th className="text-center">Row Actions</th>
                       </tr>
                     </thead>
@@ -823,6 +938,19 @@ export default function PurchaseOrdersView({
                             <td>
                               {renderStatusChip(po.status)}
                             </td>
+                            <td className="text-center">
+                              {sapPoOrders === null || sapPoOrders === undefined ? (
+                                <Loader2 className="size-3.5 animate-spin text-text-tertiary inline-block" />
+                              ) : isConfirmedInSap(po) ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400" title="Your buyer’s system confirms this order">
+                                  <ShieldCheck className="size-3.5" /> Confirmed
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-400" title="Not yet visible in your buyer’s system">
+                                  <ShieldAlert className="size-3.5" /> Not confirmed yet
+                                </span>
+                              )}
+                            </td>
                             <td className="text-center" onClick={e => e.stopPropagation()}>
                               <div className="flex items-center justify-center gap-1.5">
                                 <Button
@@ -839,7 +967,7 @@ export default function PurchaseOrdersView({
                                     variant="outline"
                                     onClick={() => handleOpenAsnForm(po)}
                                   >
-                                    Create ASN
+                                    Send shipment
                                   </Button>
                                 )}
 
@@ -896,18 +1024,20 @@ export default function PurchaseOrdersView({
                 )}
               </div>
             )}
+              </>
+            )}
           </div>
         )}
 
         {/* ================================================================= */}
-        {/* SCREEN 1: GOODS RECEIPTS (MIGO) MONITOR TAB                      */}
+        {/* SCREEN 1: DELIVERY RECEIPTS TAB */}
         {/* ================================================================= */}
         {currentView === 'list' && poSubTab === 'grn' && (
           <div className="space-y-4">
             <div className="card p-4 flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-bold text-text-primary">Goods Receipt Notes (GRN) Registry</h3>
-                <p className="text-xs text-text-secondary">View and track MIGO post logs synchronized automatically from stores inspections.</p>
+                <h3 className="text-sm font-bold text-text-primary">Delivery Receipts</h3>
+                <p className="text-xs text-text-secondary">Every delivery your buyer has checked in and confirmed.</p>
               </div>
               <div className="text-xs text-text-secondary font-semibold font-mono tabular-nums">
                 Total Inbound Documents: {cleanGrns.length}
@@ -918,8 +1048,8 @@ export default function PurchaseOrdersView({
               <div className="card">
                 <EmptyState
                   icon={Truck}
-                  title="No Goods Receipts Registered"
-                  description="Once you submit an ASN, the warehouse team performs check-ins and quality inspections (Movement Type 101). The synced GRN will appear here within 10 seconds."
+                  title="No deliveries confirmed yet"
+                  description="Once you send shipment details, your buyer checks the goods in and inspects them. The delivery receipt appears here shortly afterwards."
                 />
               </div>
             ) : (
@@ -952,7 +1082,7 @@ export default function PurchaseOrdersView({
                           )}
                         </div>
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-[10px] text-text-tertiary font-bold">
-                          <span>PO Ref: {grn.poId}</span>
+                          <span>Order: {grn.poId}</span>
                           <span>&bull;</span>
                           <span className="tabular-nums">Posting Date: {grn.postingDate}</span>
                           <span>&bull;</span>
@@ -978,13 +1108,13 @@ export default function PurchaseOrdersView({
         )}
 
         {/* ================================================================= */}
-        {/* SCREEN 1: INVOICE READY (MIRO) MONITOR TAB                       */}
+        {/* SCREEN 1: READY TO INVOICE TAB */}
         {/* ================================================================= */}
         {currentView === 'list' && poSubTab === 'invoice' && (
           <div className="space-y-4">
             <div className="card p-4 flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-bold text-text-primary">MIRO Invoice Eligibility Portal</h3>
+                <h3 className="text-sm font-bold text-text-primary">Deliveries ready to invoice</h3>
                 <p className="text-xs text-text-secondary">Select verified warehouse receipts that are pending financial billing. Pre-fills lines automatically.</p>
               </div>
               <div className="text-xs text-text-secondary font-semibold font-mono bg-base border border-border px-2.5 py-1 rounded tabular-nums">
@@ -1020,16 +1150,16 @@ export default function PurchaseOrdersView({
                             {grn.id}
                           </span>
                           <span className="text-[10px] text-text-tertiary font-mono">
-                            MIGO reference: {grn.sapMigoDoc}
+                            Receipt no: {grn.sapMigoDoc}
                           </span>
-                          <StatusBadge label="Ready for MIRO Posting" variant="warn" />
+                          <StatusBadge label="Ready to invoice" variant="warn" />
                         </div>
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-[10px] text-text-tertiary font-bold">
-                          <span>PO Ref: {grn.poId}</span>
+                          <span>Order: {grn.poId}</span>
                           <span>&bull;</span>
-                          <span className="tabular-nums">Receipt Date: {grn.postingDate}</span>
+                          <span className="tabular-nums">Received on: {grn.postingDate}</span>
                           <span>&bull;</span>
-                          <span>Billed To: Plant {po?.plant || '1000'}</span>
+                          <span>Delivered to: Site {po?.plant || '1000'}</span>
                         </div>
                       </div>
 
@@ -1048,7 +1178,7 @@ export default function PurchaseOrdersView({
                           variant="default"
                           size="sm"
                         >
-                          <span>MIRO Invoice</span>
+                          <span>Create invoice</span>
                           <ChevronRight className="size-3.5" />
                         </Button>
                       </div>
@@ -1082,7 +1212,7 @@ export default function PurchaseOrdersView({
               </div>
 
               <div className="flex items-center gap-2">
-                {/* Business vs SAP View toggle removed */}
+                {/* Business vs technical view toggle removed */}
 
                 <Button
                   onClick={(e) => handleOpenDrawer(e, activePo)}
@@ -1107,8 +1237,8 @@ export default function PurchaseOrdersView({
               const steps = [
                 { key: 'Open', label: 'New PO', icon: ShoppingBag, color: 'blue' },
                 { key: 'Acknowledged', label: 'Acknowledged', icon: CheckCircle2, color: 'purple' },
-                { key: 'Dispatched', label: 'ASN Submitted', icon: Truck, color: 'orange' },
-                { key: 'Delivered', label: 'GRN Complete', icon: Check, color: 'green' },
+                { key: 'Dispatched', label: 'Shipment Sent', icon: Truck, color: 'orange' },
+                { key: 'Delivered', label: 'Delivery Confirmed', icon: Check, color: 'green' },
                 { key: 'Invoiced', label: 'Invoiced', icon: Receipt, color: 'teal' },
               ];
               const statusOrder = ['Open', 'Acknowledged', 'Dispatched', 'Delivered', 'Invoiced', 'Paid'];
@@ -1154,14 +1284,18 @@ export default function PurchaseOrdersView({
             {/* TAB HEADERS */}
             <div className="flex items-center gap-6 border-b border-border">
               {[
-                { id: 'po_detail', label: '1. PO Detail View' },
-                { id: 'create_asn', label: '2. Create ASN' },
-                { id: 'grn_status', label: '3. GRN Status' }
+                { id: 'po_detail', label: '1. Order details' },
+                { id: 'create_asn', label: '2. Send shipment' },
+                { id: 'grn_status', label: '3. Delivery status' },
+                ...(showInvoicePlanTab ? [{ id: 'invoice_plan', label: 'Invoicing plan' }] : [])
               ].map(t => (
                 <button
                   key={t.id}
-                  onClick={() => setDetailTab(t.id)}
-                  className={`pb-2.5 text-xs font-bold border-b-2 transition-all duration-150 cursor-pointer focus-visible:outline-none ${detailTab === t.id
+                  onClick={() => {
+                    if (t.id === 'create_asn') ensureAsnPrefill();
+                    setDetailTab(t.id);
+                  }}
+                  className={`pb-2.5 text-xs font-bold border-b-2 transition-all duration-150 cursor-pointer focus-visible:outline-none ${activeDetailTab === t.id
                     ? 'border-text-primary text-text-primary'
                     : 'border-transparent text-text-tertiary hover:text-text-secondary'
                     }`}
@@ -1174,7 +1308,7 @@ export default function PurchaseOrdersView({
             {/* TAB CONTENT */}
             <div className="bg-base/30 p-1 rounded-xl">
               {/* TAB 1: PO Detail View */}
-              {detailTab === 'po_detail' && (
+              {activeDetailTab === 'po_detail' && (
                 <div className="space-y-6 animate-fade-in">
                   {/* PO Header Fields */}
                   <div className="card overflow-hidden">
@@ -1208,7 +1342,7 @@ export default function PurchaseOrdersView({
                         }
                       />
                       <SapReadOnlyField
-                        label="Buyer Company Code"
+                        label="Buying company"
                         value={activePo.companyCode || '1000'}
                         icon={Building2}
                         containerClassName="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 cursor-pointer"
@@ -1267,7 +1401,7 @@ export default function PurchaseOrdersView({
                             <thead>
                               <tr>
                                 <th className="w-16">Line</th>
-                                <th className="w-36">Material Code</th>
+                                <th className="w-36">Item code</th>
                                 <th className="min-w-[200px]">Description</th>
                                 <th className="w-28 text-right">Ordered Qty</th>
                                 <th className="w-20">UoM</th>
@@ -1285,7 +1419,20 @@ export default function PurchaseOrdersView({
                                     <td>
                                       <span className="text-blue-600 font-bold hover:underline cursor-pointer">{item.materialCode}</span>
                                     </td>
-                                    <td className="text-text-primary font-medium">{item.description}</td>
+                                    <td className="text-text-primary font-medium">
+                                      {item.description}
+                                      {item.invoicePlan?.enabled && (
+                                        <button
+                                          type="button"
+                                          onClick={() => setDetailTab('invoice_plan')}
+                                          title="This line is billed on an invoicing plan, not against a goods receipt"
+                                          className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border border-blue-200 bg-blue-50 text-blue-700 text-[9px] font-extrabold uppercase tracking-wider cursor-pointer hover:bg-blue-100 transition-colors duration-150"
+                                        >
+                                          <CalendarClock className="size-2.5" />
+                                          {item.invoicePlan.type} plan
+                                        </button>
+                                      )}
+                                    </td>
                                     <td className="font-bold text-text-primary text-right font-mono tabular-nums">{item.quantity}</td>
                                     <td className="font-medium">{item.uom || 'EA'}</td>
                                     <td className="font-bold text-text-primary text-right font-mono tabular-nums">₹ {item.unitPrice.toLocaleString()}.00</td>
@@ -1322,15 +1469,15 @@ export default function PurchaseOrdersView({
                 </div>
               )}
 
-              {/* TAB 2: Create ASN */}
-              {detailTab === 'create_asn' && (
+              {/* TAB 2: Send shipment */}
+              {activeDetailTab === 'create_asn' && (
                 <div className="space-y-6 animate-fade-in">
                   {activePo.status === 'Open' ? (
                     <div className="card p-6 text-center">
                       <AlertTriangle className="size-8 text-amber-500 mx-auto mb-2" />
                       <h4 className="text-xs font-bold text-text-primary">PO Acknowledgement Required</h4>
                       <p className="text-xs text-text-secondary mt-1">
-                        You must acknowledge this purchase order before you can create an Inbound ASN Delivery.
+                        You must acknowledge this purchase order before you can send shipment details.
                       </p>
                       <Button
                         onClick={() => acknowledgePO(activePo.id)}
@@ -1355,11 +1502,11 @@ export default function PurchaseOrdersView({
                         </Button>
                       </div>
 
-                      {/* ASN Header Fields — 3-column grid, label-on-top aligned */}
+                      {/* Shipment header fields — 3-column grid, label-on-top aligned */}
                       <div className="card overflow-hidden">
                         <div className="flex items-center gap-2 px-5 py-3 border-b border-border bg-surface2/40">
                           <div className="size-1.5 rounded-full bg-purple-500"></div>
-                          <span className="text-[10px] font-extrabold text-text-secondary uppercase tracking-widest">ASN Shipment Header</span>
+                          <span className="text-[10px] font-extrabold text-text-secondary uppercase tracking-widest">Shipment details</span>
                         </div>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-5">
                           <SapInputField label="Linked PO Number" icon={ShoppingBag}>
@@ -1427,7 +1574,7 @@ export default function PurchaseOrdersView({
                         </div>
                       </div>
 
-                      {/* ASN Document Attachments */}
+                      {/* Shipment document attachments */}
                       <div className="space-y-4">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-2">
                           <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider">
@@ -1503,7 +1650,7 @@ export default function PurchaseOrdersView({
                                 <thead>
                                   <tr>
                                     <th className="w-16">Line</th>
-                                    <th className="w-36">Material Code</th>
+                                    <th className="w-36">Item code</th>
                                     <th className="min-w-[200px]">Description</th>
                                     <th className="w-28 text-right">Ordered Qty</th>
                                     <th className="w-28 text-right">Remaining Qty</th>
@@ -1591,8 +1738,14 @@ export default function PurchaseOrdersView({
                 </div>
               )}
 
-              {/* TAB 3: GRN Status */}
-              {detailTab === 'grn_status' && (
+              {/* TAB 3: Delivery status */}
+              {activeDetailTab === 'invoice_plan' && (
+                <div className="p-4">
+                  <InvoicePlanPanel po={activePo} canManage={canManagePlans} />
+                </div>
+              )}
+
+              {activeDetailTab === 'grn_status' && (
                 <div className="space-y-6 animate-fade-in">
                   {(() => {
                     const grn = cleanGrns.find(g => g.poId === activePo.id);
@@ -1605,22 +1758,22 @@ export default function PurchaseOrdersView({
                               <div className="size-12 bg-green-50 border border-green-200 text-green-600 rounded-full flex items-center justify-center mx-auto shadow-xs">
                                 <Check className="size-6 animate-pulse" />
                               </div>
-                              <h4 className="text-sm font-bold text-amber-800">ASN Dispatch Submitted Successfully</h4>
+                              <h4 className="text-sm font-bold text-amber-800">Shipment details sent</h4>
                               <p className="text-xs text-text-secondary max-w-md mx-auto leading-normal">
-                                Logistics dispatch details successfully transmitted via SAP BAPI (`BAPI_DELIVERY_CREATE_DN`).
+                                Your dispatch details have been sent to your buyer.
                               </p>
                             </div>
 
                             <div className="p-4 bg-surface border border-amber-200/60 rounded-xl text-xs space-y-3.5 shadow-sm">
                               <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-left font-mono">
                                 <div>
-                                  <span className="text-[9px] text-text-tertiary font-bold uppercase block font-sans">ASN Reference ID</span>
+                                  <span className="text-[9px] text-text-tertiary font-bold uppercase block font-sans">Shipment reference</span>
                                   <span className="font-bold text-text-primary text-xs select-all">
                                     {activeAsn?.id || activeAsn?.asnId || 'N/A'}
                                   </span>
                                 </div>
                                 <div>
-                                  <span className="text-[9px] text-text-tertiary font-bold uppercase block font-sans">SAP Delivery Note ID</span>
+                                  <span className="text-[9px] text-text-tertiary font-bold uppercase block font-sans">Delivery note number</span>
                                   <span className="font-bold text-text-primary text-xs select-all">
                                     {activeAsn?.sapInboundDelivery || activeAsn?.sapInbound || 'N/A'}
                                   </span>
@@ -1642,7 +1795,7 @@ export default function PurchaseOrdersView({
                               <div className="border-t border-border pt-3 flex items-center justify-between bg-surface2/50 p-2.5 rounded-lg">
                                 <div className="flex items-center gap-2">
                                   <Truck className="size-4.5 text-amber-500 animate-pulse" />
-                                  <span className="font-semibold text-text-secondary font-sans">Warehouse MIGO receipt simulation:</span>
+                                  <span className="font-semibold text-text-secondary font-sans">Expected delivery confirmation in:</span>
                                 </div>
                                 <span className="text-amber-600 animate-pulse font-bold font-mono text-sm tabular-nums">
                                   {countdown[activePo.id] !== undefined ? `${countdown[activePo.id]}s` : '10s'}
@@ -1655,9 +1808,9 @@ export default function PurchaseOrdersView({
                       return (
                         <div className="card p-6 text-center">
                           <AlertTriangle className="size-8 text-text-tertiary mx-auto mb-2" />
-                          <h4 className="text-xs font-bold text-text-primary">Goods Receipt Not Synced</h4>
+                          <h4 className="text-xs font-bold text-text-primary">No delivery confirmed yet</h4>
                           <p className="text-xs text-text-secondary mt-1">
-                            Please prepare and submit ASN shipment dispatch (Tab 2) first to initiate delivery sync.
+                            Send your shipment details (step 2) first — the delivery receipt appears once your buyer checks the goods in.
                           </p>
                         </div>
                       );
@@ -1668,8 +1821,8 @@ export default function PurchaseOrdersView({
                       <div className="space-y-6 animate-fade-in">
                         <div className="card p-4 flex items-center justify-between">
                           <div>
-                            <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider">SAP Goods Receipt Note (MIGO 101)</h4>
-                            <p className="text-[10px] text-text-secondary font-medium mt-0.5">Inspected & cleared by warehouse stores division</p>
+                            <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider">Delivery receipt</h4>
+                            <p className="text-[10px] text-text-secondary font-medium mt-0.5">Checked and accepted by your buyer’s receiving team</p>
                           </div>
                           {!grn.invoiceSubmitted ? (
                             <Button
@@ -1681,39 +1834,39 @@ export default function PurchaseOrdersView({
                             </Button>
                           ) : (
                             <span className="px-3 py-1 rounded bg-surface2 text-text-secondary border border-border text-xs font-bold font-mono">
-                              Invoice Posted (MIRO complete)
+                              Invoice submitted
                             </span>
                           )}
                         </div>
 
-                        {/* GRN Header Fields — 3-column grid, label-on-top aligned */}
+                        {/* Delivery receipt fields — 3-column grid, label-on-top aligned */}
                         <div className="card overflow-hidden">
                           <div className="flex items-center gap-2 px-5 py-3 border-b border-border bg-surface2/40">
                             <div className="size-1.5 rounded-full bg-green-500"></div>
-                            <span className="text-[10px] font-extrabold text-text-secondary uppercase tracking-widest">Goods Receipt (MIGO) Header Data</span>
+                            <span className="text-[10px] font-extrabold text-text-secondary uppercase tracking-widest">Delivery receipt details</span>
                           </div>
                           <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-5">
                             <SapReadOnlyField
-                              label="GRN Document Number"
+                              label="Receipt number"
                               value={grn.sapMigoDoc}
                               icon={FileText}
                               containerClassName="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 cursor-pointer font-mono"
                             />
                             <SapReadOnlyField
-                              label="Posting Date"
+                              label="Received on"
                               value={formatDate(grn.postingDate)}
                               icon={Calendar}
                             />
                             <SapReadOnlyField
-                              label="Movement Type"
-                              value="101 — Goods Receipt"
+                              label="Type"
+                              value="Goods received"
                               isMonospace={false}
                               icon={Truck}
                               containerClassName="bg-emerald-50 text-emerald-700 border-emerald-200"
                             />
                             <SapReadOnlyField
                               label="Received By"
-                              value={grn.receivedBy || 'Stores Manager (QC Group)'}
+                              value={grn.receivedBy || 'Receiving team'}
                               isMonospace={false}
                               icon={User}
                             />
@@ -1733,11 +1886,11 @@ export default function PurchaseOrdersView({
                           </div>
                         </div>
 
-                        {/* QC Line Status Table Itemization (Create ASN Style) */}
+                        {/* Inspection status per line item */}
                         <div className="space-y-4">
                           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-2">
                             <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider">
-                              GRN Line Items &amp; QC Status
+                              Items received &amp; inspection result
                             </h4>
 
                             {/* Carousel Navigation Controls */}
@@ -1774,14 +1927,14 @@ export default function PurchaseOrdersView({
                                   <thead>
                                     <tr>
                                       <th className="w-16">Line</th>
-                                      <th className="w-36">Material Code</th>
+                                      <th className="w-36">Item code</th>
                                       <th className="min-w-[200px]">Description</th>
                                       <th className="w-28 text-right">Received Qty</th>
                                       <th className="w-28 text-right">Accepted Qty</th>
                                       <th className="w-28 text-right">Rejected Qty</th>
                                       <th className="w-20">UoM</th>
                                       <th className="text-center w-28">Quality Status</th>
-                                      <th className="text-right w-36 font-sans">Posting Date</th>
+                                      <th className="text-right w-36 font-sans">Received on</th>
                                     </tr>
                                   </thead>
                                   <tbody>
@@ -1842,7 +1995,7 @@ export default function PurchaseOrdersView({
           </div>
         )}
 
-        {/* ==================== SCREEN 5: INVOICE ELIGIBILITY PAGE (MIRO PREFILLED VIEW) ==================== */}
+        {/* ==================== SCREEN 5: INVOICE PAGE (PREFILLED) ==================== */}
         {currentView === 'invoice_detail' && activeGrn && activePo && (
           <div className="space-y-6">
             <div className="flex items-center gap-2">
@@ -1862,19 +2015,19 @@ export default function PurchaseOrdersView({
                   <Check className="size-8" />
                 </div>
                 <div className="space-y-1">
-                  <h3 className="text-base font-bold text-text-primary">MIRO Invoice Posted Successfully</h3>
-                  <p className="text-xs text-text-secondary">BAPI_INCOMINGINVOICE_CREATE matched &amp; posted in SAP ledger</p>
+                  <h3 className="text-base font-bold text-text-primary">Invoice submitted</h3>
+                  <p className="text-xs text-text-secondary">Your invoice matched the order and delivery, and has been sent to your buyer</p>
                 </div>
 
                 <div className="p-3 bg-base border border-border rounded-lg text-xs font-mono font-bold text-text-secondary text-left space-y-1">
                   <p>PO Reference: {activePo.id}</p>
-                  <p>GRN Reference: {activeGrn.id}</p>
+                  <p>Delivery receipt: {activeGrn.id}</p>
                   <p>Invoice Doc Reference: {vendorInvoiceNo.toUpperCase()}</p>
-                  <p>SAP MIRO Doc: 510560{String(activeGrn?.id || '').split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % 9000 + 1000}</p>
+                  <p>Invoice reference: 510560{String(activeGrn?.id || '').split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % 9000 + 1000}</p>
                 </div>
 
                 <div className="p-3 bg-amber-500/10 border border-amber-200 rounded-lg text-[10px] text-amber-800 leading-normal font-semibold text-left">
-                  💳 The invoice is now posted. SAP payment run (F110 RTGS/NEFT batch) is simulated weekly. The invoice status will update to Paid within 12 seconds automatically.
+                  💳 Your invoice has been submitted. Your buyer runs payments weekly, and the status here updates to Paid once the money is released.
                 </div>
 
                 <div className="flex justify-center gap-3">
@@ -1904,9 +2057,9 @@ export default function PurchaseOrdersView({
                 <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-start gap-3">
                   <ShieldCheck className="size-5 text-emerald-600 shrink-0 mt-0.5" />
                   <div>
-                    <h4 className="font-bold text-emerald-800 text-xs uppercase tracking-wider">3-Way Match Verification Complete</h4>
+                    <h4 className="font-bold text-emerald-800 text-xs uppercase tracking-wider">Order, delivery and invoice all match</h4>
                     <p className="text-emerald-700 text-xs mt-1 leading-normal font-semibold">
-                      Purchase Order quantities, Unit prices, and Warehouse Goods Receipt (MIGO) accepted counts match perfectly. You are eligible to post MIRO billing for this receipt.
+                      The quantities and prices on the order match the quantities accepted on delivery. You can invoice this delivery now.
                     </p>
                   </div>
                 </div>
@@ -1929,7 +2082,7 @@ export default function PurchaseOrdersView({
                       <span className="font-mono font-bold text-text-secondary">{activePo.id}</span>
                     </div>
                     <div>
-                      <span className="text-[10px] text-text-tertiary font-bold uppercase block">GRN Document</span>
+                      <span className="text-[10px] text-text-tertiary font-bold uppercase block">Delivery receipt</span>
                       <span className="font-mono font-bold text-text-secondary">{activeGrn.id} (SAP MIGO: {activeGrn.sapMigoDoc})</span>
                     </div>
                     <div>
@@ -1955,7 +2108,7 @@ export default function PurchaseOrdersView({
                         <thead>
                           <tr>
                             <th>Line</th>
-                            <th>Material & Description</th>
+                            <th>Item & description</th>
                             <th className="text-right">Billed Qty</th>
                             <th className="text-right font-mono">Unit Price</th>
                             <th className="text-right">GST Tax</th>
@@ -2063,12 +2216,12 @@ export default function PurchaseOrdersView({
                               {isPostingInvoice ? (
                                 <>
                                   <RefreshCw className="size-3.5 animate-spin" />
-                                  <span>Verifying in SAP...</span>
+                                  <span>Checking your invoice...</span>
                                 </>
                               ) : (
                                 <>
                                   <FileCheck className="size-4" />
-                                  <span>Post MIRO Logistics Invoice</span>
+                                  <span>Submit invoice</span>
                                 </>
                               )}
                             </Button>
@@ -2170,6 +2323,73 @@ export default function PurchaseOrdersView({
             </div>
           </div>
         )}
+
+      {/* SAP PO LINE ITEM DETAIL — items + nested GRNs for one row of the
+          "All SAP Orders" ledger above (zpo_grn_vendor/Detail). */}
+      <Modal
+        open={!!sapPoDetail}
+        onClose={() => setSapPoDetail(null)}
+        title={`PO ${sapPoDetail?.poNumber || ''} — line items`}
+        className="max-w-3xl"
+        footer={<Button type="button" variant="outline" onClick={() => setSapPoDetail(null)}>Close</Button>}
+      >
+        {sapPoDetail && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div>
+                <span className="text-[9px] text-text-tertiary block font-bold uppercase">PO Date</span>
+                <span className="font-bold text-text-primary font-mono">{formatDate(sapPoDetail.poDate)}</span>
+              </div>
+              <div>
+                <span className="text-[9px] text-text-tertiary block font-bold uppercase">Buyer</span>
+                <span className="font-bold text-text-primary">{sapPoDetail.buyerName || '—'}</span>
+              </div>
+              <div>
+                <span className="text-[9px] text-text-tertiary block font-bold uppercase">Company Code</span>
+                <span className="font-bold text-text-primary font-mono">{sapPoDetail.companyCode || '—'}</span>
+              </div>
+              <div>
+                <span className="text-[9px] text-text-tertiary block font-bold uppercase">Net Amount</span>
+                <span className="font-bold text-text-primary font-mono">{sapPoDetail.currency || 'INR'} {(sapPoDetail.netAmount || 0).toLocaleString()}</span>
+              </div>
+            </div>
+
+            <div className="border border-border rounded-md overflow-x-auto custom-scrollbar max-h-[360px] overflow-y-auto">
+              <table className="w-full text-left border-collapse">
+                <thead className="sticky top-0 z-10 bg-surface2">
+                  <tr>
+                    <th>Item</th>
+                    <th>Material</th>
+                    <th className="text-right">Ordered</th>
+                    <th className="text-right">Received</th>
+                    <th className="text-right">Invoiced</th>
+                    <th className="text-right">Unit Price</th>
+                    <th className="text-right">Net Amount</th>
+                    <th>GR Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(sapPoDetail.items || []).map((item, idx) => (
+                    <tr key={`${item.itemNumber || idx}`}>
+                      <td className="font-mono font-bold text-text-tertiary">{item.itemNumber}</td>
+                      <td>
+                        <div className="font-mono font-bold text-text-primary whitespace-nowrap">{item.materialCode}</div>
+                        <div className="text-[10px] text-text-tertiary truncate max-w-[180px]">{item.description}</div>
+                      </td>
+                      <td className="text-right font-mono tabular-nums">{item.orderedQuantity ?? '—'} {item.uom}</td>
+                      <td className="text-right font-mono tabular-nums">{item.receivedQuantity ?? '—'}</td>
+                      <td className="text-right font-mono tabular-nums">{item.invoicedQuantity ?? '—'}</td>
+                      <td className="text-right font-mono tabular-nums">{(item.unitPrice ?? 0).toLocaleString()}</td>
+                      <td className="text-right font-mono tabular-nums">{(item.netAmount ?? 0).toLocaleString()}</td>
+                      <td className="text-[10px] font-semibold text-text-secondary whitespace-nowrap">{item.grStatus || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       </div>
     </ErrorBoundary>

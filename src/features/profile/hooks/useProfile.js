@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
-import { useShell } from '../../../lib/shell-context';
 import { hasOwnChrome } from '../../../lib/planes';
 import { profileService } from '../services/profileService';
 
@@ -17,12 +16,15 @@ const getOrGenerateVendorId = () => {
   return '';
 };
 
-const generateSapVendorCode = () => {
-  return `VND-400${Math.floor(1000 + Math.random() * 9000)}`;
-};
+// A vendor's own browser only ever asks for its own status; it cannot decide
+// it for itself. Approval is a client-admin action against the backend (see
+// backend/controllers/vendor.controller.js approveVendor) — the vendor master
+// is created in SAP only once that happens. So while the profile is awaiting
+// a decision, this hook polls the real profile rather than faking one.
+const AWAITING_DECISION_STATUSES = ['Pending Approval', 'Under Review'];
+const PENDING_POLL_MS = 10000;
 
 export function useProfile() {
-  const { addSapLog } = useShell();
   const [profile, setProfile] = useState({
     companyName: '',
     tradeName: '',
@@ -56,40 +58,50 @@ export function useProfile() {
 
   const pathname = usePathname();
 
+  const loadProfile = async () => {
+    if (typeof window === 'undefined') return;
+    const token = localStorage.getItem('jwt_token');
+    // The platform console and tenant workspace hold their own sessions and
+    // never a supplier profile — this hook has nothing to fetch there.
+    if (!token || hasOwnChrome(window.location.pathname)) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const data = await profileService.getProfile();
+      if (data) {
+        setProfile(data);
+        try {
+          localStorage.setItem('sap_vendor_profile_data', JSON.stringify(data));
+        } catch (e) {}
+      }
+    } catch (err) {
+      // Fallback to localStorage
+      try {
+        const saved = localStorage.getItem('sap_vendor_profile_data');
+        if (saved) {
+          setProfile(JSON.parse(saved));
+        }
+      } catch (e) {}
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Hydrate profile on mount or page transitions
   useEffect(() => {
-    async function loadProfile() {
-      if (typeof window === 'undefined') return;
-      const token = localStorage.getItem('jwt_token');
-      // The platform console and tenant workspace hold their own sessions and
-      // never a supplier profile — this hook has nothing to fetch there.
-      if (!token || hasOwnChrome(window.location.pathname)) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        const data = await profileService.getProfile();
-        if (data) {
-          setProfile(data);
-          try {
-            localStorage.setItem('sap_vendor_profile_data', JSON.stringify(data));
-          } catch (e) {}
-        }
-      } catch (err) {
-        // Fallback to localStorage
-        try {
-          const saved = localStorage.getItem('sap_vendor_profile_data');
-          if (saved) {
-            setProfile(JSON.parse(saved));
-          }
-        } catch (e) {}
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadProfile();
+    void (async () => { await loadProfile(); })();
   }, [pathname]);
+
+  // While a decision is pending, the client admin — not this browser — is the
+  // one who moves the vendor to Approved/Rejected (approveVendor/rejectVendor
+  // in the backend). Poll for that decision rather than assuming one.
+  useEffect(() => {
+    if (!AWAITING_DECISION_STATUSES.includes(profile.status)) return;
+    const interval = setInterval(loadProfile, PENDING_POLL_MS);
+    return () => clearInterval(interval);
+  }, [profile.status]);
 
   const persistLocally = (updated) => {
     try {
@@ -128,69 +140,16 @@ export function useProfile() {
     setProfile(updated);
     persistLocally(updated);
 
-    addSapLog(
-      'BAPI',
-      'BAPI_VENDOR_CREATE',
-      'OUTBOUND',
-      JSON.stringify({
-        I_GENERAL_DATA: {
-          NAME: profileData.companyName,
-          EMAIL: profileData.email,
-          TEL: profileData.phone,
-          TAX_NUMBER: profileData.gstin,
-          PAN: profileData.pan
-        },
-        I_BANK_DETAIL: {
-          BANK_NAME: profileData.bankName,
-          ACC_NUMBER: profileData.accountNumber,
-          IFSC: profileData.ifscCode
-        }
-      }),
-      'PENDING'
-    );
-
     try {
       await profileService.updateProfile(updated).catch(() => profileService.createProfile(updated));
       await profileService.submitRegistration(updated);
+      // The backend is the source of truth for status from here — it may
+      // already be 'Under Review' rather than 'Pending Approval', and the
+      // GSTIN/PAN check it runs happens synchronously with this call.
+      await loadProfile();
     } catch (err) {
       setError(err.message);
     }
-
-    // Auto-approve after 5s
-    setTimeout(() => {
-      approveRegistration();
-    }, 5000);
-  };
-
-  const approveRegistration = () => {
-    setProfile(prev => {
-      if (prev.status !== 'Pending Approval') return prev;
-
-      const sapVendorCode = generateSapVendorCode();
-      const updated = {
-        ...prev,
-        status: 'Approved',
-        sapVendorCode,
-        approvedAt: new Date().toISOString()
-      };
-
-      persistLocally(updated);
-
-      addSapLog(
-        'RFC',
-        'RFC_VENDOR_SYNC_REPLY',
-        'INBOUND',
-        JSON.stringify({
-          LIFNR: sapVendorCode,
-          NAME1: prev.companyName,
-          STATUS: 'ACTIVE',
-          SAP_MSG: 'Vendor Master synchronization completed successfully'
-        }),
-        'SUCCESS'
-      );
-
-      return updated;
-    });
   };
 
   return {
@@ -198,7 +157,6 @@ export function useProfile() {
     loading,
     error,
     saveDraft,
-    submitRegistration,
-    approveRegistration
+    submitRegistration
   };
 }

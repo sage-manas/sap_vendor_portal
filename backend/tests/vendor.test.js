@@ -1,6 +1,6 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
-const Vendor = require('../models/Vendor');
+const { prisma } = require('../db/prisma');
 const { baseVendor, registerVendor, createAdminUser, asTenant } = require('./helpers');
 
 const app = buildTestApp();
@@ -96,7 +96,7 @@ describe('registration approval flow', () => {
     const { vendor } = await registerVendor(app);
     const { token: adminToken } = await createAdminUser();
     const res = await request(app)
-      .put(`/api/vendors/${vendor._id}/approve`)
+      .put(`/api/vendors/${vendor.pk}/approve`)
       .set('Authorization', `Bearer ${adminToken}`);
 
     expect(res.status).toBe(200);
@@ -109,13 +109,13 @@ describe('registration approval flow', () => {
     const { token: adminToken } = await createAdminUser();
 
     const noReason = await request(app)
-      .put(`/api/vendors/${vendor._id}/reject`)
+      .put(`/api/vendors/${vendor.pk}/reject`)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({});
     expect(noReason.status).toBe(400);
 
     const rejected = await request(app)
-      .put(`/api/vendors/${vendor._id}/reject`)
+      .put(`/api/vendors/${vendor.pk}/reject`)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ reason: 'Incomplete documents' });
     expect(rejected.status).toBe(200);
@@ -132,12 +132,12 @@ describe('registration approval flow', () => {
     expect(list.status).toBe(403);
 
     const approve = await request(app)
-      .put(`/api/vendors/${vendor._id}/approve`)
+      .put(`/api/vendors/${vendor.pk}/approve`)
       .set('Authorization', `Bearer ${token}`);
     expect(approve.status).toBe(403);
 
     const reject = await request(app)
-      .put(`/api/vendors/${vendor._id}/reject`)
+      .put(`/api/vendors/${vendor.pk}/reject`)
       .set('Authorization', `Bearer ${token}`)
       .send({ reason: 'Some reason' });
     expect(reject.status).toBe(403);
@@ -148,13 +148,15 @@ describe('GET /api/vendors (admin list)', () => {
   it('filters by status and paginates', async () => {
     await registerVendor(app);
     const { token: adminToken } = await createAdminUser();
-    await asTenant(() => Vendor.create({
-      vendorId: 'vendor_approved_1',
-      companyName: 'Approved Co Ltd',
-      gstin: '07AABCA1111B1Z9',
-      pan: 'AABCA1111B',
-      email: 'approved@example.com',
-      status: 'Approved'
+    await asTenant(() => prisma.vendor.create({
+      data: {
+        vendorId: 'vendor_approved_1',
+        companyName: 'Approved Co Ltd',
+        gstin: '07AABCA1111B1Z9',
+        pan: 'AABCA1111B',
+        email: 'approved@example.com',
+        status: 'Approved'
+      },
     }));
 
     const res = await request(app)

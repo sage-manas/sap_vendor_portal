@@ -64,7 +64,7 @@ export default function Header() {
         </span>
         <span className="chip bg-surface2 text-text-secondary flex items-center gap-1">
           <span className="status-dot status-dot-active"></span>
-          ERP CONNECTED
+          CONNECTED
         </span>
         <span className="chip bg-surface2 text-text-secondary hidden lg:inline-flex">
           GST + TDS + MSME

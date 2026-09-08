@@ -9,10 +9,11 @@
  * promised before a real driver goes near a tenant's production traffic.
  *
  * `--client` reads the tenant's already-configured connection (needs
- * MONGO_URI); `--driver` builds a throwaway adapter from a config/secrets
- * file, the same shape the platform console's "test connection" sends, so a
- * design partner's sandbox can be pointed at directly with no tenant set up
- * first. `config.json` / `secrets.json` are plain objects, e.g. for s4_odata:
+ * DATABASE_URL, same as any other run of this app); `--driver` builds a
+ * throwaway adapter from a config/secrets file, the same shape the platform
+ * console's "test connection" sends, so a design partner's sandbox can be
+ * pointed at directly with no tenant set up first. `config.json` /
+ * `secrets.json` are plain objects, e.g. for s4_odata:
  *
  *   { "baseUrl": "https://my-s4-sandbox.example.com", "sapClient": "100" }
  *   { "username": "RFCUSER", "password": "..." }
@@ -25,21 +26,12 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const fs = require('fs');
-const mongoose = require('mongoose');
-
-// A conformance run against an unfinished driver produces mostly
-// not_implemented results, and each one still tries to write a SapLog entry.
-// Mongoose's default is to buffer that write and wait out a 10s timeout
-// before giving up when there is no live connection — turning an
-// instantaneous run into minutes. Disabling buffering makes an unconnected
-// write reject immediately instead, which recordSapCall already treats as a
-// non-fatal, logged failure.
-mongoose.set('bufferCommands', false);
 
 const { runConformanceSuite } = require('../sap/conformance/runner');
 const { getSapAdapterForClient, buildTransientAdapter } = require('../sap');
 const { DRIVER_KEYS } = require('../sap/drivers');
 const { METHOD_NAMES } = require('../sap/contract');
+const { rawPrisma } = require('../db/prisma');
 
 const args = process.argv.slice(2);
 const flag = (name) => {
@@ -71,19 +63,7 @@ async function main() {
     return;
   }
 
-  if (clientId && !process.env.MONGO_URI) throw new Error('MONGO_URI is required to look up a tenant connection');
-
-  // A --driver run works without a database — SapLog writes just fail fast
-  // and are reported as a logger warning, not a driver failure — but connect
-  // when a MONGO_URI is available so this run's SapLog entries land somewhere
-  // inspectable afterwards.
-  let connected = false;
-  if (process.env.MONGO_URI) {
-    await mongoose.connect(process.env.MONGO_URI);
-    connected = true;
-  } else {
-    console.log('No MONGO_URI — running without a database; SapLog writes for this run will not be persisted.');
-  }
+  if (clientId && !process.env.DATABASE_URL) throw new Error('DATABASE_URL is required to look up a tenant connection');
 
   const adapter = clientId
     ? await getSapAdapterForClient(clientId)
@@ -123,12 +103,12 @@ async function main() {
 
   console.log('Summary:', report.summary);
 
-  if (connected) await mongoose.disconnect();
-
   process.exitCode = report.summary.failed ? 1 : 0;
 }
 
-main().catch((error) => {
-  console.error('Conformance suite errored:', error);
-  process.exitCode = 1;
-});
+main()
+  .catch((error) => {
+    console.error('Conformance suite errored:', error);
+    process.exitCode = 1;
+  })
+  .finally(() => rawPrisma.$disconnect());

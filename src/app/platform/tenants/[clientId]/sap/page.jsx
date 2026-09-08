@@ -293,7 +293,7 @@ export default function TenantSapPage({ params }) {
             },
             { key: 'actorEmail', header: 'Who', render: (row) => <span className="mono text-text-secondary">{row.actorEmail || 'system'}</span> },
           ]}
-          rows={(trail.data?.entries || []).map((entry) => ({ ...entry, key: entry._id }))}
+          rows={(trail.data?.entries || []).map((entry) => ({ ...entry, key: entry.pk }))}
           empty="Nothing has been configured yet."
         />
       </section>

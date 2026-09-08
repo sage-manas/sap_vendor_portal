@@ -1,13 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useShell } from '../../../lib/shell-context';
 import { hasOwnChrome } from '../../../lib/planes';
 import { rfqService } from '../services/rfqService';
 
 export function useRFQs(profile) {
-  const { addSapLog } = useShell();
   const [rfqs, setRfqs] = useState([]);
+  const [sapRfqDocuments, setSapRfqDocuments] = useState(null);
+  const [sapQuotationDocuments, setSapQuotationDocuments] = useState(null);
 
   const persistLocally = (updated) => {
     try {
@@ -29,8 +29,30 @@ export function useRFQs(profile) {
     }
   };
 
+  const refreshSapRfqStatus = async () => {
+    if (typeof window !== 'undefined' && (!localStorage.getItem('jwt_token') || hasOwnChrome(window.location.pathname))) return;
+    try {
+      const data = await rfqService.getSapStatus();
+      if (data) setSapRfqDocuments(data.documents);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const refreshSapQuotations = async () => {
+    if (typeof window !== 'undefined' && (!localStorage.getItem('jwt_token') || hasOwnChrome(window.location.pathname))) return;
+    try {
+      const data = await rfqService.getSapQuotations();
+      if (data) setSapQuotationDocuments(data.documents);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   useEffect(() => {
-    refreshRFQs();
+    void (async () => {
+      await Promise.all([refreshRFQs(), refreshSapRfqStatus(), refreshSapQuotations()]);
+    })();
   }, [profile]);
 
   const submitBid = async (rfqId, unitPrices, leadTime, remarks, gstRate, validityDate, freight = 0, moq = 1, uploadedDocs = []) => {
@@ -48,6 +70,16 @@ export function useRFQs(profile) {
       await rfqService.submitBid(rfqId, bidData);
       await refreshRFQs();
       return { success: true };
+    } catch (e) {
+      console.error(e);
+      return { success: false, error: e.message };
+    }
+  };
+
+  const updateSapQuotationPrice = async (rfqId, sapRfqNumber, items) => {
+    try {
+      const res = await rfqService.updateSapQuotationPrice(rfqId, sapRfqNumber, items);
+      return { success: true, data: res };
     } catch (e) {
       console.error(e);
       return { success: false, error: e.message };
@@ -100,7 +132,10 @@ export function useRFQs(profile) {
 
   return {
     rfqs,
+    sapRfqDocuments,
+    sapQuotationDocuments,
     submitBid,
+    updateSapQuotationPrice,
     createRFQ,
     awardVendorBid,
     reissueRFQ,

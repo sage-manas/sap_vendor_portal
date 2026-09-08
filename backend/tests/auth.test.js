@@ -1,6 +1,6 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
-const Vendor = require('../models/Vendor');
+const { rawPrisma } = require('../db/prisma');
 const { asTenant } = require('./helpers');
 
 const app = buildTestApp();
@@ -37,7 +37,10 @@ describe('POST /api/auth/register', () => {
     expect(res.body.vendor.password).toBeUndefined();
 
     // Password must be stored hashed
-    const stored = await asTenant(() => Vendor.findOne({ vendorId: validRegistration.vendorId }).select('+password'));
+    const stored = await asTenant(() => rawPrisma.vendor.findFirst({
+      where: { vendorId: validRegistration.vendorId },
+      omit: { password: false },
+    }));
     expect(stored.password).not.toBe(validRegistration.password);
   });
 
