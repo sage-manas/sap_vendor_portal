@@ -1151,3 +1151,30 @@ model SapSchedule {
   @@index([enabled, nextRunAt])
   @@map("sap_schedules")
 }
+
+// ---------------------------------------------------------------------------
+// SapSyncCursor — per-(tenant, feed, vendor) watermark + response
+// fingerprint for the discovery sweeps (Phase 4 of
+// docs/04-sap-runtime-engineering-plan.md). NOT tenant-scoped, same reasoning
+// as SapJob/SapSchedule — see the note in db/tenantExtension.js.
+// ---------------------------------------------------------------------------
+
+model SapSyncCursor {
+  clientId    String
+  feed        String // 'po' | 'grn' | 'payment' | 'quotation' — jobs/sweeps.js FEEDS
+  vendorCode  String // LIFNR — the SAP vendor code a sweep polls by
+
+  watermark   DateTime?
+  // sha256 of the normalised (sorted keys, volatile fields stripped) last
+  // response body — jobs/fingerprint.js. Unchanged means: no parse, no diff,
+  // no writes, no events.
+  fingerprint String?
+  lastRunAt   DateTime?
+  // Consecutive sweeps in a row that changed nothing — what
+  // jobs/adaptivePolling.js promotes/demotes cadence on.
+  quietTicks  Int       @default(0)
+
+  @@id([clientId, feed, vendorCode])
+  @@index([clientId, feed])
+  @@map("sap_sync_cursors")
+}
