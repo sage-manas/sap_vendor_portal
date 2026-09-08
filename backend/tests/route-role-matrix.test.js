@@ -18,6 +18,7 @@ const {
 const PUBLIC_ROUTES = new Set([
   'GET /health',
   'GET /status',
+  'GET /meta/sap-fields',
   'GET /test-error',
   'GET /auth/workspace',
   'POST /auth/register',

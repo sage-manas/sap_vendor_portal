@@ -2,6 +2,7 @@ const { notImplementedDriver, assertImplements } = require('../contract');
 const logger = require('../../utils/logger');
 const { buildVendorCreatePayload } = require('../mappings/vendor-create.map');
 const { matchInvoiceDocument } = require('../mappings/invoice-match');
+const { decodeFromSap } = require('../mappings/fields');
 
 // S/4HANA via the OData APIs (API_BUSINESS_PARTNER, API_PURCHASEORDER_PROCESS_SRV,
 // API_INBOUND_DELIVERY_SRV, API_MATERIAL_DOCUMENT_SRV, API_SUPPLIERINVOICE_PROCESS_SRV, …).
@@ -799,7 +800,14 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
               orderedQuantity: Number(item.ORDERED_QUANTITY),
               receivedQuantity: Number(item.RECEIVED_QUANTITY),
               invoicedQuantity: Number(item.INVOICED_QUANTITY),
-              uom: item.UOM,
+              // decodeFromSap('MEINS', ...) is a display decode (falls back to
+              // the raw SAP code rather than throwing on an unmapped unit) —
+              // this is a read, and failing a whole PO/GRN listing over one
+              // unfamiliar unit code would be worse than showing it verbatim.
+              // What it must never do is silently become a *different* real
+              // unit — see the fixed default a few lines below in
+              // awaitGoodsReceipt for the bug this replaced.
+              uom: decodeFromSap('MEINS', item.UOM),
               unitPrice: Number(item.UNIT_PRICE),
               netAmount: Number(item.NET_AMOUNT),
               grossAmount: Number(item.GROSS_AMOUNT),
@@ -1143,7 +1151,13 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
         return {
           line: asnItem.line, materialCode: orderItem.materialCode, description: orderItem.description,
           receivedQuantity: received, acceptedQuantity: received, rejectedQuantity: 0,
-          uom: orderItem.uom || 'EA',
+          // No `|| 'EA'` default (sap/mappings/fields.js, Phase 2 of
+          // docs/04-sap-runtime-engineering-plan.md): vendorPoGrnDisplay
+          // already decoded this through MEINS, so it is SAP's real unit or
+          // the raw code verbatim — never a guess. Silently substituting
+          // "Each" for a unit we didn't recognise is exactly how a carton
+          // becomes a piece in a buyer's ledger.
+          uom: orderItem.uom,
         };
       });
 

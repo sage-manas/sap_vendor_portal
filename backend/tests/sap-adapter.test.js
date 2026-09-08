@@ -360,6 +360,71 @@ describe('the mock driver', () => {
   });
 });
 
+describe('the SAP field codec (sap/mappings/fields.js, applied by the wrapper)', () => {
+  it('a method declared with `fields` receives encoded args, not what the caller passed', async () => {
+    // vendorMiroDisplay declares { 'vendor.sapVendorCode': 'LIFNR' } in
+    // contract.js. Patch the driver registry's own `create` (what
+    // sap/index.js's buildAdapter actually calls) so the built driver's
+    // vendorMiroDisplay records exactly what args it received, then restore
+    // it — this mutates the shared DRIVERS singleton, so other tests must
+    // see it put back regardless of outcome.
+    const { DRIVERS } = require('../sap/drivers');
+    const originalCreate = DRIVERS.mock.create;
+    let capturedArgs = null;
+
+    DRIVERS.mock.create = (opts) => {
+      const driver = originalCreate(opts);
+      const originalMethod = driver.vendorMiroDisplay;
+      driver.vendorMiroDisplay = (args) => {
+        capturedArgs = args;
+        return originalMethod(args);
+      };
+      return driver;
+    };
+
+    try {
+      const adapter = buildTransientAdapter({ clientId: 'CLT-0001', driver: 'mock', config: {}, secrets: {} });
+      await runWithTenant('CLT-0001', () => adapter.vendorMiroDisplay({
+        vendor: { sapVendorCode: '10423' },
+        invoices: [],
+      }));
+    } finally {
+      DRIVERS.mock.create = originalCreate;
+    }
+
+    expect(capturedArgs.vendor.sapVendorCode).toBe('0000010423');
+  });
+
+  it('rejects an over-length LIFNR (which is never truncated) before the driver is called', async () => {
+    const adapter = buildTransientAdapter({ clientId: 'CLT-0001', driver: 'mock', config: {}, secrets: {} });
+
+    await expect(runWithTenant('CLT-0001', () => adapter.vendorMiroDisplay({
+      vendor: { sapVendorCode: '1'.repeat(11) }, // 11 digits — exceeds LIFNR's 10-char max
+      invoices: [],
+    }))).rejects.toMatchObject({ code: 'sap_field_invalid' });
+  });
+
+  it('a SapFieldError does not increment the circuit breaker\'s failure count', async () => {
+    const adapter = buildTransientAdapter({ clientId: 'CLT-0001', driver: 'mock', config: {}, secrets: {} });
+
+    await expect(runWithTenant('CLT-0001', () => adapter.vendorMiroDisplay({
+      vendor: { sapVendorCode: '1'.repeat(11) },
+      invoices: [],
+    }))).rejects.toMatchObject({ code: 'sap_field_invalid' });
+
+    expect(adapter.circuit().failures).toBe(0);
+  });
+
+  it('an unmapped unit of measure rejects with a message an operator can act on', async () => {
+    // The mock driver's own methods never carry a MEINS-declared field today
+    // (contract.js only declares LIFNR/EBELN fields — see its comments), so
+    // this exercises the registry directly, the same way a future write
+    // would reach it via applyFieldEncoding.
+    const { encodeForSap, SapFieldError } = require('../sap/mappings/fields');
+    expect(() => encodeForSap('MEINS', 'Cartons')).toThrow(SapFieldError);
+  });
+});
+
 describe('s4_odata vendorCreate (VENDOR_CR)', () => {
   it('is a plain POST built from the mapping table, and fails honestly with no reachable gateway', async () => {
     const adapter = buildTransientAdapter({

@@ -52,7 +52,7 @@ const SAP_METHODS = {
   // What SAP itself has posted (MIRO) for a vendor — a read against SAP's own
   // records, used to cross-check our internal Invoice/Payment tracking rather
   // than to drive it. Read-only, so not logged like a business transaction.
-  vendorMiroDisplay: { transaction: null, logged: false },
+  vendorMiroDisplay: { transaction: null, logged: false, fields: { 'vendor.sapVendorCode': 'LIFNR' } },
 
   // Clearing/payment detail for one specific MIRO document (belnr+gjahr) —
   // the natural follow-up read once vendorMiroDisplay has told us which
@@ -63,20 +63,20 @@ const SAP_METHODS = {
   // Tracking tab. Keyed on the vendor code alone, so unlike
   // invoicePaymentDetail it does not need to be told which documents to ask
   // about. Read-only, so not logged like a business transaction.
-  vendorPaymentDisplay: { transaction: null, logged: false },
+  vendorPaymentDisplay: { transaction: null, logged: false, fields: { 'vendor.sapVendorCode': 'LIFNR' } },
 
   // What SAP itself has issued (ME43 Display RFQ) to a vendor. Same family as
   // vendorMiroDisplay: a read against SAP's own records for cross-check, not
   // a correlation to our internal RFQ ids — this app's RFQ documents don't
   // carry an SAP RFQ number (sourcing is portal-internal — see below),
   // so this is shown as SAP's own ledger, not matched line-by-line.
-  vendorRfqDisplay: { transaction: null, logged: false },
+  vendorRfqDisplay: { transaction: null, logged: false, fields: { 'vendor.sapVendorCode': 'LIFNR' } },
 
   // Every PO SAP has for a vendor, with line items and GRNs nested in —
   // fetched by vendor code directly. This is how purchase orders reach the
   // portal: read from SAP, never created here. Read-only, so not logged like a
   // business transaction.
-  vendorPoGrnDisplay: { transaction: null, logged: false },
+  vendorPoGrnDisplay: { transaction: null, logged: false, fields: { 'vendor.sapVendorCode': 'LIFNR' } },
 
   // Every purchasing document SAP holds against a vendor code (ME48 Display
   // Quotation). Same read-only cross-check family as vendorRfqDisplay, but
@@ -85,7 +85,7 @@ const SAP_METHODS = {
   // 45xxxxxxx range as well as the 6xxxxxxx quotation/RFQ documents ME43
   // returns — with no document-category filter. Surfaced as what it is, a
   // purchasing-document ledger, rather than mislabelled "quotations".
-  vendorQuotationDisplay: { transaction: null, logged: false },
+  vendorQuotationDisplay: { transaction: null, logged: false, fields: { 'vendor.sapVendorCode': 'LIFNR' } },
 
   // Sourcing is portal-internal, with one confirmed exception.
   //
@@ -111,7 +111,7 @@ const SAP_METHODS = {
   // with no SAP number, and real orders are read from SAP via
   // vendorPoGrnDisplay. Acknowledgement is the one thing a supplier tells SAP
   // about an order, and it is a change to a document SAP already owns.
-  poAcknowledge:     { transaction: 'PO_ACKNOWLEDGE' },
+  poAcknowledge:     { transaction: 'PO_ACKNOWLEDGE', fields: { 'po.sapPoNumber': 'EBELN' } },
 
   // Invoicing plans (ME22N → item → Invoicing Plan; tables FPLA/FPLT).
   //
@@ -133,8 +133,8 @@ const SAP_METHODS = {
   // PO — see the note on it in s4odata.driver.js for what that changes).
   // poInvoicePlanUpdate has not been run against a live system yet; its path
   // and field names in s4odata.driver.js remain a provisional guess.
-  poInvoicePlanDisplay: { transaction: null, logged: false },
-  poInvoicePlanUpdate:  { transaction: 'PO_INVOICE_PLAN_UPDATE' },
+  poInvoicePlanDisplay: { transaction: null, logged: false, fields: { 'po.sapPoNumber': 'EBELN' } },
+  poInvoicePlanUpdate:  { transaction: 'PO_INVOICE_PLAN_UPDATE', fields: { 'po.sapPoNumber': 'EBELN' } },
 
   // Delivery and goods receipt.
   //
@@ -142,7 +142,7 @@ const SAP_METHODS = {
   // into SAP. A supplier's dispatch notice is recorded here and the goods
   // receipt is discovered by polling SAP's own PO/GRN ledger, matched on the
   // purchase order number rather than on a delivery document we issued.
-  awaitGoodsReceipt: { transaction: 'GOODS_RECEIPT', deferred: true },
+  awaitGoodsReceipt: { transaction: 'GOODS_RECEIPT', deferred: true, fields: { 'po.sapPoNumber': 'EBELN' } },
 
   // Invoice and payment.
   //
@@ -152,7 +152,7 @@ const SAP_METHODS = {
   // in SAP on their own schedule; awaitPaymentRun finds the document SAP
   // actually holds (matched on invoice number, PO and amount) and follows it to
   // its payment. Nothing here mints a document number.
-  awaitPaymentRun:   { transaction: 'PAYMENT_RUN', deferred: true },
+  awaitPaymentRun:   { transaction: 'PAYMENT_RUN', deferred: true, fields: { 'vendor.sapVendorCode': 'LIFNR', 'invoice.sapPoNumber': 'EBELN' } },
 };
 
 const METHOD_NAMES = Object.keys(SAP_METHODS);

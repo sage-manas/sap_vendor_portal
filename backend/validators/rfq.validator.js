@@ -1,9 +1,10 @@
 const { z } = require('zod');
+const { SAP_FIELDS } = require('../sap/mappings/fields');
 
 const rfqItemSchema = z.object({
   line: z.coerce.number().int().positive(),
-  materialCode: z.string().min(1),
-  description: z.string().optional(),
+  materialCode: z.string().min(1).max(SAP_FIELDS.MATNR.max),
+  description: z.string().max(SAP_FIELDS.TXZ01.max).optional(),
   quantity: z.coerce.number().positive(),
   uom: z.string().optional(),
   targetPrice: z.coerce.number().positive().optional(),

@@ -1,10 +1,11 @@
 const { z } = require('zod');
+const { SAP_FIELDS } = require('../sap/mappings/fields');
 
 const asnItemSchema = z.object({
   line: z.coerce.number().int().positive(),
   shippedQuantity: z.coerce.number().positive(),
-  materialCode: z.string().optional(),
-  description: z.string().optional(),
+  materialCode: z.string().max(SAP_FIELDS.MATNR.max).optional(),
+  description: z.string().max(SAP_FIELDS.TXZ01.max).optional(),
   uom: z.string().optional()
 });
 
