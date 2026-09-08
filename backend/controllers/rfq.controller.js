@@ -611,6 +611,12 @@ const awardBid = asyncHandler(async (req, res, next) => {
       data: {
         id: poId,
         sapPoNumber: null,
+        // A PO always needs matching against SAP's own ledger, unlike an RFQ
+        // (portal-internal by design — see the note on RFQ.sapSyncState in
+        // schema.prisma) — Phase 3 of docs/04-sap-runtime-engineering-plan.md.
+        // getSapPoStatus (po.controller.js) flips this to `synced` the moment
+        // vendorPoGrnDisplay correlates it.
+        sapSyncState: 'pending',
         vendorId,
         vendorPk: vendor ? vendor.pk : winningBid.vendorPk,
         buyerName: 'SAP System Procurement',

@@ -61,4 +61,19 @@ const reapStale = () => withoutTenantScope(() => rawPrisma.sapJob.updateMany({
   data: { status: 'pending', lockedBy: null, lockedAt: null },
 }));
 
-module.exports = { enqueue, claim, release, reapStale, LEASE_MS };
+// Resets an abandoned/failed job back to pending, as if it had never been
+// attempted — the operator-facing retry, shared by the platform jobs board
+// (an operator picks a job directly) and the reconciliation queue (an
+// operator picks a document, which resolves to the job watching it). Returns
+// null if the pk doesn't exist, so callers can 404 rather than upsert one
+// into existence.
+const retryByPk = async (pk) => {
+  const existing = await withoutTenantScope(() => rawPrisma.sapJob.findUnique({ where: { pk } }));
+  if (!existing) return null;
+  return withoutTenantScope(() => rawPrisma.sapJob.update({
+    where: { pk },
+    data: { status: 'pending', runAt: new Date(), attempts: 0, lastError: null, lockedBy: null, lockedAt: null },
+  }));
+};
+
+module.exports = { enqueue, claim, release, reapStale, retryByPk, LEASE_MS };

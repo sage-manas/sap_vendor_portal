@@ -40,6 +40,12 @@ export const PLATFORM_NAV = [
     description: 'Everything that happened, and who did it',
     permission: 'platform:audit:read',
   },
+  {
+    href: '/platform/reconciliation',
+    label: 'Reconciliation',
+    description: 'Documents SAP hasn’t confirmed, failed or given up on',
+    permission: 'platform:health:read',
+  },
 ];
 
 export const navFor = (permissions = []) =>

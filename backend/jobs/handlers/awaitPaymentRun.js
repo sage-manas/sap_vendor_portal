@@ -4,6 +4,7 @@ const { INVOICE_INCLUDE, formatInvoice } = require('../../db/invoiceHelpers');
 const { EVENTS } = require('../../utils/socketEmitter');
 const { notifyVendor } = require('../notify');
 const { fiscalPeriodOf } = require('../../utils/fiscalPeriod');
+const { markSynced } = require('../syncState');
 
 // Persists SAP's payment clearing once the driver finds one — moved here,
 // unchanged, from controllers/invoice.controller.js's `schedulePaymentRun`
@@ -77,6 +78,12 @@ module.exports = async ({ job, adapter }) => {
             deducteePan: remittance.deducteePan,
             deductorTan: remittance.deductorTan,
             totalTds: remittance.tdsDeducted,
+            // Dual identity / sync state (Phase 3): a Payment, like a GRN, is
+            // only ever created *from* a found SAP clearing, so it starts
+            // life already synced.
+            sapDocNumber: remittance.sapPaymentDoc,
+            sapSyncState: 'synced',
+            sapSyncedAt: new Date(),
           },
         });
 
@@ -112,6 +119,11 @@ module.exports = async ({ job, adapter }) => {
       });
 
       if (!result) return null;
+
+      // Dual identity / sync state (Phase 3): the invoice itself moves
+      // pending -> synced the moment its payment clears. `result.payment`
+      // already carries the resolved sapMiroDoc from inside the transaction.
+      await markSynced('awaitPaymentRun', { invoiceId: invoice.id }, result.payment.sapMiroDoc);
 
       notifyVendor(job.clientId, result.vendorId, EVENTS.PAYMENT_CLEARED, result.payment);
 

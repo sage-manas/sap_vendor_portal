@@ -11,6 +11,7 @@ const { INVOICE_INCLUDE, formatInvoice } = require('../db/invoiceHelpers');
 const { createWithUniqueId } = require('../utils/createWithUniqueId');
 const { formatPayment } = require('../db/paymentHelpers');
 const { enqueue } = require('../jobs/queue');
+const { markPending } = require('../jobs/syncState');
 
 // A random 6-digit suffix on a per-tenant-unique id — see createWithUniqueId's
 // header for why this needs a retry rather than a plain `create`.
@@ -23,12 +24,16 @@ const genInvoiceId = () => 'INV-' + Math.floor(100000 + Math.random() * 900000);
 // to run inline here as `schedulePaymentRun`, calling `sap.awaitPaymentRun`
 // directly with an in-request closure — see docs/04-sap-runtime-engineering-plan.md
 // Phase 1.6 for why that moved to the job runtime).
-const scheduleAwaitPaymentRun = ({ invoice, po, vendorId, clientId }) => enqueue({
-  clientId,
-  kind: 'awaitPaymentRun',
-  dedupeKey: `awaitPaymentRun:${clientId}:${invoice.id}`,
-  args: { invoiceId: invoice.id, poId: po.id, vendorId },
-});
+const scheduleAwaitPaymentRun = async ({ invoice, po, vendorId, clientId }) => {
+  await enqueue({
+    clientId,
+    kind: 'awaitPaymentRun',
+    dedupeKey: `awaitPaymentRun:${clientId}:${invoice.id}`,
+    args: { invoiceId: invoice.id, poId: po.id, vendorId },
+  });
+  // Dual identity / sync state (Phase 3).
+  await markPending('awaitPaymentRun', { invoiceId: invoice.id });
+};
 
 // @desc    Get Invoices
 // @route   GET /api/invoices

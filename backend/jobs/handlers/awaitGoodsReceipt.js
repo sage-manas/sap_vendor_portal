@@ -2,6 +2,7 @@ const { prisma } = require('../../db/prisma');
 const { PO_INCLUDE, formatPo } = require('../../db/poHelpers');
 const { EVENTS } = require('../../utils/socketEmitter');
 const { notifyVendor } = require('../notify');
+const { markSynced } = require('../syncState');
 
 // Persists SAP's goods receipt once the driver finds one — moved here,
 // unchanged, from the closure controllers/po.controller.js's submitASN used
@@ -48,6 +49,12 @@ module.exports = async ({ job, adapter }) => {
             postingDate: receipt.postingDate,
             receivedBy: receipt.receivedBy,
             invoiceSubmitted: false,
+            // Dual identity / sync state (Phase 3): a GRN is only ever
+            // created *from* a found SAP goods receipt, so it starts life
+            // already synced — there is no "local" or "pending" GRN.
+            sapDocNumber: receipt.sapMigoDoc,
+            sapSyncState: 'synced',
+            sapSyncedAt: new Date(),
             items: { create: receipt.items.map((item) => ({ clientId: job.clientId, ...item })) },
           },
           include: { items: true },
@@ -70,6 +77,10 @@ module.exports = async ({ job, adapter }) => {
       });
 
       if (!grn) return null;
+
+      // Dual identity / sync state (Phase 3): the ASN itself moves
+      // pending -> synced the moment its GRN lands.
+      await markSynced('awaitGoodsReceipt', { asnId: asn.id }, receipt.sapMigoDoc);
 
       notifyVendor(job.clientId, asn.vendorId, EVENTS.GRN_RECEIVED, grn);
 
