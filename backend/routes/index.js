@@ -43,6 +43,11 @@ router.get('/test-error', (req, res, next) => {
 // deliberately anonymous (aggregate counts, never a tenant name or clientId).
 router.get('/status', require('../controllers/status.controller').status);
 
+// SAP field limits/unit catalogue, read from sap/mappings/fields.js — not
+// sensitive, so public rather than gated behind `protect` (Phase 2 of
+// docs/04-sap-runtime-engineering-plan.md).
+router.get('/meta/sap-fields', require('../controllers/meta.controller').getSapFields);
+
 // Auth routes. The public arms establish identity; /me and /change-password
 // carry their own guard.
 router.use('/auth', require('./auth.routes'));

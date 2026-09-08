@@ -7,6 +7,7 @@ const { SAP_METHODS, METHOD_NAMES, SapDriverError } = require('./contract');
 const { transaction: transactionFor } = require('../config/sapTransactions');
 const { driverDefinition, DEFAULT_DRIVER } = require('./drivers');
 const { createCircuitBreaker } = require('./circuitBreaker');
+const { applyFieldEncoding } = require('./mappings/fields');
 
 // `getSapAdapterForClient(clientId)` — the only way anything in this codebase
 // talks to SAP.
@@ -52,10 +53,16 @@ const stamp = (data, driverName, method) => {
 
 const wrapImmediate = (driverName, method, fn, breaker) => async (args = {}) => {
   const spec = SAP_METHODS[method];
+  // Encoded — and, on a SapFieldError, thrown — before the breaker ever sees
+  // this call: a value that fails LIFNR/MATNR/EBELN/... encoding is our own
+  // bug or bad data, not SAP being down, and must never count against the
+  // breaker or be written up as a failed SAP call (see catch block below,
+  // which never runs for this).
+  const encodedArgs = applyFieldEncoding(spec.fields, args);
 
   let result;
   try {
-    result = await breaker.run(() => fn(args));
+    result = await breaker.run(() => fn(encodedArgs));
   } catch (error) {
     // A failed call still belongs in the tenant's SAP log — a log that only
     // records successes is the one you cannot debug with.
@@ -86,8 +93,13 @@ const wrapImmediate = (driverName, method, fn, breaker) => async (args = {}) => 
 
 const wrapDeferred = (driverName, method, fn, breaker, clientId) => (args = {}, handler) => {
   const spec = SAP_METHODS[method];
+  // Same encode-before-the-driver-sees-it rule as wrapImmediate. Thrown here,
+  // a SapFieldError propagates straight to the caller (the job handler),
+  // never reaching fn() — so, same as above, it can't trip the breaker or be
+  // logged as a failed SAP call.
+  const encodedArgs = applyFieldEncoding(spec.fields, args);
 
-  return fn(args, async (answer) => {
+  return fn(encodedArgs, async (answer) => {
     // The timer fired outside any request, so the tenant has to be re-bound
     // before a single query runs. This is the one place that happens now;
     // before Phase 4 it was three `runWithTenant` calls in three controllers.
