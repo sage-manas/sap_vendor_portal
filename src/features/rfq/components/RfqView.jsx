@@ -19,6 +19,7 @@ import EmptyState from '@/components/ui/EmptyState';
 import Modal from '@/components/ui/Modal';
 import { rfqStatusVariant } from '@/lib/statusColors';
 import { mergeSapDocuments, countByType, commonPurchasingOrg } from '@/lib/sapDocuments';
+import { rfqService } from '../services/rfqService';
 
 const formatDate = (dateStr) => {
   if (!dateStr) return '';
@@ -161,6 +162,22 @@ export default function RfqView({
 
   const [isLoading, setIsLoading] = useState(false);
   const [tabLoading, setTabLoading] = useState(false);
+
+  // The export bridge (Phase 5.2): downloads the awarded PO as a file for
+  // the buyer's own MM team to import into SAP on their own schedule — not
+  // a live SAP write. `exportingFormat` tracks which of the four buttons is
+  // in flight so only that one shows a spinner.
+  const [exportingFormat, setExportingFormat] = useState(null);
+  const handleExportPo = async (rfqId, format) => {
+    setExportingFormat(format);
+    try {
+      await rfqService.downloadPoExport(rfqId, format);
+    } catch (err) {
+      addToast('error', err.message || 'Failed to export purchase order.');
+    } finally {
+      setExportingFormat(null);
+    }
+  };
 
   // Submit Quotation form states
   const [quoteForm, setQuoteForm] = useState(getInitialQuoteForm);
@@ -610,14 +627,35 @@ export default function RfqView({
                     </FormSection>
 
                     <div className="flex justify-between items-center pt-3 border-t border-border text-xs text-text-secondary">
-                      <p className="font-semibold">
+                      <p className="font-semibold flex items-center gap-1.5">
                         Delivery Location: {activeRfq.deliveryLocation}
+                        <span
+                          className="text-text-tertiary font-normal cursor-help"
+                          title="Sourcing (RFQs, bids, awards) is managed in VendorConnect. SAP has no inbound API for issuing an RFQ or capturing a bid, so this stays portal-internal — optionally reconciled against SAP once the resulting PO is matched (see the ledger tab)."
+                        >
+                          &middot; managed in VendorConnect
+                        </span>
                       </p>
-                      <div>
+                      <div className="flex items-center gap-2">
                         {activeRfq.status === 'Awarded' && (
-                          <span className="font-mono text-[10px] text-green-700 bg-green-50 border border-green-200 px-2.5 py-1 rounded font-bold">
-                            Awarded to {activeRfq.awardedVendorName || 'Synced Vendor'}
-                          </span>
+                          <>
+                            <span className="font-mono text-[10px] text-green-700 bg-green-50 border border-green-200 px-2.5 py-1 rounded font-bold">
+                              Awarded to {activeRfq.awardedVendorName || 'Synced Vendor'}
+                            </span>
+                            <div className="flex items-center gap-1" title="Download the PO for your buyer's SAP team to import — a file, not a live sync.">
+                              {['csv', 'xlsx', 'json', 'idoc'].map((format) => (
+                                <button
+                                  key={format}
+                                  type="button"
+                                  disabled={exportingFormat !== null}
+                                  onClick={() => handleExportPo(activeRfq.id, format)}
+                                  className="font-mono text-[10px] uppercase text-text-secondary bg-surface2/50 border border-border px-2 py-1 rounded font-bold hover:bg-surface2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  {exportingFormat === format ? <Loader2 className="size-3 animate-spin" /> : format}
+                                </button>
+                              ))}
+                            </div>
+                          </>
                         )}
                       </div>
                     </div>

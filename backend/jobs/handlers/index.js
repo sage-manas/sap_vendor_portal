@@ -12,6 +12,12 @@
 const HANDLERS = {
   awaitGoodsReceipt: require('./awaitGoodsReceipt'),
   awaitPaymentRun: require('./awaitPaymentRun'),
+  // Discovery sweeps (Phase 4) — recurring; see the note on `recurring` in
+  // jobs/kinds.js for how their job-runtime lifecycle differs from the two
+  // targeted watches above.
+  sweepPurchaseOrders: require('./sweepPurchaseOrders'),
+  sweepPayments: require('./sweepPayments'),
+  sweepQuotations: require('./sweepQuotations'),
 };
 
 const handlerFor = (kind) => {

@@ -26,7 +26,9 @@ const {
 // the WHERE clause), then bind the tenant with runWithTenant() immediately
 // after claiming. Adding either here makes claim() throw
 // MissingTenantContextError and the worker never runs — do not "fix" that by
-// adding them to this set.
+// adding them to this set. SapSyncCursor (jobs/sweeps.js, Phase 4) is absent
+// for the same reason — a sweep job binds its tenant the same way, and reads
+// its cursor row with withoutTenantScope() from inside that binding.
 const TENANT_SCOPED_MODELS = new Set([
   'Vendor',
   'User',

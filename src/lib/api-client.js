@@ -87,5 +87,29 @@ export const apiClient = {
 
   delete(endpoint, headers = {}) {
     return this.request(endpoint, { method: 'DELETE', headers });
+  },
+
+  /**
+   * For an endpoint that answers with a file (Content-Disposition: attachment)
+   * rather than JSON — request()'s unconditional response.json() can't read
+   * that. Returns the blob plus the filename the server chose, so the caller
+   * only has to trigger the save.
+   */
+  async getBlob(endpoint) {
+    const headers = {};
+    if (typeof window !== 'undefined') {
+      const token = localStorage.getItem('jwt_token');
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${BASE_URL}${endpoint}`, { method: 'GET', headers });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Request failed with status ${response.status}`);
+    }
+
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="([^"]+)"/);
+    return { blob: await response.blob(), filename: match ? match[1] : 'export' };
   }
 };
