@@ -53,5 +53,23 @@ export const rfqService = {
    */
   async updateSapQuotationPrice(rfqId, sapRfqNumber, items) {
     return apiClient.post(`/rfqs/${rfqId}/sap-quote-price`, { sapRfqNumber, items });
+  },
+
+  /**
+   * The export bridge (Phase 5.2): a downloadable file for the awarded PO —
+   * csv | xlsx | json | idoc — for the buyer's own team to import into SAP
+   * on their own schedule. Not a live SAP write.
+   */
+  async downloadPoExport(rfqId, format = 'csv') {
+    const { blob, filename } = await apiClient.getBlob(`/rfqs/${rfqId}/export?format=${format}`);
+    if (typeof window === 'undefined') return;
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
   }
 };

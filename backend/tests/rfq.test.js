@@ -312,6 +312,73 @@ describe('POST /api/rfqs/:id/award', () => {
   });
 });
 
+describe('GET /api/rfqs/:id/export (Phase 5.2 export bridge)', () => {
+  const awardedRfq = async () => {
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload())).body;
+    await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bidPayload());
+    const award = await asBuyer(request(app).post(`/api/rfqs/${rfq.id}/award`)).send({ vendorId: 'vendor_test_001' });
+    return { rfq, po: award.body.po };
+  };
+
+  it('rejects an export before the RFQ has been awarded', async () => {
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload())).body;
+    const res = await asBuyer(request(app).get(`/api/rfqs/${rfq.id}/export`));
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects an unsupported format', async () => {
+    const { rfq } = await awardedRfq();
+    const res = await asBuyer(request(app).get(`/api/rfqs/${rfq.id}/export?format=pdf`));
+    expect(res.status).toBe(400);
+  });
+
+  it('defaults to CSV with one row per PO line, headers repeated', async () => {
+    const { rfq, po } = await awardedRfq();
+    const res = await asBuyer(request(app).get(`/api/rfqs/${rfq.id}/export`));
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/csv/);
+    expect(res.headers['content-disposition']).toBe(`attachment; filename="${po.id}.csv"`);
+    const rows = res.text.trim().split('\r\n');
+    expect(rows).toHaveLength(3); // header + 2 PO lines
+    expect(rows[1]).toContain(po.id);
+    expect(rows[1]).toContain('11.5');
+  });
+
+  it('exports structured JSON with the same PO/line data', async () => {
+    const { rfq, po } = await awardedRfq();
+    const res = await asBuyer(request(app).get(`/api/rfqs/${rfq.id}/export?format=json`));
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/application\/json/);
+    const body = JSON.parse(res.text);
+    expect(body.poId).toBe(po.id);
+    expect(body.items).toHaveLength(2);
+    expect(body.items[0].unitPrice).toBe(11.5);
+  });
+
+  it('exports a SpreadsheetML workbook Excel can open, with header and line-item sheets', async () => {
+    const { rfq, po } = await awardedRfq();
+    const res = await asBuyer(request(app).get(`/api/rfqs/${rfq.id}/export?format=xlsx`));
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-disposition']).toBe(`attachment; filename="${po.id}.xls"`);
+    expect(res.text).toContain('ss:Name="PO Header"');
+    expect(res.text).toContain('ss:Name="Line Items"');
+    expect(res.text).toContain(po.id);
+  });
+
+  it('exports an ORDERS05-shaped IDoc flat file with one E1EDP01 segment per line', async () => {
+    const { rfq, po } = await awardedRfq();
+    const res = await asBuyer(request(app).get(`/api/rfqs/${rfq.id}/export?format=idoc`));
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('ORDERS05');
+    expect(res.text).toContain(po.id);
+    expect(res.text.match(/E1EDP01/g)).toHaveLength(2); // one per PO line
+  });
+});
+
 describe('cancel and reissue', () => {
   it('cancel closes the RFQ', async () => {
     const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload())).body;

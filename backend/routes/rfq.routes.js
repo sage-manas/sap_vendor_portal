@@ -10,7 +10,8 @@ const {
   awardBid,
   getSapRfqStatus,
   getSapQuotationStatus,
-  updateSapQuotationPrice
+  updateSapQuotationPrice,
+  exportAwardedPo
 } = require('../controllers/rfq.controller');
 
 const validate = require('../middleware/validate');
@@ -35,5 +36,6 @@ router.post('/:id/bid', requirePermission(PERMISSIONS.RFQ_BID), validate(bidSche
 router.post('/:id/sap-quote-price', requirePermission(PERMISSIONS.RFQ_BID), validate(quotationPriceUpdateSchema), updateSapQuotationPrice);
 router.get('/:id/evaluate', requirePermission(PERMISSIONS.RFQ_EVALUATE), getEvaluationMatrix);
 router.post('/:id/award', requirePermission(PERMISSIONS.RFQ_AWARD), awardBid);
+router.get('/:id/export', requirePermission(PERMISSIONS.RFQ_READ), exportAwardedPo);
 
 module.exports = router;

@@ -9,6 +9,8 @@ const { requireVendorScope, vendorScope, isSupplier } = require('../utils/reques
 const { assertCanCreate } = require('../utils/usage');
 const { toNumber } = require('../utils/money');
 const { formatPo } = require('../db/poHelpers');
+const { nextSequentialId } = require('../utils/nextSequentialId');
+const { buildExportPayload, EXPORT_FORMATS } = require('../services/export.service');
 
 // The full nested shape a controller/frontend expects an RFQ in, matching
 // what the Mongoose document used to serialize as. `items`/`invitedVendors`
@@ -174,37 +176,6 @@ const getRFQById = asyncHandler(async (req, res, next) => {
   }
   res.json(formatRfq(rfq));
 });
-
-// The next free RFQ-<year>-<seq> for this tenant. Read-then-write with no
-// lock, same race condition under concurrent creates as before the
-// migration, kept deliberately (migration plan explicit decision point:
-// scan-and-increment vs. a real Postgres sequence).
-//
-// What is NOT deliberate: this used to pick the "latest" id with
-// `orderBy: { id: 'desc' }` and take the first row — a plain string sort,
-// which is only correct while every suffix has the same digit width. Once a
-// tenant passes 999 RFQs (or 9999 POs) in a year, the padding no longer
-// holds — "...-1000" sorts *before* "...-999" as a string, since '1' < '9' at
-// the first differing character — so this would forever find "999" as the
-// latest, forever recompute "1000", and forever fail the create against the
-// row that's already there. Comparing the numeric suffixes themselves, not
-// the id strings, is what the padding was supposed to give it for free and
-// stopped doing once a suffix outgrew its own padding.
-// `client` defaults to the module's own tenant-scoped `prisma`; awardBid
-// passes its transaction's `tx` instead, so the read happens inside the same
-// transaction as the create that follows it.
-const nextSequentialId = async (model, prefix, padLength, client = prisma) => {
-  const rows = await client[model].findMany({
-    where: { id: { startsWith: prefix } },
-    select: { id: true },
-  });
-  let seq = 1;
-  for (const row of rows) {
-    const match = row.id.match(/-(\d+)$/);
-    if (match) seq = Math.max(seq, parseInt(match[1], 10) + 1);
-  }
-  return `${prefix}${String(seq).padStart(padLength, '0')}`;
-};
 
 // @desc    Create RFQ
 // @route   POST /api/rfqs
@@ -639,6 +610,45 @@ const awardBid = asyncHandler(async (req, res, next) => {
   res.json({ message: 'RFQ awarded and Purchase Order created successfully', po: formatPo(po) });
 });
 
+// @desc    Download the awarded PO as a file (Phase 5.2 of
+//          docs/04-sap-runtime-engineering-plan.md — the export bridge). A
+//          file the buyer's own MM team imports on their own schedule, not a
+//          live SAP write: sourcing has no confirmed write path (see
+//          sap/contract.js's notes) so this is the deliberate alternative to
+//          the screen-scrape the original spec asked for.
+// @route   GET /api/rfqs/:id/export?format=csv|xlsx|json|idoc
+// @access  Public
+const exportAwardedPo = asyncHandler(async (req, res, next) => {
+  const format = String(req.query.format || 'csv').toLowerCase();
+  const exporter = EXPORT_FORMATS[format];
+  if (!exporter) {
+    return next(ApiError.badRequest(`Unsupported export format '${format}'. Use one of: ${Object.keys(EXPORT_FORMATS).join(', ')}`));
+  }
+
+  const rfq = await prisma.rFQ.findFirst({ where: { id: req.params.id } });
+  if (!rfq) {
+    return next(ApiError.notFound('RFQ not found'));
+  }
+  if (!rfq.convertedPoId) {
+    return next(ApiError.badRequest('This RFQ has not been awarded yet'));
+  }
+
+  const po = await prisma.purchaseOrder.findFirst({
+    where: { id: rfq.convertedPoId },
+    include: { items: { orderBy: { line: 'asc' } }, vendor: true },
+  });
+  if (!po) {
+    return next(ApiError.notFound('Purchase order not found for this RFQ'));
+  }
+
+  const payload = buildExportPayload({ rfq, po });
+  const body = exporter.build(payload);
+
+  res.setHeader('Content-Type', exporter.contentType);
+  res.setHeader('Content-Disposition', `attachment; filename="${po.id}.${exporter.extension}"`);
+  res.send(body);
+});
+
 module.exports = {
   getRFQs,
   getRFQById,
@@ -650,5 +660,6 @@ module.exports = {
   awardBid,
   getSapRfqStatus,
   getSapQuotationStatus,
-  updateSapQuotationPrice
+  updateSapQuotationPrice,
+  exportAwardedPo
 };

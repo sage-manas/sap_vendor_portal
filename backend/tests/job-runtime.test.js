@@ -1,7 +1,7 @@
 const { rawPrisma } = require('../db/prisma');
 const { withoutTenantScope, getTenantId } = require('../utils/tenantContext');
 const { enqueue, claim, release, reapStale } = require('../jobs/queue');
-const { processJob } = require('../jobs/worker');
+const { processJob, materialiseSchedules } = require('../jobs/worker');
 const { seedClient } = require('./helpers');
 
 const CLIENT_A = 'CLT-0001';
@@ -148,5 +148,66 @@ describe('jobs/worker processJob', () => {
     await processJob(job, { handlerFor });
 
     expect(seenTenant).toBe(CLIENT_B);
+  });
+});
+
+describe('jobs/worker materialiseSchedules (Phase 4 recurring sweeps)', () => {
+  test('bootstraps an enabled SapSchedule row per recurring kind for an operational tenant', async () => {
+    await materialiseSchedules();
+
+    const schedules = await withoutTenantScope(() => rawPrisma.sapSchedule.findMany({ where: { clientId: CLIENT_A } }));
+    const kinds = schedules.map((s) => s.kind).sort();
+    expect(kinds).toEqual(['sweepPayments', 'sweepPurchaseOrders', 'sweepQuotations']);
+    expect(schedules.every((s) => s.enabled)).toBe(true);
+  });
+
+  test('never re-enables a schedule an operator turned off on purpose', async () => {
+    await materialiseSchedules(); // bootstrap
+    await withoutTenantScope(() => rawPrisma.sapSchedule.updateMany({
+      where: { clientId: CLIENT_A, kind: 'sweepQuotations' }, data: { enabled: false },
+    }));
+
+    await materialiseSchedules(); // must not touch the disabled row
+
+    const schedule = await withoutTenantScope(() => rawPrisma.sapSchedule.findFirst({
+      where: { clientId: CLIENT_A, kind: 'sweepQuotations' },
+    }));
+    expect(schedule.enabled).toBe(false);
+  });
+
+  test('enqueues a job for a due schedule and advances its nextRunAt', async () => {
+    await materialiseSchedules(); // bootstrap
+    await withoutTenantScope(() => rawPrisma.sapSchedule.updateMany({
+      where: { clientId: CLIENT_A, kind: 'sweepPurchaseOrders' },
+      data: { nextRunAt: new Date(Date.now() - 1000) },
+    }));
+
+    await materialiseSchedules();
+
+    const jobs = await withoutTenantScope(() => rawPrisma.sapJob.findMany({
+      where: { clientId: CLIENT_A, kind: 'sweepPurchaseOrders' },
+    }));
+    expect(jobs.length).toBeGreaterThanOrEqual(1);
+
+    const schedule = await withoutTenantScope(() => rawPrisma.sapSchedule.findFirst({
+      where: { clientId: CLIENT_A, kind: 'sweepPurchaseOrders' },
+    }));
+    expect(schedule.nextRunAt.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  test('a not-yet-due schedule enqueues nothing new', async () => {
+    await materialiseSchedules(); // bootstrap, nextRunAt defaults to "now" — let it settle once
+    await withoutTenantScope(() => rawPrisma.sapJob.deleteMany({ where: { clientId: CLIENT_A, kind: 'sweepPayments' } }));
+    await withoutTenantScope(() => rawPrisma.sapSchedule.updateMany({
+      where: { clientId: CLIENT_A, kind: 'sweepPayments' },
+      data: { nextRunAt: new Date(Date.now() + 60_000) },
+    }));
+
+    await materialiseSchedules();
+
+    const jobs = await withoutTenantScope(() => rawPrisma.sapJob.findMany({
+      where: { clientId: CLIENT_A, kind: 'sweepPayments' },
+    }));
+    expect(jobs).toHaveLength(0);
   });
 });

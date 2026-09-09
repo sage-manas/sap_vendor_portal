@@ -3,9 +3,12 @@ const { getSapAdapterForClient } = require('../sap');
 const logger = require('../utils/logger');
 const { jobKind } = require('./kinds');
 const { nextRunAt } = require('./backoff');
-const { claim, release, reapStale } = require('./queue');
+const { claim, release, reapStale, enqueue } = require('./queue');
 const { handlerFor: defaultHandlerFor } = require('./handlers');
 const { markFailed, markOrphaned } = require('./syncState');
+const { SAP_JOB_KINDS } = require('./kinds');
+const { rawPrisma } = require('../db/prisma');
+const { withoutTenantScope } = require('../utils/tenantContext');
 
 // Sync-state bookkeeping (Phase 3) is best-effort side-channel work, not the
 // job's own result — a job kind Phase 4 adds without a document mapping
@@ -59,9 +62,15 @@ const processJob = async (job, { handlerFor = defaultHandlerFor } = {}) => {
     return { ok: true, outcome };
   } catch (error) {
     logger.error(`[jobs] ${job.kind} (${job.pk}) errored: ${error.message}`);
+    // A sweep tick (Phase 4, spec.recurring) that exhausts its own attempts
+    // just sits `abandoned` — there is no single document to orphan, and the
+    // next scheduled tick (materialiseSchedules(), a fresh job row per
+    // due-tick) covers the vendor again regardless.
     if (job.attempts >= job.maxAttempts) {
       await release(job, { status: 'abandoned', lastError: error.message });
-      await runWithTenant(job.clientId, () => trySyncState(markOrphaned, job.kind, job.args, error.message));
+      if (!spec.recurring) {
+        await runWithTenant(job.clientId, () => trySyncState(markOrphaned, job.kind, job.args, error.message));
+      }
     } else {
       await release(job, {
         status: 'pending',
@@ -69,17 +78,70 @@ const processJob = async (job, { handlerFor = defaultHandlerFor } = {}) => {
         lastError: error.message,
       });
       // Phase 3: the job itself keeps retrying — this just records the last
-      // error against the document for the reconciliation queue.
-      await runWithTenant(job.clientId, () => trySyncState(markFailed, job.kind, job.args, error.message));
+      // error against the document for the reconciliation queue. No single
+      // document for a sweep tick (spec.recurring) to record it against.
+      if (!spec.recurring) {
+        await runWithTenant(job.clientId, () => trySyncState(markFailed, job.kind, job.args, error.message));
+      }
     }
     return { ok: false, error };
   }
 };
 
-// materialiseSchedules() is Phase 4's job — turning SapSchedule rows whose
-// nextRunAt has passed into SapJob rows. Stubbed here so the tick shape is
-// already right and Phase 4 only has to fill this in.
-const materialiseSchedules = async () => {};
+// Discovery sweeps (Phase 4) are recurring: rather than one perpetual job row
+// that reschedules itself forever, each due tick gets its own fresh SapJob —
+// dedupeKey embeds the tick's own nextRunAt, so two workers racing
+// materialiseSchedules() at the same moment still produce exactly one job
+// (the upsert in enqueue()), and a slow/abandoned tick never blocks the next
+// one from being created on schedule.
+//
+// Also bootstraps a SapSchedule row (enabled, at the kind's default
+// interval) for every operational tenant that doesn't have one yet for a
+// given recurring kind — there is no separate "turn sweeps on" step; a
+// tenant becoming Trial/Active is enough. An operator who wants a kind off
+// for one tenant can flip `enabled: false` directly; this only ever creates
+// a *missing* row, never re-enables one that was turned off on purpose.
+const materialiseSchedules = async () => withoutTenantScope(async () => {
+  const recurringKinds = Object.entries(SAP_JOB_KINDS).filter(([, spec]) => spec.recurring);
+  if (!recurringKinds.length) return;
+
+  const tenants = await rawPrisma.client.findMany({
+    where: { status: { in: ['Trial', 'Active'] } },
+    select: { clientId: true },
+  });
+
+  for (const { clientId } of tenants) {
+    for (const [kind, spec] of recurringKinds) {
+      await rawPrisma.sapSchedule.upsert({
+        where: { clientId_kind: { clientId, kind } },
+        create: { clientId, kind, intervalMs: spec.defaultIntervalMs, enabled: true, nextRunAt: new Date() },
+        update: {},
+      });
+    }
+  }
+
+  const due = await rawPrisma.sapSchedule.findMany({
+    where: { enabled: true, nextRunAt: { lte: new Date() } },
+  });
+
+  for (const schedule of due) {
+    const spec = SAP_JOB_KINDS[schedule.kind];
+    if (!spec?.recurring) continue; // a schedule row for a kind this build no longer registers as recurring
+
+    await enqueue({
+      clientId: schedule.clientId,
+      kind: schedule.kind,
+      dedupeKey: `${schedule.kind}:${schedule.clientId}:${schedule.nextRunAt.getTime()}`,
+      args: {},
+      runAt: schedule.nextRunAt,
+    });
+
+    await rawPrisma.sapSchedule.update({
+      where: { pk: schedule.pk },
+      data: { lastRunAt: new Date(), nextRunAt: new Date(Date.now() + schedule.intervalMs) },
+    });
+  }
+});
 
 const tick = async (workerId = WORKER_ID, { limit = 20 } = {}) => {
   await reapStale();

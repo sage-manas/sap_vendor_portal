@@ -94,6 +94,27 @@ const createMockDriver = ({ config = {} } = {}) => {
   const timings = { ...baseTimings, ...(config.timings || {}) };
   const behaviour = { ...DEFAULT_BEHAVIOUR, ...(config.behaviour || {}) };
 
+  // --- Discovery (Phase 4 of docs/04-sap-runtime-engineering-plan.md) ------
+  //
+  // The one deliberate exception to this file's "no database access" rule
+  // (see the header comment). A discovery sweep exists to find documents SAP
+  // originated without portal involvement — a PO raised directly in ME21N, an
+  // unsolicited GRN, a payment against an older invoice — which by
+  // definition the portal has no record to hand this driver for. Without
+  // *some* independent state, the mock can never simulate that, and
+  // discovery would be undemoable and untestable end to end.
+  // `config.discoveries.{po,payment,quotation}` is that state: a small,
+  // explicit, opt-in seed (set from the platform console's SAP screen or a
+  // test's transient config, same as `timings`/`behaviour`), layered on top
+  // of — never replacing — whatever the caller already knows about. Each
+  // entry is shaped like the caller's own input to the same method, minus a
+  // portal `id`, since discovery is exactly the case where there isn't one.
+  const discoveries = {
+    po: (config.discoveries?.po || []).map((po) => ({ ...po, id: null })),
+    payment: (config.discoveries?.payment || []).map((p) => ({ ...p, id: null })),
+    quotation: config.discoveries?.quotation || [],
+  };
+
   const driver = {
     name: 'mock',
     timings,
@@ -200,9 +221,17 @@ const createMockDriver = ({ config = {} } = {}) => {
     // returns. The mock has no database access — the caller passes back the
     // POs it already tracks for this vendor, and this just re-describes them
     // (and their GRN-derived receipt quantities) the way the real endpoint would.
+    //
+    // `config.discoveries.po` is the one deliberate exception to "no database
+    // access" (see the --- Discovery --- note near the bottom of this file):
+    // a discovery sweep (Phase 4) needs SAP to have originated *something*
+    // the portal doesn't already track, which this driver otherwise has no
+    // way to produce. Seeded entries are PO-shaped like the caller's own
+    // `pos`, minus a portal `id` — `mockSapPoNumber` falls through to their
+    // explicit `sapPoNumber` exactly as it would for a real one.
     vendorPoGrnDisplay: async ({ pos = [] }) => ({
       data: {
-        orders: pos.map((po) => ({
+        orders: [...pos, ...discoveries.po].map((po) => ({
           poNumber: mockSapPoNumber(po),
           // Which of the caller's own PurchaseOrder rows this is — the mock can
           // say so honestly because it built this row from that same `po`. The
@@ -333,6 +362,10 @@ const createMockDriver = ({ config = {} } = {}) => {
     // together (see the note on vendorQuotationDisplay in s4odata.driver.js) —
     // so the mock does the same, from the RFQs and POs the caller passes back.
     // Dates are the SAP YYYYMMDD string the real endpoint sends, not ISO.
+    // `config.discoveries.quotation` entries are already shaped like a
+    // finished row here (documentNumber/documentType/date/currency/
+    // purchasingOrg) — unlike po/payment there is no portal record they
+    // could otherwise resemble, so there is nothing to derive them from.
     vendorQuotationDisplay: async ({ rfqs = [], pos = [] }) => {
       const sapDate = (value) => (value ? new Date(value).toISOString().slice(0, 10).replace(/-/g, '') : null);
 
@@ -353,6 +386,7 @@ const createMockDriver = ({ config = {} } = {}) => {
               currency: po.currency || 'INR',
               purchasingOrg: po.purchasingOrg || '1000',
             })),
+            ...discoveries.quotation,
           ],
         },
       };
@@ -385,10 +419,12 @@ const createMockDriver = ({ config = {} } = {}) => {
     // database (see file header), so the caller hands back the Payment rows it
     // already holds for the vendor and this re-describes them in the same
     // shape. Every mock payment is by definition cleared — awaitPaymentRun
-    // only ever produces settled ones.
+    // only ever produces settled ones. `config.discoveries.payment` entries
+    // are shaped like the caller's own Payment rows (poId is a SAP PO number
+    // here, matching poNumber below).
     vendorPaymentDisplay: async ({ payments = [] }) => ({
       data: {
-        payments: payments.map((payment) => ({
+        payments: [...payments, ...discoveries.payment].map((payment) => ({
           miroDoc: payment.sapMiroDoc || null,
           fiscalYear: payment.fiscalYear ? String(payment.fiscalYear) : String(new Date(payment.paymentDate).getFullYear()),
           poNumber: payment.poId,
@@ -607,6 +643,12 @@ module.exports = {
   DEFAULT_BEHAVIOUR,
   // No credentials: the mock has nothing to authenticate against.
   secretFields: [],
+  // `config.discoveries.{po,payment,quotation}` (see the --- Discovery ---
+  // note above) is deliberately absent here: configFields drives the
+  // platform console's generic scalar-field form, and a discovery seed is a
+  // small array of documents, not a text/number input. Set it directly on
+  // SapConnection.config (PUT /platform/tenants/:clientId/sap/:environment)
+  // for a demo or test that needs the sweeps to find something.
   configFields: [
     { name: 'timings.vendorApprovalMs', label: 'Vendor approval delay (ms)', type: 'number', default: DEFAULT_TIMINGS.vendorApprovalMs },
     { name: 'timings.goodsReceiptMs', label: 'Goods receipt delay (ms)', type: 'number', default: DEFAULT_TIMINGS.goodsReceiptMs },
