@@ -1,0 +1,24 @@
+- generic [active] [ref=f16e1]:
+  - link "Skip to main content" [ref=f16e2] [cursor=pointer]:
+    - /url: "#main-content"
+  - generic [ref=f16e488]:
+    - generic [ref=f16e489]:
+      - heading "Nucleus Manufacturing Pvt Ltd" [level=2] [ref=f16e495]
+      - paragraph [ref=f16e496]: Supplier portal · VendorConnect
+    - generic [ref=f16e497]:
+      - generic [ref=f16e498]:
+        - generic [ref=f16e499]: Vendor ID or Registered Email
+        - textbox "VND-40012 or partner@domain.com" [ref=f16e501]: supplier@meridiancastings.in
+      - generic [ref=f16e506]:
+        - generic [ref=f16e507]:
+          - generic [ref=f16e508]: Password
+          - link "Forgot password?" [ref=f16e509] [cursor=pointer]:
+            - /url: /forgot-password
+        - textbox "••••••••" [ref=f16e511]: Demo@12345
+      - button "Sign In to Portal" [ref=f16e515] [cursor=pointer]
+    - paragraph [ref=f16e520]:
+      - text: New vendor partner?
+      - link "Register Profile" [ref=f16e521] [cursor=pointer]:
+        - /url: /sign-up
+  - button "Open Next.js Dev Tools" [ref=f16e43] [cursor=pointer]
+  - alert [ref=f16e47]

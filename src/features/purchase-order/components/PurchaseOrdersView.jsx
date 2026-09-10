@@ -1220,7 +1220,7 @@ export default function PurchaseOrdersView({
                   <ArrowLeft className="size-4" />
                   <span>Back to PO Ledger</span>
                 </button>
-                <h2 className="text-[22px] font-bold tracking-tight text-text-primary flex items-center gap-2.5">
+                <h2 className="page-title flex items-center gap-2.5">
                   <span>Purchase Order: {activePo.id}</span>
                   {renderStatusChip(activePo.status)}
                 </h2>

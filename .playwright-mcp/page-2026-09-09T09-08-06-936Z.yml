@@ -1,0 +1,96 @@
+- generic [active] [ref=f5e1]:
+  - link "Skip to main content" [ref=f5e2] [cursor=pointer]:
+    - /url: "#main-content"
+  - generic [ref=f5e3]:
+    - banner [ref=f5e271]:
+      - generic [ref=f5e272]:
+        - generic [ref=f5e273]: V
+        - heading "VendorConnect" [level=1] [ref=f5e274]
+      - generic [ref=f5e275]:
+        - generic [ref=f5e276]: Connected · GST + TDS + MSME
+        - button "Search Ctrl K" [ref=f5e279] [cursor=pointer]:
+          - generic [ref=f5e283]: Search
+          - generic [ref=f5e284]: Ctrl K
+        - button "Notifications" [ref=f5e286] [cursor=pointer]
+        - button "Toggle color theme" [ref=f5e290] [cursor=pointer]
+    - generic [ref=f5e293]:
+      - complementary [ref=f5e294]:
+        - navigation [ref=f5e297]:
+          - button "Vendor Dashboard" [ref=f5e298] [cursor=pointer]
+        - navigation [ref=f5e306]:
+          - button "1" [ref=f5e307] [cursor=pointer]
+          - button "1" [ref=f5e312] [cursor=pointer]
+          - button "Invoice Processing" [ref=f5e317] [cursor=pointer]
+          - button "Payment Tracking" [ref=f5e321] [cursor=pointer]
+          - button "Performance" [ref=f5e324] [cursor=pointer]
+          - button "Reports & Analytics" [ref=f5e327] [cursor=pointer]
+        - generic [ref=f5e337]:
+          - button "Reset demo data (dev only)" [ref=f5e338] [cursor=pointer]
+          - button "Log Out" [ref=f5e343] [cursor=pointer]
+      - main [ref=f5e347]:
+        - generic [ref=f5e348]:
+          - generic [ref=f5e349]:
+            - generic [ref=f5e350]:
+              - generic [ref=f5e351]:
+                - heading "Vendor Dashboard" [level=2] [ref=f5e352]
+                - paragraph [ref=f5e353]: Your account overview — 02 Jun 2025 • FY 2025-26 Q1
+              - generic [ref=f5e354]:
+                - button "Connected" [ref=f5e355] [cursor=pointer]
+                - button "Sync" [ref=f5e361] [cursor=pointer]
+                - button "Submit Invoice" [ref=f5e363] [cursor=pointer]
+            - generic [ref=f5e365]:
+              - generic [ref=f5e366]:
+                - paragraph [ref=f5e367]: WELCOME BACK
+                - heading "Meridian Castings Pvt Ltd" [level=3] [ref=f5e368]
+                - generic [ref=f5e369]:
+                  - generic [ref=f5e370]:
+                    - text: "Supplier ID:"
+                    - strong [ref=f5e371]: VND-51204
+                  - generic [ref=f5e372]: "|"
+                  - generic [ref=f5e373]:
+                    - text: "GSTIN:"
+                    - strong [ref=f5e374]: 27AACCM4519R1ZK
+                  - generic [ref=f5e375]: Active
+              - generic [ref=f5e377]:
+                - button "Submit Invoice" [ref=f5e378] [cursor=pointer]
+                - button "Send shipment" [ref=f5e383] [cursor=pointer]
+                - button "View RFQs" [ref=f5e388] [cursor=pointer]
+                - button "Statement" [ref=f5e393] [cursor=pointer]
+                - button "TDS Certificates" [ref=f5e397] [cursor=pointer]
+            - heading "Alerts & Notifications" [level=4] [ref=f5e448]
+            - generic [ref=f5e452]:
+              - generic [ref=f5e454]:
+                - heading "Purchase Orders Monitor" [level=4] [ref=f5e455]
+                - button "All Orders" [ref=f5e456] [cursor=pointer]
+              - generic [ref=f5e461]:
+                - heading "Logistics Invoices Ledger" [level=4] [ref=f5e462]
+                - button "All Invoices" [ref=f5e466] [cursor=pointer]
+            - generic [ref=f5e472]:
+              - generic [ref=f5e473]:
+                - heading "Service Delivery KPIs (OTIF)" [level=4] [ref=f5e475]
+                - generic [ref=f5e480]:
+                  - generic [ref=f5e481]:
+                    - generic [ref=f5e482]: Overall Score
+                    - paragraph [ref=f5e483]: 66.67 / 100
+                  - generic [ref=f5e484]: ★★ Standard
+              - generic [ref=f5e485]:
+                - generic [ref=f5e487]:
+                  - heading "Treasury Disbursements (Recent)" [level=4] [ref=f5e488]
+                  - button "Statement" [ref=f5e489] [cursor=pointer]
+                - generic [ref=f5e493]:
+                  - button "Download Advice" [ref=f5e494] [cursor=pointer]
+                  - button "Form 16A / TDS" [ref=f5e496] [cursor=pointer]
+          - generic:
+            - generic:
+              - generic:
+                - generic: "0"
+                - generic: Selected
+              - generic:
+                - button "Download PDF"
+                - button "Acknowledge"
+              - button
+          - generic [ref=f5e499]:
+            - heading "Invoice Details" [level=2] [ref=f5e501]
+            - button [ref=f5e507] [cursor=pointer]
+  - button "Open Next.js Dev Tools" [ref=f5e232] [cursor=pointer]
+  - alert [ref=f5e270]

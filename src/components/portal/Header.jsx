@@ -40,34 +40,20 @@ export default function Header() {
   };
 
   return (
-    <header className="h-11 bg-surface text-text-primary border-b border-border px-4 flex items-center justify-between shrink-0 select-none z-10">
+    <header className="h-13 bg-surface text-text-primary border-b border-border px-4 flex items-center justify-between shrink-0 select-none z-10">
       {/* BRANDING SECTION */}
-      <div className="flex items-center gap-3">
-
-        <div className="flex items-center gap-2">
-          <div className="size-7 rounded flex items-center justify-center text-white font-extrabold text-sm shrink-0" style={{ backgroundColor: 'rgb(var(--color-emerald-default-rgb))', color: '#FFFFFF' }}>
-            V
-          </div>
-          <div>
-            <h1 className="font-bold text-[13px] leading-tight tracking-wide text-text-primary">VendorConnect Portal</h1>
-            <p className="text-[9px] text-text-tertiary font-mono tracking-wider uppercase">
-              ENTERPRISE INTEGRATED &bull; GST COMPLIANT &bull; INDIA
-            </p>
-          </div>
+      <div className="flex items-center gap-2.5">
+        <div className="size-6 rounded-[5px] flex items-center justify-center font-bold text-[13px] shrink-0" style={{ backgroundColor: 'rgb(var(--color-emerald-default-rgb))', color: 'rgb(var(--color-on-emerald-rgb))' }}>
+          V
         </div>
+        <h1 className="font-semibold text-[13px] tracking-[-0.01em] text-text-primary">VendorConnect</h1>
       </div>
 
       {/* METADATA CAPSULES */}
       <div className="flex items-center gap-1.5">
         <span className="chip bg-surface2 text-text-secondary hidden lg:inline-flex">
-          Indian Enterprise
-        </span>
-        <span className="chip bg-surface2 text-text-secondary flex items-center gap-1">
           <span className="status-dot status-dot-active"></span>
-          CONNECTED
-        </span>
-        <span className="chip bg-surface2 text-text-secondary hidden lg:inline-flex">
-          GST + TDS + MSME
+          Connected &middot; GST + TDS + MSME
         </span>
 
         <div className="w-px h-5 bg-border mx-1" />
@@ -102,7 +88,7 @@ export default function Header() {
           </button>
 
           {notifOpen && (
-            <div className="absolute right-0 top-9 w-80 max-h-96 overflow-y-auto card z-20 animate-fade-in">
+            <div className="absolute right-0 top-9 w-80 max-h-96 overflow-y-auto rounded-lg border border-border bg-surface3 shadow-lg z-20 animate-fade-in">
               <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-surface2 sticky top-0">
                 <span className="text-[11px] font-bold text-text-primary uppercase tracking-wider">Notifications</span>
                 {notifications.length > 0 && (

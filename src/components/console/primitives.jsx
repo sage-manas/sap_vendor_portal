@@ -8,13 +8,14 @@ import { AlertCircle, Loader2, X } from 'lucide-react';
 // headers and notices, because a second copy would be the place the design
 // system quietly forks.
 //
-// Everything obeys DESIGN.md: zero radius, 1px borders, mono for data, no
-// shadows.
+// Follows the shared token system in globals.css ("Slate & Copper"): bordered
+// surfaces with real radius, mono for tabular data, restrained shadows —
+// same language as the supplier portal's `.card`/`.status-badge` classes.
 
 export const PageHeader = ({ title, caption, children }) => (
   <div className="mb-5 flex items-start justify-between gap-4 border-b border-border pb-4">
     <div>
-      <h1 className="text-xl font-semibold tracking-tight text-text-primary">{title}</h1>
+      <h1 className="page-title">{title}</h1>
       {caption && <p className="mt-1 text-[13px] text-text-secondary">{caption}</p>}
     </div>
     {children && <div className="flex shrink-0 items-center gap-2">{children}</div>}
@@ -30,7 +31,7 @@ export const Notice = ({ tone = 'error', children, onDismiss }) => {
   };
 
   return (
-    <div role="status" className={`mb-4 flex items-start gap-2.5 border p-3 text-xs ${tones[tone]}`}>
+    <div role="status" className={`mb-4 flex items-start gap-2.5 rounded-lg border p-3 text-xs ${tones[tone]}`}>
       {tone === 'error' && <AlertCircle className="mt-0.5 size-4 shrink-0" />}
       <span className="flex-1">{children}</span>
       {onDismiss && (
@@ -79,7 +80,7 @@ export const Status = ({ value }) => (
 );
 
 export const Table = ({ columns, rows, empty = 'Nothing here yet.', onRowClick }) => (
-  <div className="border border-border">
+  <div className="card overflow-hidden">
     <table className="w-full border-collapse">
       <thead className="table-sticky">
         <tr className="border-b border-border bg-surface2">

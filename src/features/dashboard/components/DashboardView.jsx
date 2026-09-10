@@ -262,7 +262,7 @@ export default function DashboardView({ state, setActiveTab }) {
         {/* 1. TOP HEADER & MAIN BUTTON ACTIONS */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
           <div>
-            <h2 className="text-[22px] font-bold text-text-primary select-none">Vendor Dashboard</h2>
+            <h2 className="page-title select-none">Vendor Dashboard</h2>
             <p className="text-text-tertiary text-[11px] mt-0.5 font-medium">
               Your account overview &mdash; 02 Jun 2025 &bull; FY 2025-26 Q1
             </p>
@@ -275,8 +275,8 @@ export default function DashboardView({ state, setActiveTab }) {
               onClick={toggleConnection}
               title="Click to toggle the connection state"
               className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] font-semibold transition-all duration-150 cursor-pointer h-7 ${apiError
-                ? 'bg-[#FFF1F2] border-[#FECDD3] text-[#EF4444] animate-pulse hover:bg-red-100'
-                : 'bg-[#F0FDF4] border-[#BBF7D0] text-[#16A34A] hover:bg-green-100'
+                ? 'bg-red-500/10 border-red-500/30 text-red-600 dark:text-red-400 animate-pulse hover:bg-red-500/20'
+                : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20'
                 }`}
             >
               {apiError ? <WifiOff className="size-3" /> : <Wifi className="size-3" />}
@@ -302,26 +302,31 @@ export default function DashboardView({ state, setActiveTab }) {
           </div>
         </div>
 
-        {/* 2. WELCOME BANNER (Spacious Solid Hero) */}
-        <div className="bg-[#3730A3] dark:bg-[#B8860B] text-white rounded-2xl p-5 shadow-xl border border-white/10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        {/* 2. WELCOME BANNER — a real card with an accent wash, not a hardcoded
+            solid-color block (was bg-[#3730A3] dark:bg-[#B8860B], invisible to
+            per-tenant branding and unrelated to the rest of the token system). */}
+        <div
+          className="card p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4"
+          style={{ backgroundColor: 'var(--color-emerald-dim)' }}
+        >
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-white/80 font-bold mb-1">WELCOME BACK</p>
-            <h3 className="text-xl font-bold text-white mb-2">
+            <p className="text-[10px] uppercase tracking-wider text-emerald-text font-bold mb-1">Welcome back</p>
+            <h3 className="page-title mb-2">
               {state.profile.companyName || 'Bharat Steel & Alloys Pvt. Ltd.'}
             </h3>
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-white/90">
-              <span>Supplier ID: <strong className="font-mono text-white">{state.profile.sapVendorCode || '100042'}</strong></span>
-              <span className="text-white/30">|</span>
-              <span>GSTIN: <strong className="font-mono text-white">{state.profile.gstin || '27AABCB1234F1Z5'}</strong></span>
-              <span className="px-1.5 py-0.5 rounded-sm bg-white/10 text-white border border-white/20 text-[9px] font-bold flex items-center gap-1 font-sans">
-                <span className={`size-1 rounded-full ${apiError ? 'bg-red-500' : 'bg-green-400 animate-pulse'}`}></span>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-text-secondary">
+              <span>Supplier ID: <strong className="font-mono text-text-primary">{state.profile.sapVendorCode || '100042'}</strong></span>
+              <span className="text-text-tertiary">|</span>
+              <span>GSTIN: <strong className="font-mono text-text-primary">{state.profile.gstin || '27AABCB1234F1Z5'}</strong></span>
+              <span className="px-1.5 py-0.5 rounded-md bg-surface text-text-primary border border-border text-[9px] font-bold flex items-center gap-1 font-sans">
+                <span className={`size-1.5 rounded-full ${apiError ? 'bg-red-500' : 'bg-emerald-500 animate-pulse'}`}></span>
                 {apiError ? 'Disconnected' : 'Active'}
               </span>
             </div>
           </div>
 
           {/* QUICK ICON SHORTCUTS */}
-          <div className="flex flex-wrap items-center gap-2 border-t border-white/15 pt-4 lg:border-t-0 lg:pt-0">
+          <div className="flex flex-wrap items-stretch gap-2 border-t border-border pt-4 lg:border-t-0 lg:pt-0">
             {[
               { label: 'Submit Invoice', tab: 'invoices', icon: Receipt },
               { label: 'Send shipment', tab: 'pos', icon: ShoppingBag },
@@ -334,9 +339,9 @@ export default function DashboardView({ state, setActiveTab }) {
                 <button
                   key={idx}
                   onClick={() => setActiveTab(action.tab)}
-                  className="flex flex-col items-center justify-center w-16 py-1.5 rounded-lg hover:bg-white/10 transition-colors text-center cursor-pointer text-white/90 hover:text-white gap-1 backdrop-blur-sm"
+                  className="flex flex-col items-center justify-center min-w-[76px] px-2.5 py-2 rounded-lg bg-surface/60 hover:bg-surface transition-colors text-center cursor-pointer text-text-secondary hover:text-text-primary gap-1.5 border border-transparent hover:border-border"
                 >
-                  <IconComp className="size-4 text-white/90" />
+                  <IconComp className="size-4 shrink-0" />
                   <span className="text-[9px] font-bold leading-tight uppercase tracking-tight whitespace-nowrap">{action.label}</span>
                 </button>
               );

@@ -235,7 +235,7 @@ export default function ReportsAnalyticsView({ state }) {
         {/* PAGE HEADER */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-4 select-none">
           <div className="space-y-1">
-            <h2 className="text-[22px] font-bold text-text-primary flex items-center gap-2.5">
+            <h2 className="page-title flex items-center gap-2.5">
               <FileSpreadsheet className="size-5 text-text-tertiary shrink-0" /> Reports &amp; Analytics
             </h2>
             <p className="text-text-tertiary text-xs font-semibold">

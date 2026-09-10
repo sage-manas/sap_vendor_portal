@@ -19,10 +19,16 @@ function Chrome({ children }) {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-base font-sans text-text-primary">
-      <header className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-surface px-4">
-        <div className="flex items-center gap-3">
-          <span className="mono text-[13px] font-semibold tracking-tight">VendorConnect</span>
-          <span className="border border-border-em px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-text-tertiary">
+      <header className="flex h-13 shrink-0 items-center justify-between border-b border-border bg-surface px-4">
+        <div className="flex items-center gap-2.5">
+          <span
+            className="flex size-6 shrink-0 items-center justify-center rounded-[5px] text-[13px] font-bold"
+            style={{ backgroundColor: 'rgb(var(--color-emerald-default-rgb))', color: 'rgb(var(--color-on-emerald-rgb))' }}
+          >
+            V
+          </span>
+          <span className="text-[13px] font-semibold tracking-[-0.01em]">VendorConnect</span>
+          <span className="rounded-md border border-border-em px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-text-tertiary">
             Platform
           </span>
         </div>

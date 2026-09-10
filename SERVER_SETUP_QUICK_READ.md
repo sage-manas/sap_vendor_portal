@@ -1,4 +1,4 @@
-# VendorConnect Server Quick Read
+ # VendorConnect Server Quick Read
 
 VendorConnect runs as two Node.js apps behind one Nginx domain.
 

@@ -28,13 +28,13 @@ export default function WorkspaceBrand({ workspace, caption }) {
         />
       ) : (
         <div
-          className="size-12 rounded-none flex items-center justify-center text-white mb-3 shrink-0"
-          style={{ backgroundColor: 'rgb(var(--color-emerald-default-rgb))' }}
+          className="size-12 rounded-lg flex items-center justify-center mb-3 shrink-0"
+          style={{ backgroundColor: 'rgb(var(--color-emerald-default-rgb))', color: 'rgb(var(--color-on-emerald-rgb))' }}
         >
           <Building2 className="size-6" />
         </div>
       )}
-      <h2 className="text-xl font-bold text-text-primary tracking-wide text-center">{name}</h2>
+      <h2 className="page-title text-center">{name}</h2>
       <p className="text-[10px] text-text-tertiary font-mono tracking-wider uppercase mt-1 text-center">
         {caption}
       </p>

@@ -107,7 +107,7 @@ export default function SettingsPage() {
             <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-tertiary">{group.label}</h2>
             <p className="mb-3 mt-1 text-[12px] text-text-secondary">{group.caption}</p>
 
-            <div className="border border-border">
+            <div className="card overflow-hidden">
               {group.settings.map((setting) => (
                 <div key={setting.key} className="flex items-start justify-between gap-6 border-b border-border p-4 last:border-0">
                   <div className="min-w-0">

@@ -349,7 +349,7 @@ export default function RfqView({
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-4 select-none">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <h2 className="text-[22px] font-bold text-text-primary">RFQ Management</h2>
+            <h2 className="page-title">RFQ Management</h2>
           </div>
           <div className="flex items-center gap-2 text-text-tertiary text-xs font-semibold">
             <span className="bg-surface2 border border-border text-text-secondary px-2 py-0.5 rounded font-mono uppercase tracking-wide">

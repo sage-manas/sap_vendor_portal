@@ -1,0 +1,96 @@
+- generic [active] [ref=e1]:
+  - link "Skip to main content" [ref=e2] [cursor=pointer]:
+    - /url: "#main-content"
+  - generic [ref=e3]:
+    - banner [ref=e49]:
+      - generic [ref=e50]:
+        - generic [ref=e51]: V
+        - heading "VendorConnect" [level=1] [ref=e52]
+      - generic [ref=e53]:
+        - generic [ref=e54]: Connected · GST + TDS + MSME
+        - button "Search Ctrl K" [ref=e57] [cursor=pointer]:
+          - generic [ref=e61]: Search
+          - generic [ref=e62]: Ctrl K
+        - button "Notifications" [ref=e64] [cursor=pointer]
+        - button "Toggle color theme" [ref=e68] [cursor=pointer]
+    - generic [ref=e71]:
+      - complementary [ref=e72]:
+        - navigation [ref=e75]:
+          - button "Vendor Dashboard" [ref=e76] [cursor=pointer]
+        - navigation [ref=e84]:
+          - button "1" [ref=e85] [cursor=pointer]
+          - button "1" [ref=e90] [cursor=pointer]
+          - button "Invoice Processing" [ref=e95] [cursor=pointer]
+          - button "Payment Tracking" [ref=e99] [cursor=pointer]
+          - button "Performance" [ref=e102] [cursor=pointer]
+          - button "Reports & Analytics" [ref=e105] [cursor=pointer]
+        - generic [ref=e115]:
+          - button "Reset demo data (dev only)" [ref=e116] [cursor=pointer]
+          - button "Log Out" [ref=e121] [cursor=pointer]
+      - main [ref=e125]:
+        - generic [ref=e126]:
+          - generic [ref=e127]:
+            - generic [ref=e128]:
+              - generic [ref=e129]:
+                - heading "Vendor Dashboard" [level=2] [ref=e130]
+                - paragraph [ref=e131]: Your account overview — 02 Jun 2025 • FY 2025-26 Q1
+              - generic [ref=e132]:
+                - button "Connected" [ref=e133] [cursor=pointer]
+                - button "Sync" [ref=e139] [cursor=pointer]
+                - button "Submit Invoice" [ref=e141] [cursor=pointer]
+            - generic [ref=e143]:
+              - generic [ref=e144]:
+                - paragraph [ref=e145]: WELCOME BACK
+                - heading "Meridian Castings Pvt Ltd" [level=3] [ref=e146]
+                - generic [ref=e147]:
+                  - generic [ref=e148]:
+                    - text: "Supplier ID:"
+                    - strong [ref=e149]: VND-51204
+                  - generic [ref=e150]: "|"
+                  - generic [ref=e151]:
+                    - text: "GSTIN:"
+                    - strong [ref=e152]: 27AACCM4519R1ZK
+                  - generic [ref=e153]: Active
+              - generic [ref=e155]:
+                - button "Submit Invoice" [ref=e156] [cursor=pointer]
+                - button "Send shipment" [ref=e161] [cursor=pointer]
+                - button "View RFQs" [ref=e166] [cursor=pointer]
+                - button "Statement" [ref=e171] [cursor=pointer]
+                - button "TDS Certificates" [ref=e175] [cursor=pointer]
+            - heading "Alerts & Notifications" [level=4] [ref=e226]
+            - generic [ref=e230]:
+              - generic [ref=e232]:
+                - heading "Purchase Orders Monitor" [level=4] [ref=e233]
+                - button "All Orders" [ref=e234] [cursor=pointer]
+              - generic [ref=e239]:
+                - heading "Logistics Invoices Ledger" [level=4] [ref=e240]
+                - button "All Invoices" [ref=e244] [cursor=pointer]
+            - generic [ref=e250]:
+              - generic [ref=e251]:
+                - heading "Service Delivery KPIs (OTIF)" [level=4] [ref=e253]
+                - generic [ref=e258]:
+                  - generic [ref=e259]:
+                    - generic [ref=e260]: Overall Score
+                    - paragraph [ref=e261]: 66.67 / 100
+                  - generic [ref=e262]: ★★ Standard
+              - generic [ref=e263]:
+                - generic [ref=e265]:
+                  - heading "Treasury Disbursements (Recent)" [level=4] [ref=e266]
+                  - button "Statement" [ref=e267] [cursor=pointer]
+                - generic [ref=e271]:
+                  - button "Download Advice" [ref=e272] [cursor=pointer]
+                  - button "Form 16A / TDS" [ref=e274] [cursor=pointer]
+          - generic:
+            - generic:
+              - generic:
+                - generic: "0"
+                - generic: Selected
+              - generic:
+                - button "Download PDF"
+                - button "Acknowledge"
+              - button
+          - generic [ref=e277]:
+            - heading "Invoice Details" [level=2] [ref=e279]
+            - button [ref=e285] [cursor=pointer]
+  - button "Open Next.js Dev Tools" [ref=e43] [cursor=pointer]
+  - alert [ref=e48]

@@ -1,0 +1,24 @@
+- generic [active] [ref=f31e1]:
+  - link "Skip to main content" [ref=f31e2] [cursor=pointer]:
+    - /url: "#main-content"
+  - generic [ref=f31e4]:
+    - generic [ref=f31e5]:
+      - heading "VendorConnect" [level=2] [ref=f31e11]
+      - paragraph [ref=f31e12]: Supplier portal · VendorConnect
+    - generic [ref=f31e13]:
+      - generic [ref=f31e14]:
+        - generic [ref=f31e15]: Vendor ID or Registered Email
+        - textbox "VND-40012 or partner@domain.com" [ref=f31e17]: admin@nucleusmfg.in
+      - generic [ref=f31e22]:
+        - generic [ref=f31e23]:
+          - generic [ref=f31e24]: Password
+          - link "Forgot password?" [ref=f31e25] [cursor=pointer]:
+            - /url: /forgot-password
+        - textbox "••••••••" [ref=f31e27]: Demo@12345
+      - button "Sign In to Portal" [ref=f31e31] [cursor=pointer]
+    - paragraph [ref=f31e36]:
+      - text: New vendor partner?
+      - link "Register Profile" [ref=f31e37] [cursor=pointer]:
+        - /url: /sign-up
+  - button "Open Next.js Dev Tools" [ref=f31e43] [cursor=pointer]
+  - alert [ref=f31e47]
