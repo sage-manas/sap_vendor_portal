@@ -1,4 +1,4 @@
-# VendorConnect — SAP Runtime Engineering Plan
+ # VendorConnect — SAP Runtime Engineering Plan
 
 > **Scope.** Six architectural gaps between what the portal does today and what a
 > production multi-tenant SAP integration has to do. Sequenced so that no phase

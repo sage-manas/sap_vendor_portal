@@ -1,4 +1,4 @@
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Source_Serif_4 } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import { ShellProvider } from "@/lib/shell-context";
@@ -19,6 +19,17 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// Serif display face for page-level headings only (claude/DESIGN.md's
+// Copernicus/Tiempos is a licensed Anthropic face; Source Serif 4 is an
+// open, screen-legible stand-in that still reads editorial at 20-28px —
+// Cormorant/EB Garamond, the doc's own suggested substitutes, get too
+// delicate at the sizes a dense console actually uses for its headers).
+const sourceSerif = Source_Serif_4({
+  variable: "--font-serif-display",
+  subsets: ["latin"],
+  weight: ["500", "600"],
+});
+
 export const metadata = {
   title: "Supplier Portal",
   description: "Register as a supplier, quote for requests, manage purchase orders and shipments, submit invoices, and track payments — all in one place.",
@@ -28,7 +39,7 @@ export default function RootLayout({ children }) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${sourceSerif.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <head>

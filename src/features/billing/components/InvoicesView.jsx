@@ -35,7 +35,7 @@ export default function InvoicesView({
     <ErrorBoundary>
       <div className="space-y-8 max-w-6xl animate-fade-in">
       <div>
-        <h2 className="text-[22px] font-bold text-text-primary">Invoice Submission</h2>
+        <h2 className="page-title">Invoice Submission</h2>
         <p className="text-text-tertiary text-xs mt-0.5">Submit invoices against delivery receipts your buyer has confirmed.</p>
       </div>
 

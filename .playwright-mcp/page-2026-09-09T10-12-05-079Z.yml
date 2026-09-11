@@ -1,0 +1,24 @@
+- generic [active] [ref=f16e1]:
+  - link "Skip to main content" [ref=f16e2] [cursor=pointer]:
+    - /url: "#main-content"
+  - generic [ref=f16e4]:
+    - generic [ref=f16e5]:
+      - heading "VendorConnect" [level=2] [ref=f16e11]
+      - paragraph [ref=f16e12]: Supplier portal · VendorConnect
+    - generic [ref=f16e13]:
+      - generic [ref=f16e14]:
+        - generic [ref=f16e15]: Vendor ID or Registered Email
+        - textbox "VND-40012 or partner@domain.com" [ref=f16e17]: supplier@meridiancastings.in
+      - generic [ref=f16e22]:
+        - generic [ref=f16e23]:
+          - generic [ref=f16e24]: Password
+          - link "Forgot password?" [ref=f16e25] [cursor=pointer]:
+            - /url: /forgot-password
+        - textbox "••••••••" [ref=f16e27]: Demo@12345
+      - button "Sign In to Portal" [ref=f16e31] [cursor=pointer]
+    - paragraph [ref=f16e36]:
+      - text: New vendor partner?
+      - link "Register Profile" [ref=f16e37] [cursor=pointer]:
+        - /url: /sign-up
+  - button "Open Next.js Dev Tools" [ref=f16e43] [cursor=pointer]
+  - alert [ref=f16e47]

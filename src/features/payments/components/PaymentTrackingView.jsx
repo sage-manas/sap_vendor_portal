@@ -315,7 +315,7 @@ export default function PaymentTrackingView({ state }) {
       {/* PAGE HEADER */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-4 select-none">
         <div className="space-y-1">
-          <h2 className="text-[22px] font-bold text-text-primary flex items-center gap-2">
+          <h2 className="page-title flex items-center gap-2">
             <Landmark className="size-5 text-primary shrink-0" /> Payment Tracking
           </h2>
           <p className="text-text-tertiary text-xs font-semibold">

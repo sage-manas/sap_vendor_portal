@@ -1,0 +1,23 @@
+- generic [active] [ref=e1]:
+  - link "Skip to main content" [ref=e2] [cursor=pointer]:
+    - /url: "#main-content"
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - heading "VendorConnect" [level=2] [ref=e11]
+      - paragraph [ref=e12]: Supplier portal · VendorConnect
+    - generic [ref=e13]:
+      - generic [ref=e14]:
+        - generic [ref=e15]: Vendor ID or Registered Email
+        - textbox "VND-40012 or partner@domain.com" [ref=e17]
+      - generic [ref=e22]:
+        - generic [ref=e23]:
+          - generic [ref=e24]: Password
+          - link "Forgot password?" [ref=e25] [cursor=pointer]:
+            - /url: /forgot-password
+        - textbox "••••••••" [ref=e27]
+      - button "Sign In to Portal" [ref=e31] [cursor=pointer]
+    - paragraph [ref=e36]:
+      - text: New vendor partner?
+      - link "Register Profile" [ref=e37] [cursor=pointer]:
+        - /url: /sign-up
+  - button "Open Next.js Dev Tools" [ref=e43] [cursor=pointer]

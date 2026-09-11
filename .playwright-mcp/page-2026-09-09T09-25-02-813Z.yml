@@ -1,0 +1,286 @@
+- generic [ref=f8e1]:
+  - link "Skip to main content" [ref=f8e2] [cursor=pointer]:
+    - /url: "#main-content"
+  - generic [ref=f8e3]:
+    - banner [ref=f8e4]:
+      - generic [ref=f8e5]:
+        - generic [ref=f8e6]: V
+        - heading "VendorConnect" [level=1] [ref=f8e7]
+      - generic [ref=f8e8]:
+        - generic [ref=f8e9]: Connected · GST + TDS + MSME
+        - button "Search Ctrl K" [ref=f8e12] [cursor=pointer]:
+          - generic [ref=f8e16]: Search
+          - generic [ref=f8e17]: Ctrl K
+        - button "Notifications" [ref=f8e19] [cursor=pointer]
+        - button "Toggle color theme" [active] [ref=f8e23] [cursor=pointer]
+    - generic [ref=f8e26]:
+      - complementary [ref=f8e27]:
+        - navigation [ref=f8e30]:
+          - button "Vendor Dashboard" [ref=f8e31] [cursor=pointer]
+        - navigation [ref=f8e39]:
+          - button "1" [ref=f8e236] [cursor=pointer]
+          - button "1" [ref=f8e241] [cursor=pointer]
+          - button "Invoice Processing" [ref=f8e246] [cursor=pointer]
+          - button "Payment Tracking" [ref=f8e250] [cursor=pointer]
+          - button "Performance" [ref=f8e253] [cursor=pointer]
+          - button "Reports & Analytics" [ref=f8e256] [cursor=pointer]
+        - generic [ref=f8e52]:
+          - button "Reset demo data (dev only)" [ref=f8e53] [cursor=pointer]
+          - button "Log Out" [ref=f8e58] [cursor=pointer]
+      - main [ref=f8e62]:
+        - generic [ref=f8e63]:
+          - generic [ref=f8e64]:
+            - generic [ref=f8e65]:
+              - generic [ref=f8e66]:
+                - heading "Vendor Dashboard" [level=2] [ref=f8e67]
+                - paragraph [ref=f8e68]: Your account overview — 02 Jun 2025 • FY 2025-26 Q1
+              - generic [ref=f8e69]:
+                - button "Connected" [ref=f8e70] [cursor=pointer]
+                - button "Sync" [ref=f8e76] [cursor=pointer]
+                - button "Submit Invoice" [ref=f8e78] [cursor=pointer]
+            - generic [ref=f8e80]:
+              - generic [ref=f8e81]:
+                - paragraph [ref=f8e82]: Welcome back
+                - heading "Meridian Castings Pvt Ltd" [level=3] [ref=f8e259]
+                - generic [ref=f8e84]:
+                  - generic [ref=f8e85]:
+                    - text: "Supplier ID:"
+                    - strong [ref=f8e86]: VND-51204
+                  - generic [ref=f8e87]: "|"
+                  - generic [ref=f8e88]:
+                    - text: "GSTIN:"
+                    - strong [ref=f8e89]: 27AACCM4519R1ZK
+                  - generic [ref=f8e90]: Active
+              - generic [ref=f8e92]:
+                - button "Submit Invoice" [ref=f8e93] [cursor=pointer]
+                - button "Send shipment" [ref=f8e98] [cursor=pointer]
+                - button "View RFQs" [ref=f8e103] [cursor=pointer]
+                - button "Statement" [ref=f8e108] [cursor=pointer]
+                - button "TDS Certificates" [ref=f8e112] [cursor=pointer]
+            - generic [ref=f8e118]:
+              - generic [ref=f8e260]:
+                - generic [ref=f8e261]: Open POs
+                - generic [ref=f8e267]: "3"
+                - generic [ref=f8e268]:
+                  - generic [ref=f8e269]: ↑ 3
+                  - generic [ref=f8e270]: vs last week
+              - generic [ref=f8e272]:
+                - generic [ref=f8e273]: Pending Invoices
+                - generic [ref=f8e279]: "1"
+                - generic [ref=f8e280]:
+                  - generic [ref=f8e281]: ↓ 1
+                  - generic [ref=f8e282]: action required
+              - generic [ref=f8e284]:
+                - generic [ref=f8e285]: Next Payment
+                - generic [ref=f8e290]: ₹8.4L
+                - generic [ref=f8e292]:
+                  - generic [ref=f8e293]: Scheduled
+                  - generic [ref=f8e294]: for 15th Jun
+              - generic [ref=f8e296]:
+                - generic [ref=f8e297]: Performance Score
+                - generic [ref=f8e302]: 66.67/ 100
+                - generic [ref=f8e304]:
+                  - generic [ref=f8e305]: ↑ 2.4%
+                  - generic [ref=f8e306]: improving
+            - generic [ref=f8e161]:
+              - heading "Alerts & Notifications" [level=4] [ref=f8e163]
+              - generic [ref=f8e164]:
+                - generic [ref=f8e311] [cursor=pointer]:
+                  - generic [ref=f8e312]:
+                    - heading "Delivery Schedule Overdue (PO-2025-0071)" [level=5] [ref=f8e313]
+                    - generic [ref=f8e314]: New
+                  - paragraph [ref=f8e315]: The order was due 01-Jun-2025. Please update your shipment details or contact the buying team.
+                  - button "Update shipment" [ref=f8e316]
+                - generic [ref=f8e325] [cursor=pointer]:
+                  - generic [ref=f8e326]:
+                    - heading "New RFQ Invitation (RFQ-2025-0041)" [level=5] [ref=f8e327]
+                    - generic [ref=f8e328]: New
+                  - paragraph [ref=f8e329]: Galvanised coils — 500 MT requirement. Submit your proposal price.
+                  - button "Submit Quotation" [ref=f8e330]
+            - generic [ref=f8e167]:
+              - generic [ref=f8e168]:
+                - generic [ref=f8e169]:
+                  - heading "Purchase Orders Monitor" [level=4] [ref=f8e170]
+                  - button "All Orders" [ref=f8e171] [cursor=pointer]
+                - generic [ref=f8e172]:
+                  - generic [ref=f8e334]:
+                    - generic [ref=f8e336]:
+                      - checkbox [ref=f8e338] [cursor=pointer]
+                      - generic [ref=f8e343]:
+                        - text: PO-2026-0007
+                        - paragraph [ref=f8e344]: Annual Maintenance Contract — CNC Line 4 installation•1 EA
+                    - generic [ref=f8e345]:
+                      - generic [ref=f8e346]:
+                        - paragraph [ref=f8e347]: ₹6,00,000.00
+                        - paragraph [ref=f8e348]: 2026-04-01T00:00:00.000Z
+                      - generic [ref=f8e349]: Acknowledged
+                  - generic [ref=f8e350]:
+                    - generic [ref=f8e352]:
+                      - checkbox [ref=f8e354] [cursor=pointer]
+                      - generic [ref=f8e359]:
+                        - text: PO-2026-0006
+                        - paragraph [ref=f8e360]: Hex Bolt M12x50 Grade 8.8•1000 EA
+                    - generic [ref=f8e361]:
+                      - generic [ref=f8e362]:
+                        - paragraph [ref=f8e363]: ₹42,000.00
+                        - paragraph [ref=f8e364]: 2026-09-04T00:00:00.000Z
+                      - generic [ref=f8e365]: Open
+                  - generic [ref=f8e366]:
+                    - generic [ref=f8e368]:
+                      - checkbox [ref=f8e370] [cursor=pointer]
+                      - generic [ref=f8e375]:
+                        - text: PO-2026-0005
+                        - paragraph [ref=f8e376]: Flange 3" ANSI 150#•150 EA
+                    - generic [ref=f8e377]:
+                      - generic [ref=f8e378]:
+                        - paragraph [ref=f8e379]: ₹1,33,500.00
+                        - paragraph [ref=f8e380]: 2026-08-31T00:00:00.000Z
+                      - generic [ref=f8e381]: Acknowledged
+                  - generic [ref=f8e382]:
+                    - generic [ref=f8e384]:
+                      - checkbox [ref=f8e386] [cursor=pointer]
+                      - generic [ref=f8e391]:
+                        - text: PO-2026-0004
+                        - paragraph [ref=f8e392]: Steel Pipe 3" SCH40•200 EA
+                    - generic [ref=f8e393]:
+                      - generic [ref=f8e394]:
+                        - paragraph [ref=f8e395]: ₹2,90,000.00
+                        - paragraph [ref=f8e396]: 2026-08-24T00:00:00.000Z
+                      - generic [ref=f8e397]: Dispatched
+              - generic [ref=f8e175]:
+                - generic [ref=f8e176]:
+                  - heading "Logistics Invoices Ledger" [level=4] [ref=f8e177]
+                  - button "All Invoices" [ref=f8e181] [cursor=pointer]
+                - generic [ref=f8e184]:
+                  - generic [ref=f8e398]:
+                    - generic [ref=f8e400]:
+                      - checkbox [ref=f8e402] [cursor=pointer]
+                      - generic [ref=f8e407]:
+                        - text: MC/2026-27/0102
+                        - paragraph [ref=f8e408]:
+                          - text: "Ref PO:"
+                          - strong [ref=f8e409]: PO-2026-0007
+                    - generic [ref=f8e410]:
+                      - generic [ref=f8e411]:
+                        - paragraph [ref=f8e412]: ₹1,77,000.00
+                        - paragraph [ref=f8e413]: 2026-07-02T00:00:00.000Z
+                      - generic [ref=f8e414]: Cleared
+                  - generic [ref=f8e415]:
+                    - generic [ref=f8e417]:
+                      - checkbox [ref=f8e419] [cursor=pointer]
+                      - generic [ref=f8e424]:
+                        - text: MC/2026-27/0148
+                        - paragraph [ref=f8e425]:
+                          - text: "Ref PO:"
+                          - strong [ref=f8e426]: PO-2026-0002
+                    - generic [ref=f8e427]:
+                      - generic [ref=f8e428]:
+                        - paragraph [ref=f8e429]: ₹39,010.8.00
+                        - paragraph [ref=f8e430]: 2026-08-09T00:00:00.000Z
+                      - generic [ref=f8e431]: Match Warning
+                  - generic [ref=f8e432]:
+                    - generic [ref=f8e434]:
+                      - checkbox [ref=f8e436] [cursor=pointer]
+                      - generic [ref=f8e441]:
+                        - text: MC/2026-27/0117
+                        - paragraph [ref=f8e442]:
+                          - text: "Ref PO:"
+                          - strong [ref=f8e443]: PO-2026-0001
+                    - generic [ref=f8e444]:
+                      - generic [ref=f8e445]:
+                        - paragraph [ref=f8e446]: ₹2,54,915.4.00
+                        - paragraph [ref=f8e447]: 2026-07-08T00:00:00.000Z
+                      - generic [ref=f8e448]: Cleared
+            - generic [ref=f8e187]:
+              - generic [ref=f8e188]:
+                - generic [ref=f8e189]:
+                  - heading "Service Delivery KPIs (OTIF)" [level=4] [ref=f8e190]
+                  - generic [ref=f8e191]:
+                    - generic [ref=f8e450]:
+                      - generic [ref=f8e451]: On-Time In-Full Delivery (OTIF)
+                      - generic [ref=f8e452]:
+                        - text: 66.67%
+                        - generic [ref=f8e453]: / target 95%
+                        - text: ↑
+                    - generic [ref=f8e457]:
+                      - generic [ref=f8e458]: Quality Acceptance Rate
+                      - generic [ref=f8e459]:
+                        - text: 95%
+                        - generic [ref=f8e460]: / target 95%
+                        - text: ✓
+                    - generic [ref=f8e464]:
+                      - generic [ref=f8e465]: Invoice Billing Accuracy
+                      - generic [ref=f8e466]:
+                        - text: 83%
+                        - generic [ref=f8e467]: / target 90%
+                        - text: ↑
+                    - generic [ref=f8e471]:
+                      - generic [ref=f8e472]: Commercial Proposal Response Time
+                      - generic [ref=f8e473]:
+                        - text: 78%
+                        - generic [ref=f8e474]: / target 85%
+                        - text: ↑
+                - generic [ref=f8e195]:
+                  - generic [ref=f8e196]:
+                    - generic [ref=f8e197]: Overall Score
+                    - paragraph [ref=f8e198]: 66.67 / 100
+                  - generic [ref=f8e199]: ★★ Standard
+              - generic [ref=f8e200]:
+                - generic [ref=f8e201]:
+                  - generic [ref=f8e202]:
+                    - heading "Treasury Disbursements (Recent)" [level=4] [ref=f8e203]
+                    - button "Statement" [ref=f8e204] [cursor=pointer]
+                  - generic [ref=f8e205]:
+                    - generic [ref=f8e477]:
+                      - generic [ref=f8e482]:
+                        - text: UTR2026071800552104
+                        - paragraph [ref=f8e483]:
+                          - text: "Inv:"
+                          - strong [ref=f8e484]: MC/2026-27/0102
+                          - text: • NEFT
+                      - generic [ref=f8e485]:
+                        - generic [ref=f8e486]:
+                          - paragraph [ref=f8e487]:
+                            - text: "Gross:"
+                            - generic [ref=f8e488]: ₹1,77,000
+                          - paragraph [ref=f8e489]:
+                            - text: "TDS:"
+                            - generic [ref=f8e490]: "-₹1,770"
+                        - generic [ref=f8e491]:
+                          - paragraph [ref=f8e492]: ₹1,75,230
+                          - paragraph [ref=f8e493]: 18 Jul 26
+                    - generic [ref=f8e494]:
+                      - generic [ref=f8e499]:
+                        - text: UTR2026072400418823
+                        - paragraph [ref=f8e500]:
+                          - text: "Inv:"
+                          - strong [ref=f8e501]: MC/2026-27/0117
+                          - text: • NEFT
+                      - generic [ref=f8e502]:
+                        - generic [ref=f8e503]:
+                          - paragraph [ref=f8e504]:
+                            - text: "Gross:"
+                            - generic [ref=f8e505]: ₹2,54,915.4
+                          - paragraph [ref=f8e506]:
+                            - text: "TDS:"
+                            - generic [ref=f8e507]: "-₹2,549.15"
+                        - generic [ref=f8e508]:
+                          - paragraph [ref=f8e509]: ₹2,52,366.25
+                          - paragraph [ref=f8e510]: 24 Jul 26
+                - generic [ref=f8e208]:
+                  - button "Download Advice" [ref=f8e209] [cursor=pointer]
+                  - button "Form 16A / TDS" [ref=f8e211] [cursor=pointer]
+          - generic:
+            - generic:
+              - generic:
+                - generic: "0"
+                - generic: Selected
+              - generic:
+                - button "Download PDF"
+                - button "Acknowledge"
+              - button
+          - generic [ref=f8e214]:
+            - heading "Invoice Details" [level=2] [ref=f8e216]
+            - button [ref=f8e222] [cursor=pointer]
+  - button "Open Next.js Dev Tools" [ref=f8e232] [cursor=pointer]
+  - alert [ref=f8e511]

@@ -1,0 +1,54 @@
+[     129ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:2477
+[     143ms] [LOG] [Fast Refresh] done in 128ms @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:2477
+[     326ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:2477
+[     375ms] [LOG] [HMR] connected @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:2477
+[     610ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:2477
+[     739ms] [LOG] [Fast Refresh] done in 235ms @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:2477
+[     871ms] [VERBOSE] [DOM] Input elements should have autocomplete attributes (suggested: "current-password"): (More info: https://goo.gl/9p2vKq) %o @ http://localhost:3000/sign-in:0
+[   10493ms] [LOG] [PortalContext] Initializing WebSockets connection for vendor: VND-77104 @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:2477
+[   10495ms] [LOG] [Socket.io] Connecting to http://localhost:5000... @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:2477
+[   10551ms] [LOG] [Socket.io] Connected successfully! ID: XEI9zX7OZXvFM7coAAAd @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:2477
+[   11428ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:2477
+[   11513ms] [LOG] [Fast Refresh] done in 187ms @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:2477
+[   16077ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:2477
+[   16160ms] [LOG] [Fast Refresh] done in 185ms @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:2477
+[   58611ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=LrmWRR7UYmH9GuRGUDop7' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0r5nbpw._.js:13422
+[   61944ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=LrmWRR7UYmH9GuRGUDop7' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0r5nbpw._.js:13422
+[   65292ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=LrmWRR7UYmH9GuRGUDop7' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0r5nbpw._.js:13422
+[   68659ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=LrmWRR7UYmH9GuRGUDop7' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0r5nbpw._.js:13422
+[   71993ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=LrmWRR7UYmH9GuRGUDop7' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0r5nbpw._.js:13422
+[   72950ms] [LOG] [Socket.io] Disconnected: transport close @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:2477
+[   72960ms] [ERROR] WebSocket is already in CLOSING or CLOSED state. @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:2836
+[   76460ms] [ERROR] WebSocket connection to 'ws://localhost:5000/socket.io/?EIO=4&transport=websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_1biuugj._.js:2056
+[   76462ms] [ERROR] [Socket.io] Connection error: TransportError: websocket error
+    at WS.onError (http://localhost:3000/_next/static/chunks/node_modules_1biuugj._.js:1429:37)
+    at ws.onerror (http://localhost:3000/_next/static/chunks/node_modules_1biuugj._.js:2002:37) @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:3318
+[   76484ms] [ERROR] WebSocket is already in CLOSING or CLOSED state. @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:2836
+[   78826ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/__nextjs_original-stack-frames:0
+[   79359ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=LrmWRR7UYmH9GuRGUDop7' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0r5nbpw._.js:13422
+[   80376ms] [ERROR] WebSocket connection to 'ws://localhost:5000/socket.io/?EIO=4&transport=websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_1biuugj._.js:2056
+[   80376ms] [ERROR] [Socket.io] Connection error: TransportError: websocket error
+    at WS.onError (http://localhost:3000/_next/static/chunks/node_modules_1biuugj._.js:1429:37)
+    at ws.onerror (http://localhost:3000/_next/static/chunks/node_modules_1biuugj._.js:2002:37) @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:3318
+[   80393ms] [ERROR] WebSocket is already in CLOSING or CLOSED state. @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:2836
+[   86725ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=LrmWRR7UYmH9GuRGUDop7' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0r5nbpw._.js:13422
+[   87726ms] [ERROR] WebSocket connection to 'ws://localhost:5000/socket.io/?EIO=4&transport=websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_1biuugj._.js:2056
+[   87727ms] [ERROR] [Socket.io] Connection error: TransportError: websocket error
+    at WS.onError (http://localhost:3000/_next/static/chunks/node_modules_1biuugj._.js:1429:37)
+    at ws.onerror (http://localhost:3000/_next/static/chunks/node_modules_1biuugj._.js:2002:37) @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:3318
+[   87743ms] [ERROR] WebSocket is already in CLOSING or CLOSED state. @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:2836
+[   94059ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=LrmWRR7UYmH9GuRGUDop7' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0r5nbpw._.js:13422
+[   95077ms] [ERROR] WebSocket connection to 'ws://localhost:5000/socket.io/?EIO=4&transport=websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_1biuugj._.js:2056
+[   95078ms] [ERROR] [Socket.io] Connection error: TransportError: websocket error
+    at WS.onError (http://localhost:3000/_next/static/chunks/node_modules_1biuugj._.js:1429:37)
+    at ws.onerror (http://localhost:3000/_next/static/chunks/node_modules_1biuugj._.js:2002:37) @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:3318
+[   95092ms] [ERROR] WebSocket is already in CLOSING or CLOSED state. @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:2836
+[  101394ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=LrmWRR7UYmH9GuRGUDop7' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0r5nbpw._.js:13422
+[  102410ms] [ERROR] WebSocket connection to 'ws://localhost:5000/socket.io/?EIO=4&transport=websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_1biuugj._.js:2056
+[  102411ms] [ERROR] [Socket.io] Connection error: TransportError: websocket error
+    at WS.onError (http://localhost:3000/_next/static/chunks/node_modules_1biuugj._.js:1429:37)
+    at ws.onerror (http://localhost:3000/_next/static/chunks/node_modules_1biuugj._.js:2002:37) @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:3318
+[  102426ms] [ERROR] WebSocket is already in CLOSING or CLOSED state. @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:2836
+[  108741ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=LrmWRR7UYmH9GuRGUDop7' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0r5nbpw._.js:13422
+[  116073ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=LrmWRR7UYmH9GuRGUDop7' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0r5nbpw._.js:13422
+[  123424ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=LrmWRR7UYmH9GuRGUDop7' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_0r5nbpw._.js:13422

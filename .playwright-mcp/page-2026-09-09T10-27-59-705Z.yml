@@ -1,0 +1,133 @@
+- generic [active] [ref=f29e1]:
+  - link "Skip to main content" [ref=f29e2] [cursor=pointer]:
+    - /url: "#main-content"
+  - button "Open Next.js Dev Tools" [ref=f29e43] [cursor=pointer]
+  - alert [ref=f29e47]
+  - generic [ref=f29e48]:
+    - banner [ref=f29e49]:
+      - generic [ref=f29e50]:
+        - generic [ref=f29e51]: V
+        - generic [ref=f29e52]: VendorConnect
+        - generic [ref=f29e53]: Nucleus Manufacturing Pvt Ltd
+      - generic [ref=f29e54]:
+        - link "Portal" [ref=f29e55] [cursor=pointer]:
+          - /url: /
+        - generic [ref=f29e56]:
+          - paragraph [ref=f29e57]: Priya Raghavan
+          - paragraph [ref=f29e58]: client_admin
+        - button "Sign out" [ref=f29e59] [cursor=pointer]
+    - generic [ref=f29e63]:
+      - navigation [ref=f29e64]:
+        - link "Overview" [ref=f29e65] [cursor=pointer]:
+          - /url: /workspace
+        - link "Suppliers" [ref=f29e66] [cursor=pointer]:
+          - /url: /workspace/suppliers
+        - link "RFQs" [ref=f29e67] [cursor=pointer]:
+          - /url: /workspace/rfqs
+        - link "Purchase Orders" [ref=f29e68] [cursor=pointer]:
+          - /url: /workspace/purchase-orders
+        - link "Invoices" [ref=f29e69] [cursor=pointer]:
+          - /url: /workspace/invoices
+        - link "Payments" [ref=f29e70] [cursor=pointer]:
+          - /url: /workspace/payments
+        - link "Users" [ref=f29e71] [cursor=pointer]:
+          - /url: /workspace/users
+        - link "Settings" [ref=f29e72] [cursor=pointer]:
+          - /url: /workspace/settings
+        - link "Audit" [ref=f29e73] [cursor=pointer]:
+          - /url: /workspace/audit
+      - main [ref=f29e74]:
+        - generic [ref=f29e76]:
+          - heading "Nucleus Manufacturing Pvt Ltd" [level=1] [ref=f29e77]
+          - paragraph [ref=f29e78]: growth plan · sandbox environment · CLT-0001
+        - generic [ref=f29e79]:
+          - generic [ref=f29e80]:
+            - heading "Suppliers" [level=2] [ref=f29e81]
+            - generic [ref=f29e82]:
+              - link [ref=f29e83] [cursor=pointer]:
+                - /url: /workspace/suppliers?status=Under+Review
+                - generic [ref=f29e84]:
+                  - paragraph [ref=f29e85]: Awaiting a decision
+                  - paragraph [ref=f29e86]: "1"
+                  - paragraph [ref=f29e87]: Submitted and waiting on you
+              - link [ref=f29e88] [cursor=pointer]:
+                - /url: /workspace/suppliers?status=Under+Review
+                - generic [ref=f29e89]:
+                  - paragraph [ref=f29e90]: Past the SLA
+                  - paragraph [ref=f29e91]: "1"
+                  - paragraph [ref=f29e92]: Older than 48h
+              - link [ref=f29e93] [cursor=pointer]:
+                - /url: /workspace/suppliers?status=Approved
+                - generic [ref=f29e94]:
+                  - paragraph [ref=f29e95]: Approved
+                  - paragraph [ref=f29e96]: "1"
+              - link [ref=f29e97] [cursor=pointer]:
+                - /url: /workspace/suppliers
+                - generic [ref=f29e98]:
+                  - paragraph [ref=f29e99]: Directory
+                  - paragraph [ref=f29e100]: 3 / 50
+                  - paragraph [ref=f29e101]: Used against your plan limit
+          - generic [ref=f29e102]:
+            - heading "Sourcing" [level=2] [ref=f29e103]
+            - generic [ref=f29e104]:
+              - link [ref=f29e105] [cursor=pointer]:
+                - /url: /workspace/rfqs
+                - generic [ref=f29e106]:
+                  - paragraph [ref=f29e107]: RFQs open for bidding
+                  - paragraph [ref=f29e108]: "1"
+                  - paragraph [ref=f29e109]: 4 total
+              - link [ref=f29e110] [cursor=pointer]:
+                - /url: /workspace/rfqs
+                - generic [ref=f29e111]:
+                  - paragraph [ref=f29e112]: RFQs awarded
+                  - paragraph [ref=f29e113]: "1"
+              - link [ref=f29e114] [cursor=pointer]:
+                - /url: /workspace/purchase-orders
+                - generic [ref=f29e115]:
+                  - paragraph [ref=f29e116]: Purchase orders open
+                  - paragraph [ref=f29e117]: "3"
+                  - paragraph [ref=f29e118]: 7 total
+              - link [ref=f29e119] [cursor=pointer]:
+                - /url: /workspace/purchase-orders
+                - generic [ref=f29e120]:
+                  - paragraph [ref=f29e121]: Purchase orders, all
+                  - paragraph [ref=f29e122]: "7"
+          - generic [ref=f29e123]:
+            - heading "Finance" [level=2] [ref=f29e124]
+            - generic [ref=f29e125]:
+              - link [ref=f29e126] [cursor=pointer]:
+                - /url: /workspace/invoices
+                - generic [ref=f29e127]:
+                  - paragraph [ref=f29e128]: Invoices not yet cleared
+                  - paragraph [ref=f29e129]: "1"
+                  - paragraph [ref=f29e130]: ₹39,010.8
+              - link [ref=f29e131] [cursor=pointer]:
+                - /url: /workspace/invoices
+                - generic [ref=f29e132]:
+                  - paragraph [ref=f29e133]: Above the review amount
+                  - paragraph [ref=f29e134]: "1"
+                  - paragraph [ref=f29e135]: At or above ₹30,000
+              - link [ref=f29e136] [cursor=pointer]:
+                - /url: /workspace/payments
+                - generic [ref=f29e137]:
+                  - paragraph [ref=f29e138]: Payments made
+                  - paragraph [ref=f29e139]: "2"
+                  - paragraph [ref=f29e140]: ₹4,27,596.25
+              - link [ref=f29e141] [cursor=pointer]:
+                - /url: /workspace/payments
+                - generic [ref=f29e142]:
+                  - paragraph [ref=f29e143]: TDS deducted
+                  - paragraph [ref=f29e144]: ₹4,319.15
+          - generic [ref=f29e145]:
+            - heading "People" [level=2] [ref=f29e146]
+            - generic [ref=f29e147]:
+              - link [ref=f29e148] [cursor=pointer]:
+                - /url: /workspace/users
+                - generic [ref=f29e149]:
+                  - paragraph [ref=f29e150]: Active staff
+                  - paragraph [ref=f29e151]: "3"
+              - link [ref=f29e152] [cursor=pointer]:
+                - /url: /workspace/users
+                - generic [ref=f29e153]:
+                  - paragraph [ref=f29e154]: Invitations outstanding
+                  - paragraph [ref=f29e155]: "1"

@@ -48,7 +48,7 @@ export default function InvoiceProcessingView({
       {/* Title Header */}
       <div className="card p-4 flex items-center justify-between">
         <div>
-          <h2 className="text-[22px] font-bold text-text-primary flex items-center gap-2">
+          <h2 className="page-title flex items-center gap-2">
             <Receipt className="size-4.5 text-text-secondary" /> Invoice Submission
           </h2>
           <p className="text-[11px] text-text-tertiary mt-1 font-semibold">

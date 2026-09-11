@@ -1,0 +1,27 @@
+- generic [active] [ref=f2e1]:
+  - link "Skip to main content" [ref=f2e2] [cursor=pointer]:
+    - /url: "#main-content"
+  - generic [ref=f2e3]:
+    - banner [ref=f2e4]:
+      - generic [ref=f2e5]:
+        - generic [ref=f2e6]: V
+        - heading "VendorConnect" [level=1] [ref=f2e7]
+      - generic [ref=f2e8]:
+        - generic [ref=f2e9]: Connected · GST + TDS + MSME
+        - button "Search Ctrl K" [ref=f2e12] [cursor=pointer]:
+          - generic [ref=f2e16]: Search
+          - generic [ref=f2e17]: Ctrl K
+        - button "Notifications" [ref=f2e19] [cursor=pointer]
+        - button "Toggle color theme" [ref=f2e23] [cursor=pointer]
+    - generic [ref=f2e30]:
+      - complementary [ref=f2e31]:
+        - navigation [ref=f2e34]:
+          - button "Vendor Dashboard" [ref=f2e35] [cursor=pointer]
+        - navigation [ref=f2e43]:
+          - button "Vendor Registration" [ref=f2e44] [cursor=pointer]
+        - generic [ref=f2e56]:
+          - button "Reset demo data (dev only)" [ref=f2e57] [cursor=pointer]
+          - button "Log Out" [ref=f2e62] [cursor=pointer]
+      - main [ref=f2e66]
+  - button "Open Next.js Dev Tools" [ref=f2e111] [cursor=pointer]
+  - alert [ref=f2e115]

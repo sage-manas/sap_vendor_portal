@@ -6,49 +6,65 @@
    relying on OS color-scheme, so `dark:` utilities must key off that class. */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* ── Kinetic Industrial Console Tokens: RGB triplets for opacity modifiers ─────────── */
+/* ── "Cream & Coral" tokens: RGB triplets for opacity modifiers ─────────────
+   Adapted from claude/DESIGN.md (Claude.com's marketing-site system) — the
+   warm cream canvas, coral accent, and serif/humanist-sans pairing carried
+   into a dense operational console. Marketing-only components from that doc
+   (hero-band, pricing-tier-card, cta-band, footer) have no equivalent here
+   and were intentionally left behind; what transferred is the palette, the
+   type pairing, and the radius/spacing language, reshaped for tables, KPI
+   tiles, forms and a fixed nav rather than a scrolling marketing page.
+   Internal variable names stay `--color-emerald-*` even though the color is
+   coral, not emerald: `src/lib/branding.js` (ADR-0030) moves exactly this
+   variable to inject a tenant's brand color at runtime, so renaming it is a
+   functional change, not a cosmetic one — out of scope for a visual pass. */
 :root {
-  /* ── Arctic Light Theme ────────────────────────────────────────── */
-  --color-base-rgb: 250, 251, 254;          /* App background: #FAFBFE */
+  /* ── Cream (light) ─────────────────────────────────────────────── */
+  --color-base-rgb: 250, 249, 245;          /* App background: #FAF9F5 (canvas) */
   --color-surface-rgb: 255, 255, 255;       /* Card surface: #FFFFFF */
-  --color-surface2-rgb: 244, 246, 250;      /* Hover fill / row highlight: #F4F6FA */
-  --color-border-rgb: 226, 232, 240;        /* Default border: #E2E8F0 */
-  --color-border-subtle-rgb: 248, 250, 252; /* Alternating table border */
-  --color-border-em-rgb: 203, 213, 225;     /* Emphasis border: #CBD5E1 */
+  --color-surface2-rgb: 245, 240, 232;      /* Hover fill / row highlight: #F5F0E8 (surface-soft) */
+  --color-surface3-rgb: 239, 233, 222;      /* Elevated: popovers, dropdown menus: #EFE9DE (surface-card) */
+  --color-border-rgb: 230, 223, 216;        /* Default border: #E6DFD8 (hairline) */
+  --color-border-subtle-rgb: 245, 240, 232; /* Alternating table border */
+  --color-border-em-rgb: 209, 199, 186;     /* Emphasis border: #D1C7BA */
 
-  --color-text-primary-rgb: 15, 23, 42;     /* Primary text: #0F172A */
-  --color-text-secondary-rgb: 71, 85, 105;  /* Body text: #475569 */
-  --color-text-tertiary-rgb: 100, 116, 139; /* Muted labels: #64748B */
+  --color-text-primary-rgb: 20, 20, 19;     /* Primary text: #141413 (ink) */
+  --color-text-secondary-rgb: 61, 61, 58;   /* Body text: #3D3D3A (body) */
+  --color-text-tertiary-rgb: 108, 106, 100; /* Muted labels: #6C6A64 (muted) */
 
-  /* Primary action -> Deep Indigo #3730A3 */
-  --color-emerald-default-rgb: 55, 48, 163;
-  --color-emerald-dim: rgba(55, 48, 163, 0.1);
-  --color-emerald-text-rgb: 55, 48, 163;
+  /* Primary action -> Coral #CC785C */
+  --color-emerald-default-rgb: 204, 120, 92;
+  --color-emerald-dim: rgba(204, 120, 92, 0.10);
+  --color-emerald-text-rgb: 169, 88, 62;    /* Coral Active #A9583E — better small-text contrast on cream than the button coral */
   --color-on-emerald-rgb: 255, 255, 255;    /* Text drawn on top of the accent color */
 }
 
-/* ── Graphite & Gold Dark Theme ───────────────────────────────────────────────
-   Warm near-black graphite with a single restrained gold accent. Every
-   surface/text/border in the app reads from these RGB triplets, so
-   overriding them on `.dark` flips the entire chrome with no per-component work. */
+/* ── Cream (dark) ─────────────────────────────────────────────────────────
+   The doc's dark palette (surface-dark family) exists only as a "product
+   mockup card" floating on an otherwise cream page — this app needs a real
+   full-dark theme, so those tones become the base/surface ladder here
+   instead, kept warm (not cool-graphite, not blue-black) to stay in the same
+   family as the cream light theme. */
 .dark {
-  --color-base-rgb: 13, 13, 15;              /* App background: #0D0D0F */
-  --color-surface-rgb: 24, 24, 27;           /* Card surface: #18181B */
-  --color-surface2-rgb: 33, 33, 36;          /* Hover fill / row highlight: #212124 */
-  --color-border-rgb: 42, 42, 46;            /* Default border: #2A2A2E */
-  --color-border-subtle-rgb: 20, 20, 22;     /* Alternating table border: #141416 */
-  --color-border-em-rgb: 58, 58, 64;         /* Emphasis border: #3A3A40 */
+  --color-base-rgb: 24, 23, 21;               /* App background: #181715 (surface-dark) */
+  --color-surface-rgb: 31, 30, 27;            /* Card surface: #1F1E1B (surface-dark-soft) */
+  --color-surface2-rgb: 37, 35, 32;           /* Hover fill / row highlight: #252320 (surface-dark-elevated) */
+  --color-surface3-rgb: 45, 42, 38;           /* Elevated: popovers, dropdown menus */
+  --color-border-rgb: 51, 48, 43;             /* Default border */
+  --color-border-subtle-rgb: 28, 27, 24;      /* Alternating table border */
+  --color-border-em-rgb: 66, 62, 55;          /* Emphasis border */
 
-  --color-text-primary-rgb: 242, 241, 236;  /* Primary text: #F2F1EC */
-  --color-text-secondary-rgb: 168, 166, 160;/* Body text: #A8A6A0 */
-  --color-text-tertiary-rgb: 110, 108, 104; /* Muted labels: #6E6C68 */
+  --color-text-primary-rgb: 250, 249, 245;   /* Primary text: #FAF9F5 (on-dark, cream-tinted white) */
+  --color-text-secondary-rgb: 201, 196, 186; /* Body text — between on-dark and on-dark-soft */
+  --color-text-tertiary-rgb: 160, 157, 150;  /* Muted labels: #A09D96 (on-dark-soft) */
 
-  /* Primary action -> muted Gold #C9A64D; accent text uses a lighter
-     Gold #E0C179 for links & active nav. */
-  --color-emerald-default-rgb: 201, 166, 77;
-  --color-emerald-dim: rgba(224, 193, 121, 0.16);
-  --color-emerald-text-rgb: 224, 193, 121;
-  --color-on-emerald-rgb: 13, 13, 15;        /* Dark text on top of the gold accent */
+  /* Primary action -> the same coral, warmed/lightened to read against
+     near-black instead of switching hue. Dark ink text on top (not white) —
+     mid-tone coral contrasts better with #181715 than with white. */
+  --color-emerald-default-rgb: 224, 137, 95;
+  --color-emerald-dim: rgba(224, 137, 95, 0.16);
+  --color-emerald-text-rgb: 224, 137, 95;
+  --color-on-emerald-rgb: 24, 23, 21;
 
   color-scheme: dark;
 }
@@ -57,6 +73,7 @@
   --color-base: rgb(var(--color-base-rgb));
   --color-surface: rgb(var(--color-surface-rgb));
   --color-surface2: rgb(var(--color-surface2-rgb));
+  --color-surface3: rgb(var(--color-surface3-rgb));
   --color-border-em: rgb(var(--color-border-em-rgb));
   --color-border-subtle: rgb(var(--color-border-subtle-rgb));
   --color-text-primary: rgb(var(--color-text-primary-rgb));
@@ -67,19 +84,22 @@
 
   --font-sans: var(--font-geist-sans), system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), monospace;
+  /* Page-level headings only — see .page-title. Everything else (labels,
+     body, table data) stays on the sans/mono pairing for density. */
+  --font-serif: var(--font-serif-display), "Source Serif 4", Georgia, serif;
 
-  /* Soft 4px radius */
-  --radius-sm: 2px;
-  --radius-md: 4px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
+  /* claude/DESIGN.md's rounded.{md,lg,xl} scale (buttons/inputs, cards, popovers) */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
 
   /* ── shadcn variable aliases -> SAC tokens ── */
   --color-background: rgb(var(--color-base-rgb));
   --color-foreground: rgb(var(--color-text-primary-rgb));
   --color-card: rgb(var(--color-surface-rgb));
   --color-card-foreground: rgb(var(--color-text-primary-rgb));
-  --color-popover: rgb(var(--color-surface-rgb));
+  --color-popover: rgb(var(--color-surface3-rgb));
   --color-popover-foreground: rgb(var(--color-text-primary-rgb));
   --color-primary: rgb(var(--color-emerald-default-rgb));
   --color-primary-foreground: rgb(var(--color-on-emerald-rgb));
@@ -89,7 +109,7 @@
   --color-muted-foreground: rgb(var(--color-text-secondary-rgb));
   --color-accent: rgb(var(--color-surface2-rgb));
   --color-accent-foreground: rgb(var(--color-text-primary-rgb));
-  --color-destructive: #ef4444;
+  --color-destructive: #c64545;
   --color-border: rgb(var(--color-border-rgb));
   --color-input: rgb(var(--color-border-rgb));
   --color-ring: rgb(var(--color-emerald-default-rgb));
@@ -108,9 +128,9 @@
     to { opacity: 1; transform: translateX(0); }
   }
   @keyframes borderPulse {
-    0% { box-shadow: 0 0 0 0 rgba(55, 48, 163, 0.4); }
-    70% { box-shadow: 0 0 0 6px rgba(55, 48, 163, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(55, 48, 163, 0); }
+    0% { box-shadow: 0 0 0 0 rgba(204, 120, 92, 0.4); }
+    70% { box-shadow: 0 0 0 6px rgba(204, 120, 92, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(204, 120, 92, 0); }
   }
 }
 
@@ -122,7 +142,7 @@
   background: rgb(var(--color-emerald-default-rgb));
   color: rgb(var(--color-on-emerald-rgb));
   padding: 6px 14px;
-  border-radius: 4px;
+  border-radius: 6px;
   font-size: 13px;
   font-weight: 600;
   z-index: 9999;
@@ -201,7 +221,9 @@ aside nav::-webkit-scrollbar-thumb:hover {
     @apply border-b-0;
   }
 
-  /* Inputs (Floating Unboxed Style) */
+  /* Inputs — bordered box with a hairline border + accent focus ring,
+     following claude/DESIGN.md's text-input (canvas fill, hairline border,
+     coral focus ring) rather than a colored fill. */
   input[type=text],
   input[type=email],
   input[type=number],
@@ -211,13 +233,13 @@ aside nav::-webkit-scrollbar-thumb:hover {
   input[type=search],
   select,
   textarea {
-    @apply bg-indigo-50/40 border-0 border-b border-transparent rounded-none px-[11px] py-[7px] text-[13px] text-text-primary outline-none transition-all duration-150 w-full placeholder:text-text-tertiary;
+    @apply bg-surface border border-border rounded-md px-[11px] py-[7px] text-[13px] text-text-primary outline-none transition-all duration-150 w-full placeholder:text-text-tertiary;
   }
   input:focus,
   select:focus,
   textarea:focus {
-    @apply bg-white;
-    border-bottom-color: rgb(var(--color-emerald-default-rgb));
+    @apply border-transparent;
+    box-shadow: 0 0 0 1px rgb(var(--color-emerald-default-rgb)), 0 0 0 3px var(--color-emerald-dim);
   }
   textarea {
     height: auto;
@@ -252,123 +274,138 @@ aside nav::-webkit-scrollbar-thumb:hover {
   .btn {
     @apply inline-flex items-center gap-1.5 px-3.5 py-[7px] rounded-md text-[12px] font-semibold transition-all duration-150 whitespace-nowrap cursor-pointer font-sans border border-transparent;
   }
+  .btn:active { transform: scale(0.98); }
   .btn-v {
     @apply border-transparent;
     background-color: rgb(var(--color-emerald-default-rgb));
     color: rgb(var(--color-on-emerald-rgb));
   }
-  .btn-v:hover { opacity: 0.9; }
+  .btn-v:hover { background-color: color-mix(in srgb, rgb(var(--color-emerald-default-rgb)) 88%, black); }
   .btn-o { @apply bg-transparent border-border-em text-text-primary hover:bg-surface2 hover:text-text-primary; }
   .btn-r { @apply bg-transparent border-red-500 text-red-500 hover:bg-red-500/10; }
   .btn-g { @apply text-emerald-text border-transparent; background-color: var(--color-emerald-dim); }
   .btn-g:hover { background-color: rgba(var(--color-emerald-default-rgb), 0.2); }
   .btn-amber { @apply bg-amber-500/20 text-amber-500 border-transparent hover:bg-amber-500/30; }
 
-  /* ── Cards / Panels (Unboxed) ─────────────────────────────────────────── */
+  /* ── Cards / Panels ───────────────────────────────────────────────────────
+     A real surface + hairline border + warm-tinted soft shadow gives every
+     panel actual edges (was fully transparent/borderless everywhere). The
+     shadow is tinted toward ink rather than pure black, per the doc's
+     "shadows rare, and warm when used" elevation philosophy. */
   .card {
-    @apply bg-transparent;
+    @apply bg-surface border border-border rounded-lg;
+    box-shadow: 0 1px 3px rgba(20, 20, 19, 0.06);
   }
   .metric-panel {
-    @apply bg-transparent flex flex-col gap-1.5;
+    @apply bg-surface border border-border rounded-lg flex flex-col gap-1.5 p-4 transition-colors duration-150;
+  }
+  .metric-panel:hover {
+    @apply border-border-em;
   }
 
   .chip {
     @apply inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full font-mono tracking-[0.05em];
   }
 
-  /* ── StatusBadge ──────────────────────────────────────────────────────── */
+  /* ── StatusBadge ──────────────────────────────────────────────────────────
+     Pill-shaped, following claude/DESIGN.md's badge-pill/badge-coral —
+     theme-aware tint (the semantic color mixed toward the current surface)
+     so a badge never renders as a blown-out light pastel on a dark surface. */
   .status-badge {
-    @apply inline-flex items-center gap-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full font-mono tracking-[0.05em] border uppercase;
+    @apply inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-0.5 rounded-full font-mono tracking-[0.05em] border uppercase;
+    background-color: color-mix(in srgb, var(--sb-color, currentColor) 12%, rgb(var(--color-surface-rgb)));
+    border-color: color-mix(in srgb, var(--sb-color, currentColor) 42%, transparent);
+    color: color-mix(in srgb, var(--sb-color, currentColor) 78%, rgb(var(--color-text-primary-rgb)));
   }
-  .status-badge-active { @apply bg-emerald-50 text-emerald-800 border-emerald-300; }
-  .status-badge-suspended { @apply bg-rose-50 text-rose-800 border-rose-300; }
-  .status-badge-trial { @apply bg-amber-50 text-amber-900 border-amber-300; }
-  .status-badge-pending { @apply bg-slate-100 text-slate-800 border-slate-300; }
-  .status-badge-warn { @apply bg-amber-50 text-amber-900 border-amber-300; }
-  .status-badge-info { @apply bg-blue-50 text-blue-900 border-blue-300; }
-  .status-badge-cooling { @apply bg-sky-50 text-sky-900 border-sky-300; }
-  .status-badge-revoked { @apply bg-slate-100 text-slate-700 border-slate-300; }
+  .status-badge-active   { --sb-color: #5db872; }
+  .status-badge-suspended{ --sb-color: #c64545; }
+  .status-badge-trial    { --sb-color: #d4a017; }
+  .status-badge-pending  { --sb-color: rgb(var(--color-text-tertiary-rgb)); }
+  .status-badge-warn     { --sb-color: #d4a017; }
+  .status-badge-info     { --sb-color: #5db8a6; }
+  .status-badge-cooling  { --sb-color: #5db8a6; }
+  .status-badge-revoked  { --sb-color: rgb(var(--color-text-tertiary-rgb)); }
 
   /* ── Plan / tier badges (repurposed for vendor tiers/categories) ────────── */
-  .plan-badge-starter { @apply bg-zinc-800 text-zinc-400 font-bold rounded-full px-2.5 py-0.5 text-[10px] inline-block tracking-[0.05em] uppercase border border-zinc-700; }
-  .plan-badge-pro { @apply bg-blue-900/30 text-blue-400 font-bold rounded-full px-2.5 py-0.5 text-[10px] inline-block tracking-[0.05em] uppercase border border-blue-900/50; }
-  .plan-badge-enterprise { @apply bg-zinc-200 text-zinc-900 font-bold rounded-full px-2.5 py-0.5 text-[10px] inline-block tracking-[0.05em] uppercase; }
+  .plan-badge-starter,
+  .plan-badge-pro,
+  .plan-badge-enterprise {
+    @apply font-bold rounded-full px-2.5 py-0.5 text-[10px] inline-block tracking-[0.05em] uppercase border;
+    background-color: color-mix(in srgb, var(--pb-color) 14%, rgb(var(--color-surface-rgb)));
+    border-color: color-mix(in srgb, var(--pb-color) 38%, transparent);
+    color: color-mix(in srgb, var(--pb-color) 82%, rgb(var(--color-text-primary-rgb)));
+  }
+  .plan-badge-starter    { --pb-color: rgb(var(--color-text-tertiary-rgb)); }
+  .plan-badge-pro        { --pb-color: #5db8a6; }
+  .plan-badge-enterprise { --pb-color: rgb(var(--color-emerald-default-rgb)); }
 
-  .status-dot { @apply w-1.5 h-1.5 rounded-none shrink-0 inline-block; }
-  .status-dot-active { @apply bg-[#059669]; }
-  .status-dot-error { @apply bg-[#e11d48]; }
-  .status-dot-warn { @apply bg-amber-500; }
+  .status-dot { @apply w-1.5 h-1.5 rounded-full shrink-0 inline-block; }
+  .status-dot-active { @apply bg-[#5db872]; }
+  .status-dot-error { @apply bg-[#c64545]; }
+  .status-dot-warn { @apply bg-[#d4a017]; }
   .status-dot-idle { @apply bg-zinc-500; }
 
   .mono { @apply font-mono tabular-nums; }
 
   .input {
-    @apply bg-indigo-50/40 border-0 border-b border-transparent rounded-none px-[11px] py-[7px] text-[13px] text-text-primary outline-none transition-all duration-150 placeholder:text-text-tertiary;
+    @apply bg-surface border border-border rounded-md px-[11px] py-[7px] text-[13px] text-text-primary outline-none transition-all duration-150 placeholder:text-text-tertiary;
   }
-  .input:focus { 
-    @apply bg-white;
-    border-bottom-color: rgb(var(--color-emerald-default-rgb));
+  .input:focus {
+    @apply border-transparent;
+    box-shadow: 0 0 0 1px rgb(var(--color-emerald-default-rgb)), 0 0 0 3px var(--color-emerald-dim);
   }
 
   .label {
     @apply block text-[10px] font-bold uppercase tracking-[0.05em] text-text-tertiary mb-1;
   }
 
+  /* ── Page title ───────────────────────────────────────────────────────────
+     The one place the serif display face shows up — claude/DESIGN.md's
+     Copernicus/Tiempos, standing in as Source Serif 4. The doc keeps display
+     weight at 400 always; at marketing sizes (48-64px) that reads elegant,
+     but a 22px functional page header at 400 goes thin and hard to scan in
+     a dense console, so this pass uses 500 instead — the one deliberate
+     deviation from the reference, for legibility, not taste. */
+  .page-title {
+    @apply text-[23px] font-medium text-text-primary;
+    font-family: var(--font-serif);
+    letter-spacing: -0.01em;
+  }
+
   .pill {
     @apply inline-flex items-center px-3 py-1 rounded-full text-[12px] font-semibold border border-border-em text-text-secondary bg-surface hover:bg-surface2 hover:text-text-primary transition-colors cursor-pointer;
   }
   .pill-active {
-    @apply text-black border-transparent;
+    @apply text-white border-transparent;
     background-color: rgb(var(--color-emerald-default-rgb));
+    color: rgb(var(--color-on-emerald-rgb));
   }
 
-  /* ── Sidebar nav link ─────────────────────────────────────────────────── */
+  /* ── Sidebar nav link ─────────────────────────────────────────────────────
+     Flat filled rounded row on the active item — no left border/gradient. */
   .sidebar-link {
-    @apply flex items-center gap-3 px-4 py-2.5 text-[14px] font-medium bg-transparent w-full text-left cursor-pointer transition-all duration-200 border-none outline-none rounded-r-lg;
+    @apply flex items-center gap-3 px-3 py-2.5 text-[14px] font-medium bg-transparent w-full text-left cursor-pointer transition-all duration-150 border-none outline-none rounded-lg;
     color: rgb(var(--color-text-secondary-rgb));
-    border-left: 3px solid transparent;
-    padding-left: calc(1rem - 3px);
   }
   .sidebar-link:hover {
     @apply bg-surface2 text-text-primary;
   }
   .sidebar-link.active {
-    @apply text-emerald-text font-bold;
-    background: linear-gradient(90deg, var(--color-emerald-dim) 0%, transparent 100%);
-    border-left: 3px solid rgb(var(--color-emerald-default-rgb));
+    @apply text-emerald-text font-semibold;
+    background-color: var(--color-emerald-dim);
   }
 
   .table-sticky thead { @apply sticky top-0 z-10 bg-surface2; }
 
   .skeleton {
     background-color: rgb(var(--color-border-em-rgb));
-    @apply rounded-none animate-pulse;
+    @apply rounded-md animate-pulse;
   }
 
   .flash-success { @apply animate-borderPulse; }
 }
 
-/* ── Dark theme overrides for hardcoded-color inputs ───────────────────────
-   The base/component input styles hardcode a light indigo fill + white focus;
-   flip those to slate surfaces under `.dark`. */
-.dark input[type=text],
-.dark input[type=email],
-.dark input[type=number],
-.dark input[type=password],
-.dark input[type=date],
-.dark input[type=tel],
-.dark input[type=search],
-.dark select,
-.dark textarea,
-.dark .input {
-  background-color: rgba(255, 255, 255, 0.04);
-}
-.dark input:focus,
-.dark select:focus,
-.dark textarea:focus,
-.dark .input:focus {
-  background-color: rgb(var(--color-surface2-rgb));
-}
+/* Native date-picker glyph is dark by default and invisible on a dark surface. */
 .dark input[type=date]::-webkit-calendar-picker-indicator {
   filter: invert(0.8);
 }

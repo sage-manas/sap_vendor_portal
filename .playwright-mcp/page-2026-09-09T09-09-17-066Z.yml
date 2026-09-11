@@ -1,0 +1,153 @@
+- generic [ref=f7e1]:
+  - link "Skip to main content" [ref=f7e2] [cursor=pointer]:
+    - /url: "#main-content"
+  - generic [ref=f7e3]:
+    - banner [ref=f7e4]:
+      - generic [ref=f7e5]:
+        - generic [ref=f7e6]: V
+        - heading "VendorConnect" [level=1] [ref=f7e7]
+      - generic [ref=f7e8]:
+        - generic [ref=f7e9]: Connected · GST + TDS + MSME
+        - button "Search Ctrl K" [ref=f7e12] [cursor=pointer]:
+          - generic [ref=f7e16]: Search
+          - generic [ref=f7e17]: Ctrl K
+        - button "Notifications" [ref=f7e19] [cursor=pointer]
+        - button "Toggle color theme" [active] [ref=f7e23] [cursor=pointer]
+    - generic [ref=f7e26]:
+      - complementary [ref=f7e27]:
+        - navigation [ref=f7e30]:
+          - button "Vendor Dashboard" [ref=f7e31] [cursor=pointer]
+        - navigation [ref=f7e39]:
+          - button "1" [ref=f7e124] [cursor=pointer]
+          - button "1" [ref=f7e129] [cursor=pointer]
+          - button "Invoice Processing" [ref=f7e134] [cursor=pointer]
+          - button "Payment Tracking" [ref=f7e138] [cursor=pointer]
+          - button "Performance" [ref=f7e141] [cursor=pointer]
+          - button "Reports & Analytics" [ref=f7e144] [cursor=pointer]
+        - generic [ref=f7e52]:
+          - button "Reset demo data (dev only)" [ref=f7e53] [cursor=pointer]
+          - button "Log Out" [ref=f7e58] [cursor=pointer]
+      - main [ref=f7e62]:
+        - generic [ref=f7e64]:
+          - generic [ref=f7e148]:
+            - heading "RFQ Management" [level=2] [ref=f7e150]
+            - generic [ref=f7e151]: Procurement
+          - generic [ref=f7e153]:
+            - generic [ref=f7e154]:
+              - button "RFQ Monitor & History" [ref=f7e155] [cursor=pointer]
+              - button "Submit Quotation" [ref=f7e159] [cursor=pointer]
+              - button "My Documents" [ref=f7e164] [cursor=pointer]
+            - button "Hide List" [ref=f7e168] [cursor=pointer]
+          - generic [ref=f7e170]:
+            - generic [ref=f7e171]:
+              - generic [ref=f7e172]:
+                - heading "RFQ List" [level=3] [ref=f7e173]
+                - textbox "Search RFQs..." [ref=f7e178]
+              - generic [ref=f7e179]:
+                - 'button "RFQ-2026-001 Bidding Open Structural piping and fittings — Q3 shutdown maintenance Org: 1000 Date: 01.09.2026" [ref=f7e180] [cursor=pointer]':
+                  - generic [ref=f7e181]:
+                    - generic [ref=f7e182]: RFQ-2026-001
+                    - generic [ref=f7e183]: Bidding Open
+                  - paragraph [ref=f7e184]: Structural piping and fittings — Q3 shutdown maintenance
+                  - generic [ref=f7e185]:
+                    - generic [ref=f7e186]: "Org: 1000"
+                    - generic [ref=f7e187]: "Date: 01.09.2026"
+                - 'button "RFQ-2026-002 Submitted Fasteners — annual rate contract Org: 1000 Date: 21.08.2026" [ref=f7e188] [cursor=pointer]':
+                  - generic [ref=f7e189]:
+                    - generic [ref=f7e190]: RFQ-2026-002
+                    - generic [ref=f7e191]: Submitted
+                  - paragraph [ref=f7e192]: Fasteners — annual rate contract
+                  - generic [ref=f7e193]:
+                    - generic [ref=f7e194]: "Org: 1000"
+                    - generic [ref=f7e195]: "Date: 21.08.2026"
+                - 'button "RFQ-2026-004 Closed Industrial insulation blankets — Boiler House retrofit Org: 1000 Date: 15.07.2026" [ref=f7e196] [cursor=pointer]':
+                  - generic [ref=f7e197]:
+                    - generic [ref=f7e198]: RFQ-2026-004
+                    - generic [ref=f7e199]: Closed
+                  - paragraph [ref=f7e200]: Industrial insulation blankets — Boiler House retrofit
+                  - generic [ref=f7e201]:
+                    - generic [ref=f7e202]: "Org: 1000"
+                    - generic [ref=f7e203]: "Date: 15.07.2026"
+                - 'button "RFQ-2026-003 Awarded Pipe and flange package — Line 4 expansion Org: 1000 Date: 01.06.2026" [ref=f7e204] [cursor=pointer]':
+                  - generic [ref=f7e205]:
+                    - generic [ref=f7e206]: RFQ-2026-003
+                    - generic [ref=f7e207]: Awarded
+                  - paragraph [ref=f7e208]: Pipe and flange package — Line 4 expansion
+                  - generic [ref=f7e209]:
+                    - generic [ref=f7e210]: "Org: 1000"
+                    - generic [ref=f7e211]: "Date: 01.06.2026"
+            - generic [ref=f7e213]:
+              - generic [ref=f7e214]:
+                - generic [ref=f7e215]:
+                  - button "Hide RFQ List" [ref=f7e216] [cursor=pointer]
+                  - generic [ref=f7e217]:
+                    - heading "(RFQ-RFQ-2026-001) / (Cat.-Structural piping and fittings — Q3 shutdown maintenance) / (Typ-AN)" [level=3] [ref=f7e218]
+                    - paragraph [ref=f7e219]: "Vendor: VND-51204 • Created: 01.09.2026 • Org: 1000"
+                - generic [ref=f7e220]: Bidding Open
+              - generic [ref=f7e221]:
+                - generic [ref=f7e222]:
+                  - generic [ref=f7e223]:
+                    - generic [ref=f7e224]: "01"
+                    - heading "RAW details" [level=3] [ref=f7e225]
+                  - table [ref=f7e228]:
+                    - rowgroup [ref=f7e229]:
+                      - row [ref=f7e230]:
+                        - columnheader "Line" [ref=f7e231]
+                        - columnheader "Material Code" [ref=f7e232]
+                        - columnheader "Description" [ref=f7e233]
+                        - columnheader "Qty Required" [ref=f7e234]
+                        - columnheader "UoM" [ref=f7e235]
+                        - columnheader "Target Ref Price" [ref=f7e236]
+                        - columnheader "Delivery Date" [ref=f7e237]
+                    - rowgroup [ref=f7e238]:
+                      - row [ref=f7e239]:
+                        - cell "10" [ref=f7e240]
+                        - cell "MAT-3849" [ref=f7e241]
+                        - cell "Steel Pipe 3\" SCH40" [ref=f7e242]
+                        - cell "400" [ref=f7e243]
+                        - cell "EA" [ref=f7e244]
+                        - cell "₹1420.00" [ref=f7e245]
+                        - cell "15.10.2026" [ref=f7e246]
+                      - row [ref=f7e247]:
+                        - cell "20" [ref=f7e248]
+                        - cell "MAT-1029" [ref=f7e249]
+                        - cell "Gasket 3\" Non-Asbestos" [ref=f7e250]
+                        - cell "250" [ref=f7e251]
+                        - cell "EA" [ref=f7e252]
+                        - cell "₹165.00" [ref=f7e253]
+                        - cell "15.10.2026" [ref=f7e254]
+                - generic [ref=f7e255]:
+                  - generic [ref=f7e256]:
+                    - generic [ref=f7e257]: "02"
+                    - heading "Invited vendors" [level=3] [ref=f7e258]
+                  - generic [ref=f7e261]:
+                    - generic [ref=f7e262]:
+                      - paragraph [ref=f7e263]: Meridian Castings Pvt Ltd
+                      - 'generic "Vendor Rating: 4.4" [ref=f7e264]': "4.4"
+                    - paragraph [ref=f7e266]: "Code: VND-77104"
+                - generic [ref=f7e267]:
+                  - generic [ref=f7e268]:
+                    - generic [ref=f7e269]: "03"
+                    - heading "Progress of this request" [level=3] [ref=f7e270]
+                  - generic [ref=f7e272]:
+                    - generic [ref=f7e273]:
+                      - generic [ref=f7e274]: Request published
+                      - generic [ref=f7e275]: Published
+                      - generic [ref=f7e279]: 01.09.2026
+                    - generic [ref=f7e280]:
+                      - generic [ref=f7e281]: Quotes received
+                      - generic [ref=f7e282]: Pending Bids
+                      - generic [ref=f7e286]: "Deadline: 19.09.2026"
+                    - generic [ref=f7e287]:
+                      - generic [ref=f7e288]: Evaluation
+                      - generic [ref=f7e289]: Pending Review
+                      - generic [ref=f7e290]: Score weights active
+                    - generic [ref=f7e291]:
+                      - generic [ref=f7e292]: Order raised
+                      - generic [ref=f7e293]: PO Pending
+                      - generic [ref=f7e294]: Pending Award
+                - paragraph [ref=f7e296]:
+                  - text: "Delivery Location: Plant 1000 — Chakan Works"
+                  - generic "Sourcing (RFQs, bids, awards) is managed in VendorConnect. SAP has no inbound API for issuing an RFQ or capturing a bid, so this stays portal-internal — optionally reconciled against SAP once the resulting PO is matched (see the ledger tab)." [ref=f7e297]: · managed in VendorConnect
+  - button "Open Next.js Dev Tools" [ref=f7e114] [cursor=pointer]
+  - alert [ref=f7e298]
