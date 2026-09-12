@@ -103,7 +103,7 @@ Frontend talks to backend via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
 |---|---|
 | `PORT` | API port (default 5000) |
 | `DATABASE_URL` | Postgres connection string for Prisma (`backend/db/prisma.js`, `backend/prisma/schema.prisma`). `docker compose up -d postgres` (repo root) starts a matching local instance. **Strictly required** — the app refuses to start without it (`config/validateEnv.js`). |
-| `FRONTEND_URL`, `ALLOWED_ORIGINS` | CORS allowlist (localhost:3000-3002/5173 always allowed) |
+| `FRONTEND_URL`, `ALLOWED_ORIGINS` | CORS allowlist. Outside production any loopback origin (`localhost`, `127.0.0.1`, `[::1]`) on any port is also allowed; under `NODE_ENV=production` these two variables are the *only* accepted origins. One predicate in `config/corsOrigins.js` serves Express CORS, Socket.io CORS and the helmet CSP `connect-src`. |
 | `NODE_ENV` | `development` \| `test` \| `production`. Gates rate limiting, mailer transport selection, and the dev-only "Reset ERP Database" UI. |
 | `JWT_SECRET` | JWT signing key (falls back to `'secret'` outside production; **required** in production or boot fails) |
 | `JWT_EXPIRES_IN` | default `30d` |
