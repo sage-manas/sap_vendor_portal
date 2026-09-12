@@ -60,7 +60,7 @@ const recordAudit = async ({ action, req, target, meta = {}, clientId, actor }) 
     target: target || undefined,
     meta: redact(meta),
     clientId: clientId !== undefined ? clientId : getTenantId(),
-    ip: req?.ip || req?.headers?.['x-forwarded-for'] || undefined,
+    ip: req?.ip || undefined,
     at: new Date(),
   };
 

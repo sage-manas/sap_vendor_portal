@@ -21,7 +21,7 @@ const requestLogger = (req, res, next) => {
     requestId: req.requestId,
     method: req.method,
     url: req.originalUrl || req.url,
-    ip: req.ip || req.connection.remoteAddress
+    ip: req.ip || req.socket.remoteAddress
   });
 
   // Track response completion
@@ -42,7 +42,7 @@ const requestLogger = (req, res, next) => {
       statusCode,
       responseTimeMs: Number(responseTimeMs),
       contentLength: Number(contentLength),
-      ip: req.ip || req.connection.remoteAddress
+      ip: req.ip || req.socket.remoteAddress
     };
 
     // Log request body on warnings/errors for inspection (Sanitizer handles redact)

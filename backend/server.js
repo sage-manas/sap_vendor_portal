@@ -18,6 +18,7 @@ const routes = require('./routes/index');
 const { errorHandler } = require('./middleware/errorHandler');
 const { apiLimiter } = require('./middleware/rateLimiter');
 const requestLogger = require('./middleware/requestLogger');
+const trustProxy = require('./config/trustProxy');
 
 const mongoSanitize = require('express-mongo-sanitize');
 const hpp = require('hpp');
@@ -110,6 +111,7 @@ io.on('connection', (socket) => {
 });
 
 app.set('io', io);
+app.set('trust proxy', trustProxy());
 
 app.use(helmet({
   contentSecurityPolicy: {
