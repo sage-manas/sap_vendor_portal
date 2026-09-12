@@ -52,7 +52,8 @@ export const EMPTY_SUPPLIER_API = {
   'GET /pos': emptyList('pos'),
   'GET /invoices': emptyList('invoices'),
   'GET /payments': emptyList('payments'),
-  'GET /asns': emptyList('asns'),
+  // GET /asns answers a bare array, not { asns, pagination } like the others.
+  'GET /asns': [],
   'GET /grns': emptyList('grns'),
   'GET /chats': { messages: [] },
   'GET /logs': [],

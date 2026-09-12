@@ -43,3 +43,8 @@ next-env.d.ts
 
 # backend (excluded from this frontend-only repo)
 
+# Playwright (e2e) output
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
