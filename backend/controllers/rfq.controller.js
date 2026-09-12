@@ -285,6 +285,15 @@ const submitBid = asyncHandler(async (req, res, next) => {
     return next(ApiError.notFound('RFQ not found'));
   }
 
+  // A supplier absent from the invitee list gets the same 404 as a tender in
+  // another tenant — the API must not confirm a sealed tender exists (or leak
+  // its status/deadline/line structure) to a non-participant (see cross-tenant
+  // isolation convention).
+  const invitation = rfq.invitedVendors.find((v) => v.vendorExtId === vendorId);
+  if (!invitation) {
+    return next(ApiError.notFound('RFQ not found'));
+  }
+
   if (rfq.status !== 'Bidding Open') {
     return next(ApiError.badRequest('Bidding is closed for this RFQ'));
   }
@@ -295,20 +304,6 @@ const submitBid = asyncHandler(async (req, res, next) => {
 
   // Fetch Vendor's DB row & rating
   const vendor = await prisma.vendor.findFirst({ where: { OR: [{ vendorId }, { clerkId: vendorId }] } });
-
-  // Verify vendor is invited or dynamically invite them in dev/unauth mode
-  let invitation = rfq.invitedVendors.find((v) => v.vendorExtId === vendorId);
-  if (!invitation) {
-    invitation = await prisma.rfqInvitedVendor.create({
-      data: {
-        rfqPk: rfq.pk,
-        vendorExtId: vendorId,
-        name: vendor ? vendor.companyName : 'Test Vendor',
-        status: 'Pending',
-        rating: 95,
-      },
-    });
-  }
 
   // Verify all line items are priced
   for (const item of rfq.items) {

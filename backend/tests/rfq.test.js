@@ -115,16 +115,31 @@ describe('POST /api/rfqs/:id/bid', () => {
     expect(stored.bids[0].unitPrices['10']).toBe(11.5);
   });
 
-  it('accepts a bid from a non-invited vendor by dynamically inviting them', async () => {
+  it('rejects a bid from a non-invited vendor with 404 and creates no invitation', async () => {
     const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(
       rfqPayload({ invitedVendors: [{ id: 'someone_else' }] })
     )).body;
 
     const res = await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bidPayload());
-    expect(res.status).toBe(200);
+    // 404, not 403: the API must not confirm a sealed tender exists to a
+    // non-participant (see tenant-isolation.test.js's cross-tenant convention).
+    expect(res.status).toBe(404);
 
     const stored = await asTenant(() => readRfq(rfq.id));
-    expect(stored.invitedVendors.map(v => v.id)).toContain('vendor_test_001');
+    expect(stored.invitedVendors.map(v => v.id)).not.toContain('vendor_test_001');
+    expect(stored.bids).toHaveLength(0);
+  });
+
+  it("excludes an uninvited vendor's rejected bid attempt from the evaluation matrix", async () => {
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(
+      rfqPayload({ invitedVendors: [{ id: 'someone_else' }] })
+    )).body;
+
+    await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bidPayload());
+
+    const res = await asBuyer(request(app).get(`/api/rfqs/${rfq.id}/evaluate`));
+    expect(res.status).toBe(200);
+    expect(res.body.evaluation).toHaveLength(0);
   });
 
   it('rejects a bid missing a line price with 400', async () => {
