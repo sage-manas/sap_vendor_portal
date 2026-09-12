@@ -63,3 +63,54 @@ jobs:
       # schema — the tables have to exist before the first test runs.
       - run: npx prisma migrate deploy
       - run: npm test
+
+  e2e:
+    runs-on: ubuntu-latest
+    # Playwright drives the real app against the real API, so it needs the same
+    # Postgres the backend suite does — same image and credentials as
+    # docker-compose.yml, so a failure here reproduces locally.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sap_portal
+          POSTGRES_PASSWORD: sap_portal_dev
+          POSTGRES_DB: sap_vendor_portal
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sap_portal -d sap_vendor_portal"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://sap_portal:sap_portal_dev@localhost:5432/sap_vendor_portal?schema=public
+      JWT_SECRET: e2e-secret
+      # The suite seeds this tenant and signs in as its demo accounts.
+      DEFAULT_CLIENT_SLUG: legacy
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: backend
+      - run: npx prisma generate
+        working-directory: backend
+      - run: npx prisma migrate deploy
+        working-directory: backend
+      # Chromium only: these specs assert business flow, not rendering
+      # differences between engines.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
