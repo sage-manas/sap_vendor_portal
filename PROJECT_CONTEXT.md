@@ -689,7 +689,24 @@ The third plane: the client's own back office, for `client_admin` / `buyer` / `f
 
 `tests/setup.js` seeds the `CLT-0001` tenant before each test, because every request path now resolves one. Test code touching models directly must bind a tenant with the `asTenant()` helper — the same rule application code follows.
 
-**Frontend** (root, Vitest, `src/**/*.test.{js,jsx}`): `src/features/profile/validation.test.js`, `src/lib/platformNav.test.js` and `src/lib/workspaceNav.test.js` — the two nav registries are checked against the real backend permission map via `createRequire`, so the two languages cannot drift silently — plus `src/lib/branding.test.js`, `src/lib/onboarding.test.js` and `src/lib/sapDocuments.test.js`. 6 files, 62 tests. Route/component smoke tests deferred (need a mocked `PortalProvider` with fetch + socket.io).
+**Frontend** (root, Vitest + jsdom + Testing Library, `src/**/*.test.{js,jsx}`). 20 files, 191 tests.
+
+*Pure functions:* `src/features/profile/validation.test.js`, `src/lib/platformNav.test.js` and `src/lib/workspaceNav.test.js` — the two nav registries are checked against the real backend permission map via `createRequire`, so the two languages cannot drift silently — plus `branding`, `onboarding`, `sapDocuments`, `sapFields` and `syncState`.
+
+*The harness* — `src/test/renderWithPortal.jsx`. **The seam is `fetch`, not the modules above it**: stubbing `api-client.js` would skip the code that builds the request, attaches the token and turns a non-2xx body into an error carrying `errors`/`reason`, which is exactly the code a form test needs to be real. A test declares what the *server* says and everything below the component runs for real.
+
+```js
+renderWithPortal(<RfqsPage />, {
+  plane: 'supplier',            // 'supplier' | 'workspace' | 'platform' | 'bare'
+  route: '/rfqs',               // what usePathname() returns
+  api: { 'GET /rfqs': { rfqs: [] } },   // '<METHOD> <path>' → body, or { status, body }, or a fn
+});
+// → { apiMock, socket, navigation, ...RTL }
+```
+
+Each plane wraps the page in the provider stack its real layout gives it. `apiMock.unmatched` lists routes the page asked for that the fixture set does not describe; `apiMock.lastBody(method, path)` is the submitted payload. `socket.emitServerEvent('po:new', …)` pushes a server event at the mounted tree. `src/test/fixtures.js` holds empty-but-correctly-shaped responses per endpoint, taken from the controllers that serve them. Two gotchas the harness absorbs: a dynamic route's `params` must be passed through `routeParams()` (a plain `Promise` never settles under the test renderer, and the page suspends forever), and `next/navigation`, `next/link` and `lib/socket` are mocked globally in `src/test/setup.jsx`.
+
+*Coverage:* every `src/app/**/page.jsx` has a render/heading/empty-state smoke test (`supplier-routes`, `workspace-routes`, `platform-routes`, `auth-routes`, `detail-routes`), and **`route-coverage.test.jsx` fails if a new route has none** — the same drift guard the nav registries use, applied to routes. Submit-path tests cover the bid form, ASN, invoice and registration (`bid-submission`, `asn-invoice-submission`, `registration-form`). Behaviour tests cover the platform MFA gate (`platform-gate`), the realtime listeners (`socket-events`) and the honest-SAP-state rule the product rests on (`honest-sap-state`). End-to-end browser coverage (Playwright) is not here yet — see issue #24's remaining criteria.
 
 **Bugs found & fixed by tests (historical — the audit log that documented these, `IMPLEMENTATION_PLAN.md`, has since been removed; see `git log` for detail):** RFQ `submitBid` TDZ crash on non-invited vendors; password hash leaking in register/login responses.
 

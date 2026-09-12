@@ -37,6 +37,9 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -44,6 +47,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.7",
     "impeccable": "^2.3.2",
+    "jsdom": "^30.0.1",
     "nodemon": "^3.1.14",
     "tailwindcss": "^4",
     "typescript": "^5",
