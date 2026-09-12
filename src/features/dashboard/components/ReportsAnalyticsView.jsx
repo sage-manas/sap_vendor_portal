@@ -326,9 +326,9 @@ export default function ReportsAnalyticsView({ state }) {
               {/* Spend Table */}
               <div className="space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-2">
-                  <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider">
+                  <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">
                     Top Spend Categories &amp; Material Groups
-                  </h4>
+                  </h3>
                 </div>
                 <div className="w-full overflow-x-auto overflow-y-auto max-h-[320px] custom-scrollbar card">
                   <table className="w-full text-left border-collapse min-w-[800px]">
@@ -436,9 +436,9 @@ export default function ReportsAnalyticsView({ state }) {
               {/* AP Aging Table */}
               <div className="space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-2">
-                  <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider">
+                  <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">
                     Accounts Payable Invoices Aging Details
-                  </h4>
+                  </h3>
                 </div>
                 <div className="w-full overflow-x-auto overflow-y-auto max-h-[320px] custom-scrollbar card">
                   <table className="w-full text-left border-collapse min-w-[900px] whitespace-nowrap">
@@ -555,9 +555,9 @@ export default function ReportsAnalyticsView({ state }) {
               {/* Ledger Statement Table */}
               <div className="space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-2">
-                  <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider">
+                  <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">
                     Partner Ledger Account Statement log
-                  </h4>
+                  </h3>
                 </div>
                 <div className="w-full overflow-x-auto overflow-y-auto max-h-[320px] custom-scrollbar card">
                   <table className="w-full text-left border-collapse min-w-[850px] whitespace-nowrap">
@@ -768,9 +768,9 @@ export default function ReportsAnalyticsView({ state }) {
               {/* Scheduled Registry Table */}
               <div className="space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-2">
-                  <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider">
+                  <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">
                     Active Scheduled Email Reports Registry
-                  </h4>
+                  </h3>
                 </div>
                 <div className="w-full overflow-x-auto overflow-y-auto max-h-[320px] custom-scrollbar card">
                   <table className="w-full text-left border-collapse min-w-[850px]">

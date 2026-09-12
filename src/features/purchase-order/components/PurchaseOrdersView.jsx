@@ -5,7 +5,7 @@ import {
   ShoppingBag, Clock, CheckCircle2, Truck, ChevronRight, ChevronLeft, Search, Filter,
   Calendar, User, Download, AlertTriangle, MessageSquare, Plus, Send,
   FileText, X, ChevronDown, Check, MapPin, CreditCard, ArrowLeft,
-  Building, Building2, TrendingUp, Percent, ShieldCheck, ShieldAlert, Loader2, RefreshCw, FileCheck, HelpCircle, Receipt, CalendarClock
+  Building, Building2, TrendingUp, Percent, ShieldCheck, ShieldAlert, Loader2, RefreshCw, FileCheck, HelpCircle, Receipt, CalendarClock, AlertCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import FileUploadZone from '@/components/shared/FileUploadZone';
@@ -116,7 +116,8 @@ export default function PurchaseOrdersView({
   handleAsnSubmit,
   acknowledgePO,
   setActiveTab,
-  submitInvoice
+  submitInvoice,
+  retrySapStatus
 }) {
   const [isLoading, setIsLoading] = useState(true);
   useEffect(() => {
@@ -168,8 +169,11 @@ export default function PurchaseOrdersView({
 
   // SAP's own PO/GRN ledger for this vendor (zpo_grn_vendor/Detail) — used
   // only to cross-check that a PO we're tracking is one SAP actually has, not
-  // to drive anything. `null` means still loading.
+  // to drive anything. sapPoStatus says whether the question was answered at
+  // all — 'loading' | 'ready' | 'error' — because an unanswered check and an
+  // empty answer are different things to tell a supplier.
   const sapPoOrders = state?.sapPoOrders;
+  const sapPoStatus = state?.sapPoStatus ?? 'loading';
   // Filtered: an order the portal awarded carries no SAP number until SAP's
   // ledger supplies one, and `new Set([null]).has(null)` is true — which badged
   // every unmatched order as "Confirmed by SAP".
@@ -648,6 +652,24 @@ export default function PurchaseOrdersView({
     <ErrorBoundary>
       <div className="space-y-6 max-w-full mx-auto animate-fade-in pb-16 relative">
 
+        {/* ==================== PAGE HEADER ====================
+            List view only — the detail view titles itself with the order it
+            is showing. Without this the ledger had no page-level heading at
+            all: the tab bar below is navigation within the page, not a name
+            for it, so the first heading on /pos was the filter panel's. */}
+        {currentView === 'list' && (
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-4 select-none">
+            <div className="space-y-1">
+              <h2 className="page-title flex items-center gap-2">
+                <ShoppingBag className="size-5 text-primary shrink-0" /> Purchase Orders
+              </h2>
+              <p className="text-text-tertiary text-xs font-semibold">
+                Acknowledge new orders, send shipment notices, and track what your buyer has received
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* ==================== SUB-TABS NAVIGATION BAR ==================== */}
         {currentView === 'list' && (
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-border pb-2 gap-4">
@@ -714,7 +736,21 @@ export default function PurchaseOrdersView({
               /* Every PO SAP itself holds against this vendor code
                  (zpo_grn_vendor/Detail) — the full ledger, not filtered to
                  what the portal happens to be tracking. */
-              sapPoOrders === null || sapPoOrders === undefined ? (
+              sapPoStatus === 'error' ? (
+                <div className="card flex flex-col items-center gap-3 py-10 text-center">
+                  <AlertCircle className="size-5 text-amber-500" />
+                  <div className="space-y-1">
+                    <p className="text-sm font-bold text-text-primary">Could not reach your buyer&rsquo;s records</p>
+                    <p className="text-xs text-text-secondary max-w-sm">
+                      This is a problem with the check, not with your orders — nothing here has changed.
+                      Your own order list above is unaffected.
+                    </p>
+                  </div>
+                  {retrySapStatus && (
+                    <Button size="sm" variant="secondary" onClick={retrySapStatus}>Try again</Button>
+                  )}
+                </div>
+              ) : sapPoStatus === 'loading' || !Array.isArray(sapPoOrders) ? (
                 <div className="card flex items-center gap-2 text-xs text-text-tertiary py-10 justify-center">
                   <Loader2 className="size-3.5 animate-spin" /> Loading your buyer&rsquo;s records for your company...
                 </div>
@@ -799,7 +835,10 @@ export default function PurchaseOrdersView({
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-2">
                   <Filter className="size-4 text-text-tertiary" />
-                  <h4 className="label mb-0">Search & Filter</h4>
+                  {/* h3, matching the other panels in this view (Delivery
+                      Receipts, Deliveries ready to invoice) — it sits one
+                      level under the page title above. */}
+                  <h3 className="label mb-0">Search & Filter</h3>
                 </div>
                 {(searchQuery || statusFilter !== 'all' || plantFilter !== 'all' || buyerFilter !== 'all') && (
                   <button
@@ -940,7 +979,20 @@ export default function PurchaseOrdersView({
                               {renderStatusChip(po.status)}
                             </td>
                             <td className="text-center">
-                              {sapPoOrders === null || sapPoOrders === undefined ? (
+                              {/* An order carrying its own sapSyncState is
+                                  answerable without this lookup — that field
+                                  travels on the PO record. Only the
+                                  isConfirmedInSap fallback below needs the
+                                  vendorPoGrnDisplay read, so only it is left
+                                  unknown when that read fails. */}
+                              {!po.sapSyncState && sapPoStatus === 'error' ? (
+                                <span
+                                  className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-400"
+                                  title="Could not reach your buyer's system to check this order. Nothing about the order has changed."
+                                >
+                                  <AlertCircle className="size-3.5" /> Could not check
+                                </span>
+                              ) : !po.sapSyncState && (sapPoStatus === 'loading' || !Array.isArray(sapPoOrders)) ? (
                                 <Loader2 className="size-3.5 animate-spin text-text-tertiary inline-block" />
                               ) : (() => {
                                 // Dual identity / sync state (Phase 3 of

@@ -28,6 +28,7 @@ export default function PurchaseOrdersPage() {
       acknowledgePO={poHook.acknowledgePO}
       setActiveTab={setActiveTab}
       submitInvoice={invoiceHook.submitInvoice}
+      retrySapStatus={poHook.refreshSapPoStatus}
     />
   );
 }
