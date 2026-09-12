@@ -1178,3 +1178,30 @@ model SapSyncCursor {
   @@index([clientId, feed])
   @@map("sap_sync_cursors")
 }
+
+// ---------------------------------------------------------------------------
+// DocumentCounter — one allocation counter per (tenant, business-id prefix),
+// e.g. ('CLT-0001', 'PO-2026-'). Replaces the old scan-every-row-and-take-the-
+// max approach in utils/nextSequentialId.js: allocation is now a single
+// atomic UPDATE ... RETURNING, so it costs the same whether the tenant has ten
+// documents or ten million, and two concurrent allocators cannot compute the
+// same number.
+//
+// NOT registered in db/tenantExtension.js's TENANT_SCOPED_MODELS, and
+// deliberately absent from config/tenantModels.js: it is allocator plumbing,
+// not tenant business data, so it has no place in an offboarding export or
+// the per-tenant counts board. utils/nextSequentialId.js is the only thing
+// that touches it, and it passes clientId explicitly in raw SQL.
+//
+// Gaps are expected and harmless — a rolled-back transaction burns its
+// number, exactly as a SAP number range does.
+// ---------------------------------------------------------------------------
+
+model DocumentCounter {
+  clientId  String
+  prefix    String // 'RFQ-2026-', 'PO-2026-' — includes the trailing separator
+  nextValue BigInt @default(1) @map("next_value")
+
+  @@id([clientId, prefix])
+  @@map("document_counters")
+}
