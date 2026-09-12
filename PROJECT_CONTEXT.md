@@ -734,4 +734,5 @@ High-density, high-contrast **industrial terminal** aesthetic (think Bloomberg, 
 10. **Committed artifacts** (`backend/logs/`, `backend/uploads/`, root `node_modules` entries in git) are not source; don't treat them as such.
 11. **`apiClient` returns `null` on network failure** (doesn't throw) — callers must handle null.
 12. **Backend tests need `--forceExit`** because `submitRegistration` schedules a 5s auto-approve timer.
+13. **Sequential business ids come from a counter, not a scan.** `utils/nextSequentialId.js` allocates `RFQ-YYYY-NNN` / `PO-YYYY-NNNN` with one atomic `UPDATE ... RETURNING` against `document_counters` (one row per tenant + prefix), so it is O(1) in the tenant's document count and two allocators — an award inside its transaction, a discovery sweep outside one — can never be handed the same number. A counter with no row yet seeds itself past the highest suffix already present, which is how rows predating the table and SAP-originated documents are absorbed. Gaps from rolled-back transactions are expected and harmless. Never compare id suffixes as strings (`'1000' < '999'`); see `tests/sequential-id-overflow.test.js`.
 ```

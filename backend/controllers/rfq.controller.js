@@ -551,17 +551,15 @@ const awardBid = asyncHandler(async (req, res, next) => {
   // it, so the loser leaves nothing behind.
   //
   // Flipping the RFQ before generating the PO id (rather than after, or
-  // before the transaction at all) matters for a reason distinct from the
-  // race above: nextSequentialId scans for "not yet used", and two
-  // transactions racing to award the *same* RFQ would otherwise both compute
-  // the same next PO number before either commits — surfacing as a confusing
-  // duplicate-id 409 for the loser instead of the "already awarded" 400 that
-  // actually explains what happened. Only the transaction that wins the flip
-  // above ever reaches the id generation below, so that collision can no
-  // longer happen for this RFQ. (A *different* RFQ awarded in the same
-  // instant can still momentarily compute the same next number — the
-  // pre-existing, deliberately-kept race nextSequentialId's own comment
-  // documents; unrelated to what this closes.)
+  // before the transaction at all) is still what makes the loser fail with
+  // the "already awarded" 400 that explains itself, rather than getting as
+  // far as allocating a PO number it will never use. Only the transaction
+  // that wins the flip above reaches the id generation below.
+  //
+  // Two allocators no longer collide regardless: nextSequentialId hands out
+  // numbers from an atomic per-tenant counter, not a scan of existing rows
+  // (see its header). A rolled-back award burns its number, which is
+  // expected — an unused document number is not a problem.
   const po = await prisma.$transaction(async (tx) => {
     const flipped = await tx.rFQ.updateMany({
       where: { pk: rfq.pk, status: { not: 'Awarded' } },
