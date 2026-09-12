@@ -5,6 +5,66 @@ Each entry: the call, why, and what it costs.
 
 ---
 
+## ADR-0037 — API-bypassing test setup is a defect report, enforced at review rather than by a grep
+**QA remediation · 2026-09-12 · Accepted**
+
+**Context.** The two highest-severity defects found in the QA sweep — an uninvited supplier
+could bid on a sealed tender (#17), and the first bid closed that tender to every other
+invited supplier (#18) — both survived a suite of 30+ backend files. Neither path was
+untested. Both were tested *wrongly*, and in each case the author could evidently see the
+problem, because the evidence is in their own words:
+
+```js
+it('accepts a bid from a non-invited vendor by dynamically inviting them', …)
+//  ^ an authorisation hole written down as expected behaviour
+
+// Seed two competing bids directly (API closes bidding after the first bid)
+//  ^ an accurate bug report that never became one
+```
+
+The second is the more interesting failure. The ME48 evaluation test validated the scoring
+arithmetic correctly — on data the API could not produce. The maths was right and
+unreachable, and the comment explaining why sat in the file for as long as the bug did.
+
+An untested path is a known unknown: coverage tooling finds it and nobody argues. A wrongly
+tested path is worse on every axis — it reads as covered, it goes green on every run, and it
+actively resists repair, because fixing the code turns the test red. Under deadline pressure
+the test is at least as likely to be "fixed" as the code.
+
+**Decision.** Three rules, carried where the people and the agents doing the work will meet
+them: `.github/pull_request_template.md` (two checkboxes) and `AGENTS.md` (the reasoning,
+since most sessions here are agent-driven).
+
+1. **API-bypassing setup is a defect report.** Writing through Prisma to construct a state
+   the API is supposed to be able to produce is a finding about the API — fix it, or file it
+   and link the issue from the test. Seeding *preconditions* the test does not exercise (a
+   tenant, an approved supplier, historical rows, another tenant's data) stays normal and
+   expected.
+2. **No test name describes a defect approvingly.** A reviewer scanning names should be able
+   to tell.
+3. **A test pinning known-imperfect behaviour links the issue** tracking the decision, so the
+   debt stays visible rather than curing into "that's just how it works".
+
+**What we did not build, and why.** The issue proposed an optional CI grep flagging
+`prisma.*.create(` inside `backend/tests/*.test.js`. Measured before building: 102
+occurrences across 18 files, almost all of them legitimate. `tenant-isolation.test.js` alone
+accounts for 31 and could not exist otherwise — writing directly as one tenant and reading as
+another *is* the test. A warning that fires 102 times teaches everyone to ignore it, and the
+next real instance scrolls past with the rest.
+
+The signal that actually distinguishes the two cases is not "writes directly to the
+database" but "writes the state the endpoint under test is supposed to produce" — which is
+semantic, and which a grep cannot see. So this one is enforced by review, deliberately, and
+this paragraph exists so the guard is not re-proposed on the assumption nobody thought of it.
+
+**Cost.** A rule enforced by review is a rule that can be skipped by a rushed review; there
+is no mechanical backstop, and we have accepted that in exchange for not training the team to
+ignore a noisy one. The two example tests have been rewritten (#17, #18), so the pattern no
+longer has a live instance in the repo to point at — which is itself a reason the reasoning
+is written down here rather than left in the diffs.
+
+---
+
 ## ADR-0036 — Phase 8 stays gated on a design-partner sandbox; only the conformance harness ships
 **Phase 8 · 2026-08-14 · Accepted**
 
