@@ -90,6 +90,49 @@ describe('a supplier cannot widen their own scope with ?all=true', () => {
   });
 });
 
+describe('a supplier cannot bid on an RFQ they were not invited to', () => {
+  it('POST /api/rfqs/:id/bid answers 404 for an uninvited, approved supplier', async () => {
+    const invited = await registerVendor(app);
+    await setStatus(invited.vendor.vendorId, VENDOR_STATUS.APPROVED);
+
+    const outsider = await registerVendor(app, {
+      vendorId: 'VND-OUTSIDER',
+      email: 'outsider@example.com',
+      gstin: '27AABCO9999F1Z5',
+      pan: 'AABCO9999F',
+    });
+    await setStatus(outsider.vendor.vendorId, VENDOR_STATUS.APPROVED);
+
+    await asTenant(() => prisma.rFQ.create({
+      data: {
+        id: 'RFQ-2026-904',
+        description: 'Sealed tender',
+        deadlineDate: new Date(Date.now() + 7 * 86400000),
+        status: 'Bidding Open',
+        items: { create: [{ clientId: 'CLT-0001', line: 10, materialCode: 'MAT-1', description: 'Widget', quantity: 100 }] },
+        invitedVendors: { create: [{ clientId: 'CLT-0001', vendorExtId: invited.vendor.vendorId, name: invited.vendor.companyName }] },
+      },
+    }));
+
+    const res = await request(app)
+      .post('/api/rfqs/RFQ-2026-904/bid')
+      .set(auth(outsider.token))
+      .send({
+        unitPrices: { 10: 42 },
+        gstRate: 18,
+        deliveryLeadTimeDays: 7,
+        validityDate: new Date(Date.now() + 30 * 86400000).toISOString(),
+      });
+
+    expect(res.status).toBe(404);
+
+    const stored = await asTenant(() => prisma.rfqInvitedVendor.findFirst({
+      where: { vendorExtId: outsider.vendor.vendorId },
+    }));
+    expect(stored).toBeNull();
+  });
+});
+
 describe('the transacting modules are closed until registration is submitted', () => {
   const CLOSED = [
     ['get', '/api/rfqs'],
