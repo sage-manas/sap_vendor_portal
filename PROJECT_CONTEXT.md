@@ -499,7 +499,7 @@ Each row in the *My SAP Documents* table whose type is `Quotation` (the 6xxxxxxx
 | GET | `/rfqs/:id` | |
 | PUT | `/rfqs/:id/cancel` | → status `Closed` |
 | PUT | `/rfqs/:id/reissue` | new deadline, status → `Bidding Open` (`reissueRfqSchema`) |
-| POST | `/rfqs/:id/bid` | submit quotation (`bidSchema`); validates deadline/status/all-lines-priced; GST→taxCode; first bid flips status to `Submitted` |
+| POST | `/rfqs/:id/bid` | submit quotation (`bidSchema`); validates invitation/deadline/status/all-lines-priced; GST→taxCode; RFQ stays `Bidding Open` so every invited vendor can bid, not just the first |
 | POST | `/rfqs/:id/sap-quote-price` | ME47 — pushes a net price to a SAP-native quotation document (real SAP write, see above); `:id` is the portal RFQ supplying the line numbers |
 | GET | `/rfqs/:id/evaluate` | ME48 weighted scoring matrix |
 | POST | `/rfqs/:id/award` | award winner → creates PO with bid prices, status `Awarded` |
@@ -691,8 +691,6 @@ The third plane: the client's own back office, for `client_admin` / `buyer` / `f
 **Frontend** (root, Vitest, `src/**/*.test.{js,jsx}`): `src/features/profile/validation.test.js`, `src/lib/platformNav.test.js` and `src/lib/workspaceNav.test.js` — the two nav registries are checked against the real backend permission map via `createRequire`, so the two languages cannot drift silently — plus `src/lib/branding.test.js`, `src/lib/onboarding.test.js` and `src/lib/sapDocuments.test.js`. 6 files, 62 tests. Route/component smoke tests deferred (need a mocked `PortalProvider` with fetch + socket.io).
 
 **Bugs found & fixed by tests (historical — the audit log that documented these, `IMPLEMENTATION_PLAN.md`, has since been removed; see `git log` for detail):** RFQ `submitBid` TDZ crash on non-invited vendors; password hash leaking in register/login responses.
-
-**Known product quirk:** the first submitted bid flips RFQ status `Bidding Open`→`Submitted`, which then blocks a *second* vendor from bidding ("Bidding is closed"). Tests seed multi-bid scenarios directly via the model. Flagged for a product decision.
 
 ---
 

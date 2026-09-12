@@ -52,17 +52,28 @@ const bidPayload = (overrides = {}) => ({
 });
 
 let auth;
+let auth2;
 let buyerAuth;
 beforeEach(async () => {
   // Bidding is closed to a supplier who has not submitted their registration
   // (middleware/requireOnboarded.js); this suite is about sourcing, not the gate.
   auth = await registerVendor(app, {}, { onboarded: true });
+  // A second competing supplier, for tests where more than one vendor bids
+  // on the same RFQ.
+  auth2 = await registerVendor(app, {
+    vendorId: 'vendor_test_002',
+    companyName: 'Beta Supplies Pvt Ltd',
+    gstin: '27AABCB1234F1Z6',
+    pan: 'AABCB1235F',
+    email: 'beta@example.com',
+  }, { onboarded: true });
   // Sourcing is a buyer's job: suppliers hold rfq:read and rfq:bid, never
   // rfq:create / rfq:manage / rfq:award (config/permissions.js).
   buyerAuth = await createTenantUser({ role: 'buyer' });
 });
 
 const asVendor = (req) => req.set('Authorization', `Bearer ${auth.token}`);
+const asVendor2 = (req) => req.set('Authorization', `Bearer ${auth2.token}`);
 const asBuyer = (req) => req.set('Authorization', `Bearer ${buyerAuth.token}`);
 
 describe('POST /api/rfqs (create)', () => {
@@ -110,9 +121,43 @@ describe('POST /api/rfqs/:id/bid', () => {
     expect(res.body.bidsCount).toBe(1);
 
     const stored = await asTenant(() => readRfq(rfq.id));
-    expect(stored.status).toBe('Submitted');
+    expect(stored.status).toBe('Bidding Open');
     expect(stored.bids[0].taxCode).toBe('G1'); // 18% → G1
     expect(stored.bids[0].unitPrices['10']).toBe(11.5);
+  });
+
+  it('lets a second invited vendor bid after the first — the RFQ stays open, not just for one bidder', async () => {
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(
+      rfqPayload({ invitedVendors: [{ id: 'vendor_test_001' }, { id: 'vendor_test_002' }] })
+    )).body;
+
+    const first = await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bidPayload());
+    expect(first.status).toBe(200);
+    expect(first.body.bidsCount).toBe(1);
+
+    const second = await asVendor2(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bidPayload());
+    expect(second.status).toBe(200);
+    expect(second.body.bidsCount).toBe(2);
+
+    const stored = await asTenant(() => readRfq(rfq.id));
+    expect(stored.status).toBe('Bidding Open');
+    expect(stored.bids.map((b) => b.vendorId).sort()).toEqual(['vendor_test_001', 'vendor_test_002']);
+  });
+
+  it('replaces rather than duplicates a re-bid from the same vendor', async () => {
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload())).body;
+
+    await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bidPayload());
+    const res = await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(
+      bidPayload({ unitPrices: { 10: 9.99, 20: 3.5 } })
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.bidsCount).toBe(1);
+
+    const stored = await asTenant(() => readRfq(rfq.id));
+    expect(stored.bids).toHaveLength(1);
+    expect(stored.bids[0].unitPrices['10']).toBe(9.99);
   });
 
   it('rejects a bid from a non-invited vendor with 404 and creates no invitation', async () => {
@@ -218,33 +263,26 @@ describe('POST /api/rfqs/:id/sap-quote-price (ME47)', () => {
 
 describe('GET /api/rfqs/:id/evaluate', () => {
   it('scores bids: lowest total cost gets priceScore 100 and ranks first', async () => {
-    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload())).body;
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(
+      rfqPayload({ invitedVendors: [{ id: 'vendor_test_001' }, { id: 'vendor_test_002' }] })
+    )).body;
 
-    // Seed two competing bids directly (API closes bidding after the first bid)
-    await asTenant(async () => {
-      const rfqRow = await prisma.rFQ.findFirst({ where: { id: rfq.id } });
-      await prisma.rfqBid.create({
-        data: {
-          rfqPk: rfqRow.pk, vendorId: 'v_cheap', vendorName: 'Cheap Co',
-          freight: 0, deliveryLeadTimeDays: 5, technicalScore: 80, vendorRating: 90,
-          unitPrices: { create: [{ clientId: 'CLT-0001', lineNumber: 10, price: 10 }, { clientId: 'CLT-0001', lineNumber: 20, price: 3 }] },
-        },
-      });
-      await prisma.rfqBid.create({
-        data: {
-          rfqPk: rfqRow.pk, vendorId: 'v_costly', vendorName: 'Costly Co',
-          freight: 100, deliveryLeadTimeDays: 10, technicalScore: 80, vendorRating: 90,
-          unitPrices: { create: [{ clientId: 'CLT-0001', lineNumber: 10, price: 20 }, { clientId: 'CLT-0001', lineNumber: 20, price: 6 }] },
-        },
-      });
-    });
+    // Two competing bids submitted through the real API — both vendors were
+    // invited, so neither is refused for being "second" (see the "stays open"
+    // test above).
+    await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bidPayload({
+      unitPrices: { 10: 10, 20: 3 }, freight: 0, deliveryLeadTimeDays: 5,
+    }));
+    await asVendor2(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bidPayload({
+      unitPrices: { 10: 20, 20: 6 }, freight: 100, deliveryLeadTimeDays: 10,
+    }));
 
     const res = await asBuyer(request(app).get(`/api/rfqs/${rfq.id}/evaluate`));
     expect(res.status).toBe(200);
     expect(res.body.evaluation).toHaveLength(2);
 
     const [first, second] = res.body.evaluation;
-    expect(first.vendorId).toBe('v_cheap');
+    expect(first.vendorId).toBe('vendor_test_001');
     expect(first.totalCost).toBe(10 * 100 + 3 * 200); // 1600
     expect(first.priceScore).toBe(100);
     expect(first.deliveryScore).toBe(100);
