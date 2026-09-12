@@ -179,14 +179,22 @@ const createTenantExtension = (rawClient) => Prisma.defineExtension({
             // to the bound tenant in place, then run the op unchanged. Atomic:
             // no separate read is needed.
             args.where = forceClientId(args.where, clientId);
-          } else if (operation !== 'upsert' || true) {
+          } else {
             // Bare unique key (e.g. `{ pk }`) with no clientId anywhere.
-            // findUnique*: read-only, so a post-check is safe and cheap.
-            // update/delete/upsert: mutating, so ownership must be confirmed
-            // BEFORE the write — a post-check would be too late. This has a
-            // small TOCTOU window (the row could change tenant between the
-            // check and the write, which nothing in this schema's design
-            // ever does in practice); full atomicity would need raw SQL.
+            // Every one of UNIQUE_WHERE_OPS reaches here, upsert included,
+            // and each is settled explicitly below — so this is deliberately
+            // an unconditional `else`, not a filter on the operation.
+            //
+            // One ownership read serves them all, but for two different
+            // reasons:
+            //   findUnique / findUniqueOrThrow — read-only, so confirming
+            //     ownership and then answering is safe and cheap.
+            //   update / delete / upsert — mutating, so ownership must be
+            //     confirmed BEFORE the write; a post-check would be too late.
+            //
+            // This has a small TOCTOU window (the row could change tenant
+            // between the check and the write, which nothing in this schema's
+            // design ever does in practice); full atomicity would need raw SQL.
             const flat = flattenUniqueWhere(args.where);
             delete flat.clientId;
             const owned = await rawClient[clientPropFor(model)].findFirst({ where: { ...flat, clientId } });

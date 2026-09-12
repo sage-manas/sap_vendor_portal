@@ -20,9 +20,6 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     "backend/**",
     "mongodb_data/**",
-    // A root-level scratch script for poking the socket server by hand, not
-    // part of the app. Worth deleting rather than linting.
-    "test_sockets.js",
   ]),
 ]);
 

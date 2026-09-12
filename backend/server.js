@@ -111,7 +111,9 @@ app.use(helmet({
 }));
 app.use(compression());
 
-// Workaround for express-mongo-sanitize getter issue in Express 5
+// Express 5 made req.query a getter with no setter. The sanitiser below
+// rewrites the object in place, so it needs a writable one — this replaces
+// the getter with a plain own property holding the same values.
 app.use((req, res, next) => {
   Object.defineProperty(req, 'query', {
     value: { ...req.query },
@@ -122,7 +124,13 @@ app.use((req, res, next) => {
   next();
 });
 
-// Prevent NoSQL query injection
+// Strips `$`-prefixed and dotted keys from request bodies, query and params.
+// Generic hardening, NOT injection protection: this database is PostgreSQL
+// via Prisma, whose query builder parameterises everything, and the handful
+// of raw statements (jobs/queue.js's claim(), utils/nextSequentialId.js) use
+// tagged templates that parameterise too. The package is kept despite its
+// name because a `$`/`.`-shaped key reaching a JSON column or an object
+// spread is still worth refusing.
 app.use(mongoSanitize());
 
 // Prevent HTTP Parameter Pollution
