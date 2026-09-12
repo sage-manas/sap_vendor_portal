@@ -158,6 +158,7 @@ export function PortalProvider({ children }) {
     sapQuotationDocuments: rfqHook.sapQuotationDocuments,
     pos: poHook.pos,
     sapPoOrders: poHook.sapPoOrders,
+    sapPoStatus: poHook.sapPoStatus,
     asns: poHook.asns,
     grns: poHook.grns,
     invoices: invoiceHook.invoices,

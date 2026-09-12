@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { renderWithPortal } from '@/test/renderWithPortal';
 import { EMPTY_SUPPLIER_API } from '@/test/fixtures';
 import PurchaseOrdersPage from '@/app/pos/page';
@@ -20,10 +21,14 @@ const po = (overrides) => ({
   ...overrides,
 });
 
-const renderLedger = (pos) => renderWithPortal(<PurchaseOrdersPage />, {
+const renderLedger = (pos, api = {}) => renderWithPortal(<PurchaseOrdersPage />, {
   plane: 'supplier',
   route: '/pos',
-  api: { ...EMPTY_SUPPLIER_API, 'GET /pos': { pos, pagination: { total: pos.length, page: 1, limit: 20, pages: 1 } } },
+  api: {
+    ...EMPTY_SUPPLIER_API,
+    'GET /pos': { pos, pagination: { total: pos.length, page: 1, limit: 20, pages: 1 } },
+    ...api,
+  },
 });
 
 // The badge renders as `<Icon /> {label}`, so the label is split across nodes
@@ -66,5 +71,61 @@ describe('what the purchase-order ledger claims about SAP', () => {
     await settle();
 
     expect(await badge('Managed in this portal')).toBeInTheDocument();
+  });
+});
+
+// GET /pos/sap-status answers the cross-check the ledger uses when an order
+// carries no sapSyncState of its own. It used to have no failure state at all:
+// a connectivity error, a thrown error and a response missing `orders` all
+// left the column on a spinner that never resolved, which a supplier reads as
+// "checking" rather than "we could not find out".
+describe('when the SAP cross-check cannot be reached', () => {
+  const unanswerable = {
+    'GET /pos/sap-status': { status: 500, body: { error: 'upstream unavailable' } },
+  };
+
+  it('says the check failed instead of spinning forever', async () => {
+    renderLedger([po({ sapPoNumber: '4500000123' })], unanswerable);
+    await settle();
+
+    expect(await badge(/Could not reach your buyer's system/i)).toBeInTheDocument();
+  });
+
+  it('still answers for an order that carries its own sync state', async () => {
+    // sapSyncState travels on the PO record, so this order is answerable
+    // whether or not the cross-check succeeded — the failure must not erase
+    // an answer the ledger already had.
+    renderLedger([po({ sapSyncState: 'pending', sapPoNumber: '4500000123' })], unanswerable);
+    await settle();
+
+    expect(await badge('Awaiting SAP confirmation')).toBeInTheDocument();
+    expect(screen.queryByText(/Could not check/i)).not.toBeInTheDocument();
+  });
+
+  it('treats a body without `orders` as a failure, not as an empty ledger', async () => {
+    // The shape drifting is not hypothetical — GET /asns already answers a
+    // bare array where the other ledgers answer { rows, pagination }.
+    renderLedger([po({ sapPoNumber: '4500000123' })], {
+      'GET /pos/sap-status': { documents: [] },
+    });
+    await settle();
+
+    expect(await badge(/Could not reach your buyer's system/i)).toBeInTheDocument();
+  });
+
+  it('offers a retry on the SAP orders tab rather than a dead spinner', async () => {
+    const user = userEvent.setup();
+    const { apiMock } = renderLedger([po()], unanswerable);
+    await settle();
+
+    await user.click(await screen.findByRole('button', { name: /All SAP Orders/i }));
+
+    expect(await screen.findByText(/Could not reach your buyer.s records/i)).toBeInTheDocument();
+    const before = apiMock.callsTo('GET', '/pos/sap-status').length;
+
+    await user.click(await screen.findByRole('button', { name: /Try again/i }));
+
+    await waitFor(() =>
+      expect(apiMock.callsTo('GET', '/pos/sap-status').length).toBeGreaterThan(before));
   });
 });

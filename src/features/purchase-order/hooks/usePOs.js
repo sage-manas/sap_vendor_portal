@@ -32,6 +32,16 @@ export function usePOs(profile) {
   const [asns, setAsns] = useState([]);
   const [grns, setGrns] = useState([]);
   const [sapPoOrders, setSapPoOrders] = useState(null);
+  // Whether the "has SAP recorded this?" question has been answered at all.
+  // Kept beside sapPoOrders rather than folded into it because the screens
+  // still want the array: 'loading' | 'ready' | 'error'.
+  //
+  // Without this, three separate failures all left the UI on a spinner that
+  // never resolved, and a supplier reads a spinner as "checking", not as "we
+  // could not find out": api-client answers null rather than throwing on a
+  // connectivity error, poService maps every other rejection to null too, and
+  // a response missing `orders` would have set the state back to undefined.
+  const [sapPoStatus, setSapPoStatus] = useState('loading');
 
   const persistLocally = (key, data) => {
     try {
@@ -81,11 +91,22 @@ export function usePOs(profile) {
 
   const refreshSapPoStatus = async () => {
     if (!canFetchVendorData()) return;
+    setSapPoStatus('loading');
     try {
       const data = await poService.getSapStatus();
-      if (data) setSapPoOrders(data.orders);
+      // `data` is null for a connectivity error (api-client's convention) and
+      // for anything poService's own catch swallowed. A body without `orders`
+      // is a contract change, not an empty ledger — say so rather than
+      // rendering it as "nothing on file".
+      if (!data || !Array.isArray(data.orders)) {
+        setSapPoStatus('error');
+        return;
+      }
+      setSapPoOrders(data.orders);
+      setSapPoStatus('ready');
     } catch (e) {
       console.error('Failed to fetch SAP PO/GRN status', e);
+      setSapPoStatus('error');
     }
   };
 
@@ -147,6 +168,7 @@ export function usePOs(profile) {
     asns,
     grns,
     sapPoOrders,
+    sapPoStatus,
     addPO,
     acknowledgePO,
     submitASN,
