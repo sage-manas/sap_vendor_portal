@@ -11,6 +11,9 @@ const { toNumber } = require('../utils/money');
 const { formatPo } = require('../db/poHelpers');
 const { nextSequentialId } = require('../utils/nextSequentialId');
 const { buildExportPayload, EXPORT_FORMATS } = require('../services/export.service');
+const {
+  DEFAULT_VENDOR_RATING, DEFAULT_TECHNICAL_SCORE, DEFAULT_LEAD_TIME_DAYS,
+} = require('../config/scoring');
 
 // The full nested shape a controller/frontend expects an RFQ in, matching
 // what the Mongoose document used to serialize as. `items`/`invitedVendors`
@@ -304,6 +307,13 @@ const submitBid = asyncHandler(async (req, res, next) => {
 
   // Fetch Vendor's DB row & rating
   const vendor = await prisma.vendor.findFirst({ where: { OR: [{ vendorId }, { clerkId: vendorId }] } });
+  // rfq:bid is a supplier-only permission (config/permissions.js), so the
+  // caller's own Vendor row is what scoped this request — it not resolving
+  // means the data is inconsistent, not that an anonymous bid arrived. Refuse
+  // rather than writing a bid that names no real supplier.
+  if (!vendor) {
+    return next(ApiError.badRequest('Bidding vendor could not be resolved'));
+  }
 
   // Verify all line items are priced
   for (const item of rfq.items) {
@@ -312,19 +322,19 @@ const submitBid = asyncHandler(async (req, res, next) => {
     }
   }
 
-  const rating = invitation.rating || 80;
+  const rating = invitation.rating || DEFAULT_VENDOR_RATING;
   const taxCode = gstToTaxCode(gstRate);
 
   const bidFields = {
     vendorId,
-    vendorPk: vendor ? vendor.pk : null,
-    vendorName: vendor ? vendor.companyName : 'Test Vendor',
+    vendorPk: vendor.pk,
+    vendorName: vendor.companyName,
     gstRate: String(gstRate),
     taxCode,
     freight: Number(freight || 0),
-    deliveryLeadTimeDays: Number(deliveryLeadTimeDays || 7),
+    deliveryLeadTimeDays: Number(deliveryLeadTimeDays || DEFAULT_LEAD_TIME_DAYS),
     vendorRating: Number(rating),
-    technicalScore: 80, // standard default
+    technicalScore: DEFAULT_TECHNICAL_SCORE,
     validityDate: validityDate ? new Date(validityDate) : null,
     remarks,
     submittedAt: new Date(),
@@ -429,9 +439,9 @@ const getEvaluationMatrix = asyncHandler(async (req, res, next) => {
       vendorId: bid.vendorId,
       vendorName: bid.vendorName,
       totalCost,
-      deliveryLeadTimeDays: bid.deliveryLeadTimeDays || 7,
-      technicalScore: bid.technicalScore || 80,
-      vendorRating: bid.vendorRating || 80
+      deliveryLeadTimeDays: bid.deliveryLeadTimeDays || DEFAULT_LEAD_TIME_DAYS,
+      technicalScore: bid.technicalScore || DEFAULT_TECHNICAL_SCORE,
+      vendorRating: bid.vendorRating || DEFAULT_VENDOR_RATING
     };
   });
 
