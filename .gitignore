@@ -48,3 +48,7 @@ next-env.d.ts
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+
+# Scratch scripts. The ad-hoc probe/test_* scripts that used to sit in
+# backend/ were deleted; this keeps the next one from being committed.
+*.tmp.js
