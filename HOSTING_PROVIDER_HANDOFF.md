@@ -8,7 +8,7 @@ Use this checklist when giving VendorConnect hosting/deployment work to a servic
 Project type: Full-stack Node.js application
 Frontend: Next.js 16 + React 19
 Backend: Express 5 + Socket.io
-Database: MongoDB
+Database: PostgreSQL (via Prisma)
 Process manager: PM2
 Reverse proxy: Nginx
 Default frontend port: 3000
@@ -91,7 +91,7 @@ Internal-only ports:
 ```text
 3000+ frontend processes
 5000+ backend processes
-27017 MongoDB, only if self-hosted and not publicly exposed
+5432  PostgreSQL, only if self-hosted and not publicly exposed
 ```
 
 ## 5. Runtime Requirements
@@ -105,10 +105,10 @@ PM2
 Nginx
 Certbot
 Git
-MongoDB tools, if database backup/restore is needed
+PostgreSQL client tools (psql, pg_dump), if database backup/restore is needed
 ```
 
-If MongoDB is self-hosted, they must also install and secure MongoDB.
+If PostgreSQL is self-hosted, they must also install and secure PostgreSQL.
 
 ## 6. Build And Start Commands
 
@@ -124,6 +124,7 @@ Backend:
 ```bash
 cd backend
 npm ci
+npx prisma migrate deploy   # creates/updates the Postgres schema
 cd ..
 ```
 
@@ -156,7 +157,7 @@ Required/important backend values:
 ```text
 PORT=5000
 NODE_ENV=production
-MONGO_URI=<MongoDB connection string>
+DATABASE_URL=postgresql://<user>:<password>@localhost:5432/sap_vendor_portal?schema=public
 FRONTEND_URL=https://your-domain.com
 ALLOWED_ORIGINS=https://your-domain.com
 JWT_SECRET=<strong secret>
@@ -192,7 +193,7 @@ For 3 projects, each project needs its own env values. At minimum:
 Different PORT values if sharing one server
 Different FRONTEND_URL
 Different ALLOWED_ORIGINS
-Different MONGO_URI or database name
+Different DATABASE_URL or database name
 Different JWT_SECRET
 Different MASTER_KEY
 Different NEXT_PUBLIC_API_URL
@@ -202,21 +203,21 @@ Different NEXT_PUBLIC_API_URL
 
 Share one of these:
 
-### Managed MongoDB
+### Managed PostgreSQL
 
 ```text
-MongoDB Atlas/project access, or
-MONGO_URI with username/password
+Managed Postgres project access (RDS, Cloud SQL, Neon, Supabase, ...), or
+DATABASE_URL with username/password
 Allowed server IP for database access
 Backup policy
 Database name per project
 ```
 
-### Self-hosted MongoDB
+### Self-hosted PostgreSQL
 
 ```text
-Whether MongoDB should be installed on same server or separate server
-MongoDB admin credentials
+Whether PostgreSQL should be installed on same server or separate server
+PostgreSQL admin credentials
 Database names
 Backup location
 Restore instructions, if existing data exists
@@ -225,8 +226,8 @@ Restore instructions, if existing data exists
 If existing production data exists, share:
 
 ```text
-MongoDB dump
-Restore command
+pg_dump output
+Restore command (psql or pg_restore)
 Expected database name
 Any existing uploaded files from backend/uploads/
 ```
@@ -270,7 +271,7 @@ Network/VPN/IP allowlisting requirements
 Certificate requirements, if any
 ```
 
-Important: SAP credentials are configured from `/platform` and stored encrypted in MongoDB.
+Important: SAP credentials are configured from `/platform` and stored encrypted in PostgreSQL.
 
 ## 11. File Uploads
 
@@ -356,7 +357,7 @@ Password reset email sends
 File upload works
 PM2 processes restart after reboot
 SSL certificate auto-renewal is configured
-MongoDB backup job is configured
+PostgreSQL backup job is configured
 ```
 
 ## 16. What Not To Share Casually
@@ -367,7 +368,7 @@ Do not send these over normal chat/email:
 JWT_SECRET
 MASTER_KEY
 SMTP_PASSWORD
-MongoDB password
+PostgreSQL password
 SAP credentials
 SSH private key
 Cloud root credentials

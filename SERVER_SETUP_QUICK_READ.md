@@ -13,8 +13,8 @@ Browser
 
 ```text
 Root package      frontend    Next.js 16 + React 19
-backend package   API         Express 5 + Socket.io + MongoDB/Mongoose
-MongoDB           database    external MongoDB URI or local MongoDB
+backend package   API         Express 5 + Socket.io + PostgreSQL/Prisma
+PostgreSQL        database    external Postgres URL or local PostgreSQL
 PM2               process     keeps frontend and backend alive
 Nginx             proxy       routes web, API and websocket traffic
 ```
@@ -61,7 +61,7 @@ Important values:
 
 ```text
 PORT=5000
-MONGO_URI=<mongodb connection string>
+DATABASE_URL=postgresql://<user>:<password>@localhost:5432/sap_vendor_portal?schema=public
 FRONTEND_URL=https://your-domain.com
 ALLOWED_ORIGINS=https://your-domain.com
 NODE_ENV=production
@@ -78,9 +78,22 @@ SAP_MOCK_MODE=true
 
 Use `backend/.env.example` as the full reference.
 
+These are exactly the variables the server requires: it validates them at boot
+(`backend/config/validateEnv.js`) and exits rather than starting half-configured.
+Retired variables (`CLERK_*`, `MONGO_URI`, `ADMIN_BOOTSTRAP_EMAILS`) are also
+refused at boot — remove them if an older `.env` still carries them.
+
 ## Database
 
-MongoDB stores everything:
+PostgreSQL stores everything, through Prisma. Apply the schema before the first
+boot:
+
+```bash
+cd backend
+npx prisma migrate deploy
+```
+
+Tables:
 
 ```text
 Client tenants
@@ -131,7 +144,7 @@ s4_odata -> partial / connection testing
 ecc_rfc  -> skeleton
 ```
 
-SAP credentials are stored encrypted in MongoDB and are configured from `/platform`.
+SAP credentials are stored encrypted in PostgreSQL and are configured from `/platform`.
 
 ## Health Checks
 
@@ -141,7 +154,7 @@ GET /api/status
 GET /api/platform/health
 ```
 
-`/api/health` confirms API, MongoDB and socket connection count.
+`/api/health` confirms API, PostgreSQL and socket connection count.
 
 ## Logs
 
@@ -151,7 +164,7 @@ pm2 logs vendorconnect-api
 pm2 logs vendorconnect-web
 ```
 
-SAP call history is also stored in MongoDB as `SapLog` and auto-expires after 30 days.
+SAP call history is also stored in PostgreSQL as `SapLog` and auto-expires after 30 days.
 
 ## Files
 
