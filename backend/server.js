@@ -19,6 +19,7 @@ const { errorHandler } = require('./middleware/errorHandler');
 const { apiLimiter } = require('./middleware/rateLimiter');
 const requestLogger = require('./middleware/requestLogger');
 const trustProxy = require('./config/trustProxy');
+const { isAllowedOrigin, connectSrc } = require('./config/corsOrigins');
 
 const mongoSanitize = require('express-mongo-sanitize');
 const hpp = require('hpp');
@@ -29,30 +30,13 @@ const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://127.0.0.1:3000',
-  'http://localhost:3001',
-  'http://127.0.0.1:3001',
-  'http://localhost:3002',
-  'http://127.0.0.1:3002',
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
-  process.env.FRONTEND_URL
-].filter(Boolean);
-if (process.env.ALLOWED_ORIGINS) {
-  allowedOrigins.push(...process.env.ALLOWED_ORIGINS.split(','));
-}
 
 const io = new Server(server, {
   cors: {
     origin: (origin, callback) => {
-      const isLocalhost = origin && (
-        origin.startsWith('http://localhost:') || 
-        origin.startsWith('http://127.0.0.1:') || 
-        origin.startsWith('http://[::1]:')
-      );
-      if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes(origin + '/') || isLocalhost) {
+      // A handshake with no Origin is not a browser, so there is nothing for
+      // CORS to protect: allow it without echoing an origin back.
+      if (!origin || isAllowedOrigin(origin)) {
         callback(null, true);
       } else {
         callback(new Error('CORS policy violation'));
@@ -119,7 +103,7 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
-      connectSrc: ["'self'", 'http://localhost:3000', 'http://127.0.0.1:3000', process.env.FRONTEND_URL].filter(Boolean),
+      connectSrc: connectSrc(),
       frameAncestors: ["'none'"],
     }
   },
@@ -144,20 +128,18 @@ app.use(mongoSanitize());
 // Prevent HTTP Parameter Pollution
 app.use(hpp());
 
-// Tighten CORS (using the allowedOrigins array declared at the top of the file)
+// Tighten CORS (one shared origin policy — see config/corsOrigins.js)
 
 app.use(cors({
   origin: (origin, callback) => {
-    const isLocalhost = origin && (
-      origin.startsWith('http://localhost:') || 
-      origin.startsWith('http://127.0.0.1:') || 
-      origin.startsWith('http://[::1]:')
-    );
-    if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes(origin + '/') || isLocalhost) {
-      callback(null, true);
-    } else {
-      callback(new ApiError(403, 'CORS policy violation'));
-    }
+    // No Origin header means this is not a browser request — curl, an uptime
+    // check, the nginx health probe. There is no cross-origin read to protect
+    // against, so let it through with no CORS headers rather than 403ing every
+    // non-browser client. `false` here means "send no Access-Control-Allow-
+    // Origin", not "reject".
+    if (!origin) return callback(null, false);
+    if (isAllowedOrigin(origin)) return callback(null, true);
+    return callback(new ApiError(403, 'CORS policy violation'));
   },
   credentials: true,
   // PATCH is live (PATCH /users/:id, PATCH /workspace/settings) — it was
