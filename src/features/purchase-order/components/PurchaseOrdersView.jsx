@@ -648,6 +648,24 @@ export default function PurchaseOrdersView({
     <ErrorBoundary>
       <div className="space-y-6 max-w-full mx-auto animate-fade-in pb-16 relative">
 
+        {/* ==================== PAGE HEADER ====================
+            List view only — the detail view titles itself with the order it
+            is showing. Without this the ledger had no page-level heading at
+            all: the tab bar below is navigation within the page, not a name
+            for it, so the first heading on /pos was the filter panel's. */}
+        {currentView === 'list' && (
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-4 select-none">
+            <div className="space-y-1">
+              <h2 className="page-title flex items-center gap-2">
+                <ShoppingBag className="size-5 text-primary shrink-0" /> Purchase Orders
+              </h2>
+              <p className="text-text-tertiary text-xs font-semibold">
+                Acknowledge new orders, send shipment notices, and track what your buyer has received
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* ==================== SUB-TABS NAVIGATION BAR ==================== */}
         {currentView === 'list' && (
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-border pb-2 gap-4">
@@ -799,7 +817,10 @@ export default function PurchaseOrdersView({
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-2">
                   <Filter className="size-4 text-text-tertiary" />
-                  <h4 className="label mb-0">Search & Filter</h4>
+                  {/* h3, matching the other panels in this view (Delivery
+                      Receipts, Deliveries ready to invoice) — it sits one
+                      level under the page title above. */}
+                  <h3 className="label mb-0">Search & Filter</h3>
                 </div>
                 {(searchQuery || statusFilter !== 'all' || plantFilter !== 'all' || buyerFilter !== 'all') && (
                   <button
