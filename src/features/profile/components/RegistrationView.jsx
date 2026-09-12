@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import FileUploadZone from '@/components/shared/FileUploadZone';
+import FieldCard from '@/components/ui/FieldCard';
 
 // --- INDIAN STATES CONSTANT ---
 const INDIAN_STATES = [
@@ -140,27 +141,18 @@ function FormSection({ number, title, children }) {
 
 const FIELD_INPUT_OVERRIDES = "[&_input]:!rounded-md [&_input]:!border [&_input]:!border-border [&_input]:!bg-surface [&_input]:!px-2.5 [&_input]:!py-1.5 [&_input]:!text-[13px] [&_input]:placeholder:!text-text-tertiary/50 [&_input:focus]:!border-primary [&_input:focus]:!bg-surface [&_input:focus]:!outline-none [&_select]:!rounded-md [&_select]:!border [&_select]:!border-border [&_select]:!bg-surface [&_select]:!px-2.5 [&_select]:!py-1.5 [&_select]:!text-[13px] [&_select:focus]:!border-primary [&_select:focus]:!bg-surface [&_select:focus]:!outline-none [&_textarea]:!rounded-md [&_textarea]:!border [&_textarea]:!border-border [&_textarea]:!bg-surface [&_textarea]:!px-2.5 [&_textarea]:!py-1.5 [&_textarea]:!text-[13px] [&_textarea]:placeholder:!text-text-tertiary/50 [&_textarea:focus]:!border-primary [&_textarea:focus]:!bg-surface [&_textarea:focus]:!outline-none";
 
-function EnterpriseFieldCard({ label, required, error, hint, children }) {
-  return (
-    <div className={`flex items-start gap-1.5 select-none w-full ${FIELD_INPUT_OVERRIDES}`}>
-      <label className="text-[13px] font-semibold text-text-secondary shrink-0 w-28 pt-1.5" title={label}>
-        {label} {required && <span className="text-rose-500 font-bold ml-0.5">*</span>}
-      </label>
-      <div className="flex-1 flex flex-col min-w-0">
-        {children}
-        {hint && !error && (
-          <span className="text-[11px] text-text-tertiary mt-1">{hint}</span>
-        )}
-        {error && (
-          <span className="text-[11px] font-bold text-rose-500 mt-1">{error}</span>
-        )}
-      </div>
-    </div>
-  );
+// Thin alias so the call sites below read unchanged. The label/control
+// association, aria-invalid and aria-describedby all live in the shared
+// primitive now — see components/ui/FieldCard.jsx.
+function EnterpriseFieldCard(props) {
+  return <FieldCard {...props} className={FIELD_INPUT_OVERRIDES} />;
 }
 
 // 5. Accessible Searchable Dropdown
-function SearchableSelect({ value, onChange, options, placeholder, error }) {
+// `id` and the aria props come from the FieldCard wrapping this — the trigger
+// button IS the control, so they belong on it. Without forwarding them the
+// label has nothing to point at and the field is announced unnamed.
+function SearchableSelect({ value, onChange, options, placeholder, error, id, ...aria }) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
   const containerRef = useRef(null);
@@ -186,6 +178,7 @@ function SearchableSelect({ value, onChange, options, placeholder, error }) {
     <div className="relative w-full" ref={containerRef}>
       <button
         type="button"
+        id={id}
         onClick={() => {
           setIsOpen(!isOpen);
           setSearch('');
@@ -193,6 +186,7 @@ function SearchableSelect({ value, onChange, options, placeholder, error }) {
         className="w-full flex items-center justify-between bg-surface border border-border rounded-md py-1.5 px-2.5 text-[13px] outline-none text-text-primary text-left transition-colors duration-150"
         aria-haspopup="listbox"
         aria-expanded={isOpen}
+        {...aria}
       >
         <span className={selectedOpt ? 'text-text-primary font-medium' : 'text-text-tertiary'}>
           {selectedOpt ? `${selectedOpt.name} (${selectedOpt.code})` : placeholder}
@@ -385,7 +379,7 @@ function CustomDatePicker({ value, onChange, placeholder }) {
 }
 
 // 7. Drag and Drop Document Upload Zone Component
-function DocumentUploadZone({ fieldName, value, onChange, label, error }) {
+function DocumentUploadZone({ fieldName, value, onChange, label, error, id, ...aria }) {
   const fileValue = value
     ? (typeof value === 'object' && value.documentId
         ? value
@@ -394,6 +388,8 @@ function DocumentUploadZone({ fieldName, value, onChange, label, error }) {
 
   return (
     <FileUploadZone
+      id={id}
+      {...aria}
       label={label}
       value={fileValue}
       onUploadComplete={(result) => onChange(result)}

@@ -1,7 +1,11 @@
 import React, { useState, useRef } from 'react';
 import { UploadCloud, File, Trash2, Loader2, AlertCircle } from 'lucide-react';
 
-export default function FileUploadZone({ 
+export default function FileUploadZone({
+  // Set by a FieldCard wrapping this — the file input is the labelable
+  // control, so the id lands there even though it is visually hidden. That is
+  // what makes clicking the field's label open the picker.
+  id,
   label = "Upload Document", 
   onUploadComplete, 
   onFileRemoved, 
@@ -210,6 +214,7 @@ export default function FileUploadZone({
         >
           <input
             type="file"
+            id={id}
             ref={fileInputRef}
             onChange={handleChange}
             accept={accept}

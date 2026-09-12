@@ -31,16 +31,15 @@ const withRfq = {
   'GET /rfqs': { rfqs: [OPEN_RFQ], pagination: { total: 1, page: 1, limit: 20, pages: 1 } },
 };
 
-// The form's labels are not associated with their inputs (no htmlFor, no
-// wrapping label), so getByLabelText cannot reach them — find the field by its
-// visible label and take the control inside the same card.
-const field = (label) => {
-  const labelNode = screen.getByTitle(label);
-  const card = labelNode.closest('div');
-  const control = card.querySelector('input, select, textarea');
-  if (!control) throw new Error(`No control in the "${label}" field`);
-  return control;
-};
+// Queried the way a screen reader resolves them. This is the assertion as
+// much as the mechanism: getByLabelText only finds a control whose label is
+// programmatically attached, so every use of it here is also a check that the
+// field is announced with a name.
+// `exact: false` because a required field's label also carries a visual "*".
+// It is aria-hidden, so the real accessible name excludes it, but Testing
+// Library matches on textContent rather than running the full accname
+// algorithm.
+const field = (label) => screen.getByLabelText(label, { exact: false });
 
 // The tab shows a skeleton for a deliberate 800ms before the form appears
 // (the tabLoading effect in RfqView), so this waits for a field rather than
@@ -53,7 +52,7 @@ const openQuotationTab = async (user) => {
   await user.click(tab);
   // The tab shows a skeleton for a deliberate 800ms before the form appears
   // (RfqView's tabLoading effect), so wait for a field rather than the click.
-  await waitFor(() => expect(screen.getByTitle('Unit price (₹)')).toBeInTheDocument(),
+  await waitFor(() => expect(field('Unit price (₹)')).toBeInTheDocument(),
     { timeout: 4000 });
 };
 
@@ -62,8 +61,9 @@ const submitForm = (user) => user.click(
     .find((button) => button.getAttribute('type') === 'submit')
 );
 
-// The RFQ picker is a bare <select> above the field cards, not one of them.
-const rfqSelect = () => document.querySelector('select');
+// The RFQ picker sits above the field cards and is named by the heading
+// beside it rather than by a <label>; getByLabelText resolves both.
+const rfqSelect = () => screen.getByLabelText('Choose a request');
 
 // Everything the form marks required, filled the way a supplier would.
 const fillQuote = async (user) => {
