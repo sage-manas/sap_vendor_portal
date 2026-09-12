@@ -2,6 +2,7 @@ const request = require('supertest');
 const buildTestApp = require('./testApp');
 const { prisma } = require('../db/prisma');
 const { registerVendor, createTenantUser, asTenant } = require('./helpers');
+const { DEFAULT_VENDOR_RATING } = require('../config/scoring');
 
 const app = buildTestApp();
 
@@ -293,6 +294,53 @@ describe('GET /api/rfqs/:id/evaluate', () => {
     const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload())).body;
     const res = await asBuyer(request(app).get(`/api/rfqs/${rfq.id}/evaluate`));
     expect(res.body.evaluation).toEqual([]);
+  });
+
+  // The invitation rating used to depend on how the invitation was made: an
+  // auto-created one stamped 95 while a buyer's own invitation with no rating
+  // fell back to 80, so identical bids did not score identically.
+  it('scores identical bids identically however the invitation was written', async () => {
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload({
+      invitedVendors: [
+        { id: 'vendor_test_001' },                                  // no rating key at all
+        { id: 'vendor_test_002', name: 'Beta Supplies Pvt Ltd' },    // named, still no rating
+      ],
+    }))).body;
+
+    const bid = bidPayload({ unitPrices: { 10: 11.5, 20: 3.8 }, freight: 500, deliveryLeadTimeDays: 5 });
+    await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bid);
+    await asVendor2(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bid);
+
+    const res = await asBuyer(request(app).get(`/api/rfqs/${rfq.id}/evaluate`));
+    expect(res.status).toBe(200);
+    expect(res.body.evaluation).toHaveLength(2);
+
+    const [first, second] = res.body.evaluation;
+    expect(first.vendorRating).toBe(DEFAULT_VENDOR_RATING);
+    expect(second.vendorRating).toBe(DEFAULT_VENDOR_RATING);
+    expect(first.weightedScore).toBe(second.weightedScore);
+  });
+
+  it('still honours a rating the buyer set explicitly on the invitation', async () => {
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload({
+      invitedVendors: [
+        { id: 'vendor_test_001', rating: 95 },
+        { id: 'vendor_test_002' },
+      ],
+    }))).body;
+
+    const bid = bidPayload({ unitPrices: { 10: 11.5, 20: 3.8 }, freight: 500, deliveryLeadTimeDays: 5 });
+    await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bid);
+    await asVendor2(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bid);
+
+    const res = await asBuyer(request(app).get(`/api/rfqs/${rfq.id}/evaluate`));
+    const byVendor = Object.fromEntries(res.body.evaluation.map((row) => [row.vendorId, row]));
+
+    expect(byVendor.vendor_test_001.vendorRating).toBe(95);
+    expect(byVendor.vendor_test_002.vendorRating).toBe(DEFAULT_VENDOR_RATING);
+    // The only difference between the two bids, worth its 10% weight.
+    expect(byVendor.vendor_test_001.weightedScore - byVendor.vendor_test_002.weightedScore)
+      .toBeCloseTo((95 - DEFAULT_VENDOR_RATING) * 0.10, 5);
   });
 });
 
