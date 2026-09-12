@@ -9,7 +9,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "e2e": "playwright test",
-    "e2e:api": "node e2e/api-server.cjs",
+    "e2e:api": "node e2e/api-server.mjs",
     "e2e:seed": "node backend/scripts/seed-demo.js"
   },
   "dependencies": {

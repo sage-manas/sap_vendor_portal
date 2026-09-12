@@ -11,8 +11,13 @@
 // Windows, where Playwright puts its children in a job object that is closed
 // when setup returns. That failure is silent: the job sits at attempts: 0 and
 // the purchase order simply never progresses.
-require('../backend/server.js');
+//
+// Both modules below are CommonJS. server.js starts listening as an import
+// side effect; worker.js only defines things, because its own
+// `require.main === module` guard does not fire when it is imported rather
+// than run — so the loop is started explicitly, after both have evaluated.
+import '../backend/server.js';
+import worker from '../backend/jobs/worker.js';
 
-const worker = require('../backend/jobs/worker.js');
 worker.run();
 console.log('[e2e] job worker started in the API process');
