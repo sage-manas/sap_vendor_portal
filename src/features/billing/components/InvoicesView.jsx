@@ -117,8 +117,9 @@ export default function InvoicesView({
                     {/* INPUTS */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-1">
-                        <label className="label">Your invoice number *</label>
+                        <label className="label" htmlFor="invoice-number">Your invoice number <span aria-hidden="true">*</span></label>
                         <input
+                          id="invoice-number" aria-required="true"
                           type="text" required maxLength={16} placeholder="TAX-2026-INV-1092"
                           value={invoiceForm.invoiceNumber}
                           onChange={e => setInvoiceForm({ ...invoiceForm, invoiceNumber: e.target.value })}
@@ -126,8 +127,9 @@ export default function InvoicesView({
                         />
                       </div>
                       <div className="space-y-1">
-                        <label className="label">Invoice date *</label>
+                        <label className="label" htmlFor="invoice-date">Invoice date <span aria-hidden="true">*</span></label>
                         <input
+                          id="invoice-date" aria-required="true"
                           type="date" required value={invoiceForm.invoiceDate}
                           onChange={e => setInvoiceForm({ ...invoiceForm, invoiceDate: e.target.value })}
                           className="w-[15ch] font-mono tabular-nums"

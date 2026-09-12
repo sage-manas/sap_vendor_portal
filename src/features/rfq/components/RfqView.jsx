@@ -17,6 +17,8 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 import StatusBadge from '@/components/ui/StatusBadge';
 import EmptyState from '@/components/ui/EmptyState';
 import Modal from '@/components/ui/Modal';
+
+import FieldCard from '@/components/ui/FieldCard';
 import { rfqStatusVariant } from '@/lib/statusColors';
 import { mergeSapDocuments, countByType, commonPurchasingOrg } from '@/lib/sapDocuments';
 import { rfqService } from '../services/rfqService';
@@ -75,22 +77,10 @@ const EnterpriseCard = ({ label, required, children, error }) => (
 
 const FIELD_INPUT_OVERRIDES = "[&_input]:!rounded-md [&_input]:!border [&_input]:!border-border [&_input]:!bg-surface [&_input]:!px-2.5 [&_input]:!py-1.5 [&_input]:!text-[13px] [&_input]:placeholder:!text-text-tertiary/50 [&_input]:placeholder:!font-semibold [&_input:focus]:!border-primary [&_input:focus]:!bg-surface [&_input:focus]:!outline-none [&_select]:!rounded-md [&_select]:!border [&_select]:!border-border [&_select]:!bg-surface [&_select]:!px-2.5 [&_select]:!py-1.5 [&_select]:!text-[13px] [&_select:focus]:!border-primary [&_select:focus]:!bg-surface [&_select:focus]:!outline-none [&_textarea]:!rounded-md [&_textarea]:!border [&_textarea]:!border-border [&_textarea]:!bg-surface [&_textarea]:!px-2.5 [&_textarea]:!py-1.5 [&_textarea]:!text-[13px] [&_textarea]:placeholder:!text-text-tertiary/50 [&_textarea]:placeholder:!font-semibold [&_textarea:focus]:!border-primary [&_textarea:focus]:!bg-surface [&_textarea:focus]:!outline-none";
 
-const EnterpriseFieldCard = ({ label, required, error, hint, children }) => (
-  <div className={`flex items-start gap-1.5 select-none w-full ${FIELD_INPUT_OVERRIDES}`}>
-    <label className="text-[13px] font-semibold text-text-secondary shrink-0 w-28 pt-1.5" title={label}>
-      {label} {required && <span className="text-rose-500 font-bold ml-0.5">*</span>}
-    </label>
-    <div className="flex-1 flex flex-col min-w-0">
-      {children}
-      {hint && !error && (
-        <span className="text-[11px] text-text-tertiary mt-1">{hint}</span>
-      )}
-      {error && (
-        <span className="text-[11px] font-bold text-rose-500 mt-1">{error}</span>
-      )}
-    </div>
-  </div>
-);
+// Thin alias so the call sites below read unchanged. The label/control
+// association, aria-invalid and aria-describedby all live in the shared
+// primitive now — see components/ui/FieldCard.jsx.
+const EnterpriseFieldCard = (props) => <FieldCard {...props} className={FIELD_INPUT_OVERRIDES} />;
 
 const SkeletonCard = () => (
   <div className="p-4.5 bg-surface border border-border rounded-xl flex flex-col justify-between min-h-[140px] animate-pulse">
@@ -832,11 +822,18 @@ export default function RfqView({
                   <div className={`p-4 bg-surface2/30 border rounded-md space-y-4 ${quoteErrors.rfqId ? 'border-rose-500 ring-1 ring-rose-500/50 bg-rose-50/5' : 'border-border'}`}>
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                       <div>
-                        <h4 className="text-[11px] font-bold text-text-secondary uppercase tracking-wider font-mono">Choose a request</h4>
+                        <h4 id="quote-rfq-label" className="text-[11px] font-bold text-text-secondary uppercase tracking-wider font-mono">Choose a request</h4>
                         <p className="text-[10px] text-text-tertiary mt-0.5 font-semibold">Pick one of the open requests you have been invited to quote for</p>
                       </div>
                       <div>
+                        {/* Named by the heading beside it rather than by a
+                            <label> — pointed at rather than duplicated, so
+                            the two cannot drift. */}
                         <select
+                          id="quote-rfq"
+                          aria-labelledby="quote-rfq-label"
+                          aria-required="true"
+                          aria-invalid={quoteErrors.rfqId ? true : undefined}
                           value={quoteForm.rfqId}
                           onChange={e => {
                             const selectedId = e.target.value;
@@ -1149,8 +1146,8 @@ export default function RfqView({
           </p>
 
           <div className="space-y-1.5">
-            <label className="text-[11px] font-bold text-text-secondary uppercase tracking-wide">Linked RFQ</label>
-            <select
+            <label className="text-[11px] font-bold text-text-secondary uppercase tracking-wide" htmlFor="quote-linked-rfq">Linked RFQ</label>
+            <select id="quote-linked-rfq"
               value={priceUpdateRfqId}
               onChange={(e) => handlePriceUpdateRfqChange(e.target.value)}
               className="w-full font-semibold"

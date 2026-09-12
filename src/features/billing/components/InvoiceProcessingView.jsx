@@ -5,19 +5,23 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import EmptyState from '@/components/ui/EmptyState';
 import { invoiceStatusVariant } from '@/lib/statusColors';
 
+import { useLabelledControl } from '@/components/ui/FieldCard';
+
 // Enterprise Field Card (single-row label + field layout)
 function EnterpriseFieldCard({ label, required, error, labelWidth, children }) {
+  const { id, control } = useLabelledControl({ label, required, error, children });
+
   return (
     <div className={`h-full py-1.5 px-3 bg-surface transition-colors duration-150 flex flex-col sm:flex-row sm:items-center gap-2 select-none ${
       error ? 'bg-red-50/10' : 'hover:bg-surface2/40 focus-within:bg-surface2/60'
     }`}>
-      <label className={`text-xs font-bold text-text-primary ${labelWidth || 'sm:w-56'} shrink-0 whitespace-normal select-none block`} title={label}>
-        {label} {required && <span className="text-red-500 font-bold select-none ml-0.5">*</span>}
+      <label htmlFor={id} className={`text-xs font-bold text-text-primary ${labelWidth || 'sm:w-56'} shrink-0 whitespace-normal select-none block`} title={label}>
+        {label} {required && <span aria-hidden="true" className="text-red-500 font-bold select-none ml-0.5">*</span>}
       </label>
       <div className="flex-1 w-full min-w-0 flex flex-col justify-center">
-        {children}
+        {control}
         {error && (
-          <span className="text-[10px] font-bold text-red-600 mt-1 select-none">{error}</span>
+          <span id={`${id}-error`} className="text-[10px] font-bold text-red-600 mt-1 select-none">{error}</span>
         )}
       </div>
     </div>

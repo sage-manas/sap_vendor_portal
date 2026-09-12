@@ -199,33 +199,33 @@ function ConfigureDialog({ po, item, existingPlan, onClose, onSaved }) {
         {type === 'Periodic' ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className={labelClass}>Start date</label>
-              <input type="date" className={inputClass} value={periodic.startDate}
+              <label className={labelClass} htmlFor="plan-start-date">Start date</label>
+              <input id="plan-start-date" type="date" className={inputClass} value={periodic.startDate}
                 onChange={(e) => setPeriodic({ ...periodic, startDate: e.target.value })} />
             </div>
             <div>
-              <label className={labelClass}>End date</label>
-              <input type="date" className={inputClass} value={periodic.endDate}
+              <label className={labelClass} htmlFor="plan-end-date">End date</label>
+              <input id="plan-end-date" type="date" className={inputClass} value={periodic.endDate}
                 onChange={(e) => setPeriodic({ ...periodic, endDate: e.target.value })} />
             </div>
             <div>
-              <label className={labelClass}>Frequency</label>
-              <select className={inputClass} value={periodic.frequency}
+              <label className={labelClass} htmlFor="plan-frequency">Frequency</label>
+              <select id="plan-frequency" className={inputClass} value={periodic.frequency}
                 onChange={(e) => setPeriodic({ ...periodic, frequency: e.target.value })}>
                 {FREQUENCIES.map((frequency) => <option key={frequency} value={frequency}>{frequency}</option>)}
               </select>
             </div>
             <div>
-              <label className={labelClass}>Invoiced</label>
-              <select className={inputClass} value={periodic.invoicingRule}
+              <label className={labelClass} htmlFor="plan-invoiced">Invoiced</label>
+              <select id="plan-invoiced" className={inputClass} value={periodic.invoicingRule}
                 onChange={(e) => setPeriodic({ ...periodic, invoicingRule: e.target.value })}>
                 <option value="Arrears">In arrears — at the end of each period</option>
                 <option value="Advance">In advance — at the start of each period</option>
               </select>
             </div>
             <div className="sm:col-span-2">
-              <label className={labelClass}>Amount per period</label>
-              <input type="number" min="0" step="0.01" className={inputClass}
+              <label className={labelClass} htmlFor="plan-amount">Amount per period</label>
+              <input id="plan-amount" type="number" min="0" step="0.01" className={inputClass}
                 placeholder={`Defaults to the line value, ${money(netValue, po.currency)}`}
                 value={periodic.periodicAmount}
                 onChange={(e) => setPeriodic({ ...periodic, periodicAmount: e.target.value })} />
@@ -237,7 +237,7 @@ function ConfigureDialog({ po, item, existingPlan, onClose, onSaved }) {
         ) : (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <label className={labelClass + ' mb-0'}>Instalments</label>
+              <label className={labelClass + ' mb-0'} htmlFor="plan-instalments">Instalments</label>
               <span className={`text-[11px] font-bold font-mono tabular-nums ${Math.abs(milestoneTotal - 100) < 0.01 ? 'text-emerald-600' : 'text-amber-600'
                 }`}>
                 {milestoneTotal.toFixed(2)}% of 100%
@@ -246,7 +246,7 @@ function ConfigureDialog({ po, item, existingPlan, onClose, onSaved }) {
 
             {milestones.map((milestone, index) => (
               <div key={index} className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
-                <input className={inputClass + ' sm:flex-1'} placeholder="Milestone" value={milestone.description}
+                <input id="plan-instalments" className={inputClass + ' sm:flex-1'} placeholder="Milestone" value={milestone.description}
                   onChange={(e) => updateMilestone(index, { description: e.target.value })} />
                 <input type="date" className={inputClass + ' sm:w-40'} value={milestone.settlementDate}
                   onChange={(e) => updateMilestone(index, { settlementDate: e.target.value })} />
@@ -274,8 +274,8 @@ function ConfigureDialog({ po, item, existingPlan, onClose, onSaved }) {
         )}
 
         <div>
-          <label className={labelClass}>Reference (optional)</label>
-          <input className={inputClass} value={reference} onChange={(e) => setReference(e.target.value)}
+          <label className={labelClass} htmlFor="plan-reference">Reference (optional)</label>
+          <input id="plan-reference" className={inputClass} value={reference} onChange={(e) => setReference(e.target.value)}
             placeholder="Contract number, agreement reference…" />
         </div>
 

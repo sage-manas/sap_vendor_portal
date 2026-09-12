@@ -43,8 +43,8 @@ export default function DeclineSupplier({ supplier, onClose, onDone }) {
       }
     >
       <Notice tone="error">{failed}</Notice>
-      <label className="label">Reason</label>
-      <textarea
+      <label className="label" htmlFor="decline-reason">Reason</label>
+      <textarea id="decline-reason"
         rows={4}
         className="w-full"
         value={reason}

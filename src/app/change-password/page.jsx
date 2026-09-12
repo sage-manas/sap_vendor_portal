@@ -82,9 +82,9 @@ export default function ChangePasswordPage() {
 
         <form onSubmit={submit} className="space-y-4">
           <div>
-            <label className="label">Current Password</label>
+            <label className="label" htmlFor="change-password-1">Current Password</label>
             <div className="relative">
-              <input
+              <input id="change-password-1"
                 type="password"
                 required
                 disabled={busy}
@@ -98,9 +98,9 @@ export default function ChangePasswordPage() {
           </div>
 
           <div>
-            <label className="label">New Password</label>
+            <label className="label" htmlFor="change-password-2">New Password</label>
             <div className="relative">
-              <input
+              <input id="change-password-2"
                 type="password"
                 required
                 disabled={busy}
@@ -114,9 +114,9 @@ export default function ChangePasswordPage() {
           </div>
 
           <div>
-            <label className="label">Confirm New Password</label>
+            <label className="label" htmlFor="change-password-3">Confirm New Password</label>
             <div className="relative">
-              <input
+              <input id="change-password-3"
                 type="password"
                 required
                 disabled={busy}

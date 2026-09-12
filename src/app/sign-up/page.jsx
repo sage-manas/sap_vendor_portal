@@ -119,11 +119,11 @@ export default function SignUpPage() {
         <div className="grid grid-cols-1 gap-3.5">
           {/* Company Name */}
           <div>
-            <label className="label">
+            <label className="label" htmlFor="signup-company">
               Company Registered Name
             </label>
             <div className="relative">
-              <input
+              <input id="signup-company"
                 type="text"
                 required
                 disabled={loading}
@@ -138,11 +138,11 @@ export default function SignUpPage() {
 
           {/* Email */}
           <div>
-            <label className="label">
+            <label className="label" htmlFor="signup-email">
               Corporate Contact Email
             </label>
             <div className="relative">
-              <input
+              <input id="signup-email"
                 type="email"
                 required
                 disabled={loading}
@@ -157,11 +157,11 @@ export default function SignUpPage() {
 
           {/* Password */}
           <div>
-            <label className="label">
+            <label className="label" htmlFor="signup-password">
               Create Password
             </label>
             <div className="relative">
-              <input
+              <input id="signup-password"
                 type="password"
                 required
                 disabled={loading}
@@ -177,10 +177,10 @@ export default function SignUpPage() {
           {/* GSTIN & PAN Grid */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label">
+              <label className="label" htmlFor="signup-gstin">
                 GSTIN Number (India)
               </label>
-              <input
+              <input id="signup-gstin"
                 type="text"
                 required
                 disabled={loading}
@@ -191,10 +191,10 @@ export default function SignUpPage() {
               />
             </div>
             <div>
-              <label className="label">
+              <label className="label" htmlFor="signup-pan">
                 PAN Number
               </label>
-              <input
+              <input id="signup-pan"
                 type="text"
                 required
                 disabled={loading}
