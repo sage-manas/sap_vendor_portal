@@ -117,8 +117,9 @@ Frontend talks to backend via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
 | `SAP_MOCK_MODE` | `true` (always mock; real RFC not implemented) |
 | `GSTIN_PAN_VERIFY_MOCK_MODE` + `_API_URL` / `_API_KEY` | KYC verification mock vs live (see `services/verification.service.js`) |
 | `LOG_LEVEL` | winston level |
+| `TRUST_PROXY_HOPS` | reverse-proxy hops in front of the API; unset means `loopback` (the shipped nginx on the same host). See `config/trustProxy.js` — never `true`, which would let a client spoof `X-Forwarded-For`. |
 | `UPLOAD_DIR`, `MAX_FILE_SIZE_MB` | multer config |
-| `CLERK_*` | **Deprecated/unused** — Clerk was the original auth plan; replaced by local JWT. `clerkId`/`clerkUserId` names survive as legacy identifiers. |
+| `CLERK_*`, `MONGO_URI`, `ADMIN_BOOTSTRAP_EMAILS` | **Retired — the server refuses to boot if any is set** (`config/validateEnv.js`). Clerk was the original auth plan, replaced by local JWT (`clerkId`/`clerkUserId` names survive as legacy identifiers); `MONGO_URI` predates the Postgres migration and is now `DATABASE_URL`. |
 | `TENANT_RATE_LIMIT_MAX` | per-tenant request cap, default 300/minute (`middleware/rateLimiter.js` `tenantLimiter`, §5.7). Disabled under `NODE_ENV=test`. |
 | `BILLING_PROVIDER` | selects the billing provider, default `null` (logs and no-ops). See `services/billing.service.js`, §5.7. |
 | `BACKUP_DRILL_DIR` | where `scripts/backup-restore-drill.js` writes its JSON dump. Defaults to `backend/backups/drill-<timestamp>/`. |
