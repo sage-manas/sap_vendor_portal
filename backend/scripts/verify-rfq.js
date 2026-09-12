@@ -102,7 +102,7 @@ async function main() {
     assert.strictEqual(res.body.invitedVendors[0].id, 'VND-AAAAA');
   });
 
-  await test('submitBid from an invited vendor prices all lines and moves status to Submitted', async () => {
+  await test('submitBid from an invited vendor prices all lines and keeps status Bidding Open', async () => {
     const req = fakeReq({
       scopeVendorId: 'VND-AAAAA', params: { id: rfqId },
       body: { unitPrices: { 10: 100, 20: 50 }, gstRate: 18, freight: 20, deliveryLeadTimeDays: 5 },
@@ -112,7 +112,7 @@ async function main() {
     assert.strictEqual(res.body.bidsCount, 1);
 
     const rfq = await runWithTenant('CLT-0001', () => rawPrisma.rFQ.findFirst({ where: { id: rfqId } }));
-    assert.strictEqual(rfq.status, 'Submitted');
+    assert.strictEqual(rfq.status, 'Bidding Open');
   });
 
   await test('submitBid rejects a bid missing a line price', async () => {
@@ -126,28 +126,25 @@ async function main() {
     assert.strictEqual(next.error?.statusCode, 400);
   });
 
-  // NOTE: the controller (unchanged behavior, carried over verbatim from the
-  // Mongoose version) flips status away from 'Bidding Open' as soon as the
-  // first bid lands, and submitBid refuses any bid once status isn't
-  // 'Bidding Open' — so in the app as it exists today, only the first bidder
-  // on an RFQ can ever submit. A second vendor's bid is expected to be
-  // refused here, same as before the migration.
-  await test('a second vendor\'s bid is refused once the RFQ is no longer Bidding Open', async () => {
+  await test('a second invited vendor can also bid once the RFQ stays Bidding Open', async () => {
     const reqB = fakeReq({
       scopeVendorId: 'VND-BBBBB', params: { id: rfqId },
       body: { unitPrices: { 10: 80, 20: 40 }, gstRate: 18, freight: 0, deliveryLeadTimeDays: 3 },
     });
-    const next = capturedNext();
-    await runWithTenant('CLT-0001', () => submitBid(reqB, fakeRes(), next));
-    assert.strictEqual(next.error?.statusCode, 400);
+    const res = fakeRes();
+    await runWithTenant('CLT-0001', () => submitBid(reqB, res, capturedNext()));
+    assert.strictEqual(res.body.bidsCount, 2);
   });
 
-  await test('getEvaluationMatrix scores the single bid that was actually accepted', async () => {
+  await test('getEvaluationMatrix scores both bids that were actually accepted', async () => {
     const req = fakeReq({ params: { id: rfqId } });
     const res = fakeRes();
     await runWithTenant('CLT-0001', () => getEvaluationMatrix(req, res, capturedNext()));
-    assert.strictEqual(res.body.evaluation.length, 1);
-    assert.strictEqual(res.body.evaluation[0].vendorId, 'VND-AAAAA');
+    assert.strictEqual(res.body.evaluation.length, 2);
+    assert.deepStrictEqual(
+      res.body.evaluation.map((e) => e.vendorId).sort(),
+      ['VND-AAAAA', 'VND-BBBBB'],
+    );
   });
 
   await test('awardBid creates a PO with the winning bid\'s prices and marks the RFQ Awarded', async () => {

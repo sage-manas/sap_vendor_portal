@@ -353,11 +353,6 @@ const submitBid = asyncHandler(async (req, res, next) => {
     });
   }
 
-  // If first bid, set status to Submitted
-  if (rfq.status === 'Bidding Open') {
-    await prisma.rFQ.update({ where: { pk: rfq.pk }, data: { status: 'Submitted' } });
-  }
-
   const bidsCount = await prisma.rfqBid.count({ where: { rfqPk: rfq.pk } });
   res.json({ message: 'Bid submitted successfully', bidsCount });
 });
