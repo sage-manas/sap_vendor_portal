@@ -48,6 +48,19 @@ const bankDetailsSchema = z.union([
   })
 ]).optional();
 
+// GET /vendors/profile answers null for every column a supplier has not filled
+// in, and the registration form sends that profile back on save and submit. An
+// optional field therefore has to accept null as well as a missing key, or a
+// profile cannot round-trip through the API that produced it — which is what
+// happened: a supplier fresh from sign-up holds vendorCategory: null, so every
+// save and every submission answered 400 and no new supplier could register.
+// A null is read as "not sent" (undefined), so the column is left as it is:
+// several of these are non-nullable (status, the two invoice-check booleans)
+// and writing null there would trade the 400 for a 500. An empty string still
+// clears a text field.
+const optionalText = z.string().nullish().transform((value) => value ?? undefined);
+const optionalFlag = z.boolean().nullish().transform((value) => value ?? undefined);
+
 const profileCreateSchema = z.object({
   vendorId: z.string(),
   companyName: z.string().min(3).max(100),
@@ -57,42 +70,42 @@ const profileCreateSchema = z.object({
   phone: z.string().regex(phoneRegex, { message: "Invalid phone number format" }).optional().or(z.literal('')),
   
   // Flat fields (optional)
-  tradeName: z.string().optional(),
-  businessType: z.string().optional(),
-  incorporationDate: z.string().optional(),
-  cin: z.string().optional(),
-  msmeNumber: z.string().optional(),
-  tdsSection: z.string().optional(),
-  vendorCategory: z.string().optional(),
-  msmeRegistered: z.boolean().optional(),
-  status: z.string().optional(),
+  tradeName: optionalText,
+  businessType: optionalText,
+  incorporationDate: optionalText,
+  cin: optionalText,
+  msmeNumber: optionalText,
+  tdsSection: optionalText,
+  vendorCategory: optionalText,
+  msmeRegistered: optionalFlag,
+  status: optionalText,
   
   // Flat address & bank details
   address: addressSchema,
-  city: z.string().optional(),
-  state: z.string().optional(),
-  country: z.string().optional(),
-  region: z.string().optional(),
-  postalCode: z.string().optional(),
+  city: optionalText,
+  state: optionalText,
+  country: optionalText,
+  region: optionalText,
+  postalCode: optionalText,
 
-  bankName: z.string().optional(),
-  accountNumber: z.string().optional(),
-  ifscCode: z.string().optional(),
-  accountName: z.string().optional(),
-  bankBranch: z.string().optional(),
+  bankName: optionalText,
+  accountNumber: optionalText,
+  ifscCode: optionalText,
+  accountName: optionalText,
+  bankBranch: optionalText,
   bankDetails: bankDetailsSchema,
 
   // SAP purchasing/finance fields the VENDOR_CR contract needs (Vendor.js,
   // sap/mappings/vendor-create.map.js) — omitting any of these here means
   // Zod silently drops it before it reaches the database, and VENDOR_CR then
   // submits an empty string for it with no error anywhere in between.
-  paymentTerms: z.string().optional(),
-  paymentMethod: z.string().optional(),
-  currency: z.string().optional(),
-  incoterms1: z.string().optional(),
-  incoterms2: z.string().optional(),
-  doubleInvoiceCheck: z.boolean().optional(),
-  grBasedInvoiceVerification: z.boolean().optional(),
+  paymentTerms: optionalText,
+  paymentMethod: optionalText,
+  currency: optionalText,
+  incoterms1: optionalText,
+  incoterms2: optionalText,
+  doubleInvoiceCheck: optionalFlag,
+  grBasedInvoiceVerification: optionalFlag,
 
   // Document attachments (client sends null before a document is uploaded)
   cancelledCheque: uploadedDocumentSchema,

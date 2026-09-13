@@ -5,6 +5,15 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import EmptyState from '@/components/ui/EmptyState';
 import { invoiceStatusVariant } from '@/lib/statusColors';
 
+// 13 Sept 2026 — documents arrive with ISO timestamps; nobody reads those.
+const displayDate = (value) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? String(value)
+    : date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
 import { useLabelledControl } from '@/components/ui/FieldCard';
 
 // Enterprise Field Card (single-row label + field layout)
@@ -105,7 +114,7 @@ export default function InvoiceProcessingView({
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-[10px] text-text-tertiary font-bold uppercase tracking-wider font-mono">
                         <span>Order: <span className="text-text-primary">{grn.poId}</span></span>
                         <span>&bull;</span>
-                        <span>Received on: <span className="text-text-primary">{grn.postingDate}</span></span>
+                        <span>Received on: <span className="text-text-primary">{displayDate(grn.postingDate)}</span></span>
                         <span>&bull;</span>
                         <span>Received by: <span className="text-text-primary">{grn.receivedBy}</span></span>
                       </div>
@@ -283,7 +292,7 @@ export default function InvoiceProcessingView({
                   <tr key={inv.id}>
                     <td>
                       <p className="font-bold text-text-primary uppercase font-mono">{inv.invoiceNumber}</p>
-                      <p className="text-[10px] text-text-tertiary font-mono mt-0.5">Date: {inv.invoiceDate}</p>
+                      <p className="text-[10px] text-text-tertiary font-mono mt-0.5">Date: {displayDate(inv.invoiceDate)}</p>
                     </td>
                     <td className="font-mono">
                       {/* The portal posts nothing to SAP: this number exists
@@ -298,14 +307,10 @@ export default function InvoiceProcessingView({
                       {inv.poId}
                     </td>
                     <td className="text-right font-mono font-bold text-text-primary tabular-nums">
-                      ₹ {Number(inv.totalAmount).toLocaleString('en-IN')}.00
+                      ₹ {Number(inv.totalAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
                     <td className="text-center">
-                      {inv.status === 'Paid' ? (
-                        <StatusBadge label="Paid" variant={invoiceStatusVariant(inv.status)} />
-                      ) : (
-                        <StatusBadge label="Submitted" variant={invoiceStatusVariant(inv.status)} />
-                      )}
+                      <StatusBadge label={inv.status || 'Submitted'} variant={invoiceStatusVariant(inv.status)} />
                     </td>
                     <td className="text-center">
                       {sapMiroDocuments === null ? (
@@ -327,7 +332,7 @@ export default function InvoiceProcessingView({
                             {paymentDetail.status} · Net ₹{Number(paymentDetail.netDisbursed).toLocaleString('en-IN')}
                           </p>
                           <p className="text-text-tertiary">
-                            TDS ₹{Number(paymentDetail.tdsDeducted).toLocaleString('en-IN')} · Paid on {paymentDetail.clearingDate || '—'}
+                            TDS ₹{Number(paymentDetail.tdsDeducted).toLocaleString('en-IN')} · Paid on {displayDate(paymentDetail.clearingDate)}
                           </p>
                           {paymentDetail.utrReference && (
                             <p className="text-text-tertiary">UTR: {paymentDetail.utrReference}</p>

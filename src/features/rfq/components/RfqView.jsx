@@ -478,7 +478,7 @@ export default function RfqView({
                       </Button>
                       <div>
                         <h3 className="text-xs font-bold text-text-primary uppercase">
-                          (RFQ-{activeRfq.id}) / (Cat.-{activeRfq.description}) / (Typ-{activeRfq.rfqType})
+                          {activeRfq.id} · {activeRfq.description}{activeRfq.rfqType ? ` · Type ${activeRfq.rfqType}` : ''}
                         </h3>
                         <p className="text-[10px] text-text-secondary font-mono mt-0.5 whitespace-nowrap">
                           Vendor: {currentVendorCode} &bull; Created: {formatDate(activeRfq.createdDate)} &bull; Org: {activeRfq.purchasingOrg}
@@ -491,7 +491,7 @@ export default function RfqView({
                   {/* Scrollable Content */}
                   <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-6 bg-surface">
                     {/* RAW DETAILS */}
-                    <FormSection number="01" title="RAW details">
+                    <FormSection number="01" title="Line items">
                       <div className="overflow-x-auto -m-4">
                         <table className="w-full text-left border-collapse table-sticky">
                           <thead>

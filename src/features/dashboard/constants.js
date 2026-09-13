@@ -8,10 +8,12 @@ export const INITIAL_CHATS = [
   }
 ];
 
+// Unknown until GET /vendors/performance answers. Every score starts null so a
+// screen shows "—" rather than a grade nobody earned.
 export const INITIAL_PERFORMANCE = {
-  deliveryOTIF: 94.8,
-  qualityAcceptance: 98.2,
-  priceIndex: 88.0,
-  responseTimeHours: 3.4,
-  grade: 'A'
+  deliveryOTIF: null,
+  qualityAcceptance: null,
+  invoiceAccuracy: null,
+  weightedScore: null,
+  grade: null
 };

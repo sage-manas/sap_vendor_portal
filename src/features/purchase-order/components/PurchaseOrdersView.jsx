@@ -70,17 +70,18 @@ function SapReadOnlyField({ label, value, isFile, isMonospace = true, valueClass
 
 // Vertical stack: label on top, input below — mirrors SapReadOnlyField for grid alignment
 function SapInputField({ label, required, children, icon: Icon }) {
+  const { id, control } = useLabelledControl({ label, required, children });
   return (
     <div className="flex flex-col gap-1 focus-within:outline-none">
-      <span className="text-[9px] font-extrabold text-text-secondary uppercase tracking-wider flex items-center gap-1 leading-none">
+      <label htmlFor={id} className="text-[9px] font-extrabold text-text-secondary uppercase tracking-wider flex items-center gap-1 leading-none">
         {Icon && <Icon className="size-3 text-text-tertiary shrink-0" />}
         <span>
           {label}
-          {required && <span className="text-red-500 font-bold ml-0.5">*</span>}
+          {required && <span aria-hidden="true" className="text-red-500 font-bold ml-0.5">*</span>}
         </span>
-      </span>
+      </label>
       <div className="w-fit">
-        {children}
+        {control}
       </div>
     </div>
   );
@@ -355,12 +356,14 @@ export default function PurchaseOrdersView({
     });
     setDispatchQuantities(initialQtys);
     setValidationErrors(initialErrors);
-    setEwayBillNo(prev => prev || `E-WAY-${Math.floor(100000000000 + Math.random() * 900000000000)}`);
+    // Only the dates get a default. Carrier, vehicle, tracking, invoice and
+    // e-way bill references are the supplier's own documents: an invented one
+    // would be submitted to the buyer as if the supplier had typed it.
     setAsnForm(prev => ({
-      carrierName: prev.carrierName || 'DHL Global Logistics',
-      trackingNumber: prev.trackingNumber || `DHL-${Math.floor(1000000 + Math.random() * 9000000)}`,
-      vehicleNumber: prev.vehicleNumber || 'MH-12-XY-4321',
-      invoiceReference: prev.invoiceReference || `TAX-2026-${Math.floor(100 + Math.random() * 900)}`,
+      carrierName: prev.carrierName || '',
+      trackingNumber: prev.trackingNumber || '',
+      vehicleNumber: prev.vehicleNumber || '',
+      invoiceReference: prev.invoiceReference || '',
       shipDate: prev.shipDate || new Date().toISOString().split('T')[0],
       estimatedDeliveryDate: prev.estimatedDeliveryDate || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       items: initialQtys
@@ -511,13 +514,13 @@ export default function PurchaseOrdersView({
     });
     setDispatchQuantities(initialQtys);
     setValidationErrors(initialErrors);
-    setEwayBillNo(`E-WAY-${Math.floor(100000000000 + Math.random() * 900000000000)}`);
+    setEwayBillNo('');
     setAsnDocs({ packingList: null, invoiceCopy: null, transportDoc: null });
     setAsnForm({
-      carrierName: 'DHL Global Logistics',
-      trackingNumber: `DHL-${Math.floor(1000000 + Math.random() * 9000000)}`,
-      vehicleNumber: 'MH-12-XY-4321',
-      invoiceReference: `TAX-2026-${Math.floor(100 + Math.random() * 900)}`,
+      carrierName: '',
+      trackingNumber: '',
+      vehicleNumber: '',
+      invoiceReference: '',
       shipDate: new Date().toISOString().split('T')[0],
       estimatedDeliveryDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       items: initialQtys
@@ -570,8 +573,8 @@ export default function PurchaseOrdersView({
           asnId: res.asn.id,
           sapInbound: res.asn.sapInboundDelivery,
           poId: activePo?.id || 'PO',
-          carrierName: asnForm.carrierName || 'DHL Global Logistics',
-          trackingNumber: asnForm.trackingNumber || `TRK-${Math.floor(100000 + Math.random() * 900000)}`,
+          carrierName: asnForm.carrierName || '—',
+          trackingNumber: asnForm.trackingNumber || asnForm.vehicleNumber || '—',
           eta: asnForm.estimatedDeliveryDate,
           items: (activePo?.items || []).map(item => ({
             ...item,
@@ -963,7 +966,7 @@ export default function PurchaseOrdersView({
                       {paginatedPOs.map(po => {
                         if (!po) return null;
                         const totalValue = (po.items || []).reduce((s, i) => s + (i.netValue || 0), 0);
-                        const plantName = po.plant || 'Plant 1000 (Mumbai)';
+                        const plantName = po.plant || '—';
                         const buyerName = po.buyerName || 'Amit Sharma (Lead Procurement)';
 
                         return (
@@ -980,7 +983,7 @@ export default function PurchaseOrdersView({
                             <td className="font-medium">{plantName}</td>
                             <td className="text-center font-mono font-bold tabular-nums">{(po.items || []).length}</td>
                             <td className="text-right font-mono font-bold text-text-primary whitespace-nowrap tabular-nums">
-                              ₹ {totalValue.toLocaleString()}.00
+                              ₹ {Number(totalValue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </td>
                             <td>
                               {renderStatusChip(po.status)}
@@ -1423,12 +1426,12 @@ export default function PurchaseOrdersView({
                       />
                       <SapReadOnlyField
                         label="Buyer GSTIN"
-                        value={activePo.buyerGstin || '27AABCB1234F1Z5'}
+                        value={activePo.buyerGstin || '—'}
                         icon={Receipt}
                       />
                       <SapReadOnlyField
                         label="Plant / Location"
-                        value={activePo.plant ? (activePo.plant.includes('Mumbai') ? activePo.plant : `${activePo.plant} (Mumbai)`) : '1000 (Mumbai)'}
+                        value={activePo.plant || '—'}
                         isMonospace={false}
                         icon={MapPin}
                         containerClassName="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 cursor-pointer"
@@ -1509,10 +1512,10 @@ export default function PurchaseOrdersView({
                                     </td>
                                     <td className="font-bold text-text-primary text-right font-mono tabular-nums">{item.quantity}</td>
                                     <td className="font-medium">{item.uom || 'EA'}</td>
-                                    <td className="font-bold text-text-primary text-right font-mono tabular-nums">₹ {item.unitPrice.toLocaleString()}.00</td>
+                                    <td className="font-bold text-text-primary text-right font-mono tabular-nums">₹ {Number(item.unitPrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                     <td className="font-medium">G1 (18%)</td>
                                     <td className="font-medium font-mono tabular-nums">{formatDate(item.deliveryDate || activePo.createdDate)}</td>
-                                    <td className="font-bold text-text-primary text-right font-mono tabular-nums">₹ {item.netValue.toLocaleString()}.00</td>
+                                    <td className="font-bold text-text-primary text-right font-mono tabular-nums">₹ {Number(item.netValue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                   </tr>
                                 );
                               })}
@@ -1778,7 +1781,7 @@ export default function PurchaseOrdersView({
                                           </div>
                                         </td>
                                         <td className="font-medium">{item.uom || 'EA'}</td>
-                                        <td className="font-bold text-text-primary text-right font-mono tabular-nums">₹ {item.unitPrice.toLocaleString()}.00</td>
+                                        <td className="font-bold text-text-primary text-right font-mono tabular-nums">₹ {Number(item.unitPrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                         <td className="font-medium font-mono tabular-nums text-right">{formatDate(item.deliveryDate || activePo.createdDate)}</td>
                                       </tr>
                                     );
@@ -2206,10 +2209,10 @@ export default function PurchaseOrdersView({
                                 <td className="text-right font-mono font-bold text-emerald-700 bg-emerald-50/20 tabular-nums">
                                   {item.acceptedQuantity} {poItem?.uom || 'EA'}
                                 </td>
-                                <td className="text-right font-mono tabular-nums">₹ {unitPrice.toLocaleString()}.00</td>
+                                <td className="text-right font-mono tabular-nums">₹ {Number(unitPrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                 <td className="text-right font-mono">18% (G1)</td>
                                 <td className="text-right font-mono font-bold text-text-primary tabular-nums">
-                                  ₹ {netValue.toLocaleString()}.00
+                                  ₹ {Number(netValue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </td>
                               </tr>
                             );
@@ -2262,7 +2265,7 @@ export default function PurchaseOrdersView({
                           <div className="space-y-2 text-text-secondary font-semibold">
                             <div className="flex justify-between">
                               <span>Subtotal</span>
-                              <span className="font-mono text-text-secondary tabular-nums">₹ {subtotal.toLocaleString()}.00</span>
+                              <span className="font-mono text-text-secondary tabular-nums">₹ {Number(subtotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                             </div>
                             <div className="flex justify-between">
                               <span>GST Tax (18% G1)</span>

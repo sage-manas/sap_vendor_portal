@@ -98,6 +98,16 @@ const wipe = async () => {
     if (count) log(`  removed ${count} ${model}`);
   }
   await prisma.auditLog.deleteMany({ where: { clientId } });
+
+  // Queued SAP jobs would otherwise keep polling for documents deleted above,
+  // and the id counters would carry on from wherever the last session left
+  // them — the first order awarded in a fresh demo came out as PO-2026-0018
+  // beside seeded PO-2026-0001..0007. A counter with no row reseeds itself
+  // past the highest id present (utils/nextSequentialId.js), so deleting the
+  // rows is enough.
+  const { count: jobs } = await prisma.sapJob.deleteMany({ where: { clientId } });
+  if (jobs) log(`  removed ${jobs} queued SAP jobs`);
+  await prisma.documentCounter.deleteMany({ where: { clientId } });
 };
 
 // The one way anything below lands in the audit trail — same fields

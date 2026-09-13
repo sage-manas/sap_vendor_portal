@@ -1,6 +1,6 @@
 'use client';
 
-import React, { use, useMemo, useState } from 'react';
+import React, { use, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, ArrowUpCircle, CheckCircle2, PlugZap, XCircle } from 'lucide-react';
 import { platformApi } from '@/lib/platform-client';
@@ -53,104 +53,131 @@ const TestResult = ({ result }) => {
   );
 };
 
-const ConnectionCard = ({ environment, connection, drivers, busy, onSave, onTest, onPromote, canConfigure }) => {
-  const [draft, setDraft] = useState(null);
-
-  const definition = useMemo(
-    () => drivers.find((entry) => entry.key === (draft?.driver || connection?.driver)) || drivers[0],
-    [drivers, draft, connection]
-  );
-
-  const startEditing = () => setDraft({
-    driver: connection?.driver || drivers[0].key,
-    config: { ...(connection?.config || {}) },
-    secrets: {},
-  });
+// The edit form, rendered only while a draft exists. Kept out of
+// ConnectionCard so that nothing reads `draft.<field>` behind a `draft ? …`
+// guard: React Compiler hoists such reads into its cache dependencies, where
+// they run while the draft is still null (see the note in ConnectionCard).
+const ConnectionForm = ({ draft, setDraft, drivers, configuredSecrets, busy, onSubmit }) => {
+  const definition = drivers.find((entry) => entry.key === draft.driver) || drivers[0];
 
   const submit = (event) => {
     event.preventDefault();
     // Only credentials the operator actually typed are sent. An untouched field
     // must not overwrite a stored secret with an empty string.
     const secrets = Object.fromEntries(Object.entries(draft.secrets).filter(([, value]) => value !== ''));
-    onSave(environment, { driver: draft.driver, config: draft.config, secrets })
-      .then(() => setDraft(null));
+    onSubmit({ driver: draft.driver, config: draft.config, secrets });
   };
 
   return (
-    <section className={`card p-4 ${connection?.active ? 'border-border-em' : ''}`}>
+    <form onSubmit={submit} className="grid gap-4">
+      <Field label="Driver">
+        <select
+          className="w-full"
+          value={draft.driver}
+          onChange={(event) => setDraft({ ...draft, driver: event.target.value, config: {}, secrets: {} })}
+        >
+          {drivers.map((entry) => (
+            <option key={entry.key} value={entry.key}>
+              {entry.label}{entry.implemented ? '' : ' — not implemented yet'}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <p className="-mt-2 text-[11px] text-text-tertiary">{definition.description}</p>
+
+      {definition.configFields.map((field) => (
+        <Field
+          key={field.name}
+          label={field.label}
+          type={field.type === 'number' ? 'number' : 'text'}
+          placeholder={field.placeholder || (field.default != null ? String(field.default) : '')}
+          value={readPath(draft.config, field.name) ?? ''}
+          onChange={(event) => setDraft({
+            ...draft,
+            config: writePath({ ...draft.config }, field.name,
+              field.type === 'number' ? Number(event.target.value) : event.target.value),
+          })}
+        />
+      ))}
+
+      {definition.secretFields.map((field) => (
+        <Field
+          key={field.name}
+          label={field.label}
+          type="password"
+          autoComplete="new-password"
+          hint={configuredSecrets.includes(field.name)
+            ? 'Set. Leave blank to keep it, or type a new value to replace it.'
+            : 'Not set. Stored encrypted; never shown again.'}
+          value={draft.secrets[field.name] ?? ''}
+          onChange={(event) => setDraft({ ...draft, secrets: { ...draft.secrets, [field.name]: event.target.value } })}
+        />
+      ))}
+
+      <div className="flex gap-2">
+        <button type="submit" className="btn btn-v h-9" disabled={busy}>Save</button>
+        <button type="button" className="btn btn-o h-9" onClick={() => setDraft(null)} disabled={busy}>Cancel</button>
+      </div>
+    </form>
+  );
+};
+
+const ConnectionCard = ({ environment, connection, drivers, busy, onSave, onTest, onPromote, canConfigure }) => {
+  const [draft, setDraft] = useState(null);
+
+  // An environment nobody has configured arrives as `connection: null`, and
+  // `draft` is null until Edit is pressed. Every field is read out once, here,
+  // and nothing below touches `connection.<field>`: React Compiler hoists such
+  // reads out of the `connection && …` / `connection?.` guards around them
+  // into its cache dependencies, so each one threw on the unconfigured
+  // environment and took the whole screen down.
+  const {
+    driver: connectedDriver = null,
+    config: connectedConfig = null,
+    configuredSecrets = [],
+    lastTest = null,
+    active = false,
+  } = connection || {};
+
+  const startEditing = () => setDraft({
+    driver: connectedDriver || drivers[0].key,
+    config: { ...(connectedConfig || {}) },
+    secrets: {},
+  });
+
+  return (
+    <section className={`card p-4 ${active ? 'border-border-em' : ''}`}>
       <div className="mb-1 flex items-center justify-between gap-3">
         <h2 className="text-[15px] font-semibold capitalize text-text-primary">{environment}</h2>
-        {connection?.active && <span className="status-badge status-badge-active">live</span>}
+        {active && <span className="status-badge status-badge-active">live</span>}
       </div>
       <p className="mb-4 text-[11px] text-text-tertiary">{ENVIRONMENT_CAPTION[environment]}</p>
 
       {draft ? (
-        <form onSubmit={submit} className="grid gap-4">
-          <Field label="Driver">
-            <select
-              className="w-full"
-              value={draft.driver}
-              onChange={(event) => setDraft({ ...draft, driver: event.target.value, config: {}, secrets: {} })}
-            >
-              {drivers.map((entry) => (
-                <option key={entry.key} value={entry.key}>
-                  {entry.label}{entry.implemented ? '' : ' — not implemented yet'}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <p className="-mt-2 text-[11px] text-text-tertiary">{definition.description}</p>
-
-          {definition.configFields.map((field) => (
-            <Field
-              key={field.name}
-              label={field.label}
-              type={field.type === 'number' ? 'number' : 'text'}
-              placeholder={field.placeholder || (field.default != null ? String(field.default) : '')}
-              value={readPath(draft.config, field.name) ?? ''}
-              onChange={(event) => setDraft({
-                ...draft,
-                config: writePath({ ...draft.config }, field.name,
-                  field.type === 'number' ? Number(event.target.value) : event.target.value),
-              })}
-            />
-          ))}
-
-          {definition.secretFields.map((field) => (
-            <Field
-              key={field.name}
-              label={field.label}
-              type="password"
-              autoComplete="new-password"
-              hint={connection?.configuredSecrets?.includes(field.name)
-                ? 'Set. Leave blank to keep it, or type a new value to replace it.'
-                : 'Not set. Stored encrypted; never shown again.'}
-              value={draft.secrets[field.name] ?? ''}
-              onChange={(event) => setDraft({ ...draft, secrets: { ...draft.secrets, [field.name]: event.target.value } })}
-            />
-          ))}
-
-          <div className="flex gap-2">
-            <button type="submit" className="btn btn-v h-9" disabled={busy}>Save</button>
-            <button type="button" className="btn btn-o h-9" onClick={() => setDraft(null)} disabled={busy}>Cancel</button>
-          </div>
-        </form>
+        <ConnectionForm
+          draft={draft}
+          setDraft={setDraft}
+          drivers={drivers}
+          configuredSecrets={configuredSecrets}
+          busy={busy}
+          onSubmit={(payload) => onSave(environment, payload).then(() => setDraft(null))}
+        />
       ) : (
         <>
           <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-[13px]">
             <div>
               <dt className="label mb-0.5">Driver</dt>
               <dd className="mono text-text-primary">
-                {connection ? (drivers.find((entry) => entry.key === connection.driver)?.label ?? connection.driver) : '—'}
+                {connectedDriver ? (drivers.find((entry) => entry.key === connectedDriver)?.label ?? connectedDriver) : '—'}
               </dd>
             </div>
             <div>
               <dt className="label mb-0.5">Credentials</dt>
               <dd className="mono text-text-primary">
-                {connection?.configuredSecrets?.length ? connection.configuredSecrets.join(', ') : 'none'}
+                {configuredSecrets.length ? configuredSecrets.join(', ') : 'none'}
               </dd>
             </div>
-            {connection && Object.entries(connection.config || {}).map(([key, value]) => (
+            {Object.entries(connectedConfig || {}).map(([key, value]) => (
               <div key={key}>
                 <dt className="label mb-0.5">{key}</dt>
                 <dd className="mono text-text-primary break-all">
@@ -161,7 +188,7 @@ const ConnectionCard = ({ environment, connection, drivers, busy, onSave, onTest
           </dl>
 
           <div className="mt-4 border-t border-border pt-3">
-            <TestResult result={connection?.lastTest} />
+            <TestResult result={lastTest} />
           </div>
 
           {canConfigure && (
@@ -172,7 +199,7 @@ const ConnectionCard = ({ environment, connection, drivers, busy, onSave, onTest
               <button type="button" className="btn btn-o h-8" onClick={() => onTest(environment)} disabled={busy || !connection}>
                 <PlugZap className="size-3.5" /> Test connection
               </button>
-              {!connection?.active && (
+              {!active && (
                 <button type="button" className="btn btn-v h-8" onClick={() => onPromote(environment)} disabled={busy || !connection}>
                   <ArrowUpCircle className="size-3.5" /> Make live
                 </button>

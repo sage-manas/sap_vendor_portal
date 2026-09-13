@@ -12,7 +12,7 @@ export const ACCOUNTS = {
 };
 
 export const API_URL = process.env.E2E_API_URL
-  || `http://127.0.0.1:${process.env.E2E_API_PORT || 5100}/api`;
+  || `http://${process.env.E2E_HOST || '127.0.0.1'}:${process.env.E2E_API_PORT || 5100}/api`;
 
 export const futureDate = (days = 30) =>
   new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();

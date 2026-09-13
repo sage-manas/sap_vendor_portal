@@ -107,7 +107,7 @@ function AcceptInvitationForm() {
         <div className="size-12 rounded-none flex items-center justify-center text-white mb-3 shrink-0" style={{ backgroundColor: 'rgb(var(--color-emerald-default-rgb))' }}>
           <Building2 className="size-6" />
         </div>
-        <h2 className="text-xl font-bold text-text-primary tracking-wide">Accept Your Invitation</h2>
+        <h1 className="text-xl font-bold text-text-primary tracking-wide">Accept Your Invitation</h1>
         <p className="text-[10px] text-text-tertiary font-mono tracking-wider uppercase mt-1">
           SUPPLIER PARTNER PORTAL
         </p>

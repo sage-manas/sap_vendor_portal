@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { useShell } from '@/lib/shell-context';
 import { useProfile } from '@/features/profile/hooks/useProfile';
 import { useRFQs } from '@/features/rfq/hooks/useRFQs';
@@ -20,6 +20,17 @@ const CHANGE_PASSWORD_PATH = '/change-password';
 import ToastNotification from '@/components/portal/ToastNotification';
 
 const PortalContext = createContext(undefined);
+
+// Every field the registration form edits that the vendor record stores.
+const REGISTRATION_FORM_FIELDS = [
+  'companyName', 'tradeName', 'businessType', 'incorporationDate',
+  'gstin', 'gstType', 'pan', 'cin', 'msmeNumber', 'tdsSection',
+  'email', 'phone', 'address', 'city', 'state', 'country', 'region', 'postalCode',
+  'paymentTerms', 'paymentMethod', 'currency', 'incoterms1', 'incoterms2',
+  'doubleInvoiceCheck', 'grBasedInvoiceVerification',
+  'bankName', 'accountNumber', 'ifscCode', 'accountName', 'bankBranch',
+  'cancelledCheque', 'panCardCopy', 'gstCertificate', 'msmeCertificate',
+];
 
 export function PortalProvider({ children }) {
   const shell = useShell();
@@ -202,39 +213,30 @@ export function PortalProvider({ children }) {
     invoiceNumber: '', invoiceDate: ''
   });
 
-  // Sync profile values
+  // Seed the registration form from the stored profile — once per supplier.
+  //
+  // This used to run on every change to `state.profile` and replace the whole
+  // form. Every autosave and every profile refresh therefore threw away
+  // whatever had been typed since the save left, and — because the replacement
+  // listed only some fields — wiped country, region and the trade terms each
+  // time, so a supplier who picked India / Maharashtra watched both blank out
+  // again a second later. Now the form is seeded when a supplier's profile
+  // first arrives and merged over what is already there; after that the form
+  // is the source of truth until it is submitted.
+  const seededFormFor = useRef(null);
   useEffect(() => {
-    if (state.profile.companyName) {
-      Promise.resolve().then(() => {
-        setCompanyForm({
-          companyName: state.profile.companyName || '',
-          tradeName: state.profile.tradeName || '',
-          businessType: state.profile.businessType || '',
-          incorporationDate: state.profile.incorporationDate || '',
-          gstin: state.profile.gstin || '',
-          gstType: state.profile.gstType || '',
-          pan: state.profile.pan || '',
-          cin: state.profile.cin || '',
-          msmeNumber: state.profile.msmeNumber || '',
-          tdsSection: state.profile.tdsSection || '',
-          email: state.profile.email || '',
-          phone: state.profile.phone || '',
-          address: state.profile.address || '',
-          city: state.profile.city || '',
-          state: state.profile.state || '',
-          postalCode: state.profile.postalCode || '',
-          bankName: state.profile.bankName || '',
-          accountNumber: state.profile.accountNumber || '',
-          ifscCode: state.profile.ifscCode || '',
-          accountName: state.profile.accountName || '',
-          bankBranch: state.profile.bankBranch || '',
-          cancelledCheque: state.profile.cancelledCheque || null,
-          panCardCopy: state.profile.panCardCopy || null,
-          gstCertificate: state.profile.gstCertificate || null,
-          msmeCertificate: state.profile.msmeCertificate || null
-        });
-      });
-    }
+    const profile = state.profile;
+    if (!profile.companyName || !profile.vendorId || seededFormFor.current === profile.vendorId) return;
+    seededFormFor.current = profile.vendorId;
+
+    const seeded = Object.fromEntries(
+      REGISTRATION_FORM_FIELDS
+        .filter((field) => profile[field] !== undefined && profile[field] !== null && profile[field] !== '')
+        .map((field) => [field, profile[field]])
+    );
+    Promise.resolve().then(() => {
+      setCompanyForm((prev) => ({ ...prev, ...seeded }));
+    });
   }, [state.profile]);
 
   // Form Submit Handlers
@@ -309,10 +311,12 @@ export function PortalProvider({ children }) {
       poId: po.id,
       shipDate: asnForm.shipDate || new Date().toISOString().split('T')[0],
       estimatedDeliveryDate: asnForm.estimatedDeliveryDate || new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      carrierName: asnForm.carrierName || 'BlueDart Express',
-      trackingNumber: asnForm.trackingNumber || `BD-${Math.floor(100000 + Math.random() * 900000)}`,
-      vehicleNumber: asnForm.vehicleNumber || `DL-01-CA-${Math.floor(1000 + Math.random() * 9000)}`,
-      invoiceReference: asnForm.invoiceReference || `INV-${Math.floor(100000 + Math.random() * 900000)}`,
+      // Blank stays blank: these are the supplier's document references, and
+      // the API accepts every one of them as optional.
+      carrierName: asnForm.carrierName || undefined,
+      trackingNumber: asnForm.trackingNumber || undefined,
+      vehicleNumber: asnForm.vehicleNumber || undefined,
+      invoiceReference: asnForm.invoiceReference || undefined,
       ewayBillNo: po.ewayBillNo || '',
       documentIds: po.documentIds || [],
       items

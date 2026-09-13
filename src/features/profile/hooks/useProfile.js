@@ -147,8 +147,14 @@ export function useProfile() {
       // already be 'Under Review' rather than 'Pending Approval', and the
       // GSTIN/PAN check it runs happens synchronously with this call.
       await loadProfile();
+      return { success: true };
     } catch (err) {
       setError(err.message);
+      // The optimistic "Pending Approval" above must not outlive a refusal:
+      // the supplier would be looking at a submitted registration the server
+      // never received. Re-read what the server actually holds.
+      await loadProfile();
+      return { success: false, error: err.message || 'Your registration could not be submitted.' };
     }
   };
 
