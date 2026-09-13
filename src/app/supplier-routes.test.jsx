@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import { renderWithPortal } from '@/test/renderWithPortal';
 import { EMPTY_SUPPLIER_API } from '@/test/fixtures';
+import { expectHeadingOutline } from '@/test/outline';
 
 import DashboardPage from '@/app/page';
 import RfqsPage from '@/app/rfqs/page';
@@ -53,18 +54,7 @@ describe.each(ROUTES)('%s', (route, Page, heading) => {
     renderWithPortal(<Page />, { plane: 'supplier', route, api: EMPTY_SUPPLIER_API });
     await screen.findByRole('heading', { name: heading, level: 2 });
 
-    // /pos used to open on an <h4> naming its filter panel, because the list
-    // view had no page title at all and the tab bar was standing in for one —
-    // so a screen reader's heading list for the page read "Search & Filter".
-    const levels = [...document.querySelectorAll('h1,h2,h3,h4,h5,h6')]
-      .map((node) => Number(node.tagName[1]));
-
-    expect(levels[0]).toBe(2);
-    // Descending into a subsection one level at a time; jumping h2 -> h4 makes
-    // the outline claim a section that is not there.
-    for (let i = 1; i < levels.length; i += 1) {
-      expect(levels[i] - levels[i - 1]).toBeLessThanOrEqual(1);
-    }
+    expectHeadingOutline(route);
   });
 });
 

@@ -2081,9 +2081,6 @@ export default function PurchaseOrdersView({
                 <span>Back to Invoice Ready List</span>
               </button>
             </div>
-            {/* The screen's name, in both its form and submitted states — the
-                back button above is navigation, not a title, and without this
-                the first heading here was the three-way-match banner below. */}
             <h2 className="page-title">Invoice for {activeGrn.id}</h2>
 
             {/* Success Post view */}

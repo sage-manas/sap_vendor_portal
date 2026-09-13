@@ -9,7 +9,14 @@
 // A test that needs rows spreads over the relevant key:
 //   api: { ...EMPTY_SUPPLIER_API, 'GET /rfqs': { rfqs: [oneRfq] } }
 
-export const emptyList = (key) => ({ [key]: [], pagination: { total: 0, page: 1, limit: 20, pages: 0 } });
+// A paginated ledger response, the shape GET /pos, /grns, /invoices and
+// /payments answer with. (GET /asns is the odd one out: a bare array.)
+export const listOf = (key, rows) => ({
+  [key]: rows,
+  pagination: { total: rows.length, page: 1, limit: 20, pages: rows.length ? 1 : 0 },
+});
+
+export const emptyList = (key) => listOf(key, []);
 
 // ---------------------------------------------------------------------------
 // Supplier portal
