@@ -2,12 +2,15 @@ import React from 'react';
 import { Award, CheckCircle2, TrendingUp, AlertTriangle, Activity } from 'lucide-react';
 
 export default function PerformanceView({ state }) {
-  const perf = state.performance;
+  const perf = state.performance || {};
+  // Only the measures GET /vendors/performance computes. A score the API has
+  // not returned shows as "—", never as a stand-in number.
+  const shown = (value, suffix = '') => (value == null ? '—' : `${value}${suffix}`);
   const metrics = [
-    { name: 'On-Time In-Full (OTIF)', val: `${perf.deliveryOTIF}%`, target: 'Target: >95.0%', style: 'border-border' },
-    { name: 'QC Acceptance Rate', val: `${perf.qualityAcceptance}%`, target: 'Target: >98.0%', style: 'border-border' },
-    { name: 'Pricing Index Competitiveness', val: `${perf.priceIndex}/100`, target: 'Target: >85.0', style: 'border-border' },
-    { name: 'AP Response Window', val: `${perf.responseTimeHours} hrs`, target: 'Target: <4.0 hrs', style: 'border-border' }
+    { name: 'On-Time In-Full (OTIF)', val: shown(perf.deliveryOTIF, '%'), target: 'Target: >95.0%', style: 'border-border' },
+    { name: 'QC Acceptance Rate', val: shown(perf.qualityAcceptance, '%'), target: 'Target: >98.0%', style: 'border-border' },
+    { name: 'Invoice Accuracy', val: shown(perf.invoiceAccuracy, '%'), target: 'Target: >90.0%', style: 'border-border' },
+    { name: 'Weighted Score', val: shown(perf.weightedScore, '/100'), target: 'Delivery, quality and invoicing combined', style: 'border-border' }
   ];
 
   return (
@@ -24,7 +27,7 @@ export default function PerformanceView({ state }) {
         </div>
         <div className="size-14 rounded-md border border-border bg-surface2 flex flex-col items-center justify-center shrink-0 select-none">
           <span className="text-[8px] text-text-tertiary font-bold uppercase tracking-wider">GRADE</span>
-          <span className="text-xl font-bold font-mono text-text-primary leading-none mt-1">{perf.grade}</span>
+          <span className="text-xl font-bold font-mono text-text-primary leading-none mt-1">{perf.grade || '—'}</span>
         </div>
       </div>
 
@@ -51,23 +54,23 @@ export default function PerformanceView({ state }) {
           {[
             { name: 'On-Time Delivery (OTIF)', val: perf.deliveryOTIF, target: 95 },
             { name: 'Quality acceptance rate', val: perf.qualityAcceptance, target: 98 },
-            { name: 'Invoice accuracy', val: 83, target: 90 },
-            { name: 'Response speed', val: 92, target: 85 }
+            { name: 'Invoice accuracy', val: perf.invoiceAccuracy, target: 90 }
           ].map((bar, idx) => {
-            const isTargetMet = bar.val >= bar.target;
+            const known = bar.val != null;
+            const isTargetMet = known && bar.val >= bar.target;
             const barColor = isTargetMet ? 'bg-emerald-500' : 'bg-amber-500';
             return (
               <div key={idx} className="space-y-1.5">
                 <div className="flex justify-between text-xs font-semibold">
                   <span className="text-text-primary">{bar.name}</span>
                   <span className={isTargetMet ? 'text-emerald-text font-bold tabular-nums' : 'text-amber-600 font-bold tabular-nums'}>
-                    {bar.val}% <span className="text-text-tertiary font-normal">/ target {bar.target}%</span>
+                    {shown(bar.val, '%')} <span className="text-text-tertiary font-normal">/ target {bar.target}%</span>
                   </span>
                 </div>
                 <div className="w-full bg-surface2 h-2 rounded-full border border-border overflow-hidden">
                   <div
                     className={`h-full rounded-full transition-all duration-500 ${barColor}`}
-                    style={{ width: `${bar.val}%` }}
+                    style={{ width: `${known ? Math.min(100, bar.val) : 0}%` }}
                   ></div>
                 </div>
               </div>

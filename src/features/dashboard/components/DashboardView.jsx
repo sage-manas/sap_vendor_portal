@@ -8,6 +8,7 @@ import EmptyState from '@/components/ui/EmptyState';
 import StatusBadge from '@/components/ui/StatusBadge';
 import Drawer from '@/components/ui/Drawer';
 import { poStatusVariant, invoiceStatusVariant } from '@/lib/statusColors';
+import { downloadFromApi } from '@/lib/download';
 import {
   FileText,
   ShoppingBag,
@@ -28,6 +29,41 @@ import {
   AlertCircle
 } from 'lucide-react';
 
+// Amounts arrive as Decimal strings from the API (utils/money.js on the server).
+const money = (value) => Number(value) || 0;
+
+const inr = (value) =>
+  `₹${money(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+// ₹8.4L / ₹1.2Cr for a headline figure; exact rupees below a lakh.
+const inrCompact = (value) => {
+  const n = money(value);
+  if (n >= 1e7) return `₹${(n / 1e7).toFixed(2)}Cr`;
+  if (n >= 1e5) return `₹${(n / 1e5).toFixed(1)}L`;
+  return `₹${Math.round(n).toLocaleString('en-IN')}`;
+};
+
+const shortDate = (value) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? String(value)
+    : date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
+// Indian fiscal year runs April to March; Q1 is April–June.
+const fiscalLabel = (date) => {
+  const month = date.getMonth();
+  const startYear = month >= 3 ? date.getFullYear() : date.getFullYear() - 1;
+  const quarter = Math.floor(((month + 9) % 12) / 3) + 1;
+  return `FY ${startYear}-${String((startYear + 1) % 100).padStart(2, '0')} Q${quarter}`;
+};
+
+const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`;
+
+const listIds = (rows, idOf) =>
+  rows.slice(0, 3).map(idOf).join(', ') + (rows.length > 3 ? ` +${rows.length - 3}` : '');
+
 export default function DashboardView({ state, setActiveTab }) {
   const portal = usePortal();
 
@@ -46,15 +82,34 @@ export default function DashboardView({ state, setActiveTab }) {
     return () => clearTimeout(timer);
   }, []);
 
-  // Sync calculations from store data
-  const openPOList = (state.pos || []).filter(p => p.status === 'Open' || p.status === 'Acknowledged');
+  // "Today" for the header, sampled once per mount so a render stays a
+  // function of its inputs (the same rule ReportsAnalyticsView follows).
+  const [today] = useState(() => new Date());
+
+  // Everything below is derived from the supplier's own documents. Nothing on
+  // this screen may be a constant standing in for data: a supplier reads these
+  // figures as statements about their account.
+  const profile = state.profile || {};
+  const pos = state.pos || [];
+  const invoices = state.invoices || [];
+  const performance = state.performance || {};
+
+  const openPOList = pos.filter(p => p.status === 'Open' || p.status === 'Acknowledged');
   const openPOCount = openPOList.length;
-  const openPOTotalValue = openPOList.reduce((sum, po) => sum + (po.items || []).reduce((s, i) => s + i.netValue, 0), 0);
+  const toAcknowledge = pos.filter(p => p.status === 'Open');
+  const toShip = pos.filter(p => p.status === 'Acknowledged');
 
   const pendingInvoices = (state.grns || []).filter(g => !g.invoiceSubmitted);
   const pendingInvoicesCount = pendingInvoices.length;
 
-  const totalSettledPayments = (state.payments || []).reduce((sum, p) => sum + p.amount, 0);
+  const unpaidInvoices = invoices.filter(inv => inv.status !== 'Cleared');
+  const unpaidTotal = unpaidInvoices.reduce((sum, inv) => sum + money(inv.totalAmount), 0);
+  const matchWarnings = invoices.filter(inv => inv.status === 'Match Warning');
+
+  const openRfqs = (state.rfqs || []).filter(rfq =>
+    rfq.status === 'Bidding Open' && !(rfq.bids || []).some(bid => bid.vendorId === profile.vendorId));
+
+  const hasPerformance = performance.weightedScore != null;
 
   // Toggle API Error simulation
   const toggleConnection = () => {
@@ -120,35 +175,47 @@ export default function DashboardView({ state, setActiveTab }) {
     </div>
   );
 
-  // Dynamic Action Alerts generation based on data presence
+  // Action items, each one a count of real documents that are waiting on the
+  // supplier. No alert is shown for a condition the data does not establish.
   const alerts = [];
-  if (state.invoices && state.invoices.some(inv => inv.invoiceNumber === 'INV-2025-0084' || inv.no === 'INV-2025-0084')) {
+  if (matchWarnings.length > 0) {
     alerts.push({
       type: 'warning',
-      title: 'Invoice Match Discrepancy (INV-2025-0084)',
-      desc: 'Line 2 quantity does not match: 185 KG invoiced against 200 KG on the delivery receipt.',
-      actionText: 'Resolve Variance',
+      title: `Invoice match warning (${listIds(matchWarnings, inv => inv.invoiceNumber || inv.id)})`,
+      desc: 'The buyer’s three-way match flagged a difference between the order, the goods receipt and the invoice.',
+      actionText: 'Review invoices',
       tab: 'invoices',
       icon: AlertTriangle,
       iconColor: 'text-amber-600 bg-amber-50 border-amber-200'
     });
   }
-  if (state.pos && state.pos.length > 0) {
+  if (toAcknowledge.length > 0) {
     alerts.push({
-      type: 'overdue',
-      title: 'Delivery Schedule Overdue (PO-2025-0071)',
-      desc: 'The order was due 01-Jun-2025. Please update your shipment details or contact the buying team.',
-      actionText: 'Update shipment',
+      type: 'acknowledge',
+      title: `${plural(toAcknowledge.length, 'purchase order')} awaiting acknowledgement (${listIds(toAcknowledge, po => po.id)})`,
+      desc: 'Confirm you accept the order so the buyer knows it is in hand.',
+      actionText: 'Acknowledge',
       tab: 'pos',
       icon: Calendar,
       iconColor: 'text-red-700 bg-red-50 border-red-200'
     });
   }
-  if (state.rfqs && state.rfqs.length > 0) {
+  if (toShip.length > 0) {
+    alerts.push({
+      type: 'ship',
+      title: `${plural(toShip.length, 'acknowledged order')} ready to ship (${listIds(toShip, po => po.id)})`,
+      desc: 'Send the shipment notice when goods leave your dock, so the goods receipt can be matched.',
+      actionText: 'Send shipment',
+      tab: 'pos',
+      icon: ShoppingBag,
+      iconColor: 'text-blue-700 bg-blue-50 border-blue-200'
+    });
+  }
+  if (openRfqs.length > 0) {
     alerts.push({
       type: 'rfq',
-      title: 'New RFQ Invitation (RFQ-2025-0041)',
-      desc: 'Galvanised coils — 500 MT requirement. Submit your proposal price.',
+      title: `${plural(openRfqs.length, 'RFQ')} open for your quotation (${listIds(openRfqs, rfq => rfq.id)})`,
+      desc: `${openRfqs[0].description || 'Request for quotation'}${openRfqs.length > 1 ? ` and ${openRfqs.length - 1} more` : ''}.`,
       actionText: 'Submit Quotation',
       tab: 'rfqs',
       icon: Sparkles,
@@ -263,8 +330,8 @@ export default function DashboardView({ state, setActiveTab }) {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
           <div>
             <h2 className="page-title select-none">Vendor Dashboard</h2>
-            <p className="text-text-tertiary text-[11px] mt-0.5 font-medium">
-              Your account overview &mdash; 02 Jun 2025 &bull; FY 2025-26 Q1
+            <p className="text-text-tertiary text-[11px] mt-0.5 font-medium" suppressHydrationWarning>
+              Your account overview &mdash; {shortDate(today)} &bull; {fiscalLabel(today)}
             </p>
           </div>
 
@@ -286,10 +353,7 @@ export default function DashboardView({ state, setActiveTab }) {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                setIsLoading(true);
-                setTimeout(() => setIsLoading(false), 1200);
-              }}
+              onClick={handleFetchPOs}
             >
               <RefreshCw className="size-3" />
               <span>Sync</span>
@@ -312,16 +376,18 @@ export default function DashboardView({ state, setActiveTab }) {
           <div>
             <p className="text-[10px] uppercase tracking-wider text-emerald-text font-bold mb-1">Welcome back</p>
             <h3 className="page-title mb-2">
-              {state.profile.companyName || 'Bharat Steel & Alloys Pvt. Ltd.'}
+              {profile.companyName || '—'}
             </h3>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-text-secondary">
-              <span>Supplier ID: <strong className="font-mono text-text-primary">{state.profile.sapVendorCode || '100042'}</strong></span>
+              <span>Supplier ID: <strong className="font-mono text-text-primary">{profile.sapVendorCode || profile.vendorId || '—'}</strong></span>
               <span className="text-text-tertiary">|</span>
-              <span>GSTIN: <strong className="font-mono text-text-primary">{state.profile.gstin || '27AABCB1234F1Z5'}</strong></span>
-              <span className="px-1.5 py-0.5 rounded-md bg-surface text-text-primary border border-border text-[9px] font-bold flex items-center gap-1 font-sans">
-                <span className={`size-1.5 rounded-full ${apiError ? 'bg-red-500' : 'bg-emerald-500 animate-pulse'}`}></span>
-                {apiError ? 'Disconnected' : 'Active'}
-              </span>
+              <span>GSTIN: <strong className="font-mono text-text-primary">{profile.gstin || '—'}</strong></span>
+              {(apiError || profile.status) && (
+                <span className="px-1.5 py-0.5 rounded-md bg-surface text-text-primary border border-border text-[9px] font-bold flex items-center gap-1 font-sans">
+                  <span className={`size-1.5 rounded-full ${apiError ? 'bg-red-500' : profile.status === 'Approved' ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`}></span>
+                  {apiError ? 'Disconnected' : profile.status}
+                </span>
+              )}
             </div>
           </div>
 
@@ -359,21 +425,31 @@ export default function DashboardView({ state, setActiveTab }) {
             <>
               {/* Stat Card 1: Open POs */}
               <div className="animate-fade-in animate-stagger-1">
-                <KPICard label="Open POs" value={<span className="tabular-nums">{openPOCount}</span>} icon={ShoppingBag} delta="↑ 3" sub="vs last week" />
+                <KPICard
+                  label="Open POs"
+                  value={<span className="tabular-nums">{openPOCount}</span>}
+                  icon={ShoppingBag}
+                  sub={toAcknowledge.length ? `${toAcknowledge.length} awaiting acknowledgement` : 'all acknowledged'}
+                />
               </div>
 
               {/* Stat Card 2: Pending Invoices */}
               <div className="animate-fade-in animate-stagger-2">
-                <KPICard label="Pending Invoices" value={<span className="tabular-nums">{pendingInvoicesCount}</span>} icon={Receipt} delta="↓ 1" sub="action required" />
+                <KPICard
+                  label="Pending Invoices"
+                  value={<span className="tabular-nums">{pendingInvoicesCount}</span>}
+                  icon={Receipt}
+                  sub={pendingInvoicesCount ? 'goods receipts to invoice' : 'nothing to invoice'}
+                />
               </div>
 
-              {/* Stat Card 3: Next Payment */}
+              {/* Stat Card 3: Awaiting payment */}
               <div className="animate-fade-in animate-stagger-3">
                 <KPICard
-                  label="Next Payment"
-                  value={<span className="tabular-nums">₹{(totalSettledPayments ? (totalSettledPayments * 0.15 / 100000).toFixed(1) : 8.4)}L</span>}
+                  label="Awaiting Payment"
+                  value={<span className="tabular-nums">{inrCompact(unpaidTotal)}</span>}
                   icon={CreditCard}
-                  delta="Scheduled" sub="for 15th Jun"
+                  sub={`${plural(unpaidInvoices.length, 'invoice')} not yet cleared`}
                 />
               </div>
 
@@ -383,12 +459,12 @@ export default function DashboardView({ state, setActiveTab }) {
                   label="Performance Score"
                   value={
                     <span className="tabular-nums">
-                      {state.performance.deliveryOTIF || 87}
+                      {hasPerformance ? performance.weightedScore : '—'}
                       <span className="text-[16px] text-text-tertiary font-normal ml-1">/ 100</span>
                     </span>
                   }
                   icon={Activity}
-                  delta="↑ 2.4%" sub="improving"
+                  sub={performance.grade ? `Grade ${performance.grade}` : undefined}
                 />
               </div>
             </>
@@ -510,8 +586,8 @@ export default function DashboardView({ state, setActiveTab }) {
 
                       <div className="flex items-center gap-4 shrink-0 text-right pr-1">
                         <div className="hidden sm:block">
-                          <p className="font-mono font-bold text-text-primary text-[12px] tabular-nums tracking-tight">₹{(row.items?.[0]?.netValue || 42500).toLocaleString('en-IN')}.00</p>
-                          <p className="text-[10px] text-text-tertiary font-mono mt-0.5 tabular-nums">{row.createdDate}</p>
+                          <p className="font-mono font-bold text-text-primary text-[12px] tabular-nums tracking-tight">{inr((row.items || []).reduce((sum, item) => sum + money(item.netValue), 0))}</p>
+                          <p className="text-[10px] text-text-tertiary font-mono mt-0.5 tabular-nums">{shortDate(row.createdDate)}</p>
                         </div>
                         <StatusBadge label={row.status} variant={poStatusVariant(row.status)} />
                       </div>
@@ -544,7 +620,7 @@ export default function DashboardView({ state, setActiveTab }) {
             ) : !state.invoices || state.invoices.length === 0 ? (
               renderEmptyState(
                 'No Invoices Logged',
-                'Every delivery receipt has been invoiced. Submit a new invoice when your next delivery is confirmed.',
+                'No invoices submitted yet. You can invoice once the buyer has confirmed a goods receipt.',
                 FileText,
                 'Submit New Invoice',
                 () => setActiveTab('invoices')
@@ -585,8 +661,8 @@ export default function DashboardView({ state, setActiveTab }) {
 
                       <div className="flex items-center gap-4 shrink-0 text-right pr-1">
                         <div className="hidden sm:block">
-                          <p className="font-mono font-bold text-text-primary text-[12px] tabular-nums tracking-tight">₹{(row.totalAmount || 52800).toLocaleString('en-IN')}.00</p>
-                          <p className="text-[10px] text-text-tertiary font-mono mt-0.5 tabular-nums">{row.invoiceDate}</p>
+                          <p className="font-mono font-bold text-text-primary text-[12px] tabular-nums tracking-tight">{inr(row.totalAmount)}</p>
+                          <p className="text-[10px] text-text-tertiary font-mono mt-0.5 tabular-nums">{shortDate(row.invoiceDate)}</p>
                         </div>
                         <StatusBadge label={row.status} variant={invoiceStatusVariant(row.status)} />
                       </div>
@@ -614,46 +690,57 @@ export default function DashboardView({ state, setActiveTab }) {
                   <div className="skeleton h-5 rounded"></div>
                   <div className="skeleton h-5 rounded"></div>
                 </div>
+              ) : !hasPerformance ? (
+                <p className="pt-3 text-[11px] text-text-tertiary">
+                  Scores appear once you have delivered and invoiced against a purchase order.
+                </p>
               ) : (
-                /* INDICATORS SCALE */
+                /* INDICATORS SCALE — the three measures GET /vendors/performance computes */
                 <div className="space-y-3 pt-3">
                   {[
-                    { name: 'On-Time In-Full Delivery (OTIF)', score: state.performance.deliveryOTIF || 91, target: 95, icon: '↑', barColor: 'bg-amber-500' },
-                    { name: 'Quality Acceptance Rate', score: state.performance.qualityAcceptance || 96, target: 95, icon: '✓', barColor: 'bg-emerald-500' },
-                    { name: 'Invoice Billing Accuracy', score: 83, target: 90, icon: '↑', barColor: 'bg-amber-500' },
-                    { name: 'Commercial Proposal Response Time', score: 78, target: 85, icon: '↑', barColor: 'bg-red-500' }
-                  ].map((m, idx) => (
-                    <div key={idx} className="space-y-1">
-                      <div className="flex justify-between text-[11px] font-bold">
-                        <span className="text-text-primary">{m.name}</span>
-                        <span className="text-text-secondary tabular-nums">
-                          {m.score}% <span className="text-text-tertiary font-normal">/ target {m.target}%</span> <span className="text-xs ml-0.5">{m.icon}</span>
-                        </span>
+                    { name: 'On-Time In-Full Delivery (OTIF)', score: money(performance.deliveryOTIF), target: 95 },
+                    { name: 'Quality Acceptance Rate', score: money(performance.qualityAcceptance), target: 95 },
+                    { name: 'Invoice Billing Accuracy', score: money(performance.invoiceAccuracy), target: 90 },
+                  ].map((m) => {
+                    const meets = m.score >= m.target;
+                    return (
+                      <div key={m.name} className="space-y-1">
+                        <div className="flex justify-between text-[11px] font-bold">
+                          <span className="text-text-primary">{m.name}</span>
+                          <span className="text-text-secondary tabular-nums">
+                            {m.score}% <span className="text-text-tertiary font-normal">/ target {m.target}%</span>
+                            {meets && <span className="text-xs ml-0.5">✓</span>}
+                          </span>
+                        </div>
+                        <div className="w-full bg-surface2 h-1.5 rounded-full border border-border overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-500 ${meets ? 'bg-emerald-500' : 'bg-amber-500'}`}
+                            style={{ width: `${Math.min(100, m.score)}%` }}
+                          ></div>
+                        </div>
                       </div>
-                      <div className="w-full bg-surface2 h-1.5 rounded-full border border-border overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all duration-500 ${m.barColor}`}
-                          style={{ width: `${m.score}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
 
             {/* OVERALL PERFORMANCE CARD SCORE */}
-            <div className="mt-3 bg-surface2/50 border border-border p-2.5 rounded-xl flex items-center justify-between">
-              <div>
-                <span className="label mb-0">Overall Score</span>
-                <p className="text-base font-bold text-text-primary font-mono mt-0.5 tabular-nums">
-                  {state.performance.deliveryOTIF || 87} <span className="text-[11px] font-normal text-text-tertiary font-sans">/ 100</span>
-                </p>
+            {hasPerformance && (
+              <div className="mt-3 bg-surface2/50 border border-border p-2.5 rounded-xl flex items-center justify-between">
+                <div>
+                  <span className="label mb-0">Overall Score</span>
+                  <p className="text-base font-bold text-text-primary font-mono mt-0.5 tabular-nums">
+                    {performance.weightedScore} <span className="text-[11px] font-normal text-text-tertiary font-sans">/ 100</span>
+                  </p>
+                </div>
+                {performance.grade && (
+                  <span className="px-2 py-0.5 rounded-md border border-border bg-surface2 text-text-primary text-[10px] font-semibold uppercase tracking-wider font-sans">
+                    Grade {performance.grade}
+                  </span>
+                )}
               </div>
-              <span className="px-2 py-0.5 rounded-md border border-border bg-surface2 text-text-primary text-[10px] font-semibold uppercase tracking-wider font-sans">
-                &#9733;&#9733; Standard
-              </span>
-            </div>
+            )}
           </div>
 
           {/* RECENT PAYMENTS RECEIVED */}
@@ -690,12 +777,12 @@ export default function DashboardView({ state, setActiveTab }) {
                     // for a payment that has none yet — the same reason PO creation
                     // stopped minting fake SAP order numbers.
                     const utr = row.utrCode || row.utr || '—';
-                    const invNumber = row.invoiceNumber || row.id || 'INV-CORP';
-                    const method = row.paymentMethod || row.method || 'NEFT';
-                    const grossVal = row.grossAmount || (row.amount ? row.amount * 1.01 : 124200);
-                    const tdsVal = row.tdsDeducted || (row.amount ? row.amount * 0.01 : 1242);
-                    const netVal = row.netAmount || row.amount || 122958;
-                    const payDate = row.paymentDate ? new Date(row.paymentDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }) : (row.date || '01-Jun-25');
+                    const invNumber = row.invoiceNumber || row.invoiceId || '—';
+                    const method = row.paymentMethod || '—';
+                    const grossVal = money(row.grossAmount);
+                    const tdsVal = money(row.tdsDeducted);
+                    const netVal = money(row.netAmount);
+                    const payDate = shortDate(row.paymentDate);
 
                     return (
                       <div key={idx} className="p-2.5 flex items-center justify-between hover:bg-surface2 transition-colors duration-150 even:bg-surface2/30">
@@ -715,11 +802,11 @@ export default function DashboardView({ state, setActiveTab }) {
 
                         <div className="flex items-center gap-4 shrink-0 text-right">
                           <div className="hidden sm:block text-[10px] text-text-tertiary font-semibold">
-                            <p>Gross: <span className="font-mono text-text-primary tabular-nums">₹{grossVal.toLocaleString('en-IN')}</span></p>
-                            <p>TDS: <span className="font-mono text-destructive tabular-nums">-₹{tdsVal.toLocaleString('en-IN')}</span></p>
+                            <p>Gross: <span className="font-mono text-text-primary tabular-nums">{inr(grossVal)}</span></p>
+                            <p>TDS: <span className="font-mono text-destructive tabular-nums">-{inr(tdsVal)}</span></p>
                           </div>
                           <div>
-                            <p className="font-mono font-bold text-[#16A34A] text-[11px] tabular-nums">₹{netVal.toLocaleString('en-IN')}</p>
+                            <p className="font-mono font-bold text-[#16A34A] text-[11px] tabular-nums">{inr(netVal)}</p>
                             <p className="text-[10px] text-text-tertiary font-mono mt-0.5 tabular-nums">{payDate}</p>
                           </div>
                         </div>
@@ -735,7 +822,8 @@ export default function DashboardView({ state, setActiveTab }) {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => window.open(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api'}/reports/statement`, '_blank')}
+                onClick={() => downloadFromApi('/reports/statement', 'account-statement.pdf')
+                  .catch((err) => portal.addToast('error', `Could not download the statement: ${err.message}`))}
                 className="justify-center border border-transparent hover:border-border"
               >
                 <Download className="size-3" />
@@ -800,7 +888,7 @@ export default function DashboardView({ state, setActiveTab }) {
                   </h3>
                   <p className="text-[13px] text-text-tertiary mt-1 flex items-center gap-1.5">
                     <Calendar className="size-3.5" />
-                    {drawerContent.type === 'PO' ? drawerContent.data.createdDate : drawerContent.data.invoiceDate}
+                    {shortDate(drawerContent.type === 'PO' ? drawerContent.data.createdDate : drawerContent.data.invoiceDate)}
                   </p>
                 </div>
                 <div className="pt-1">
@@ -824,13 +912,15 @@ export default function DashboardView({ state, setActiveTab }) {
                 <div className="space-y-1">
                   <span className="text-[12px] text-text-tertiary">Total Net Value</span>
                   <p className="text-2xl font-mono font-bold text-text-primary tracking-tight">
-                    ₹{(drawerContent.data.totalAmount || drawerContent.data.items?.[0]?.netValue || 42500).toLocaleString('en-IN')}.00
+                    {inr(drawerContent.type === 'PO'
+                      ? (drawerContent.data.items || []).reduce((sum, item) => sum + money(item.netValue), 0)
+                      : drawerContent.data.totalAmount)}
                   </p>
                 </div>
                 <div className="text-right space-y-1">
                   <span className="text-[12px] text-text-tertiary">Items</span>
                   <p className="text-[14px] font-mono font-medium text-text-secondary">
-                    {drawerContent.data.items?.length || 1}
+                    {drawerContent.data.items?.length ?? 0}
                   </p>
                 </div>
               </div>
@@ -859,7 +949,7 @@ export default function DashboardView({ state, setActiveTab }) {
                       </div>
                     </div>
                     <span className="font-mono font-medium text-[13px] text-text-primary">
-                      ₹{item.netValue?.toLocaleString('en-IN') || '0.00'}
+                      {inr(item.netValue ?? item.amount)}
                     </span>
                   </div>
                 )) || (

@@ -11,8 +11,12 @@ import { defineConfig, devices } from '@playwright/test';
 const WEB_PORT = Number(process.env.E2E_WEB_PORT || 3100);
 const API_PORT = Number(process.env.E2E_API_PORT || 5100);
 
-const API_URL = `http://127.0.0.1:${API_PORT}/api`;
-const WEB_URL = `http://127.0.0.1:${WEB_PORT}`;
+// E2E_HOST=localhost lets the specs run against an already-running
+// `npm run dev` (E2E_WEB_PORT=3000 E2E_API_PORT=5000): Next's dev server
+// refuses its client bundles to a 127.0.0.1 origin it was not started on.
+const HOST = process.env.E2E_HOST || '127.0.0.1';
+const API_URL = `http://${HOST}:${API_PORT}/api`;
+const WEB_URL = `http://${HOST}:${WEB_PORT}`;
 
 export default defineConfig({
   testDir: './e2e',
@@ -66,6 +70,10 @@ export default defineConfig({
         MAIL_TRANSPORT: 'log',
         // e2e/api-server.cjs starts the job worker in this same process.
         JOBS_ENABLED: 'true',
+        // The whole suite signs in to one tenant, and the sweep alone loads
+        // ~40 screens at ~20 API calls each — well past the production
+        // per-tenant default of 300/minute (middleware/rateLimiter.js).
+        TENANT_RATE_LIMIT_MAX: '10000',
       },
     },
     {

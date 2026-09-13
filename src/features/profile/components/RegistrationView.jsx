@@ -612,6 +612,10 @@ export default function RegistrationView({
   }, []);
   const outstandingCount = outstandingByStep.reduce((n, g) => n + g.items.length, 0);
 
+  // Bank name and branch are filled from the IFSC lookup and locked while it is
+  // pending or has answered; if it failed, the supplier types them instead.
+  const bankFieldsLocked = ifscLookup.status === 'loading' || ifscLookup.status === 'success';
+
   // Auto-fetch bank name/branch whenever a valid IFSC code is entered
   useEffect(() => {
     const code = (companyForm.ifscCode || '').toUpperCase();
@@ -637,10 +641,13 @@ export default function RegistrationView({
         setCompanyForm(prev => ({ ...prev, bankName: data.BANK || '', bankBranch: data.BRANCH || '' }));
         setIfscLookup({ status: 'success', error: '' });
       })
-      .catch(err => {
+      .catch(() => {
         if (cancelled) return;
-        setCompanyForm(prev => ({ ...prev, bankName: '', bankBranch: '' }));
-        setIfscLookup({ status: 'error', error: err.message || 'Could not fetch bank details for this IFSC code' });
+        // The lookup is a convenience on a third-party service the portal does
+        // not control; being offline or behind a firewall must not stop a
+        // supplier registering. What they have typed is kept, and the two
+        // fields become editable (see `bankFieldsLocked` below).
+        setIfscLookup({ status: 'error', error: 'Could not look up this IFSC code. Enter the bank name and branch yourself.' });
       });
 
     return () => { cancelled = true; };
@@ -810,7 +817,12 @@ export default function RegistrationView({
       setTimeout(() => setBlockedStepAlert(''), 3000);
       return;
     }
-    submitRegistration(companyForm);
+    Promise.resolve(submitRegistration(companyForm)).then((result) => {
+      if (result && result.success === false) {
+        setBlockedStepAlert(`Registration not submitted: ${result.error}`);
+        setTimeout(() => setBlockedStepAlert(''), 8000);
+      }
+    });
   };
 
   // Auto-fill form values on page mount if state exists
@@ -854,7 +866,7 @@ export default function RegistrationView({
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <h2 className="page-title">Vendor Registration</h2>
-            <ProgressBadge count={`${currentStep} / 4`} />
+            {!isApproved && <ProgressBadge count={`${currentStep} / 4`} />}
           </div>
           <div className="flex items-center gap-2 text-text-tertiary text-xs font-semibold">
             <span className="bg-surface2 border border-border text-text-secondary px-2 py-0.5 rounded font-mono uppercase tracking-wide">
@@ -1251,9 +1263,10 @@ export default function RegistrationView({
                         type="text"
                         maxLength={60}
                         value={companyForm.bankName}
-                        readOnly
-                        placeholder={ifscLookup.status === 'loading' ? 'Fetching bank details...' : 'Auto-populated from IFSC'}
-                        className="bg-surface2 text-text-secondary select-none w-full pr-8"
+                        readOnly={bankFieldsLocked}
+                        onChange={e => handleFieldChange('bankName', e.target.value)}
+                        placeholder={ifscLookup.status === 'loading' ? 'Fetching bank details...' : bankFieldsLocked ? 'Auto-populated from IFSC' : 'Bank name'}
+                        className={`${bankFieldsLocked ? 'bg-surface2 text-text-secondary select-none' : ''} w-full pr-8`}
                       />
                       {ifscLookup.status === 'loading' && (
                         <RefreshCw className="absolute right-2 top-1/2 -translate-y-1/2 size-3.5 text-text-tertiary animate-spin" />
@@ -1269,9 +1282,10 @@ export default function RegistrationView({
                       type="text"
                       maxLength={60}
                       value={companyForm.bankBranch}
-                      readOnly
-                      placeholder="Auto-populated from IFSC"
-                      className="bg-surface2 text-text-secondary select-none w-[64ch] max-w-full"
+                      readOnly={bankFieldsLocked}
+                      onChange={e => handleFieldChange('bankBranch', e.target.value)}
+                      placeholder={bankFieldsLocked ? 'Auto-populated from IFSC' : 'Bank branch'}
+                      className={`${bankFieldsLocked ? 'bg-surface2 text-text-secondary select-none' : ''} w-[64ch] max-w-full`}
                     />
                   </EnterpriseFieldCard>
                   <EnterpriseFieldCard
@@ -1301,76 +1315,40 @@ export default function RegistrationView({
           )}
 
           {/* STEP 4: DOCUMENT UPLOADS */}
+          {/* Each document is a real upload (POST /uploads) whose
+              { documentId, originalName, url } is what the profile stores —
+              the same component the cancelled cheque on step 3 uses. */}
           {currentStep === 4 && (
             <div className="space-y-4">
-              {/* GLOBAL DROP-ZONE */}
-              <div className="w-full bg-surface2 border-2 border-dashed border-border-em rounded p-4 text-center hover:bg-surface2/70 transition-colors cursor-pointer">
-                <Upload className="size-5 text-text-tertiary mx-auto mb-2" />
-                <p className="text-[13px] font-semibold text-text-primary">Drag and drop files here to auto-categorize and upload</p>
-                <p className="text-[11px] text-text-tertiary mt-1">Supports PDF, DOCX, JPG, PNG up to 5MB</p>
-              </div>
+              <FormSection number="01" title="Required for approval">
+                {[
+                  { id: 'panCardCopy', label: 'PAN card copy' },
+                  { id: 'gstCertificate', label: 'GST certificate' },
+                ].map(doc => (
+                  <div key={doc.id} className="lg:col-span-3">
+                    <EnterpriseFieldCard label={doc.label} required error={validationErrors[4]?.[doc.id]}>
+                      <DocumentUploadZone
+                        fieldName={doc.id}
+                        value={companyForm[doc.id]}
+                        onChange={val => handleFieldChange(doc.id, val)}
+                        error={validationErrors[4]?.[doc.id]}
+                      />
+                    </EnterpriseFieldCard>
+                  </div>
+                ))}
+              </FormSection>
 
-              {/* CATEGORIZED DATA GRID */}
-              <div className="border border-border rounded overflow-hidden bg-surface text-left">
-                {/* Header Row */}
-                <div className="grid grid-cols-[2fr_1.5fr_1fr_1fr_1fr] gap-4 px-4 py-2.5 bg-surface2 border-b border-border text-[11px] font-bold uppercase tracking-wider text-text-tertiary">
-                  <div>Document Name</div>
-                  <div>Requirement</div>
-                  <div>File Size</div>
-                  <div>Status</div>
-                  <div className="text-right">Actions</div>
+              <FormSection number="02" title="Optional">
+                <div className="lg:col-span-3">
+                  <EnterpriseFieldCard label="MSME certificate">
+                    <DocumentUploadZone
+                      fieldName="msmeCertificate"
+                      value={companyForm.msmeCertificate}
+                      onChange={val => handleFieldChange('msmeCertificate', val)}
+                    />
+                  </EnterpriseFieldCard>
                 </div>
-                
-                <div className="flex flex-col">
-                  {/* GROUP 1: REQUIRED */}
-                  {[
-                    { id: 'panCardCopy', name: 'PAN Card Copy', req: 'Required for Approval' },
-                    { id: 'gstCertificate', name: 'GST Certificate', req: 'Required for Approval' }
-                  ].map(doc => (
-                    <div key={doc.id} className="grid grid-cols-[2fr_1.5fr_1fr_1fr_1fr] gap-4 px-4 py-3 items-center hover:bg-surface2/50 transition-colors even:bg-surface2/30">
-                      <div className="text-[13px] font-medium text-text-primary">{doc.name}</div>
-                      <div className="text-[12px] text-text-secondary">{doc.req}</div>
-                      <div className="text-[12px] text-text-secondary font-mono">{companyForm[doc.id] ? '1.2 MB' : '--'}</div>
-                      <div>
-                        {companyForm[doc.id] ? (
-                          <span className="status-badge status-badge-active">Uploaded</span>
-                        ) : (
-                          <span className="status-badge status-badge-warn">Pending</span>
-                        )}
-                      </div>
-                      <div className="text-right">
-                        <label className="text-primary hover:underline text-[12px] font-semibold cursor-pointer">
-                          {companyForm[doc.id] ? 'Replace' : 'Upload'}
-                          <input type="file" className="hidden" onChange={(e) => handleFieldChange(doc.id, 'uploaded_file.pdf')} />
-                        </label>
-                      </div>
-                    </div>
-                  ))}
-                  {/* GROUP 2: OPTIONAL */}
-                  {[
-                    { id: 'msmeCertificate', name: 'MSME Certificate', req: 'Supplemental/Optional' }
-                  ].map(doc => (
-                    <div key={doc.id} className="grid grid-cols-[2fr_1.5fr_1fr_1fr_1fr] gap-4 px-4 py-3 items-center hover:bg-surface2/50 transition-colors even:bg-surface2/30">
-                      <div className="text-[13px] font-medium text-text-primary">{doc.name}</div>
-                      <div className="text-[12px] text-text-secondary">{doc.req}</div>
-                      <div className="text-[12px] text-text-secondary font-mono">{companyForm[doc.id] ? '2.4 MB' : '--'}</div>
-                      <div>
-                        {companyForm[doc.id] ? (
-                          <span className="status-badge status-badge-active">Uploaded</span>
-                        ) : (
-                          <span className="status-badge bg-surface2 text-text-tertiary border-border">Empty</span>
-                        )}
-                      </div>
-                      <div className="text-right">
-                        <label className="text-primary hover:underline text-[12px] font-semibold cursor-pointer">
-                          {companyForm[doc.id] ? 'Replace' : 'Upload'}
-                          <input type="file" className="hidden" onChange={(e) => handleFieldChange(doc.id, 'uploaded_file.pdf')} />
-                        </label>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              </FormSection>
             </div>
           )}
 
@@ -1420,7 +1398,7 @@ export default function RegistrationView({
                 </span>
               </p>
               <div className="flex items-center gap-4 text-[10px] text-text-tertiary mt-2.5 font-semibold font-mono">
-                <span className="tabular-nums">APPROVED: {new Date(state.profile.approvedAt || '').toLocaleString()}</span>
+                <span className="tabular-nums">APPROVED: {state.profile.approvedAt ? new Date(state.profile.approvedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</span>
                 <span>&bull;</span>
                 <span className="text-emerald-400 px-1.5 py-0.5 border border-border rounded text-[9px] font-bold" style={{ backgroundColor: 'var(--color-emerald-dim)' }}>STATUS: ACTIVE</span>
               </div>
@@ -1450,10 +1428,10 @@ export default function RegistrationView({
                 { label: 'Bank branch', val: state.profile.bankBranch || 'Not Mapped' },
                 { label: 'Bank account', val: `••••${state.profile.accountNumber?.slice(-4)} (${state.profile.ifscCode})`, isMono: true },
                 { label: 'Business address', val: `${state.profile.address}, ${state.profile.city}, ${state.profile.region || state.profile.state}, ${state.profile.country || ''} - ${state.profile.postalCode}` },
-                { label: 'Cancelled Cheque Copy Document', val: state.profile.cancelledCheque || 'Not Uploaded', isFile: true },
-                { label: 'PAN Card Copy Document', val: state.profile.panCardCopy || 'Not Uploaded', isFile: true },
-                { label: 'GST Certificate Document', val: state.profile.gstCertificate || 'Not Uploaded', isFile: true },
-                { label: 'MSME Compliance Certificate', val: state.profile.msmeCertificate || 'Not Uploaded', isFile: true }
+                { label: 'Cancelled Cheque Copy Document', val: documentName(state.profile.cancelledCheque), isFile: true },
+                { label: 'PAN Card Copy Document', val: documentName(state.profile.panCardCopy), isFile: true },
+                { label: 'GST Certificate Document', val: documentName(state.profile.gstCertificate), isFile: true },
+                { label: 'MSME Compliance Certificate', val: documentName(state.profile.msmeCertificate), isFile: true }
               ].map((row, idx) => (
                 <div key={idx} className="flex justify-between items-center border-b border-border-subtle pb-2 gap-4">
                   <span className="text-text-secondary font-bold shrink-0">{row.label}</span>
@@ -1472,6 +1450,15 @@ export default function RegistrationView({
       )}
     </div>
   );
+}
+
+// A compliance document is stored as { documentId, originalName, url }
+// (uploadedDocumentSchema in backend/validators/vendor.validator.js); older
+// profiles may still hold a bare filename.
+function documentName(doc) {
+  if (!doc) return 'Not Uploaded';
+  if (typeof doc === 'string') return doc;
+  return doc.originalName || doc.documentId || 'Uploaded';
 }
 
 // 10. Progress badge component for UI header

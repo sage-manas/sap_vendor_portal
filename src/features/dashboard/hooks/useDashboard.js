@@ -50,8 +50,8 @@ export function useDashboard(profile) {
           const mapped = {
             deliveryOTIF: data.deliveryOTIF,
             qualityAcceptance: data.qualityAcceptance,
-            priceIndex: 88.0, // Fallback accent metric
-            responseTimeHours: 3.4,
+            invoiceAccuracy: data.invoiceAccuracy,
+            weightedScore: data.weightedScore,
             grade: data.grade
           };
           setPerformance(mapped);

@@ -34,7 +34,7 @@ export default function WorkspaceBrand({ workspace, caption }) {
           <Building2 className="size-6" />
         </div>
       )}
-      <h2 className="page-title text-center">{name}</h2>
+      <h1 className="page-title text-center">{name}</h1>
       <p className="text-[10px] text-text-tertiary font-mono tracking-wider uppercase mt-1 text-center">
         {caption}
       </p>

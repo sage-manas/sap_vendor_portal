@@ -80,7 +80,7 @@ export function PaymentCard({ payment, onSelect, compact = false }) {
           </div>
           <div>
             <p className="text-text-tertiary">Net Amount</p>
-            <p className="font-mono font-semibold text-text-primary tabular-nums">₹ {payment.netAmount.toLocaleString()}</p>
+            <p className="font-mono font-semibold text-text-primary tabular-nums">₹ {Number(payment.netAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
           </div>
         </div>
       )}

@@ -5,6 +5,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
+    "jobs": "cross-env JOBS_ENABLED=true node jobs/worker.js",
+    "dev:jobs": "cross-env JOBS_ENABLED=true nodemon jobs/worker.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",

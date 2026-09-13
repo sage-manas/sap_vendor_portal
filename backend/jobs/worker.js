@@ -157,7 +157,12 @@ const TICK_MS = Number(process.env.JOBS_TICK_MS) || 5000;
 
 let running = false;
 
-const run = async () => {
+// `standalone` is true when this file is the process (the vendorconnect-jobs
+// PM2 app, `npm run jobs`). There nothing else holds the event loop open, so
+// an unref'd tick timer let the process exit cleanly after its first tick —
+// silently, with code 0. Hosted inside another process (e2e/api-server.mjs)
+// the timer stays unref'd so the host decides when to exit.
+const run = async ({ standalone = false } = {}) => {
   if (running) return;
   running = true;
   logger.info(`[jobs] worker ${WORKER_ID} starting, tick every ${TICK_MS}ms`);
@@ -171,7 +176,7 @@ const run = async () => {
     }
     if (!running) return;
     const timer = setTimeout(loop, TICK_MS);
-    if (typeof timer.unref === 'function') timer.unref();
+    if (!standalone && typeof timer.unref === 'function') timer.unref();
   };
 
   loop();
@@ -188,7 +193,7 @@ module.exports = { processJob, tick, materialiseSchedules, run, stop, WORKER_ID,
 // or anywhere else — never starts a live loop by accident.
 if (require.main === module) {
   if (process.env.JOBS_ENABLED === 'true') {
-    run();
+    run({ standalone: true });
   } else {
     logger.warn('[jobs] JOBS_ENABLED is not "true" — worker process exiting without starting the loop.');
   }

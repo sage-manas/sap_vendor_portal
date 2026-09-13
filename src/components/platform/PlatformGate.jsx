@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { KeyRound, Loader2, AlertCircle, ShieldCheck, Mail } from 'lucide-react';
 import { platformApi } from '@/lib/platform-client';
@@ -12,13 +12,16 @@ import { usePlatformSession, STAGE } from '@/lib/platform-session';
 // lets the session decide what comes next — the client never decides it is
 // finished.
 
-const Field = ({ label, hint, ...props }) => (
-  <div>
-    <label className="label">{label}</label>
-    <input className="w-full" {...props} />
-    {hint && <p className="mt-1.5 text-[11px] text-text-tertiary">{hint}</p>}
-  </div>
-);
+const Field = ({ label, hint, ...props }) => {
+  const id = useId();
+  return (
+    <div>
+      <label htmlFor={id} className="label">{label}</label>
+      <input id={id} className="w-full" {...props} />
+      {hint && <p className="mt-1.5 text-[11px] text-text-tertiary">{hint}</p>}
+    </div>
+  );
+};
 
 const Panel = ({ title, caption, error, children }) => (
   <div className="w-full max-w-[440px] card p-8">

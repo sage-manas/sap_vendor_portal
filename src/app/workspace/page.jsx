@@ -22,7 +22,7 @@ const Tile = ({ label, value, caption, href, tone = 'normal' }) => {
   return href ? <Link href={href}>{body}</Link> : body;
 };
 
-const money = (value) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
+const money = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export default function WorkspaceOverviewPage() {
   const { workspace, can } = useWorkspaceSession();

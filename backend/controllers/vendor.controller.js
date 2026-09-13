@@ -38,25 +38,40 @@ const PROTECTED_VENDOR_FIELDS = new Set([
   'resetPasswordToken', 'resetPasswordExpires', 'passwordChangedAt',
 ]);
 
-// Helper to map flat or nested fields into flat Vendor model fields
+// Maps a body carrying flat and/or legacy nested fields onto flat Vendor
+// columns. The flat column the body names wins; a nested value only fills a gap.
+//
+// formatVendorResponse re-nests bank details into `bankDetails` on every
+// response, and the registration form sends the profile it read straight back
+// — so a save carries the supplier's freshly typed flat `bankName` *and* the
+// stale nested copy from the last read. Flattening nested-over-flat erased
+// every bank detail a supplier entered (and approval then created the SAP
+// vendor master with no bank account). Only an absent or empty flat value is
+// taken from the nested shape now.
+const preferFlat = (flat, ...nested) => {
+  if (typeof flat === 'string' && flat !== '') return flat;
+  const fromNested = nested.find((value) => typeof value === 'string' && value !== '');
+  return fromNested ?? flat ?? '';
+};
+
 const mapIncomingBody = (body) => {
   const mapped = { ...body };
 
   // If address is nested (legacy tests), flatten it
   if (body.address && typeof body.address === 'object') {
-    mapped.address = body.address.street || body.address.address || '';
-    mapped.city = body.address.city || '';
-    mapped.state = body.address.state || '';
-    mapped.postalCode = body.address.pincode || body.address.postalCode || '';
+    mapped.address = preferFlat(undefined, body.address.street, body.address.address);
+    mapped.city = preferFlat(body.city, body.address.city);
+    mapped.state = preferFlat(body.state, body.address.state);
+    mapped.postalCode = preferFlat(body.postalCode, body.address.pincode, body.address.postalCode);
   }
 
   // If bankDetails is nested (legacy tests), flatten it
   if (body.bankDetails && typeof body.bankDetails === 'object') {
-    mapped.bankName = body.bankDetails.bankName || '';
-    mapped.accountNumber = body.bankDetails.accountNumber || '';
-    mapped.ifscCode = body.bankDetails.ifscCode || '';
-    mapped.accountName = body.bankDetails.accountName || body.bankDetails.accountHolderName || '';
-    mapped.bankBranch = body.bankDetails.branch || body.bankDetails.bankBranch || '';
+    mapped.bankName = preferFlat(body.bankName, body.bankDetails.bankName);
+    mapped.accountNumber = preferFlat(body.accountNumber, body.bankDetails.accountNumber);
+    mapped.ifscCode = preferFlat(body.ifscCode, body.bankDetails.ifscCode);
+    mapped.accountName = preferFlat(body.accountName, body.bankDetails.accountName, body.bankDetails.accountHolderName);
+    mapped.bankBranch = preferFlat(body.bankBranch, body.bankDetails.branch, body.bankDetails.bankBranch);
     // Mongoose silently dropped an unrecognized `bankDetails` key on write
     // (strict-mode schemas ignore undeclared paths); Prisma has no such
     // tolerance and rejects an unknown field outright, so the nested shape

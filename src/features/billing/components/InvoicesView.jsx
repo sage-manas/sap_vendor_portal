@@ -196,7 +196,7 @@ export default function InvoicesView({
                       <p className="text-[9px] text-text-tertiary">Ref: {inv.id}</p>
                     </td>
                     <td className="font-mono">{inv.poId}</td>
-                    <td className="text-right font-mono text-text-primary font-bold tabular-nums">₹{inv.totalAmount.toLocaleString()}</td>
+                    <td className="text-right font-mono text-text-primary font-bold tabular-nums">₹{Number(inv.totalAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td className="text-center">
                       <StatusBadge
                         label={inv.status === 'Paid' ? 'Paid' : 'Submitted'}

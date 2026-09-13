@@ -80,6 +80,80 @@ describe('PUT /api/vendors/profile', () => {
   });
 });
 
+// The registration form reads GET /vendors/profile and sends that object back
+// with the supplier's edits merged in. Both defects below stopped every
+// supplier who signed up through the portal from registering, and neither was
+// visible to a test that registers with a fully populated payload.
+describe('the registration form round-trip', () => {
+  // What the sign-up screen collects: no bank details. registerVendor merges
+  // these over its fully populated baseVendor, so the bank fields are blanked
+  // explicitly rather than left out.
+  const signUpOnly = {
+    vendorId: 'vendor_signup_001',
+    password: 'secret123',
+    companyName: 'Sahyadri Fasteners Pvt Ltd',
+    gstin: '27AAHCS4321K1Z5',
+    pan: 'AAHCS4321K',
+    email: 'accounts@sahyadri.example',
+    bankName: '',
+    accountNumber: '',
+    ifscCode: '',
+    accountName: '',
+    bankBranch: '',
+  };
+
+  const signUpAndRead = async () => {
+    const { token } = await registerVendor(app, signUpOnly);
+    const read = await request(app).get('/api/vendors/profile').set('Authorization', `Bearer ${token}`);
+    return { token, profile: read.body };
+  };
+
+  it('accepts the profile the API itself returned, nulls included', async () => {
+    const { token, profile } = await signUpAndRead();
+    // A fresh account holds nulls (vendorCategory among them); the schema used
+    // to answer 400 to its own output.
+    expect(profile.vendorCategory).toBeNull();
+
+    const saved = await request(app)
+      .put('/api/vendors/profile')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ ...profile, city: 'Pune', businessType: 'MFGR' });
+    expect(saved.status).toBe(200);
+
+    const submitted = await request(app)
+      .post('/api/vendors/profile/submit')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+    expect(submitted.status).toBe(200);
+  });
+
+  it('keeps bank details typed into the flat fields when the stale nested copy is sent too', async () => {
+    const { token, profile } = await signUpAndRead();
+    // profile.bankDetails is the response's re-nested copy: all empty strings.
+    expect(profile.bankDetails.bankName).toBe('');
+
+    const saved = await request(app)
+      .put('/api/vendors/profile')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        ...profile,
+        bankName: 'HDFC Bank',
+        accountNumber: '50100234567812',
+        ifscCode: 'HDFC0000060',
+        accountName: 'Sahyadri Fasteners Pvt Ltd',
+        bankBranch: 'Bhosari, Pune',
+      });
+
+    expect(saved.status).toBe(200);
+    expect(saved.body).toMatchObject({
+      bankName: 'HDFC Bank',
+      accountNumber: '50100234567812',
+      ifscCode: 'HDFC0000060',
+      bankBranch: 'Bhosari, Pune',
+    });
+  });
+});
+
 describe('registration approval flow', () => {
   it('submit moves status to Pending Approval', async () => {
     const { token } = await registerVendor(app);

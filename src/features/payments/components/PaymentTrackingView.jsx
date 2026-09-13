@@ -464,13 +464,13 @@ export default function PaymentTrackingView({ state }) {
                             {formatDate(payment.paymentDate)}
                           </td>
                           <td className="font-bold text-text-primary text-right font-mono whitespace-nowrap tabular-nums">
-                            ₹ {grossAmt.toLocaleString('en-IN')}.00
+                            ₹ {Number(grossAmt || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                           <td className="font-medium text-destructive text-right font-mono whitespace-nowrap tabular-nums">
-                            - ₹ {tdsAmt.toLocaleString('en-IN')}.00
+                            - ₹ {Number(tdsAmt || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                           <td className="font-extrabold text-emerald-400 text-right font-mono whitespace-nowrap tabular-nums">
-                            ₹ {payAmt.toLocaleString('en-IN')}.00
+                            ₹ {Number(payAmt || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                           <td className="font-mono font-bold text-text-primary select-all break-all">
                             {payment.utrCode}
