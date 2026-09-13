@@ -2081,6 +2081,10 @@ export default function PurchaseOrdersView({
                 <span>Back to Invoice Ready List</span>
               </button>
             </div>
+            {/* The screen's name, in both its form and submitted states — the
+                back button above is navigation, not a title, and without this
+                the first heading here was the three-way-match banner below. */}
+            <h2 className="page-title">Invoice for {activeGrn.id}</h2>
 
             {/* Success Post view */}
             {invoicePostedSuccess ? (
@@ -2131,7 +2135,7 @@ export default function PurchaseOrdersView({
                 <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-start gap-3">
                   <ShieldCheck className="size-5 text-emerald-600 shrink-0 mt-0.5" />
                   <div>
-                    <h4 className="font-bold text-emerald-800 text-xs uppercase tracking-wider">Order, delivery and invoice all match</h4>
+                    <p className="font-bold text-emerald-800 text-xs uppercase tracking-wider">Order, delivery and invoice all match</p>
                     <p className="text-emerald-700 text-xs mt-1 leading-normal font-semibold">
                       The quantities and prices on the order match the quantities accepted on delivery. You can invoice this delivery now.
                     </p>

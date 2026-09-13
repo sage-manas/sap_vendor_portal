@@ -28,6 +28,19 @@ const po = (overrides) => ({
 
 const TABS = ['1. Order details', '2. Send shipment', '3. Delivery status'];
 
+const GRN = {
+  id: 'GRN-000001',
+  poId: 'PO-2026-0001',
+  vendorId: 'VND-00001',
+  sapMigoDoc: '5000012345',
+  postingDate: '2026-02-01T00:00:00.000Z',
+  receivedBy: 'Stores',
+  invoiceSubmitted: false,
+  items: [{ line: 10, materialCode: 'MAT-001', description: 'Hex bolts', receivedQuantity: 100, acceptedQuantity: 95, rejectedQuantity: 5, uom: 'EA' }],
+};
+
+const withGrn = { 'GET /grns': { grns: [GRN], pagination: { total: 1, page: 1, limit: 20, pages: 1 } } };
+
 const outline = () => [...document.querySelectorAll('h1,h2,h3,h4,h5,h6')]
   .map((node) => ({ level: Number(node.tagName[1]), text: node.textContent.trim() }));
 
@@ -86,21 +99,7 @@ describe('the purchase-order detail view outline', () => {
   });
 
   it('nests the inspection result one level under the delivery receipt', async () => {
-    const user = await openDetail(po({ status: 'Delivered' }), {
-      'GET /grns': {
-        grns: [{
-          id: 'GRN-000001',
-          poId: 'PO-2026-0001',
-          vendorId: 'VND-00001',
-          sapMigoDoc: '5000012345',
-          postingDate: '2026-02-01T00:00:00.000Z',
-          receivedBy: 'Stores',
-          invoiceSubmitted: false,
-          items: [{ line: 10, materialCode: 'MAT-001', description: 'Hex bolts', receivedQuantity: 100, acceptedQuantity: 95, rejectedQuantity: 5, uom: 'EA' }],
-        }],
-        pagination: { total: 1, page: 1, limit: 20, pages: 1 },
-      },
-    });
+    const user = await openDetail(po({ status: 'Delivered' }), withGrn);
     await user.click(screen.getByRole('button', { name: '3. Delivery status' }));
 
     expect((await screen.findByRole('heading', { name: 'Delivery receipt' })).tagName).toBe('H3');
@@ -121,5 +120,49 @@ describe('the purchase-order detail view outline', () => {
     await user.click(screen.getByRole('button', { name: '3. Delivery status' }));
     expect(await screen.findByText('No delivery confirmed yet')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'No delivery confirmed yet' })).not.toBeInTheDocument();
+  });
+});
+
+// The invoice screen (Ready to Invoice -> Create invoice) is a separate view
+// from the detail tabs above. It had no page heading in either state: before
+// submitting, the first heading was the three-way-match banner as an h4; after,
+// it was "Invoice submitted" as an h3 with nothing above it.
+describe('the invoice screen outline', () => {
+  const openInvoice = async () => {
+    const user = userEvent.setup();
+    const { apiMock } = renderWithPortal(<PurchaseOrdersPage />, {
+      plane: 'supplier',
+      route: '/pos',
+      api: {
+        ...EMPTY_SUPPLIER_API,
+        'GET /pos': { pos: [po({ status: 'Delivered' })], pagination: { total: 1, page: 1, limit: 20, pages: 1 } },
+        ...withGrn,
+        'POST /invoices': { message: 'Invoice submitted', invoice: { id: 'INV-000001' } },
+      },
+    });
+    await user.click(await screen.findByRole('button', { name: /Ready to Invoice/i }, { timeout: 4000 }));
+    await user.click(await screen.findByRole('button', { name: /Create invoice/i }));
+    await screen.findByRole('heading', { level: 2, name: 'Invoice for GRN-000001' });
+    return { user, apiMock };
+  };
+
+  it('names itself and keeps the match banner out of the outline, before submitting', async () => {
+    await openInvoice();
+
+    expectNoSkippedLevel('invoice form');
+    expect(screen.getByText('Order, delivery and invoice all match')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Order, delivery and invoice all match' })).not.toBeInTheDocument();
+  });
+
+  it('keeps its page heading once the invoice is submitted', async () => {
+    const { user, apiMock } = await openInvoice();
+
+    await user.click(screen.getByRole('button', { name: /Submit invoice/i }));
+    // The screen waits a deliberate 1.5s before showing the submitted state.
+    await screen.findByRole('heading', { level: 3, name: 'Invoice submitted' }, { timeout: 4000 });
+
+    expect(apiMock.callsTo('POST', '/invoices')).toHaveLength(1);
+    expect(screen.getByRole('heading', { level: 2, name: 'Invoice for GRN-000001' })).toBeInTheDocument();
+    expectNoSkippedLevel('invoice submitted');
   });
 });
