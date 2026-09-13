@@ -20,20 +20,27 @@ import { describeSyncState } from '@/lib/syncState';
 import { useWhoami } from '@/lib/whoami';
 import InvoicePlanPanel from './InvoicePlanPanel';
 
+import { useLabelledControl } from '@/components/ui/FieldCard';
+
+// The shipment form's own card. Different layout from components/ui/FieldCard
+// — boxed, with an icon — but the label/control association is the same
+// problem, so it comes from the same place.
 function EnterpriseFieldCard({ label, required, error, children, icon: Icon }) {
+  const { id, control } = useLabelledControl({ label, required, error, children });
+
   return (
     <div className={`h-full p-3 rounded-lg border border-border bg-surface hover:border-border-em transition-all duration-150 flex flex-col justify-between relative min-h-[76px] select-none ${error ? 'border-red-300 bg-red-50/10' : ''
       }`}>
       <div className="flex justify-between items-start w-full gap-2">
-        <label className="text-[10px] font-bold text-text-secondary uppercase tracking-wider block leading-tight" title={label}>
-          {label} {required && <span className="text-red-500 font-bold select-none ml-0.5">*</span>}
+        <label htmlFor={id} className="text-[10px] font-bold text-text-secondary uppercase tracking-wider block leading-tight" title={label}>
+          {label} {required && <span aria-hidden="true" className="text-red-500 font-bold select-none ml-0.5">*</span>}
         </label>
         {Icon && <Icon className="size-3.5 text-text-tertiary shrink-0" />}
       </div>
       <div className="w-full min-w-0 mt-1.5 flex flex-col justify-end text-text-secondary font-medium [&_span:not(.rounded)]:font-medium [&_span:not(.rounded)]:text-text-secondary [&_input]:font-medium [&_input]:text-text-secondary">
-        {children}
+        {control}
         {error && (
-          <span className="text-[10px] font-bold text-red-600 mt-1 select-none">{error}</span>
+          <span id={`${id}-error`} className="text-[10px] font-bold text-red-600 mt-1 select-none">{error}</span>
         )}
       </div>
     </div>
@@ -870,8 +877,8 @@ export default function PurchaseOrdersView({
 
                 {/* Status Filter */}
                 <div className="flex items-center bg-base border border-border rounded-md px-2 py-1">
-                  <label className="text-[10px] font-bold text-text-tertiary uppercase mr-2 shrink-0">Status</label>
-                  <select
+                  <label htmlFor="po-filter-status" className="text-[10px] font-bold text-text-tertiary uppercase mr-2 shrink-0">Status</label>
+                  <select id="po-filter-status"
                     value={statusFilter}
                     onChange={e => { setStatusFilter(e.target.value); setCurrentPage(1); }}
                     className="w-full !border-0 !p-0 bg-transparent text-xs text-text-secondary outline-none font-semibold cursor-pointer"
@@ -886,8 +893,8 @@ export default function PurchaseOrdersView({
 
                 {/* Plant Filter */}
                 <div className="flex items-center bg-base border border-border rounded-md px-2 py-1">
-                  <label className="text-[10px] font-bold text-text-tertiary uppercase mr-2 shrink-0">Plant</label>
-                  <select
+                  <label htmlFor="po-filter-plant" className="text-[10px] font-bold text-text-tertiary uppercase mr-2 shrink-0">Plant</label>
+                  <select id="po-filter-plant"
                     value={plantFilter}
                     onChange={e => { setPlantFilter(e.target.value); setCurrentPage(1); }}
                     className="w-full !border-0 !p-0 bg-transparent text-xs text-text-secondary outline-none font-semibold cursor-pointer"
@@ -901,8 +908,8 @@ export default function PurchaseOrdersView({
 
                 {/* Buyer Filter */}
                 <div className="flex items-center bg-base border border-border rounded-md px-2 py-1">
-                  <label className="text-[10px] font-bold text-text-tertiary uppercase mr-2 shrink-0">Buyer</label>
-                  <select
+                  <label htmlFor="po-filter-buyer" className="text-[10px] font-bold text-text-tertiary uppercase mr-2 shrink-0">Buyer</label>
+                  <select id="po-filter-buyer"
                     value={buyerFilter}
                     onChange={e => { setBuyerFilter(e.target.value); setCurrentPage(1); }}
                     className="w-full !border-0 !p-0 bg-transparent text-xs text-text-secondary outline-none font-semibold cursor-pointer"

@@ -65,11 +65,11 @@ export default function ForgotPasswordPage() {
       ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="label">
+            <label className="label" htmlFor="forgot-1">
               Registered Email
             </label>
             <div className="relative">
-              <input
+              <input id="forgot-1"
                 type="email"
                 required
                 disabled={loading}

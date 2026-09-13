@@ -10,12 +10,11 @@ import { ACCOUNTS, api, ok, tokenFor, signIn, signOut, createTender } from './he
 // Both are fixed; this is what keeps them fixed, through the browser and the
 // real API rather than against a stub.
 
-// Filling the quotation form the way a supplier does. The form's labels are
-// not associated with their inputs, so each field is found by its label's
-// title and the control alongside it.
-const quoteField = (page, label) =>
-  page.locator(`label[title="${label}"]`).locator('xpath=following-sibling::div[1]')
-    .locator('input, select').first();
+// Filling the quotation form the way a supplier does — and the way assistive
+// technology reads it. getByLabel only resolves a control whose label is
+// programmatically attached, so every use of it here doubles as a check that
+// the field is announced with a name.
+const quoteField = (page, label) => page.getByLabel(label);
 
 const submitQuote = async (page, rfqId, { unitPrice, leadTimeDays }) => {
   // The tab and the form's submit button share a label; the tab is the one
@@ -26,7 +25,7 @@ const submitQuote = async (page, rfqId, { unitPrice, leadTimeDays }) => {
   // The tab shows a skeleton for a deliberate 800ms before the form appears.
   await expect(quoteField(page, 'Unit price (₹)')).toBeVisible();
 
-  await page.locator('select').first().selectOption(rfqId);
+  await page.getByLabel('Choose a request').selectOption(rfqId);
   await quoteField(page, 'Unit price (₹)').fill(String(unitPrice));
   await quoteField(page, 'Delivery lead time (days)').fill(String(leadTimeDays));
   await quoteField(page, 'Validity date').fill('2099-06-30');

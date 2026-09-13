@@ -82,11 +82,11 @@ function ResetPasswordForm() {
       ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="label">
+            <label className="label" htmlFor="reset-1">
               New Password
             </label>
             <div className="relative">
-              <input
+              <input id="reset-1"
                 type="password"
                 required
                 disabled={loading}
@@ -100,11 +100,11 @@ function ResetPasswordForm() {
           </div>
 
           <div>
-            <label className="label">
+            <label className="label" htmlFor="reset-2">
               Confirm New Password
             </label>
             <div className="relative">
-              <input
+              <input id="reset-2"
                 type="password"
                 required
                 disabled={loading}

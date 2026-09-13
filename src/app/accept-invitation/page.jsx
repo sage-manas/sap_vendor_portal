@@ -159,9 +159,9 @@ function AcceptInvitationForm() {
           ) : (
             <form onSubmit={submit} className="space-y-4">
               <div>
-                <label className="label">Your Name</label>
+                <label className="label" htmlFor="invite-1">Your Name</label>
                 <div className="relative">
-                  <input
+                  <input id="invite-1"
                     type="text"
                     required
                     disabled={busy}
@@ -175,9 +175,9 @@ function AcceptInvitationForm() {
               </div>
 
               <div>
-                <label className="label">Choose a Password</label>
+                <label className="label" htmlFor="invite-2">Choose a Password</label>
                 <div className="relative">
-                  <input
+                  <input id="invite-2"
                     type="password"
                     required
                     disabled={busy}
@@ -191,9 +191,9 @@ function AcceptInvitationForm() {
               </div>
 
               <div>
-                <label className="label">Confirm Password</label>
+                <label className="label" htmlFor="invite-3">Confirm Password</label>
                 <div className="relative">
-                  <input
+                  <input id="invite-3"
                     type="password"
                     required
                     disabled={busy}

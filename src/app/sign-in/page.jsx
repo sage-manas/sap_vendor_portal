@@ -85,11 +85,11 @@ export default function SignInPage() {
       {/* Login Form */}
       <form onSubmit={handleLogin} className="space-y-4">
         <div>
-          <label className="label">
+          <label className="label" htmlFor="signin-identifier">
             Vendor ID or Registered Email
           </label>
           <div className="relative">
-            <input
+            <input id="signin-identifier"
               type="text"
               required
               disabled={loading}
@@ -104,7 +104,7 @@ export default function SignInPage() {
 
         <div>
           <div className="flex justify-between items-center mb-1.5">
-            <label className="label mb-0">
+            <label className="label mb-0" htmlFor="signin-password">
               Password
             </label>
             <Link
@@ -115,7 +115,7 @@ export default function SignInPage() {
             </Link>
           </div>
           <div className="relative">
-            <input
+            <input id="signin-password"
               type="password"
               required
               disabled={loading}

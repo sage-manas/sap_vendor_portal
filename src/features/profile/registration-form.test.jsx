@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { usePortal } from '@/lib/portal-context';
@@ -125,5 +125,58 @@ describe('submitting a completed registration', () => {
     // optimistic status must not be the last word.
     await waitFor(() =>
       expect(apiMock.callsTo('GET', '/vendors/profile').length).toBeGreaterThan(before));
+  });
+});
+
+// The wizard is built from FieldCards, and five of them do not hand over a
+// bare input: two wrap a SearchableSelect for width, two wrap an input for a
+// positioned adornment, and one is a file drop zone. Those are exactly the
+// shapes an association helper misses — silently, because an unlabelled field
+// looks identical on screen.
+//
+// Scope: step 1 only. The wizard refuses to advance past a step with empty
+// mandatory fields (asserted above), so walking all four here would mean
+// filling the whole form; the two SearchableSelects — the case most likely to
+// regress, since a custom component has to forward the id itself — are both on
+// step 1.
+describe('every field on the first step is announced with a name', () => {
+  const unlabelled = () => [
+    ...document.querySelectorAll('input, select, textarea, [aria-haspopup="listbox"]'),
+  ]
+    .filter((el) => el.type !== 'hidden')
+    .filter((el) => !el.labels?.length && !el.getAttribute('aria-label') && !el.getAttribute('aria-labelledby'))
+    .map((el) => el.id || el.name || el.placeholder || el.textContent?.trim().slice(0, 30) || el.type);
+
+  it('associates a label with every control', async () => {
+    // FieldCard reports a field it could not attach a label to; nothing else
+    // in the app writes this prefix.
+    const warnings = [];
+    vi.spyOn(console, 'error').mockImplementation((...args) => {
+      if (String(args[0]).includes('[FieldCard]')) warnings.push(String(args[0]));
+    });
+
+    renderWithPortal(<RegistrationPage />, {
+      plane: 'supplier', route: '/registration', api: draftApi,
+    });
+    await screen.findByRole('heading', { name: /Vendor Registration/i });
+
+    expect(warnings).toEqual([]);
+    expect(unlabelled()).toEqual([]);
+  });
+
+  it('labels the searchable selects, whose control is a button rather than an input', async () => {
+    renderWithPortal(<RegistrationPage />, {
+      plane: 'supplier', route: '/registration', api: draftApi,
+    });
+    await screen.findByRole('heading', { name: /Vendor Registration/i });
+
+    // SearchableSelect renders its own trigger button and has to forward the
+    // id onto it; passing the prop is not proof that it did.
+    const triggers = [...document.querySelectorAll('[aria-haspopup="listbox"]')];
+    expect(triggers.length).toBeGreaterThan(0);
+    for (const trigger of triggers) {
+      expect(trigger.id).toBeTruthy();
+      expect(trigger.labels?.length ?? 0).toBeGreaterThan(0);
+    }
   });
 });
