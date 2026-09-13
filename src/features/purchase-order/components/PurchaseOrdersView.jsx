@@ -1437,9 +1437,9 @@ export default function PurchaseOrdersView({
                   </div>
                   <div className="space-y-4">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-2">
-                      <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider">
+                      <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">
                         PO Line Items
-                      </h4>
+                      </h3>
 
                       {/* Carousel Navigation Controls */}
                       {activePo.items && activePo.items.length > 0 && (
@@ -1549,7 +1549,7 @@ export default function PurchaseOrdersView({
                   {activePo.status === 'Open' ? (
                     <div className="card p-6 text-center">
                       <AlertTriangle className="size-8 text-amber-500 mx-auto mb-2" />
-                      <h4 className="text-xs font-bold text-text-primary">PO Acknowledgement Required</h4>
+                      <p className="text-xs font-bold text-text-primary">PO Acknowledgement Required</p>
                       <p className="text-xs text-text-secondary mt-1">
                         You must acknowledge this purchase order before you can send shipment details.
                       </p>
@@ -1565,7 +1565,7 @@ export default function PurchaseOrdersView({
                     <div className="space-y-6">
                       <div className="card p-4 flex items-center justify-between">
                         <div>
-                          <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider">Advanced Shipping Notice Form (VL31N)</h4>
+                          <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">Advanced Shipping Notice Form (VL31N)</h3>
                           <p className="text-[10px] text-text-secondary font-medium mt-0.5">Provide actual shipment details and dispatch quantities</p>
                         </div>
                         <Button
@@ -1832,7 +1832,7 @@ export default function PurchaseOrdersView({
                               <div className="size-12 bg-green-50 border border-green-200 text-green-600 rounded-full flex items-center justify-center mx-auto shadow-xs">
                                 <Check className="size-6 animate-pulse" />
                               </div>
-                              <h4 className="text-sm font-bold text-amber-800">Shipment details sent</h4>
+                              <p className="text-sm font-bold text-amber-800">Shipment details sent</p>
                               <p className="text-xs text-text-secondary max-w-md mx-auto leading-normal">
                                 Your dispatch details have been sent to your buyer.
                               </p>
@@ -1882,7 +1882,7 @@ export default function PurchaseOrdersView({
                       return (
                         <div className="card p-6 text-center">
                           <AlertTriangle className="size-8 text-text-tertiary mx-auto mb-2" />
-                          <h4 className="text-xs font-bold text-text-primary">No delivery confirmed yet</h4>
+                          <p className="text-xs font-bold text-text-primary">No delivery confirmed yet</p>
                           <p className="text-xs text-text-secondary mt-1">
                             Send your shipment details (step 2) first — the delivery receipt appears once your buyer checks the goods in.
                           </p>
@@ -1895,7 +1895,7 @@ export default function PurchaseOrdersView({
                       <div className="space-y-6 animate-fade-in">
                         <div className="card p-4 flex items-center justify-between">
                           <div>
-                            <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider">Delivery receipt</h4>
+                            <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">Delivery receipt</h3>
                             <p className="text-[10px] text-text-secondary font-medium mt-0.5">Checked and accepted by your buyer’s receiving team</p>
                           </div>
                           {!grn.invoiceSubmitted ? (
