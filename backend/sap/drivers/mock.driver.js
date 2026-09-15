@@ -155,7 +155,7 @@ const createMockDriver = ({ config = {} } = {}) => {
           accountGroup: settings.accountGroup,
         },
         status: 'SUCCESS',
-        documentRef: String(vendor._id),
+        documentRef: String(vendor.pk),
       },
     }),
 
@@ -489,7 +489,7 @@ const createMockDriver = ({ config = {} } = {}) => {
         vendorId: vendor.vendorId,
         payload: { gstin: vendor.gstin, pan: vendor.pan, result },
         status: result.gstinValid && result.panValid ? 'SUCCESS' : 'FAILED',
-        documentRef: String(vendor._id),
+        documentRef: String(vendor.pk),
       },
     }),
 
@@ -498,7 +498,7 @@ const createMockDriver = ({ config = {} } = {}) => {
       log: {
         vendorId: vendor.vendorId,
         payload: { status: 'Rejected', reason },
-        documentRef: String(vendor._id),
+        documentRef: String(vendor.pk),
       },
     }),
 

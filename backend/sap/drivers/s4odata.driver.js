@@ -375,7 +375,7 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
           vendorId: vendor.vendorId,
           payload: { businessPartner, request: payload, response: { TYPE: json.TYPE, MESSAGE: json.MESSAGE } },
           status: 'SUCCESS',
-          documentRef: String(vendor._id),
+          documentRef: String(vendor.pk),
         },
       };
     },
@@ -1049,25 +1049,26 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
     // Not a real SAP call — GSTIN/PAN verification runs against a third-party
     // KYC service (services/verification.service.js), same as the mock. This
     // only exists so the check appears in the same tenant SAP log as
-    // everything else, which is the log's whole purpose.
+    // everything else, which is the log's whole purpose. Its transaction is
+    // registered with type 'KYC', not 'OData' (config/sapTransactions.js), so
+    // the log itself never claims this reached SAP.
     vendorVerifyKyc: async ({ vendor, result }) => ({
       data: { gstinValid: result.gstinValid, panValid: result.panValid },
       log: {
         vendorId: vendor.vendorId,
         payload: { gstin: vendor.gstin, pan: vendor.pan, result },
         status: result.gstinValid && result.panValid ? 'SUCCESS' : 'FAILED',
-        documentRef: String(vendor._id),
+        documentRef: String(vendor.pk),
       },
     }),
 
-    vendorReject: async ({ vendor, reason }) => ({
-      data: {},
-      log: {
-        vendorId: vendor.vendorId,
-        payload: { status: 'Rejected', reason },
-        documentRef: String(vendor._id),
-      },
-    }),
+    // No vendorReject override here (issue #59): unlike vendorCreate's
+    // VENDOR_CR, there is no confirmed Z REST/OData endpoint for rejecting a
+    // vendor master in SAP, and VENDOR_REJECT is registered as a real OData
+    // transaction (config/sapTransactions.js) — an entry logged from here
+    // would claim an SAP call that never happened. Falls through to
+    // notImplementedDriver until a real endpoint is confirmed and this can
+    // make one, same as every other not-yet-built method on this driver.
 
     poAcknowledge: async ({ po }) => {
       const ackField = config.fields?.poAcknowledgeField;
