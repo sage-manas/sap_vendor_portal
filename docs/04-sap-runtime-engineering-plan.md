@@ -1032,7 +1032,7 @@ Violating these fails CI or review, not just taste:
    same commit. Infrastructure tables (`SapJob`, `SapSchedule`, `SapSyncCursor`)
    deliberately stay out — document why, inline.
 6. **Design system is strict.** Zero border-radius, no drop shadows, JetBrains
-   Mono for all tabular data, IDs, amounts and compliance codes. See `DESIGN.md`.
+   Mono for all tabular data, IDs, amounts and compliance codes. See `src/app/globals.css`.
 7. **`apiClient` returns `null` on network failure** — it does not throw.
    Callers must handle null.
 8. **Errors surface, never swallowed.** Hooks return `{ success, error }`;
