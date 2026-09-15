@@ -3,7 +3,7 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { getSapAdapterForClient } = require('../sap');
 
-const { requireVendorScope, withVendorScope } = require('../utils/requestScope');
+const { requireVendorScope, withVendorScope, scopedWhere } = require('../utils/requestScope');
 const { matchInvoiceDocument } = require('../sap/mappings/invoice-match');
 const { INVOICE_INCLUDE, formatInvoice } = require('../db/invoiceHelpers');
 const { formatPayment } = require('../db/paymentHelpers');
@@ -40,7 +40,7 @@ const getInvoices = asyncHandler(async (req, res, next) => {
 // @route   GET /api/invoices/:id
 // @access  Public
 const getInvoiceById = asyncHandler(async (req, res, next) => {
-  const invoice = await prisma.invoice.findFirst({ where: { id: req.params.id }, include: INVOICE_INCLUDE });
+  const invoice = await prisma.invoice.findFirst({ where: scopedWhere(req, { id: req.params.id }), include: INVOICE_INCLUDE });
   if (!invoice) {
     return next(ApiError.notFound('Invoice not found'));
   }

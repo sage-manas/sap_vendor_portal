@@ -1,7 +1,7 @@
 const { prisma } = require('../db/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
-const { withVendorScope } = require('../utils/requestScope');
+const { withVendorScope, scopedWhere } = require('../utils/requestScope');
 
 // `totalAccepted`/`rejectionRate` were Mongoose virtuals (models/GRN.js),
 // computed from `items` and serialized automatically via `toJSON`. Replicated
@@ -45,7 +45,7 @@ const getGRNs = asyncHandler(async (req, res, next) => {
 // @route   GET /api/grns/:id
 // @access  Public
 const getGRNById = asyncHandler(async (req, res, next) => {
-  const grn = await prisma.gRN.findFirst({ where: { id: req.params.id }, include: { items: true } });
+  const grn = await prisma.gRN.findFirst({ where: scopedWhere(req, { id: req.params.id }), include: { items: true } });
   if (!grn) {
     return next(ApiError.notFound('Delivery receipt not found'));
   }
