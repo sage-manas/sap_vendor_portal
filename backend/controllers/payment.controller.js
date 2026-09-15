@@ -2,7 +2,7 @@ const { prisma } = require('../db/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { getSapAdapterForClient } = require('../sap');
-const { withVendorScope, requireVendorScope } = require('../utils/requestScope');
+const { withVendorScope, requireVendorScope, scopedWhere } = require('../utils/requestScope');
 const { fiscalPeriodOf, fiscalYearLabel, fiscalQuarterLabel } = require('../utils/fiscalPeriod');
 const { createWithUniqueId } = require('../utils/createWithUniqueId');
 const { formatPayment } = require('../db/paymentHelpers');
@@ -147,7 +147,7 @@ const getTdsSummary = asyncHandler(async (req, res) => {
 // @route   GET /api/payments/:id
 // @access  Public
 const getPaymentById = asyncHandler(async (req, res, next) => {
-  const payment = await prisma.payment.findFirst({ where: { id: req.params.id } });
+  const payment = await prisma.payment.findFirst({ where: scopedWhere(req, { id: req.params.id }) });
   if (!payment) {
     return next(ApiError.notFound('Payment not found'));
   }

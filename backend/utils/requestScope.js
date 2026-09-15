@@ -37,4 +37,14 @@ const withVendorScope = (req, query = {}) => {
 
 const isSupplier = (req) => Boolean(req.scopeVendorId);
 
-module.exports = { vendorScope, requireVendorScope, withVendorScope, isSupplier };
+// Scopes a by-id lookup to the calling supplier, the same way withVendorScope
+// scopes a list. The tenant extension already keeps a document lookup inside
+// the caller's tenant; nothing else stopped a `findFirst({ where: { id } })`
+// from resolving to another supplier's row in that same tenant. Tenant staff
+// (no scopeVendorId) are unaffected — they may look any document up by id.
+const scopedWhere = (req, where = {}) => {
+  const vendorId = vendorScope(req);
+  return isSupplier(req) && vendorId ? { ...where, vendorId } : where;
+};
+
+module.exports = { vendorScope, requireVendorScope, withVendorScope, isSupplier, scopedWhere };

@@ -28,3 +28,16 @@ See ADR-0037.
 - [ ] No test name describes behaviour we would not want a customer to rely
       on. `'accepts a bid from a non-invited vendor'` is a security hole
       written in the language of a feature.
+
+<!--
+This one exists because five `:id` read endpoints resolved a document by id
+alone — the tenant boundary was enforced, the ownership boundary wasn't, so
+any supplier could read any other supplier's PO, invoice, payment or GRN in
+the same tenant. See ADR-0038 and `utils/requestScope.js`'s `scopedWhere`.
+-->
+
+- [ ] Every new or edited `GET .../:id` (or `:id/child`) route reachable by a
+      supplier scopes its lookup to the caller's own document — via
+      `scopedWhere(req, { id: ... })`, or, for a parent/child route, by
+      checking the parent. A supplier resolving someone else's document gets
+      404, not the document.

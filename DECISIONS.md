@@ -5,6 +5,66 @@ Each entry: the call, why, and what it costs.
 
 ---
 
+## ADR-0038 — A document-by-id lookup is scoped through one helper, enforced at review
+
+**Security remediation · 2026-09-15 · Accepted**
+
+**Context.** `GET /api/pos/:id`, `/api/pos/:id/asn`, `/api/invoices/:id`, `/api/payments/:id`
+and `/api/grns/:id` each resolved on `findFirst({ where: { id: req.params.id } })` alone. The
+Prisma tenant extension kept the lookup inside the caller's tenant; nothing kept it inside the
+caller's own documents. `VENDOR` holds `PO_READ`/`INVOICE_READ`/`PAYMENT_READ`/`GRN_READ`
+(`config/permissions.js`), so any approved supplier could read any other supplier's purchase
+order, invoice, payment or delivery receipt in the same tenant by guessing or enumerating a
+sequential id (#51).
+
+The list endpoints never had this problem — `getInvoices`, `getPayments`, `getGRNs`, `getPOs`
+all build their `where` from `withVendorScope(req)`. Only the by-id paths, added or edited
+later, skipped it — the same shape of miss as #50 (sealed-bid visibility): a helper existed for
+the common case, and the singular lookup was written by hand each time instead of reusing it.
+
+**Decision.** One additional helper beside `withVendorScope`, for the by-id case it doesn't
+cover:
+
+```js
+// utils/requestScope.js
+const scopedWhere = (req, where = {}) =>
+  isSupplier(req) && vendorScope(req) ? { ...where, vendorId: vendorScope(req) } : where;
+```
+
+Every supplier-reachable `findFirst`/`findMany` keyed on a document id goes through it —
+`prisma.purchaseOrder.findFirst({ where: scopedWhere(req, { id: req.params.id }) })` — so a
+document that isn't the caller's own resolves to nothing, and the route's existing "not found"
+branch turns that into the same 404 a nonexistent id would produce. A parent/child lookup
+(`GET /pos/:id/asn`) scopes on the parent it's actually authorizing access to, not the child
+rows, which carry the same vendorId anyway.
+
+**What we did not build, and why.** The issue proposed a lint rule banning
+`findFirst({ where: { id: req.params.id } })` outright. Measured before building: roughly a
+dozen such calls survive by design — `updatePOStatus`, `configureInvoicePlan`,
+`syncInvoicePlan` and the other `po:manage`-gated writes are buyer/staff-only and reachable by
+no supplier role at all, so scoping them would silently no-op for the only callers who can
+reach them while adding a query condition that protects nobody. A rule that fires on all of
+them either produces constant justified suppressions (training reviewers to click past it) or
+has to encode which permission gates which route to stay silent on the safe ones — logic that
+belongs in `route-role-matrix.test.js`, not a text-matching lint pass.
+
+The signal that actually matters is "does `VENDOR` hold the permission this route requires" —
+semantic, and answered by `config/permissions.js`, not by the shape of the query. So this stays
+a review-time check: **before adding or editing a `:id` route, confirm a supplier who holds
+that route's permission cannot resolve another supplier's document through it** — via
+`scopedWhere`, or, for a parent/child route, by checking the parent. `tests/route-role-matrix.test.js`
+proves every route declares a permission and that the permission exists; it does not and
+cannot prove ownership is checked, which is why `tests/cross-supplier-document-access.test.js`
+exists beside it as the ownership counterpart — two different questions, two different tests.
+
+**Cost.** Same as ADR-0037: a rule enforced by review has no mechanical backstop and can be
+skipped under a rushed one. The five endpoints in #51 are fixed and covered by
+`cross-supplier-document-access.test.js`; a sixth added later without `scopedWhere` will not
+fail CI on its own; it will only be caught if a reviewer — human or agent — checks for it, or if
+someone extends that test file's matrix to include the new route.
+
+---
+
 ## ADR-0037 — API-bypassing test setup is a defect report, enforced at review rather than by a grep
 **QA remediation · 2026-09-12 · Accepted**
 

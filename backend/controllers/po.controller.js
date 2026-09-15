@@ -5,7 +5,7 @@ const { getSapAdapterForClient } = require('../sap');
 const { EVENTS, emitToVendor } = require('../utils/socketEmitter');
 const { TtlCache } = require('../utils/ttlCache');
 
-const { requireVendorScope, withVendorScope } = require('../utils/requestScope');
+const { requireVendorScope, withVendorScope, scopedWhere } = require('../utils/requestScope');
 const {
   buildPlan,
   summarizePlan,
@@ -146,7 +146,7 @@ const getSapPoStatus = asyncHandler(async (req, res, next) => {
 // @route   GET /api/pos/:id
 // @access  Public
 const getPOById = asyncHandler(async (req, res, next) => {
-  const po = await prisma.purchaseOrder.findFirst({ where: { id: req.params.id }, include: PO_INCLUDE });
+  const po = await prisma.purchaseOrder.findFirst({ where: scopedWhere(req, { id: req.params.id }), include: PO_INCLUDE });
   if (!po) {
     return next(ApiError.notFound('Purchase Order not found'));
   }
@@ -281,6 +281,14 @@ const submitASN = asyncHandler(async (req, res, next) => {
 // @route   GET /api/pos/:id/asn
 // @access  Public
 const getASNForPO = asyncHandler(async (req, res, next) => {
+  // Scoped on the parent PO, not the ASN rows themselves — an ASN carries its
+  // own vendorId (always the PO's), but the check that matters is whether the
+  // caller may see this PO at all.
+  const po = await prisma.purchaseOrder.findFirst({ where: scopedWhere(req, { id: req.params.id }) });
+  if (!po) {
+    return next(ApiError.notFound('Purchase Order not found'));
+  }
+
   const asns = await prisma.aSN.findMany({ where: { poId: req.params.id }, include: { items: true } });
   res.json(asns);
 });
