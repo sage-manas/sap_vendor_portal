@@ -24,7 +24,7 @@ const ROUTES = [
   ['/', DashboardPage, 'Vendor Dashboard'],
   ['/rfqs', RfqsPage, 'RFQ Management'],
   ['/pos', PurchaseOrdersPage, /Purchase Orders/i],
-  ['/invoices', InvoicesPage, /Invoice Submission/i],
+  ['/invoices', InvoicesPage, /^Invoices$/i],
   ['/payments', PaymentsPage, /Payment Tracking/i],
   ['/performance', PerformancePage, /Supplier Performance scorecard/i],
   ['/analytics', AnalyticsPage, /Reports & Analytics/i],

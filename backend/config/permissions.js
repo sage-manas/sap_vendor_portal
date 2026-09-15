@@ -39,7 +39,6 @@ const P = {
 
   // Finance
   INVOICE_READ: 'invoice:read',
-  INVOICE_SUBMIT: 'invoice:submit',
   INVOICE_APPROVE: 'invoice:approve',
   PAYMENT_READ: 'payment:read',
   PAYMENT_CREATE: 'payment:create',
@@ -154,7 +153,6 @@ const VENDOR = [
   P.ASN_CREATE,
   P.GRN_READ,
   P.INVOICE_READ,
-  P.INVOICE_SUBMIT,
   P.PAYMENT_READ,
   P.CHAT_READ,
   P.CHAT_WRITE,

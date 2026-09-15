@@ -102,36 +102,3 @@ describe('the purchase-order detail view', () => {
     expect(screen.queryByRole('heading', { name: 'No delivery confirmed yet' })).not.toBeInTheDocument();
   });
 });
-
-describe('the invoice screen', () => {
-  const openInvoice = async () => {
-    const { user, apiMock } = renderLedger(po({ status: 'Delivered' }), {
-      ...withGrn,
-      'POST /invoices': { message: 'Invoice submitted', invoice: { id: 'INV-000001' } },
-    });
-    await user.click(await screen.findByRole('button', { name: /Ready to Invoice/i }, { timeout: 4000 }));
-    await user.click(await screen.findByRole('button', { name: /Create invoice/i }));
-    await screen.findByRole('heading', { level: 2, name: 'Invoice for GRN-000001' });
-    return { user, apiMock };
-  };
-
-  it('names itself and keeps the match banner out of the outline, before submitting', async () => {
-    await openInvoice();
-
-    expectHeadingOutline('the invoice form');
-    expect(screen.getByText('Order, delivery and invoice all match')).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Order, delivery and invoice all match' })).not.toBeInTheDocument();
-  });
-
-  it('keeps its page heading once the invoice is submitted', async () => {
-    const { user, apiMock } = await openInvoice();
-
-    await user.click(screen.getByRole('button', { name: /Submit invoice/i }));
-    // The screen waits a deliberate 1.5s before showing the submitted state.
-    await screen.findByRole('heading', { level: 3, name: 'Invoice submitted' }, { timeout: 4000 });
-
-    expect(apiMock.callsTo('POST', '/invoices')).toHaveLength(1);
-    expect(screen.getByRole('heading', { level: 2, name: 'Invoice for GRN-000001' })).toBeInTheDocument();
-    expectHeadingOutline('the submitted invoice');
-  });
-});

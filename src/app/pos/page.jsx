@@ -12,9 +12,7 @@ export default function PurchaseOrdersPage() {
     asnForm,
     setAsnForm,
     handleAsnSubmit,
-    poHook,
-    setActiveTab,
-    invoiceHook
+    poHook
   } = usePortal();
 
   return (
@@ -26,8 +24,6 @@ export default function PurchaseOrdersPage() {
       setAsnForm={setAsnForm}
       handleAsnSubmit={handleAsnSubmit}
       acknowledgePO={poHook.acknowledgePO}
-      setActiveTab={setActiveTab}
-      submitInvoice={invoiceHook.submitInvoice}
       retrySapStatus={poHook.refreshSapPoStatus}
     />
   );

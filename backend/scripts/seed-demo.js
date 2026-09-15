@@ -711,8 +711,8 @@ const seedInvoicingPlan = async (vendor) => {
     include: { items: true },
   });
 
-  // submitPlanInvoice's own shape: quantity 1, unitPrice/amount = the plan
-  // line's amount, invoicePlanRef naming the line it bills, no grnId.
+  // A plan invoice's shape: quantity 1, unitPrice/amount = the plan line's
+  // amount, invoicePlanRef naming the line it bills, no grnId.
   const planInvoice = await prisma.invoice.create({
     data: {
       clientId, id: planInvoiceId, grnId: null, poId, vendorId: VENDOR_ID,

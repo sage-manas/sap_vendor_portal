@@ -53,22 +53,7 @@ const invoicePlanSchema = z.object({
   }
 });
 
-// An invoice raised against one date of an invoicing plan. There is no GRN
-// here and there is no line-item list: the plan date IS the billable thing, and
-// its amount comes from the plan rather than from anything the supplier types,
-// so the only figures a supplier supplies are their own invoice number, its
-// date and the tax on it.
-const planInvoiceSchema = z.object({
-  poId: z.string().min(1),
-  line: z.coerce.number().int().positive(),
-  planLineNumber: z.coerce.number().int().positive(),
-  invoiceNumber: z.string().min(1).max(50),
-  invoiceDate: isoDate,
-  taxAmount: z.coerce.number().min(0).optional(),
-  documentIds: z.array(z.string()).optional(),
-});
-
 // FPLT-FAKSP, on its own: withholding one date is not a change to the schedule.
 const invoicePlanLineBlockSchema = z.object({ blocked: z.boolean() });
 
-module.exports = { invoicePlanSchema, planInvoiceSchema, invoicePlanLineBlockSchema };
+module.exports = { invoicePlanSchema, invoicePlanLineBlockSchema };

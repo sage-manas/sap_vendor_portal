@@ -152,17 +152,6 @@ export function usePOs(profile) {
     }
   };
 
-  const setInvoiceSubmittedForGrn = (grnId) => {
-    setGrns(prev => {
-      const updated = prev.map(g => {
-        if (g.id === grnId) return { ...g, invoiceSubmitted: true };
-        return g;
-      });
-      persistLocally('sap_vendor_portal_grns', updated);
-      return updated;
-    });
-  };
-
   return {
     pos,
     asns,
@@ -172,7 +161,6 @@ export function usePOs(profile) {
     addPO,
     acknowledgePO,
     submitASN,
-    setInvoiceSubmittedForGrn,
     refreshPOs,
     refreshGRNs,
     refreshASNs,

@@ -10,10 +10,6 @@ export const invoiceService = {
     return apiClient.get(`/invoices/${invoiceId}`).catch(() => null);
   },
 
-  async createInvoice(invoiceData) {
-    return apiClient.post('/invoices', invoiceData).catch(() => null);
-  },
-
   async updateInvoiceStatus(invoiceId, status) {
     return apiClient.put(`/invoices/${invoiceId}/status`, { status }).catch(() => null);
   },
