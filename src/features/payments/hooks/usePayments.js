@@ -74,24 +74,12 @@ export function usePayments() {
     });
   }, [persistLocally]);
 
-  const updatePaymentStatus = useCallback((paymentId, status) => {
-    setPayments(prev => {
-      const updated = prev.map(p =>
-        p.id === paymentId ? { ...p, status, updatedAt: new Date().toISOString() } : p
-      );
-      persistLocally(updated);
-      paymentService.updatePaymentStatus(paymentId, status).catch(() => {});
-      return updated;
-    });
-  }, [persistLocally]);
-
   return {
     payments,
     sapPayments,
     tdsSummary,
     loading,
     addPayment,
-    updatePaymentStatus,
     refreshPayments,
     refreshSapPayments,
     refreshTdsSummary
