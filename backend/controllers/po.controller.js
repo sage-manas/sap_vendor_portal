@@ -157,7 +157,7 @@ const getPOById = asyncHandler(async (req, res, next) => {
 // @route   PUT /api/pos/:id/acknowledge
 // @access  Public
 const acknowledgePO = asyncHandler(async (req, res, next) => {
-  const po = await prisma.purchaseOrder.findFirst({ where: { id: req.params.id } });
+  const po = await prisma.purchaseOrder.findFirst({ where: scopedWhere(req, { id: req.params.id }) });
   if (!po) {
     return next(ApiError.notFound('Purchase Order not found'));
   }
@@ -192,7 +192,7 @@ const submitASN = asyncHandler(async (req, res, next) => {
     return next(ApiError.badRequest('Shipment items are required'));
   }
 
-  const po = await prisma.purchaseOrder.findFirst({ where: { id: req.params.id }, include: PO_INCLUDE });
+  const po = await prisma.purchaseOrder.findFirst({ where: scopedWhere(req, { id: req.params.id }), include: PO_INCLUDE });
   if (!po) {
     return next(ApiError.notFound('Purchase Order not found'));
   }
