@@ -32,6 +32,9 @@ const AUDIT_ACTIONS = {
   VENDOR_CREATED: 'vendor.created',
   VENDOR_APPROVED: 'vendor.approved',
   VENDOR_REJECTED: 'vendor.rejected',
+  VENDOR_BANK_CHANGE_REQUESTED: 'vendor.bank_change_requested',
+  VENDOR_BANK_CHANGE_APPROVED: 'vendor.bank_change_approved',
+  VENDOR_BANK_CHANGE_REJECTED: 'vendor.bank_change_rejected',
 
   // Tenant staff (tenant plane)
   USER_INVITED: 'user.invited',

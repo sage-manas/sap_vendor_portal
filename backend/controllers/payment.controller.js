@@ -159,6 +159,18 @@ const getPaymentById = asyncHandler(async (req, res, next) => {
 // @access  Public
 const createPayment = asyncHandler(async (req, res, next) => {
   const vendorId = requireVendorScope(req);
+
+  // A bank-account change awaiting approval (issue #53) means the payout
+  // details on file are, by definition, in dispute — releasing money while
+  // that's unresolved is exactly the window an account-takeover attack needs.
+  const vendor = await prisma.vendor.findFirst({ where: { vendorId } });
+  if (vendor?.pendingBankChange) {
+    return next(ApiError.badRequest(
+      'This supplier has a bank-account change awaiting approval. Approve or reject it before releasing payment.',
+      { reason: 'bank_change_pending' },
+    ));
+  }
+
   const { id, ...body } = req.body;
   const paymentData = { ...body, vendorId };
 
