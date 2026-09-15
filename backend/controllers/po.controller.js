@@ -13,7 +13,7 @@ const {
   hasInvoicePlan,
   InvoicePlanError,
 } = require('../services/invoicePlan.service');
-const { PO_INCLUDE, formatPlan, formatPo, persistInvoicePlan, disableInvoicePlan } = require('../db/poHelpers');
+const { PO_INCLUDE, formatPlan, formatPo, persistInvoicePlan, disableInvoicePlan, syncPoStatus } = require('../db/poHelpers');
 const { createWithUniqueId } = require('../utils/createWithUniqueId');
 const { toNumber } = require('../utils/money');
 const { enqueue } = require('../jobs/queue');
@@ -166,11 +166,8 @@ const acknowledgePO = asyncHandler(async (req, res, next) => {
     return next(ApiError.badRequest(`Purchase Order cannot be acknowledged in '${po.status}' state`));
   }
 
-  const updated = await prisma.purchaseOrder.update({
-    where: { pk: po.pk },
-    data: { status: 'Acknowledged', acknowledgedAt: new Date() },
-    include: PO_INCLUDE,
-  });
+  await prisma.purchaseOrder.update({ where: { pk: po.pk }, data: { acknowledgedAt: new Date() } });
+  const updated = await syncPoStatus(prisma, po.pk);
 
   const sap = await getSapAdapterForClient(req.clientId);
   const { transaction } = await sap.poAcknowledge({ po: formatPo(updated) });
@@ -257,8 +254,9 @@ const submitASN = asyncHandler(async (req, res, next) => {
     }),
   });
 
-  // Update PO status to Dispatched
-  await prisma.purchaseOrder.update({ where: { pk: po.pk }, data: { status: 'Dispatched' } });
+  // Derive PO status from the shipment that now exists (issue #60), rather
+  // than declaring it Dispatched outright.
+  await syncPoStatus(prisma, po.pk);
 
   // The goods receipt arrives when SAP says it does. jobs/handlers/awaitGoodsReceipt.js
   // does the actual work (this used to run inline here as a closure passed to
@@ -555,24 +553,6 @@ const setInvoicePlanLineBlock = asyncHandler(async (req, res, next) => {
   });
 });
 
-// @desc    Update PO status
-// @route   PUT /api/pos/:id/status
-// @access  Public
-const updatePOStatus = asyncHandler(async (req, res, next) => {
-  const { status } = req.body;
-  if (!status) {
-    return next(ApiError.badRequest('Status is required'));
-  }
-
-  const po = await prisma.purchaseOrder.findFirst({ where: { id: req.params.id } });
-  if (!po) {
-    return next(ApiError.notFound('Purchase Order not found'));
-  }
-
-  const updated = await prisma.purchaseOrder.update({ where: { pk: po.pk }, data: { status }, include: PO_INCLUDE });
-  res.json({ message: 'PO status updated successfully', po: formatPo(updated) });
-});
-
 module.exports = {
   getPOs,
   getPOById,
@@ -580,7 +560,6 @@ module.exports = {
   submitASN,
   getASNForPO,
   getASNs,
-  updatePOStatus,
   getSapPoStatus,
   getInvoicePlan,
   configureInvoicePlan,
