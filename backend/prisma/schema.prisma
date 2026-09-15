@@ -263,6 +263,18 @@ model Vendor {
   accountName   String?
   bankBranch    String?
 
+  // A bank-detail change requested by an already-Approved supplier — never
+  // written straight to the live columns above (issue #53: the payout
+  // account is the single most exploited fraud vector in AP, and an approved
+  // supplier could previously repoint it with no review and no audit trail).
+  // Holds the requested bankName/accountNumber/ifscCode/accountName/
+  // bankBranch plus requestedAt; null once applied or rejected. A supplier
+  // still on their initial registration (not yet Approved) is unaffected —
+  // the whole profile goes through the ordinary approval gate once, via
+  // submitRegistration/approveVendor, so gating bank fields a second time
+  // before that first approval would just be the same review twice.
+  pendingBankChange Json?
+
   cancelledCheque Json?
   panCardCopy     Json?
   gstCertificate  Json?
