@@ -402,7 +402,10 @@ model RfqBid {
   freight              Decimal   @default(0) @db.Decimal(14, 2)
   deliveryLeadTimeDays Int?
   vendorRating         Float?
-  technicalScore       Float     @default(80)
+  // No default: no code path captures a real technical evaluation yet (issue
+  // #58), so null genuinely means "not evaluated" rather than an invented
+  // score. Populate this from a real buyer-entered score when that exists.
+  technicalScore       Float?
   validityDate         DateTime?
   moq                  Float     @default(1)
   remarks              String?
