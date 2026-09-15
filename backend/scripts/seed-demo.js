@@ -440,7 +440,9 @@ const seedRfqs = async (vendor) => {
     freight: 4500,
     deliveryLeadTimeDays: 21,
     vendorRating: 4.4,
-    technicalScore: 86,
+    // No technicalScore: the demo data shouldn't show a measurement that no
+    // code path in the portal actually produces (issue #58) — left null,
+    // same as a real bid would be.
     moq: 50,
     unitPrices: { create: prices.map(([lineNumber, price]) => ({ clientId, lineNumber, price })) },
     ...extra,
