@@ -189,33 +189,10 @@ const createPayment = asyncHandler(async (req, res, next) => {
   res.status(201).json(formatPayment(payment));
 });
 
-// @desc    Update Payment status
-// @route   PUT /api/payments/:id/status
-// @access  Public
-//
-// NOTE: `status` is not a Payment column — it never was (models/Payment.js
-// carried no such field either), so this endpoint has always updated nothing
-// in the database and returned a response object with `status` merely spliced
-// on in memory. Preserved exactly rather than "fixed" during this migration.
-const updatePaymentStatus = asyncHandler(async (req, res, next) => {
-  const { status } = req.body;
-  if (!status) {
-    return next(ApiError.badRequest('Status is required'));
-  }
-
-  const payment = await prisma.payment.findFirst({ where: { id: req.params.id } });
-  if (!payment) {
-    return next(ApiError.notFound('Payment not found'));
-  }
-
-  res.json({ message: 'Payment status updated successfully', payment: { ...formatPayment(payment), status } });
-});
-
 module.exports = {
   getPayments,
   getSapPaymentStatus,
   getTdsSummary,
   getPaymentById,
-  createPayment,
-  updatePaymentStatus
+  createPayment
 };

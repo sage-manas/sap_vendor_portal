@@ -42,7 +42,6 @@ const P = {
   INVOICE_APPROVE: 'invoice:approve',
   PAYMENT_READ: 'payment:read',
   PAYMENT_CREATE: 'payment:create',
-  PAYMENT_MANAGE: 'payment:manage',
 
   // Collaboration and content
   CHAT_READ: 'chat:read',
@@ -118,7 +117,6 @@ const FINANCE = [
   ...TENANT_READ_ONLY,
   P.INVOICE_APPROVE,
   P.PAYMENT_CREATE,
-  P.PAYMENT_MANAGE,
   P.DOCUMENT_WRITE,
 ];
 

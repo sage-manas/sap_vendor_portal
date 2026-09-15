@@ -14,10 +14,6 @@ export const paymentService = {
     return apiClient.post('/payments', paymentData).catch(() => null);
   },
 
-  async updatePaymentStatus(paymentId, status) {
-    return apiClient.put(`/payments/${paymentId}/status`, { status }).catch(() => null);
-  },
-
   /** SAP's own payment ledger for this vendor — cross-checks our records */
   async getSapStatus() {
     return apiClient.get('/payments/sap-status').catch(() => null);
