@@ -11,7 +11,7 @@ import { ACCOUNTS, api, ok, tokenFor, signIn, signOut, createTender } from './he
 // receipts never arrived. So here every step a supplier or the client admin
 // takes is a click, a keystroke or a file chosen in a browser. The only API
 // calls are the ones made as a role whose screen this is not (the buyer's
-// award, finance's payment run) and read-backs that check what was stored.
+// award) and read-backs that check what was stored.
 
 const pdf = (name) => ({
   name,
@@ -125,9 +125,8 @@ test.describe('demo flows, through the UI', () => {
     expect(profile.city).toBe('Pune');
   });
 
-  test('a supplier acknowledges, ships and invoices an order, and sees the payment', async ({ page, request }) => {
+  test('a supplier acknowledges and ships an order, and the delivery is received', async ({ page, request }) => {
     const buyer = api(request, await tokenFor(request, ACCOUNTS.buyer));
-    const finance = api(request, await tokenFor(request, ACCOUNTS.finance));
     const supplier = api(request, await tokenFor(request, ACCOUNTS.supplierA));
 
     // [API · buyer] The order exists before the supplier's story starts.
@@ -168,42 +167,12 @@ test.describe('demo flows, through the UI', () => {
     await expect.poll(grnFor, { timeout: 90_000, intervals: [1000] }).not.toBeNull();
     const grn = await grnFor();
 
-    // --- Invoice, from the screen -------------------------------------------------
-    const invoiceNumber = `SF/26-27/${Date.now().toString().slice(-5)}`;
-    await page.goto('/invoices');
-    const receipt = page.locator('div').filter({ hasText: grn.id })
-      .filter({ has: page.getByRole('button', { name: 'Create invoice' }) }).last();
-    await receipt.getByRole('button', { name: 'Create invoice' }).click();
-    await page.getByLabel('Your invoice number').fill(invoiceNumber);
-    await page.getByLabel('Invoice Date').fill(new Date().toISOString().slice(0, 10));
-    await page.getByRole('button', { name: 'Submit invoice' }).click();
-
-    await expect.poll(async () => {
-      const invoices = (await supplier.get('/invoices')).body.invoices ?? [];
-      return invoices.find((inv) => inv.invoiceNumber === invoiceNumber) ?? null;
-    }, { timeout: 20_000 }).not.toBeNull();
-    const invoice = ((await supplier.get('/invoices')).body.invoices).find((inv) => inv.invoiceNumber === invoiceNumber);
-    expect(invoice.grnId).toBe(grn.id);
-
-    await page.goto('/invoices');
-    await expect(page.getByRole('row').filter({ hasText: invoiceNumber })).toBeVisible();
-
-    // --- [API · finance] The payment run, then the supplier sees the money --------
-    const gross = Number(invoice.totalAmount);
-    const tds = Math.round(Number(invoice.subTotal) * 0.01 * 100) / 100;
-    const payment = ok(await finance.post('/payments', {
-      vendorId: ACCOUNTS.supplierA.vendorId,
-      invoiceId: invoice.id,
-      poId: po.id,
-      grossAmount: gross,
-      tdsDeducted: tds,
-      netAmount: Math.round((gross - tds) * 100) / 100,
-      paymentDate: new Date().toISOString(),
-      utrCode: `HDFCN${Date.now()}`,
-      paymentMethod: 'NEFT',
-    }));
-
-    await page.goto('/payments');
-    await expect(page.getByText(payment.utrCode).first()).toBeVisible({ timeout: 30_000 });
+    // --- The delivery receipt shows on the supplier's ledger --------------------
+    // Invoicing is AP's transaction, not the supplier's — the portal creates no
+    // invoice on their behalf (PROJECT_CONTEXT.md §5.6), so the story ends once
+    // the goods receipt they can act on has arrived.
+    await page.goto('/pos');
+    await page.getByRole('button', { name: 'Delivery Receipts' }).click();
+    await expect(page.getByText(grn.id).first()).toBeVisible({ timeout: 30_000 });
   });
 });

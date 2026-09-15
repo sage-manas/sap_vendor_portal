@@ -1,20 +1,25 @@
 import { test, expect } from '@playwright/test';
 import { ACCOUNTS, api, ok, tokenFor, signIn, createTender } from './helpers.mjs';
 
-// The eight procure-to-pay stages, end to end, on the mock SAP driver:
+// The procure-to-pay stages this portal actually produces, end to end, on
+// the mock SAP driver:
 //
-//   RFQ → bid → award → PO → ASN → GRN → invoice → payment
+//   RFQ → bid → award → PO → ASN → GRN
 //
 // backend/tests/lifecycle-e2e.test.js already walks this through the API. What
 // this adds is the browser: the supplier's own screens are checked at each
 // stage, so the frontend and the backend have to agree on the shape of every
 // document — the one thing a stubbed-fetch component test cannot prove.
 //
+// The chain stops at the goods receipt: invoicing is AP's transaction against
+// their own books, not the supplier's, and the portal creates no invoice on
+// their behalf (PROJECT_CONTEXT.md §5.6) — so there is nothing beyond this
+// point that a supplier's own screens can drive.
+//
 // Where a step is driven through the API rather than the UI it is because the
 // screen belongs to a role this spec is not sitting in front of (the buyer's
-// award, finance's payment run), or because there is no UI for it at all (the
-// goods receipt, which the mock warehouse posts on a timer). Every such step
-// is marked.
+// award), or because there is no UI for it at all (the goods receipt, which
+// the mock warehouse posts on a timer). Every such step is marked.
 
 const money = (value) => Number(value || 0);
 
@@ -22,13 +27,11 @@ test.describe('procure to pay, on the mock SAP driver', () => {
   // A cold Next build plus the backend's 10s goods-receipt simulator.
   test.slow();
 
-  test('a tender becomes an order, a shipment, an invoice and a payment', async ({ page, request }) => {
+  test('a tender becomes an order and a shipment, and the delivery is received', async ({ page, request }) => {
     const buyerToken = await tokenFor(request, ACCOUNTS.buyer);
-    const financeToken = await tokenFor(request, ACCOUNTS.finance);
     const supplierToken = await tokenFor(request, ACCOUNTS.supplierA);
 
     const buyer = api(request, buyerToken);
-    const finance = api(request, financeToken);
     const supplier = api(request, supplierToken);
 
     const unitPrice = 14;
@@ -111,62 +114,15 @@ test.describe('procure to pay, on the mock SAP driver', () => {
     const grn = await grnFor();
 
     expect(grn.id).toMatch(/^GRN-/);
-    // The mock warehouse accepts 95% and rejects the rest on inspection, so
-    // the invoice below bills the accepted quantity, not the shipped one.
+    // The mock warehouse accepts 95% and rejects the rest on inspection.
     const accepted = money(grn.items[0].acceptedQuantity);
     expect(accepted).toBeGreaterThan(0);
     expect(accepted).toBeLessThanOrEqual(quantity);
 
-    // ------------------------------------------------------------ 7. Invoice
-    const subTotal = Math.round(accepted * unitPrice * 100) / 100;
-    const taxAmount = Math.round(subTotal * 0.18 * 100) / 100;
-    const totalAmount = Math.round((subTotal + taxAmount) * 100) / 100;
-
-    // POST /invoices answers { message, invoice }; POST /payments answers the
-    // payment itself. Unwrapped here rather than smoothed over in the helper,
-    // so the difference stays visible.
-    const { invoice } = ok(await supplier.post('/invoices', {
-      grnId: grn.id,
-      invoiceNumber: `E2E/${Date.now()}`,
-      invoiceDate: new Date().toISOString(),
-      subTotal,
-      taxAmount,
-      totalAmount,
-      items: [{
-        line: 10,
-        materialCode: 'MAT-E2E-1',
-        description: 'Hex bolts M8',
-        quantity: accepted,
-        unitPrice,
-        amount: subTotal,
-      }],
-    }));
-    expect(invoice.id).toMatch(/^INV-/);
-
-    // [UI · supplier] The invoice they just raised is on their ledger.
-    await page.goto('/invoices');
-    await expect(page.getByText(invoice.id).first()).toBeVisible({ timeout: 30_000 });
-
-    // ------------------------------------------------------------ 8. Payment
-    // [API · finance] The payment run is finance's screen, not the supplier's.
-    const tds = Math.round(subTotal * 0.01 * 100) / 100;
-    const payment = ok(await finance.post('/payments', {
-      vendorId: ACCOUNTS.supplierA.vendorId,
-      invoiceId: invoice.id,
-      poId,
-      grossAmount: totalAmount,
-      tdsDeducted: tds,
-      netAmount: Math.round((totalAmount - tds) * 100) / 100,
-      paymentDate: new Date().toISOString(),
-      utrCode: `UTRE2E${Date.now()}`,
-      paymentMethod: 'NEFT',
-    }));
-    expect(payment.id).toMatch(/^PMT-/);
-
-    // [UI · supplier] The last stage the supplier actually cares about: the
-    // money arrived, and their screen says so.
-    await page.goto('/payments');
-    await expect(page.getByText(payment.utrCode).first()).toBeVisible({ timeout: 30_000 });
+    // [UI · supplier] The delivery receipt they can act on is on their ledger.
+    await page.goto('/pos');
+    await page.getByRole('button', { name: 'Delivery Receipts' }).click();
+    await expect(page.getByText(grn.id).first()).toBeVisible({ timeout: 30_000 });
 
     // --- The trail holds together -------------------------------------------
     const finalPo = ok(await supplier.get(`/pos/${poId}`));
