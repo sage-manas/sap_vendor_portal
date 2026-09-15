@@ -2,7 +2,6 @@ const { prisma } = require('../db/prisma');
 const asyncHandler = require('../utils/asyncHandler');
 const ApiError = require('../utils/ApiError');
 const { EVENTS, emitToVendor } = require('../utils/socketEmitter');
-const { runWithTenant } = require('../utils/tenantContext');
 
 const { requireVendorScope } = require('../utils/requestScope');
 
@@ -24,9 +23,16 @@ const getMessages = asyncHandler(async (req, res, next) => {
   res.json(messages);
 });
 
-// @desc    Send a message and trigger smart auto-replies
+// @desc    Send a message
 // @route   POST /api/chats
 // @access  Public
+//
+// Writes exactly the one row the caller sent — nothing here fabricates a
+// reply attributed to Buyer/Finance/Quality/Warehouse. This used to schedule
+// a setTimeout that wrote a keyword-matched "reply" under one of those
+// senders, one of them falsely claiming SAP had been updated; no code path
+// does that anymore (issue #55). A real reply only ever comes from a real
+// person on that role, through whatever surface they use to send one.
 const sendMessage = asyncHandler(async (req, res, next) => {
   const vendorId = requireVendorScope(req);
   const { clientId } = req;
@@ -36,7 +42,6 @@ const sendMessage = asyncHandler(async (req, res, next) => {
     return next(ApiError.badRequest('Message content cannot be empty'));
   }
 
-  // Create vendor message
   const chatMsg = await prisma.chatMessage.create({
     data: {
       vendorId,
@@ -49,48 +54,8 @@ const sendMessage = asyncHandler(async (req, res, next) => {
     },
   });
 
-  // Emit to socket room
   const io = req.app.get('io');
   emitToVendor(io, clientId, vendorId, EVENTS.CHAT_MESSAGE, chatMsg);
-
-  // Parse keyword for smart reply
-  const lowerText = message.toLowerCase();
-  let replyText = "We have received your query and updated the transaction record in SAP. A buyer officer will get back to you shortly.";
-  let senderRole = 'Buyer';
-
-  if (lowerText.includes('price') || lowerText.includes('tax') || lowerText.includes('gst')) {
-    replyText = "Tax code G1 (18% GST) applies to regular domestic supplies. Ensure your matching HSN invoice parameters align exactly with the Purchase Order unit rates.";
-    senderRole = 'Finance';
-  } else if (lowerText.includes('delivery') || lowerText.includes('delay') || lowerText.includes('dispatched')) {
-    replyText = "Please send us your shipment details with the expected delivery dates. If the delay is significant, message the logistics desk.";
-    senderRole = 'Warehouse';
-  } else if (lowerText.includes('reject') || lowerText.includes('quality') || lowerText.includes('defect')) {
-    replyText = "Quality rejection requires a signed Inspection Sheet and a copy of the discrepancy report. Please submit a physical claim form or contact warehouse quality control.";
-    senderRole = 'Quality';
-  }
-
-  // Simulate auto-reply after 2 seconds. The timer fires outside the request,
-  // so the tenant context has to be re-bound explicitly.
-  setTimeout(() => runWithTenant(clientId, async () => {
-    try {
-      const replyMsg = await prisma.chatMessage.create({
-        data: {
-          vendorId,
-          sender: senderRole,
-          message: replyText,
-          linkedPoId: linkedPoId || null,
-          linkedRfqId: linkedRfqId || null,
-          timestamp: new Date(),
-          isRead: false
-        },
-      });
-
-      emitToVendor(io, clientId, vendorId, EVENTS.CHAT_MESSAGE, replyMsg);
-      console.log(`[Socket Chat] Sent auto-reply to vendor ${vendorId}: "${replyText}"`);
-    } catch (err) {
-      console.error('[Socket Chat] Failed to send auto-reply:', err);
-    }
-  }), 2000);
 
   res.status(201).json(chatMsg);
 });

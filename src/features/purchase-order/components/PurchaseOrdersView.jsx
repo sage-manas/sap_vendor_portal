@@ -299,21 +299,13 @@ export default function PurchaseOrdersView({
     return () => clearInterval(timer);
   }, [cleanPOs, cleanAsns, localSubmissionTimes]);
 
-  // Pre-load default chat messages for POs
+  // Every PO starts with an empty thread. Nothing here seeds a message
+  // attributed to Buyer — no buyer sent one, and inventing a greeting on
+  // their behalf is exactly the fabrication issue #55 removed from the
+  // backend's auto-reply too.
   useEffect(() => {
     cleanPOs.forEach(po => {
-      if (!poChats[po.id]) {
-        // Initialize mock thread
-        setPoChats(prev => ({
-          ...prev,
-          [po.id]: [
-            {
-              sender: 'Buyer',
-              message: `Hi Team, PO ${po.id} has been issued. Please review the payment terms (${po.paymentTerms || 'NET 30'}) and delivery locations and confirm acknowledgement.`,
-              timestamp: new Date(parseDateSafe(po.createdDate).getTime() + 10 * 60000).toISOString()
-            }
-          ]
-        }));
+      if (poIssueStatus[po.id] === undefined) {
         setPoIssueStatus(prev => ({ ...prev, [po.id]: 'In Review' }));
       }
     });
@@ -384,7 +376,8 @@ export default function PurchaseOrdersView({
     setDrawerOpen(true);
   };
 
-  // Send Drawer Message
+  // Send Drawer Message. Local to this screen only — nothing here reaches
+  // the buyer, so nothing writes a reply on their behalf (issue #55).
   const handleSendDrawerMessage = () => {
     if (!chatMessageInput.trim()) return;
 
@@ -399,32 +392,7 @@ export default function PurchaseOrdersView({
       [drawerPo.id]: [...(prev[drawerPo.id] || []), newMessage]
     }));
 
-    const text = chatMessageInput;
     setChatMessageInput('');
-
-    // Trigger mock response
-    setTimeout(() => {
-      let reply = "We have updated our records. Let us know if you need anything else.";
-      if (text.toLowerCase().includes('delivery') || text.toLowerCase().includes('date') || text.toLowerCase().includes('delay')) {
-        reply = "Acknowledged. Please make sure the dispatch quantity matches the quantity still outstanding, so nothing is rejected on delivery.";
-      } else if (text.toLowerCase().includes('price') || text.toLowerCase().includes('tax') || text.toLowerCase().includes('gst')) {
-        reply = "Our finance desk uses tax code G1 (18% GST). Standard payment terms will apply upon invoice verification.";
-      } else if (text.toLowerCase().includes('issue') || text.toLowerCase().includes('dented') || text.toLowerCase().includes('rejected')) {
-        reply = "Quality check failures must be supported with a signed inspection sheet. Please update documentation in the Attachments tab.";
-      }
-
-      setPoChats(prev => ({
-        ...prev,
-        [drawerPo.id]: [
-          ...(prev[drawerPo.id] || []),
-          {
-            sender: 'Buyer',
-            message: reply,
-            timestamp: new Date().toISOString()
-          }
-        ]
-      }));
-    }, 1500);
   };
 
   // Sort POs
@@ -1958,7 +1926,7 @@ export default function PurchaseOrdersView({
                   {(poChats[drawerPo.id] || []).map((msg, idx) => (
                     <div key={idx} className={`flex flex-col gap-1 max-w-[85%] ${msg.sender === 'Vendor' ? 'ml-auto items-end' : 'mr-auto items-start'}`}>
                       <span className="text-[8px] font-bold text-text-tertiary uppercase tracking-widest font-mono">
-                        {msg.sender === 'Vendor' ? 'Your Firm' : 'Amit Sharma (Buyer)'}
+                        {msg.sender === 'Vendor' ? 'Your Firm' : 'Buyer'}
                       </span>
                       <div className={`p-3 rounded-2xl border text-xs ${msg.sender === 'Vendor' ? 'bg-[rgb(var(--color-emerald-default-rgb))] border-transparent text-white rounded-tr-none' : 'bg-surface border-border text-text-primary rounded-tl-none shadow-xs'}`}>
                         <p className="leading-relaxed">{msg.message}</p>
