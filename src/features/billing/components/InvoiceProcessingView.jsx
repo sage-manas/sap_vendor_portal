@@ -32,7 +32,7 @@ export default function InvoiceProcessingView({ state }) {
             <Receipt className="size-4.5 text-text-secondary" /> Invoices
           </h2>
           <p className="text-[11px] text-text-tertiary mt-1 font-semibold">
-            Invoices your buyer's finance team has posted, and whether they've been confirmed and paid
+            Invoices your buyer&apos;s finance team has posted, and whether they&apos;ve been confirmed and paid
           </p>
         </div>
       </div>
