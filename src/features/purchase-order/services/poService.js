@@ -61,10 +61,5 @@ export const poService = {
   /** Re-read the plans SAP holds for this order and adopt them */
   async syncInvoicePlan(poId) {
     return apiClient.post(`/pos/${poId}/invoice-plan/sync`, {});
-  },
-
-  /** Raise an invoice against one settlement date of a plan */
-  async submitPlanInvoice(payload) {
-    return apiClient.post('/invoices/plan', payload);
   }
 };

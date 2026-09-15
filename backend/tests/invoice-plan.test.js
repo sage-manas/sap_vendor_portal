@@ -2,7 +2,7 @@ const request = require('supertest');
 const buildTestApp = require('./testApp');
 const { registerVendor, createAdminUser } = require('./helpers');
 const { prisma } = require('../db/prisma');
-const { PO_INCLUDE, formatPo } = require('../db/poHelpers');
+const { PO_INCLUDE } = require('../db/poHelpers');
 const { runWithTenant } = require('../utils/tenantContext');
 const plan = require('../services/invoicePlan.service');
 
@@ -35,14 +35,6 @@ const seedPO = (overrides = {}) =>
       },
     },
   }));
-
-// Reassembled into the same nested { items: [{ invoicePlan: {...} }] } shape
-// controllers/po.controller.js's formatPo() produces, since InvoicePlan/
-// InvoicePlanLine are relational tables now, not embedded subdocuments.
-const readPO = async (id) => {
-  const po = await runWithTenant('CLT-0001', () => prisma.purchaseOrder.findFirst({ where: { id }, include: PO_INCLUDE }));
-  return po && formatPo(po);
-};
 
 describe('invoicing plan arithmetic', () => {
   it('generates one periodic date per period, anchored to the start date', () => {
@@ -207,14 +199,30 @@ describe('invoicing plan endpoints', () => {
   });
 
   it('refuses to remove a plan that has already been billed against', async () => {
-    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_plan_5', gstin: '27AAAAA1005A1Z1' }, { onboarded: true });
+    const { vendor } = await registerVendor(app, { vendorId: 'vendor_plan_5', gstin: '27AAAAA1005A1Z1' }, { onboarded: true });
     const { token: adminToken } = await createAdminUser({ email: 'plan-admin-5@example.com' });
     await seedPO({ id: 'PO-PLAN-5', vendorId: vendor.vendorId });
     await configure(adminToken, 'PO-PLAN-5', 10, partialBody);
 
-    await request(app).post('/api/invoices/plan').set('Authorization', `Bearer ${token}`).send({
-      poId: 'PO-PLAN-5', line: 10, planLineNumber: 10, invoiceNumber: 'V/2026/1', invoiceDate: '2026-02-01',
-    });
+    // A plan invoice is no longer raised through the API — MIRO is AP's
+    // transaction, not a supplier's (PROJECT_CONTEXT.md §5.6). Seeded
+    // directly, the same "already billed" precondition AP posting one in SAP
+    // would leave behind.
+    const rawPo = await runWithTenant('CLT-0001', () => prisma.purchaseOrder.findFirst({ where: { id: 'PO-PLAN-5' }, include: PO_INCLUDE }));
+    const rawItem = rawPo.items.find((i) => i.line === 10);
+    const planLine = rawItem.invoicePlan.lines.find((l) => l.lineNumber === 10);
+    const invoice = await runWithTenant('CLT-0001', () => prisma.invoice.create({
+      data: {
+        id: 'INV-PLAN-BILLED-5', poId: rawPo.id, vendorId: vendor.vendorId,
+        invoiceNumber: 'V/2026/1', invoiceDate: new Date('2026-02-01'),
+        subTotal: 20000, taxAmount: 3600, totalAmount: 23600,
+        invoicePlanRef: { line: 10, planLineNumber: 10, planType: 'Partial', settlementDate: planLine.settlementDate },
+      },
+    }));
+    await runWithTenant('CLT-0001', () => prisma.invoicePlanLine.update({
+      where: { pk: planLine.pk },
+      data: { status: 'Invoiced', invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber, invoicedAt: new Date() },
+    }));
 
     const removed = await request(app)
       .delete('/api/pos/PO-PLAN-5/items/10/invoice-plan')
@@ -222,96 +230,5 @@ describe('invoicing plan endpoints', () => {
 
     expect(removed.status).toBe(400);
     expect(removed.body.error).toMatch(/already been invoiced/);
-  });
-});
-
-describe('POST /api/invoices/plan', () => {
-  const setup = async (suffix) => {
-    // Each `it` starts from a clean database, but a test that calls setup twice
-    // registers two suppliers into the same one — so the email has to vary too,
-    // not only the vendor id and GSTIN.
-    const { token, vendor } = await registerVendor(app, {
-      vendorId: `vendor_planinv_${suffix}`,
-      gstin: `27AAAAA20${suffix}A1Z1`,
-      email: `planinv-${suffix}@example.com`,
-    }, { onboarded: true });
-    const { token: adminToken } = await createAdminUser({ email: `planinv-admin-${suffix}@example.com` });
-    const poId = `PO-PLANINV-${suffix}`;
-    await seedPO({ id: poId, vendorId: vendor.vendorId });
-    await request(app).put(`/api/pos/${poId}/items/10/invoice-plan`).set('Authorization', `Bearer ${adminToken}`).send({
-      type: 'Partial',
-      milestones: [
-        { settlementDate: '2020-01-01', percentage: 40, description: 'On order' },
-        { settlementDate: '2099-01-01', percentage: 60, description: 'On commissioning' },
-      ],
-    });
-    return { token, adminToken, poId, vendor };
-  };
-
-  it('bills the amount the plan says, not one the supplier supplies', async () => {
-    const { token, poId } = await setup('01');
-
-    const res = await request(app).post('/api/invoices/plan').set('Authorization', `Bearer ${token}`).send({
-      poId, line: 10, planLineNumber: 10, invoiceNumber: 'V/2026/9', invoiceDate: '2026-02-01',
-      // Not a field this endpoint accepts — the plan sets the amount.
-      subTotal: 999999,
-    });
-
-    expect(res.status).toBe(201);
-    expect(res.body.invoice.subTotal).toBe(20000);
-    expect(res.body.invoice.taxAmount).toBe(3600);
-    expect(res.body.invoice.totalAmount).toBe(23600);
-    expect(res.body.invoice.grnId).toBeFalsy();
-    expect(res.body.invoice.invoicePlanRef).toMatchObject({ line: 10, planLineNumber: 10, planType: 'Partial' });
-
-    const po = await readPO(poId);
-    const planLine = po.items[0].invoicePlan.lines[0];
-    expect(planLine.status).toBe('Invoiced');
-    expect(planLine.invoiceNumber).toBe('V/2026/9');
-    // A single instalment does not finish the order.
-    expect(po.status).toBe('Open');
-  });
-
-  it('will not bill an instalment before its settlement date', async () => {
-    const { token, poId } = await setup('02');
-
-    const res = await request(app).post('/api/invoices/plan').set('Authorization', `Bearer ${token}`).send({
-      poId, line: 10, planLineNumber: 20, invoiceNumber: 'V/2026/10', invoiceDate: '2026-02-01',
-    });
-
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/cannot be invoiced until its settlement date/);
-  });
-
-  it('will not bill the same instalment twice, or one the buyer has blocked', async () => {
-    const { token, adminToken, poId } = await setup('03');
-    const bill = (invoiceNumber) => request(app).post('/api/invoices/plan').set('Authorization', `Bearer ${token}`).send({
-      poId, line: 10, planLineNumber: 10, invoiceNumber, invoiceDate: '2026-02-01',
-    });
-
-    expect((await bill('V/2026/11')).status).toBe(201);
-    expect((await bill('V/2026/12')).status).toBe(400);
-    expect(await runWithTenant('CLT-0001', () => prisma.invoice.count({ where: { poId } }))).toBe(1);
-
-    const { poId: blockedPoId, token: blockedToken } = await setup('04');
-    await request(app).put(`/api/pos/${blockedPoId}/items/10/invoice-plan/lines/10/block`)
-      .set('Authorization', `Bearer ${adminToken}`).send({ blocked: true });
-
-    const blocked = await request(app).post('/api/invoices/plan').set('Authorization', `Bearer ${blockedToken}`).send({
-      poId: blockedPoId, line: 10, planLineNumber: 10, invoiceNumber: 'V/2026/13', invoiceDate: '2026-02-01',
-    });
-    expect(blocked.status).toBe(400);
-    expect(blocked.body.error).toMatch(/billing-blocked/);
-  });
-
-  it('rejects a plan invoice against a line that has no plan', async () => {
-    const { token, poId } = await setup('05');
-
-    const res = await request(app).post('/api/invoices/plan').set('Authorization', `Bearer ${token}`).send({
-      poId, line: 20, planLineNumber: 10, invoiceNumber: 'V/2026/14', invoiceDate: '2026-02-01',
-    });
-
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/no invoicing plan/);
   });
 });

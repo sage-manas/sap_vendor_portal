@@ -5,7 +5,7 @@ const { VENDOR_PRE_SUBMISSION } = require('../config/statuses');
 /**
  * The transacting modules belong to suppliers who have finished onboarding.
  *
- * Holding `rfq:bid` or `invoice:submit` is a fact about the *role*; whether the
+ * Holding `rfq:bid` or `asn:create` is a fact about the *role*; whether the
  * supplier has actually registered is a fact about the *record*, and permissions
  * cannot express it — a Draft account holds the whole supplier permission set
  * from the moment it exists. This is the second gate, and it is the reason the
