@@ -154,8 +154,15 @@ describe('sweepPayments discovery', () => {
 
   it('settles an open GRN-matched invoice SAP already shows cleared', async () => {
     await seedVendor('CLT-0001', 'vendor_pay_1', 'VENPAY1');
+    // Status starts at Invoiced and one real line (fully delivered, fully
+    // invoiced) so the PO's status is honestly derivable (issue #60) — the
+    // only thing this test is watching for is the payment sweep advancing it
+    // the rest of the way to Paid.
     const po = await runWithTenant('CLT-0001', () => prisma.purchaseOrder.create({
-      data: { id: 'PO-PAYSWEEP-1', vendorId: 'vendor_pay_1', status: 'Invoiced', sapPoNumber: '4500097001', sapDocNumber: '4500097001', sapSyncState: 'synced' },
+      data: {
+        id: 'PO-PAYSWEEP-1', vendorId: 'vendor_pay_1', status: 'Invoiced', sapPoNumber: '4500097001', sapDocNumber: '4500097001', sapSyncState: 'synced',
+        items: { create: [{ clientId: 'CLT-0001', line: 10, materialCode: 'MAT-1', description: 'Widget', quantity: 10, grnQuantity: 10, unitPrice: 50, netValue: 500, uom: 'EA' }] },
+      },
     }));
     const asn = await runWithTenant('CLT-0001', () => prisma.aSN.create({
       data: { id: 'ASN-PAYSWEEP-1', poId: po.id, vendorId: 'vendor_pay_1', status: 'Received', shipDate: new Date(), estimatedDeliveryDate: new Date() },
@@ -169,6 +176,7 @@ describe('sweepPayments discovery', () => {
       data: {
         id: 'INV-PAYSWEEP-1', grnId: grn.id, poId: po.id, vendorId: 'vendor_pay_1', invoiceNumber: 'INV-1',
         invoiceDate: new Date(), status: 'Submitted', subTotal: 500, taxAmount: 90, totalAmount: 590,
+        items: { create: [{ clientId: 'CLT-0001', line: 10, materialCode: 'MAT-1', quantity: 10, unitPrice: 50, amount: 500 }] },
       },
     }));
 

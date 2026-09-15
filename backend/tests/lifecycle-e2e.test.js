@@ -4,6 +4,7 @@ const { registerVendor, createTenantUser, seedClient, baseVendor, runDueJobs } =
 const { prisma } = require('../db/prisma');
 const { runWithTenant } = require('../utils/tenantContext');
 const { enqueue } = require('../jobs/queue');
+const { syncPoStatus } = require('../db/poHelpers');
 
 // One tenant runs a complete procurement cycle — RFQ → bid → award → PO →
 // ASN → GRN → invoice → payment — on the mock driver, while a second tenant
@@ -172,7 +173,13 @@ const runCycle = async (tenant) => {
     },
   }));
   await runWithTenant(tenant.clientId, () => prisma.gRN.updateMany({ where: { id: grn.id }, data: { invoiceSubmitted: true } }));
-  await runWithTenant(tenant.clientId, () => prisma.purchaseOrder.updateMany({ where: { id: poId }, data: { status: 'Invoiced' } }));
+  // PurchaseOrder.status is derived, never set directly (issue #60) — the
+  // same helper production code uses, applied to the invoice this test just
+  // seeded as AP's own posting would leave behind.
+  await runWithTenant(tenant.clientId, async () => {
+    const po = await prisma.purchaseOrder.findFirst({ where: { id: poId } });
+    await syncPoStatus(prisma, po.pk);
+  });
   await enqueue({
     clientId: tenant.clientId,
     kind: 'awaitPaymentRun',

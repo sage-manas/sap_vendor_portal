@@ -26,10 +26,6 @@ export const poService = {
     return apiClient.get('/grns').catch(() => null);
   },
 
-  async updatePOStatus(poId, status) {
-    return apiClient.put(`/pos/${poId}/status`, { status }).catch(() => null);
-  },
-
   /** Every PO SAP itself has for this vendor, with line items and GRNs nested in */
   async getSapStatus() {
     return apiClient.get('/pos/sap-status').catch(() => null);

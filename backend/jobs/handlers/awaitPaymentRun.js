@@ -1,5 +1,5 @@
 const { prisma } = require('../../db/prisma');
-const { PO_INCLUDE, formatPo } = require('../../db/poHelpers');
+const { PO_INCLUDE, formatPo, syncPoStatus } = require('../../db/poHelpers');
 const { INVOICE_INCLUDE, formatInvoice } = require('../../db/invoiceHelpers');
 const { EVENTS } = require('../../utils/socketEmitter');
 const { notifyVendor } = require('../notify');
@@ -92,12 +92,11 @@ module.exports = async ({ job, adapter }) => {
           data: { sapMiroDoc, status: 'Cleared', clearedAt: new Date() },
         });
 
-        // A plan-based invoice doesn't own the PO's overall status — other
-        // lines may still be mid-delivery, and a periodic plan has more
-        // instalments to come — so only a GRN-matched invoice moves it. What
-        // a plan invoice does own is its own plan entry, which gains SAP's
-        // MIRO number so the plan and the invoice list agree about the
-        // document without re-matching.
+        // A plan-based invoice doesn't own the PO's overall status by itself
+        // — other lines may still be mid-delivery, and a periodic plan has
+        // more instalments to come — but it does own its own plan entry,
+        // which gains SAP's MIRO number so the plan and the invoice list
+        // agree about the document without re-matching.
         if (latestInvoice.invoicePlanRef?.planLineNumber) {
           const formattedPo = formatPo(latestPo);
           const planItem = formattedPo.items.find((item) => item.line === latestInvoice.invoicePlanRef.line);
@@ -111,9 +110,14 @@ module.exports = async ({ job, adapter }) => {
               data: { sapMiroDoc },
             });
           }
-        } else {
-          await tx.purchaseOrder.update({ where: { pk: latestPo.pk }, data: { status: 'Paid' } });
         }
+
+        // Derived from every line's delivered/invoiced state plus every
+        // invoice's own clearing (issue #60) — a plan invoice clearing no
+        // longer leaves the header stuck wherever it was; it now reaches
+        // Invoiced/Paid exactly when the plan (and every other line) is
+        // actually done, the same helper GRN-matched invoices go through.
+        await syncPoStatus(tx, latestPo.pk);
 
         return { payment, vendorId: latestInvoice.vendorId };
       });
