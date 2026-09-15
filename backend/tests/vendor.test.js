@@ -197,6 +197,48 @@ describe('registration approval flow', () => {
     expect(rejected.body.vendor.rejectionReason).toBe('Incomplete documents');
   });
 
+  // Issue #59: vendorCreate/vendorReject used to reference the Mongo-era
+  // `vendor._id`, which no longer exists — every SapLog entry from these
+  // calls recorded the literal string "undefined" as its documentRef.
+  it("logs the vendor's real pk on approve, not \"undefined\" (issue #59)", async () => {
+    const { vendor } = await registerVendor(app);
+    const { token: adminToken } = await createAdminUser();
+
+    await request(app)
+      .put(`/api/vendors/${vendor.pk}/approve`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    const createLog = await asTenant(() => prisma.sapLog.findFirst({
+      where: { vendorId: vendor.vendorId, name: 'BAPI_VENDOR_CREATE' },
+    }));
+    expect(createLog.documentRef).toBe(vendor.pk);
+    expect(createLog.documentRef).not.toBe('undefined');
+
+    // approveVendor also runs the GSTIN/PAN check when not already verified,
+    // logging a second entry with the same dead-field bug.
+    const kycLog = await asTenant(() => prisma.sapLog.findFirst({
+      where: { vendorId: vendor.vendorId, name: 'GSTIN_PAN_VERIFY' },
+    }));
+    expect(kycLog.documentRef).toBe(vendor.pk);
+    expect(kycLog.documentRef).not.toBe('undefined');
+  });
+
+  it("logs the vendor's real pk on reject, not \"undefined\" (issue #59)", async () => {
+    const { vendor } = await registerVendor(app);
+    const { token: adminToken } = await createAdminUser();
+
+    await request(app)
+      .put(`/api/vendors/${vendor.pk}/reject`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ reason: 'Incomplete documents' });
+
+    const rejectLog = await asTenant(() => prisma.sapLog.findFirst({
+      where: { vendorId: vendor.vendorId, name: 'OData_VENDOR_REJECT' },
+    }));
+    expect(rejectLog.documentRef).toBe(vendor.pk);
+    expect(rejectLog.documentRef).not.toBe('undefined');
+  });
+
   it('a supplier gets 403 from all three directory endpoints', async () => {
     const { token, vendor } = await registerVendor(app);
 

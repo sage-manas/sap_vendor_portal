@@ -349,7 +349,7 @@ describe('the mock driver', () => {
   // the vendor's own fields.
   it('vendorCreate accepts the tenant sapVendorCreate settings and returns a code on the spot', async () => {
     const adapter = await getSapAdapterForClient('CLT-0001');
-    const vendor = { _id: 'v1', vendorId: 'vendor_1', companyName: 'Acme Pvt Ltd', gstin: '27AAAPL1234C1ZV', pan: 'AAAPL1234C', email: 'a@b.com' };
+    const vendor = { pk: 'v1', vendorId: 'vendor_1', companyName: 'Acme Pvt Ltd', gstin: '27AAAPL1234C1ZV', pan: 'AAAPL1234C', email: 'a@b.com' };
 
     const result = await runWithTenant('CLT-0001', () => adapter.vendorCreate({ vendor, settings: { accountGroup: 'LIEF' } }));
     expect(result.sapVendorCode).toMatch(/^VND-\d{5}$/);
@@ -431,10 +431,28 @@ describe('s4_odata vendorCreate (VENDOR_CR)', () => {
       clientId: 'CLT-0001', driver: 's4_odata', secrets: {},
       config: { baseUrl: 'http://127.0.0.1:1', timeoutMs: 200 },
     });
-    const vendor = { _id: 'v1', vendorId: 'vendor_1', companyName: 'Acme Pvt Ltd', gstin: '27AAAPL1234C1ZV', pan: 'AAAPL1234C', email: 'a@b.com' };
+    const vendor = { pk: 'v1', vendorId: 'vendor_1', companyName: 'Acme Pvt Ltd', gstin: '27AAAPL1234C1ZV', pan: 'AAAPL1234C', email: 'a@b.com' };
 
     await expect(runWithTenant('CLT-0001', () => adapter.vendorCreate({ vendor, settings: { accountGroup: 'LIEF' } })))
       .rejects.toMatchObject({ code: 'sap_call_failed' });
+  });
+});
+
+describe('s4_odata vendorReject (issue #59)', () => {
+  it('throws not_implemented rather than logging a call it never made', async () => {
+    const adapter = buildTransientAdapter({ clientId: 'CLT-0001', driver: 's4_odata', config: {}, secrets: {} });
+    const vendor = { pk: 'v1', vendorId: 'vendor_1' };
+
+    // No confirmed SAP endpoint exists for this yet (unlike vendorCreate's
+    // VENDOR_CR), and VENDOR_REJECT is registered as a real OData transaction
+    // — so, unlike vendorVerifyKyc (a genuine third-party check, just not to
+    // SAP), there is nothing honest this method could log here.
+    await expect(runWithTenant('CLT-0001', () => adapter.vendorReject({ vendor, reason: 'test' })))
+      .rejects.toMatchObject({ code: 'not_implemented' });
+
+    const entry = await runWithTenant('CLT-0001', () => prisma.sapLog.findFirst({ where: { name: SAP_TRANSACTIONS.VENDOR_REJECT.code } }));
+    expect(entry.status).toBe('FAILED');
+    expect(entry.errorMessage).toMatch(/not_implemented/);
   });
 });
 
