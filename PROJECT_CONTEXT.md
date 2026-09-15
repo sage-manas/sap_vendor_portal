@@ -37,13 +37,12 @@ sap_vendor_portal/
 ├── public/                  ← static assets
 ├── deploy/                  ← ecosystem.config.js (PM2) and deploy tooling
 ├── docs/                    ← runbooks (docs/runbooks/) and forward-looking engineering plans
-├── workflow/                ← long-form design/architecture/roadmap docs (see §12)
 ├── docker-compose.yml       ← local Postgres service matching DATABASE_URL
 ├── .github/workflows/test.yml ← CI: runs BOTH frontend + backend test suites
 ├── AGENTS.md / CLAUDE.md    ← agent instructions (CLAUDE.md just @-includes AGENTS.md)
 ├── DECISIONS.md             ← the ADR log — every numbered decision cited elsewhere in this file
-├── DESIGN.md                ← "Kinetic Industrial Console" design system (tokens + rules)
-├── HOSTING_PROVIDER_HANDOFF.md, SERVER_SETUP_QUICK_READ.md, PROJECT_ARCHITECTURE_FLOW.md ← deploy/ops reference
+├── claude/DESIGN.md         ← "Cream & Coral" design system that src/app/globals.css is built from
+├── HOSTING_PROVIDER_HANDOFF.md, SERVER_SETUP_QUICK_READ.md ← deploy/ops reference
 ├── README.md                ← stock create-next-app readme (not project-specific)
 ├── package.json             ← FRONTEND package (Next, React, some backend deps duplicated)
 ├── next.config.ts           ← reactCompiler: true
@@ -578,7 +577,7 @@ badged "Filed & Signed" against the supplier's real PAN.
 ## 8. Frontend Architecture (`src/`)
 
 ### 8.1 App Router routes (`src/app/*/page.jsx`)
-This *is* a real multi-route App Router app (the older `workflow/` docs describing a single-page `activeTab` router are **outdated**). Each page is a thin `'use client'` wrapper that pulls state from `usePortal()` and renders a feature View:
+This *is* a real multi-route App Router app. (Earlier `workflow/` docs described a single-page `activeTab` router; they were removed on 14 Sep 2026 — see `git log` if that history is needed.) Each page is a thin `'use client'` wrapper that pulls state from `usePortal()` and renders a feature View:
 
 | Route | Renders | Feature |
 |---|---|---|
@@ -723,28 +722,47 @@ The seed is idempotent and the specs create their own tenders, so a warm databas
 
 ---
 
-## 11. Design System — "Kinetic Industrial Console" (`DESIGN.md`)
+## 11. Design System — "Cream & Coral" (`src/app/globals.css`)
 
-High-density, high-contrast **industrial terminal** aesthetic (think Bloomberg, not soft SaaS). Rules that matter when writing UI:
-- **Zero border-radius everywhere. No drop shadows** — depth via 1px zinc borders + tonal background shifts.
-- Palette: base black `#09090b`, surfaces `#131315`–`#18181b`, borders `#27272a`/`#3f3f46`, primary/success electric green `#059669` (black text on it), error `#e11d48`, warning `#d97706`, muted `#71717a`, near-white text `#fafafa`.
-- **Dual font:** Inter for chrome; JetBrains Mono for *all* tabular data, IDs, amounts, compliance codes (GST/TDS/MSME), and BAPI payloads (`tabular-nums`).
-- Tight 4px spacing grid, 32–40px row heights.
-- India-compliance anchors (GST/TDS/MSME) are primary visual elements. Target WCAG 2.1 AA (≥4.5:1 contrast), keyboard-navigable, respect `prefers-reduced-motion`.
+**`src/app/globals.css` is the source of truth for the palette**, not a separate markdown
+file. It is adapted from `claude/DESIGN.md` (Claude.com's marketing-site system), reshaped
+for a dense operational console. The earlier "Kinetic Industrial Console" system — black
+canvas, electric-green accent, zero radius — was replaced by this one; its `DESIGN.md` was
+removed on 14 Sep 2026 and is in `git log` if needed.
 
-(Actual token values live in `src/app/globals.css`; the runtime app is dark-first with a light theme toggle.)
+Rules that matter when writing UI:
+- Tokens are **RGB triplets** (`--color-*-rgb`) so Tailwind opacity modifiers work.
+- Light is a warm cream canvas (`#FAF9F5`) on white cards; dark is a warm near-black
+  (`#181715`) — warm, never cool-graphite or blue-black.
+- The accent is **coral** (`#CC785C` light, `#E0895F` dark). Small text uses the darker
+  `--color-emerald-text-rgb` for contrast, not the button coral.
+- **The `--color-emerald-*` variable names are deliberate and must not be renamed.** The
+  colour is coral; the names are the runtime hook `src/lib/branding.js` (ADR-0030) writes a
+  tenant's brand colour into. Renaming them is a functional change.
+- Dark mode keys off a `.dark` class on `<html>` (`theme-context.js`), not OS
+  `prefers-color-scheme` — so `dark:` utilities must key off that class
+  (`@custom-variant dark` at the top of globals.css).
+- **Dual font:** a humanist sans for chrome, a serif for display headings; JetBrains Mono
+  for *all* tabular data, IDs, amounts and compliance codes (GST/TDS/MSME) with
+  `tabular-nums`.
 
-**`.impeccable/` + `.cursor/`/`.gemini/` skills:** an "impeccable" design-linter dev tool (critiques stored in `.impeccable/critique/`). Not application code.
+## 12. Docs in `docs/`
 
----
+`docs/runbooks/` holds the operational playbooks (incident response, tenant
+suspension/termination, key rotation, the backup drill — §5.7). `docs/*.md` at that level
+holds forward-looking engineering plans meant to be executed phase-by-phase (e.g.
+`docs/04-sap-runtime-engineering-plan.md`) — read a plan's own "Status" line before assuming
+it is still current against the code.
 
-## 12. Docs in `workflow/` and `docs/` (context, but partly stale)
+Removed from the repository, recoverable via `git log`/`git show`:
+`PRODUCT.md` and `IMPLEMENTATION_PLAN.md` (an earlier audit + remediation log);
+the whole `workflow/` directory and `PROJECT_ARCHITECTURE_FLOW.md` (pre-auth, pre-Postgres,
+pre-multi-route planning docs describing SAP methods that no longer exist);
+`docs/01-PRD.md` and `docs/02-TRD-architecture.md` (a v1.0 PRD/TRD for "CustomerConnect"
+specifying a NestJS + TypeScript stack that was never built);
+`DESIGN.md` (superseded by §11).
 
-`workflow/architecture_document.md` (huge v1.0 architecture doc — **stale in places**: it predates auth + the original Mongoose models + the multi-route migration, and describes a single-page `activeTab` router and "no authentication"; use it for the SAP field-mapping catalog and P2P/BAPI reference, not current wiring), plus `SAP_Communication.md`, `socket_io_architecture.md`, `frontend_transition.md`, `sprint_roadmap.md`, `walkthrough.md`, `working.md`, `task.md`, `README.md`. `PRODUCT.md` and `IMPLEMENTATION_PLAN.md` (the earlier audit + remediation log) have been removed from the repo root; consult `git log`/`git show` for their content if needed.
-
-`docs/runbooks/` holds the operational playbooks (incident response, tenant suspension/termination, key rotation, the backup drill — §5.7). `docs/*.md` at that level holds forward-looking engineering plans meant to be executed phase-by-phase (e.g. `docs/04-sap-runtime-engineering-plan.md`) — read a plan's own "Status" line before assuming it's still current against the code.
-
-**When docs conflict with code, trust the code**, then this PROJECT_CONTEXT.md, then `docs/`, then the `workflow/` docs (oldest).
+**When docs conflict with code, trust the code**, then this PROJECT_CONTEXT.md, then `docs/`.
 
 ---
 

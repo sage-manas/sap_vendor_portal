@@ -54,6 +54,16 @@
             "date": 1789287745105,
             "name": "C:\\Users\\pc\\Desktop\\sap_vendor_portal\\backend\\logs\\combined-2026-09-13.log",
             "hash": "d4aa30a3a6e75d92433376487be92f0ace8490ba60eea643a24728dd8cfc5838"
+        },
+        {
+            "date": 1789326616574,
+            "name": "C:\\Users\\pc\\Desktop\\sap_vendor_portal\\backend\\logs\\combined-2026-09-14.log",
+            "hash": "66ffcf51d0a6fc1676d0424090ce19625f977615bd0fd4611c56d6c4847cb450"
+        },
+        {
+            "date": 1789449686544,
+            "name": "C:\\Users\\pc\\Desktop\\sap_vendor_portal\\backend\\logs\\combined-2026-09-15.log",
+            "hash": "0eed156b873201cc77b431f6edbf23e466b694785d75eddab8a16af9c9b9876c"
         }
     ],
     "hashType": "sha256"

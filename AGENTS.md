@@ -6,7 +6,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # Project context
 
-For a complete, self-contained overview of this project — architecture, data model, every module, the full API endpoint map, the SAP-simulation design, conventions, and gotchas — read `PROJECT_CONTEXT.md` at the repo root. It is the canonical orientation doc; when it conflicts with older `workflow/` docs, trust the code first, then `PROJECT_CONTEXT.md`.
+For a complete, self-contained overview of this project — architecture, data model, every module, the full API endpoint map, the SAP-simulation design, conventions, and gotchas — read `PROJECT_CONTEXT.md` at the repo root. It is the canonical orientation doc; when it conflicts with the code, trust the code first, then `PROJECT_CONTEXT.md`.
 
 # When a test has to reach around the API, stop
 
