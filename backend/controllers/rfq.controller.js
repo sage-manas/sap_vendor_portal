@@ -27,6 +27,19 @@ const RFQ_INCLUDE = {
   bids: { include: { unitPrices: true, uploadedDocs: true } },
 };
 
+// A supplier reading a tender must never see another supplier's bid — this is
+// the portal's one sealed-tender guarantee. Scoped at the include itself
+// (rather than filtering the response afterwards) so there is no code path
+// that ever assembles a rival's unit prices before discarding them.
+const rfqIncludeFor = (req) => {
+  if (!isSupplier(req)) return RFQ_INCLUDE;
+  return {
+    items: true,
+    invitedVendors: true,
+    bids: { where: { vendorId: vendorScope(req) }, include: { unitPrices: true, uploadedDocs: true } },
+  };
+};
+
 // unitPrices[].price and freight are Decimal-typed columns — converted to
 // plain numbers here, the one place every consumer (API responses, the
 // evaluation matrix and awardBid's own price math below) reads a bid back
@@ -92,7 +105,7 @@ const getRFQs = asyncHandler(async (req, res, next) => {
 
   const skip = (page - 1) * limit;
   const [rfqs, total] = await Promise.all([
-    prisma.rFQ.findMany({ where, include: RFQ_INCLUDE, orderBy: { createdDate: 'desc' }, skip, take: Number(limit) }),
+    prisma.rFQ.findMany({ where, include: rfqIncludeFor(req), orderBy: { createdDate: 'desc' }, skip, take: Number(limit) }),
     prisma.rFQ.count({ where }),
   ]);
 
@@ -173,10 +186,22 @@ const getSapQuotationStatus = asyncHandler(async (req, res, next) => {
 // @route   GET /api/rfqs/:id
 // @access  Public
 const getRFQById = asyncHandler(async (req, res, next) => {
-  const rfq = await prisma.rFQ.findFirst({ where: { id: req.params.id }, include: RFQ_INCLUDE });
+  const rfq = await prisma.rFQ.findFirst({ where: { id: req.params.id }, include: rfqIncludeFor(req) });
   if (!rfq) {
     return next(ApiError.notFound('RFQ not found'));
   }
+
+  // A supplier absent from the invitee list gets the same 404 as a tender
+  // that doesn't exist — the API must not confirm a sealed tender exists (or
+  // leak its status/deadline/line structure) to a non-participant, mirroring
+  // submitBid's existing behaviour.
+  if (isSupplier(req)) {
+    const invited = rfq.invitedVendors.some((v) => v.vendorExtId === vendorScope(req));
+    if (!invited) {
+      return next(ApiError.notFound('RFQ not found'));
+    }
+  }
+
   res.json(formatRfq(rfq));
 });
 

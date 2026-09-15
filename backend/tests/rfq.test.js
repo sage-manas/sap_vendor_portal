@@ -113,6 +113,62 @@ describe('GET /api/rfqs', () => {
   });
 });
 
+describe('GET /api/rfqs/:id', () => {
+  it('returns the RFQ to an invited vendor', async () => {
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload())).body;
+    const res = await asVendor(request(app).get(`/api/rfqs/${rfq.id}`));
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe(rfq.id);
+  });
+
+  it('404s for a supplier who was never invited, matching the cross-tenant 404 exactly', async () => {
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(
+      rfqPayload({ invitedVendors: [{ id: 'someone_else' }] })
+    )).body;
+
+    const res = await asVendor(request(app).get(`/api/rfqs/${rfq.id}`));
+    // 404, not 403: a sealed tender's existence must not be confirmed to a
+    // non-participant, mirroring submitBid and the cross-tenant convention
+    // (tests/tenant-isolation.test.js) — same status and same error body.
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ success: false, code: 404, error: 'RFQ not found' });
+  });
+
+  it("a supplier never sees a rival's bid, on the list endpoint or the detail endpoint", async () => {
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(
+      rfqPayload({ invitedVendors: [{ id: 'vendor_test_001' }, { id: 'vendor_test_002' }] })
+    )).body;
+
+    await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(
+      bidPayload({ unitPrices: { 10: 11.5, 20: 3.8 } })
+    );
+    await asVendor2(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(
+      bidPayload({ unitPrices: { 10: 99, 20: 88 } })
+    );
+
+    const detail = await asVendor(request(app).get(`/api/rfqs/${rfq.id}`));
+    expect(detail.status).toBe(200);
+    expect(detail.body.bids).toHaveLength(1);
+    expect(detail.body.bids[0].vendorId).toBe('vendor_test_001');
+    expect(detail.body.bids[0].unitPrices['10']).toBe(11.5);
+
+    const list = await asVendor(request(app).get('/api/rfqs'));
+    const listed = list.body.rfqs.find((r) => r.id === rfq.id);
+    expect(listed.bids).toHaveLength(1);
+    expect(listed.bids[0].vendorId).toBe('vendor_test_001');
+
+    // The other side of the same coin: vendor 2 sees only their own bid too.
+    const detail2 = await asVendor2(request(app).get(`/api/rfqs/${rfq.id}`));
+    expect(detail2.body.bids).toHaveLength(1);
+    expect(detail2.body.bids[0].vendorId).toBe('vendor_test_002');
+
+    // Tenant staff still see every bid — bid visibility is only restricted
+    // supplier-to-supplier.
+    const staffView = await asBuyer(request(app).get(`/api/rfqs/${rfq.id}`));
+    expect(staffView.body.bids.map((b) => b.vendorId).sort()).toEqual(['vendor_test_001', 'vendor_test_002']);
+  });
+});
+
 describe('POST /api/rfqs/:id/bid', () => {
   it('accepts a valid bid from an invited vendor and maps GST to a tax code', async () => {
     const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload())).body;
