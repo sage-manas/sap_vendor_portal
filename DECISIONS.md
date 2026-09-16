@@ -5,6 +5,63 @@ Each entry: the call, why, and what it costs.
 
 ---
 
+## ADR-0040 — The Z-endpoint authentication gap is disclosed and gated, not silently fixed
+
+**Risk acknowledgment · 2026-09-16 · Accepted**
+
+**Context.** Every read this integration performs, and its one vendor-master write, go
+through eleven custom Z REST services on the sandbox, documented in `s4odata.driver.js` as
+reachable with no authentication: the standard OData gateway needs a technical user this
+tenant's `SapConnection` has no credentials for, so `authHeader()` returns `undefined` and the
+request still succeeds (#79). This is a real exposure on the customer's system and a
+portability problem (a second customer will not have these eleven services) — and neither
+half is something a code change in this repo can fix on its own. Only the customer's Basis
+team can enable authentication on services that live in their landscape.
+
+**Decision.** Split what is actually addressable now from what depends on someone outside
+this repo acting on it:
+
+- **Written up, not sent.** `docs/abap-requests/z-endpoint-authentication-disclosure.md`
+  lists all eleven endpoints and exactly what each exposes, for the customer's Basis/security
+  team. It is explicitly marked as drafted rather than delivered — this repo has no channel
+  to that team, and claiming a disclosure happened when it hasn't would be worse than not
+  writing it at all.
+- **Gated, not just documented, in code.** `sap/drivers/requireProductionCredentials.js`
+  (shared by `s4odata.driver.js` and `eccrfc.driver.js`'s `validateConfig`) refuses to save a
+  `production`-environment `SapConnection` with any of that driver's declared credentials
+  missing. `configureSap` (`controllers/platformSap.controller.js`) now passes
+  `{ environment, secrets }` through to `validateConfig` so this can be enforced at the one
+  place a connection is written, not left to an operator's judgement. This does not prove the
+  Z endpoints actually *enforce* authentication once credentials exist — only that the console
+  can no longer promote a tenant to production while carrying an admittedly-unauthenticated
+  configuration.
+- **Standard-vs-custom scoped, not built.**
+  `docs/abap-requests/standard-vs-custom-endpoint-matrix.md` sorts the eleven into
+  plausible-standard-replacement / likely-needs-custom / unknown, based on what
+  `s4odata.driver.js` already declares (`API_BUSINESS_PARTNER`,
+  `API_PURCHASEORDER_PROCESS_SRV`, `API_SUPPLIERINVOICE_PROCESS_SRV` — declared, unused) and
+  the driver's own prior conclusions about sourcing (RFQ/quotation flows are explicitly
+  Ariba/Business-Network territory, not core S/4). Every verdict is stated as unverified —
+  consistent with ADR-0036/ADR-0037's rule against manufacturing confidence a live system
+  hasn't actually confirmed.
+
+**What this explicitly does not claim.** Not done, and not claimed as done: the disclosure
+has not been sent or acknowledged; authentication has not been enabled on the Z endpoints;
+the portal has not been tested against authenticated versions of them (there is no sandbox to
+test against); no standard-API replacement has been built or verified. All four are the
+acceptance criteria issue #79 lists that a code change in this repository cannot itself
+satisfy — they need a person to send the disclosure, a Basis team to act on it, and a
+sandbox — real or design-partner — to test and build against afterward.
+
+**Consequences.** A tenant can no longer be silently promoted to a production SAP connection
+with no credentials configured; that promotion now fails loudly with a clear reason instead
+of succeeding on an unauthenticated pipe. The underlying exposure on the sandbox itself is
+unchanged by this PR — it is the customer's system to lock down, and the disclosure document
+exists so that conversation starts with complete information instead of "some endpoints are
+open."
+
+---
+
 ## ADR-0039 — Vendor.gstin moves to per-tenant uniqueness; vendorId and email stay global
 
 **Bug fix · 2026-09-19 · Accepted**

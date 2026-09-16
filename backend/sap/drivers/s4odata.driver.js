@@ -3,6 +3,7 @@ const logger = require('../../utils/logger');
 const { buildVendorCreatePayload } = require('../mappings/vendor-create.map');
 const { matchInvoiceDocument } = require('../mappings/invoice-match');
 const { decodeFromSap } = require('../mappings/fields');
+const { requireProductionCredentials } = require('./requireProductionCredentials');
 
 // S/4HANA via the OData APIs (API_BUSINESS_PARTNER, API_PURCHASEORDER_PROCESS_SRV,
 // API_INBOUND_DELIVERY_SRV, API_MATERIAL_DOCUMENT_SRV, API_SUPPLIERINVOICE_PROCESS_SRV, …).
@@ -1376,7 +1377,18 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
   return assertImplements(driver, 's4_odata');
 };
 
-const validateConfig = (config = {}) => {
+const SECRET_FIELDS = [
+  { name: 'username', label: 'Technical user' },
+  { name: 'password', label: 'Password' },
+];
+
+// `environment`/`secrets` are optional so every existing call site
+// (controllers/platformSap.controller.js's "test connection" on a
+// not-yet-saved sandbox config, this driver's own tests) that only cares
+// about the shape of `config` keeps working unchanged — the production-
+// credentials rule only engages when a caller actually says which
+// environment this is for.
+const validateConfig = (config = {}, { environment, secrets = {} } = {}) => {
   const errors = {};
   if (!config.baseUrl) errors.baseUrl = 'A gateway base URL is required';
   else if (!/^https?:\/\//i.test(config.baseUrl)) errors.baseUrl = 'Must be an http(s) URL';
@@ -1387,16 +1399,14 @@ const validateConfig = (config = {}) => {
   // companyCodes isn't set (declaredCompanyCodes above) — required here
   // means that filter can never see an empty list on a live connection.
   if (!config.companyCode) errors.companyCode = 'A company code is required';
+  requireProductionCredentials(errors, { environment, secrets, secretFields: SECRET_FIELDS });
   return errors;
 };
 
 module.exports = {
   createS4ODataDriver,
   validateConfig,
-  secretFields: [
-    { name: 'username', label: 'Technical user' },
-    { name: 'password', label: 'Password' },
-  ],
+  secretFields: SECRET_FIELDS,
   configFields: [
     { name: 'baseUrl', label: 'Gateway base URL', type: 'text', placeholder: 'https://my-s4.example.com' },
     { name: 'sapClient', label: 'SAP client', type: 'text', placeholder: '100' },
