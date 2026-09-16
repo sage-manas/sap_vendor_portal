@@ -471,8 +471,22 @@ model PurchaseOrder {
   vendorPk    String? @db.Uuid
   vendor      Vendor? @relation(fields: [vendorPk], references: [pk])
 
-  buyerName       String?
-  plant           String?
+  buyerName String?
+
+  // Organisational scope (issue #62). None of these default to a demo value
+  // ('1000' or otherwise) — a value here means either the awarding RFQ
+  // carried a real one, or SAP's own ledger reported it for a discovered
+  // order (sweepPurchaseOrders.js). `plant` is deliberately NOT here: a PO
+  // can span several plants across its lines, so it lives on
+  // PurchaseOrderItem instead — see the note there. `docType` (SAP's BSART,
+  // e.g. 'NB') stays null for now: the Z endpoint this portal reads for a
+  // discovered order (zpo_grn_vendor/Detail) does not return it, and a
+  // portal-awarded order has no SAP document yet to have a type.
+  companyCode     String?
+  purchasingOrg   String?
+  purchasingGroup String?
+  docType         String?
+
   paymentTerms    String?
   currency        String    @default("INR")
   incoterms       String?
@@ -529,6 +543,12 @@ model PurchaseOrderItem {
   unitPrice    Decimal @db.Decimal(14, 2)
   netValue     Decimal @db.Decimal(14, 2)
   uom          String  @default("EA")
+  // Moved here from the PO header (issue #62): a multi-line order can ship
+  // from more than one plant, and the header field used to be silently
+  // guessed from `items[0]` — both at award (rfq.controller.js) and at
+  // discovery (sweepPurchaseOrders.js). No default: null means genuinely
+  // unknown, not "1000".
+  plant String?
 
   invoicePlan InvoicePlan?
 

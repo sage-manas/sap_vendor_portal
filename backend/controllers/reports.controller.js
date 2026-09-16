@@ -170,7 +170,11 @@ const generateInvoicePDF = asyncHandler(async (req, res, next) => {
   }
 
   const vendor = await prisma.vendor.findFirst({ where: { OR: [{ vendorId: invoice.vendorId }, { clerkId: invoice.vendorId }] } });
-  const po = await prisma.purchaseOrder.findFirst({ where: { id: invoice.poId } });
+  const po = await prisma.purchaseOrder.findFirst({ where: { id: invoice.poId }, include: { items: true } });
+  // Plant is per line item, not one value for the whole order (issue #62) —
+  // this only prints something when every line agrees, rather than picking
+  // one line's plant and presenting it as the order's.
+  const plants = [...new Set((po?.items || []).map((item) => item.plant).filter(Boolean))];
 
   const doc = new PDFDocument({ margin: 50, size: 'A4' });
 
@@ -197,7 +201,7 @@ const generateInvoicePDF = asyncHandler(async (req, res, next) => {
   // The buyer is the tenant this request belongs to. Its registered address
   // and GSTIN are not held by the portal, so they are not printed.
   doc.text(orDash(req.client?.companyName), 50, 145);
-  doc.text(`Plant ${orDash(po?.plant)} - Procurement and Accounts`, 50, 157);
+  doc.text(`Plant ${orDash(plants.join('/') || null)} - Procurement and Accounts`, 50, 157);
   doc.text(orDash(po?.deliveryAddress), 50, 169, { width: 250 });
 
   // Shipping details / reference links

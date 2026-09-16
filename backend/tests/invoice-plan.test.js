@@ -23,7 +23,6 @@ const seedPO = (overrides = {}) =>
       sapPoNumber: overrides.sapPoNumber || '4500090001',
       vendorId: overrides.vendorId,
       buyerName: 'Test Buyer',
-      plant: '1000',
       currency: 'INR',
       status: overrides.status || 'Open',
       createdDate: new Date('2026-01-10'),

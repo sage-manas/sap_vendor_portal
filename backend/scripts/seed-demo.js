@@ -557,7 +557,7 @@ const seedRfqs = async (vendor) => {
 // ---------------------------------------------------------------------------
 
 const line = (lineNo, mat, quantity, unitPrice, grnQuantity = 0) =>
-  ({ line: lineNo, ...mat, quantity, unitPrice, grnQuantity, uom: 'EA' });
+  ({ line: lineNo, ...mat, quantity, unitPrice, grnQuantity, uom: 'EA', plant: '1000' });
 
 const po = ({ id, status, createdDate, items, confirmedInSap = true, ...rest }) => ({
   clientId,
@@ -567,7 +567,11 @@ const po = ({ id, status, createdDate, items, confirmedInSap = true, ...rest }) 
   sapPoNumber: confirmedInSap ? sapPoNumber(id) : null,
   vendorId: VENDOR_ID,
   buyerName: 'SAP System Procurement',
-  plant: '1000',
+  // Plant moved to the line item above (issue #62); these three stay on the
+  // header, matching the RFQ demo data's purchasingGroup convention above.
+  companyCode: '1000',
+  purchasingOrg: '1000',
+  purchasingGroup: '101',
   paymentTerms: 'NET 30 Days',
   currency: 'INR',
   incoterms: 'FOB Mumbai',
@@ -651,7 +655,9 @@ const seedInvoicingPlan = async (vendor) => {
       vendorId: VENDOR_ID,
       vendorPk: vendor.pk,
       buyerName: 'SAP System Procurement',
-      plant: '1000',
+      companyCode: '1000',
+      purchasingOrg: '1000',
+      purchasingGroup: '101',
       paymentTerms: 'NET 30 Days',
       currency: 'INR',
       deliveryAddress: 'Plant 1000 — Chakan Works, Pune 410501',
@@ -662,7 +668,7 @@ const seedInvoicingPlan = async (vendor) => {
         create: [{
           clientId, line: 10, materialCode: 'SRV-1188',
           description: 'Annual Maintenance Contract — CNC Line 4 installation',
-          quantity: 1, grnQuantity: 0, unitPrice: 600000, netValue: 600000, uom: 'EA',
+          quantity: 1, grnQuantity: 0, unitPrice: 600000, netValue: 600000, uom: 'EA', plant: '1000',
           invoicePlan: {
             create: {
               clientId,
