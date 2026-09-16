@@ -164,6 +164,16 @@ const buildAdapter = ({ clientId, connection, secrets }) => {
     secrets: secrets || {},
   });
 
+  // Known limitation (issue #69): this breaker lives in this process's
+  // memory, keyed on clientId/driverKey — the API process and the jobs
+  // process each build and hold their own for the same tenant, so neither
+  // sees the other's failures. The effective failure threshold before SAP
+  // traffic actually stops is double `breaker.failureThreshold`, not the
+  // configured value. Documented rather than fixed here per the issue's own
+  // "move it somewhere both processes can see, or accept and document"
+  // choice — sharing it needs an external store (Redis, or a DB row polled
+  // like SapSyncCursor) and a real design pass on staleness/races, which is
+  // a bigger change than the response-caching fix this issue otherwise ships.
   const breaker = createCircuitBreaker({
     label: `${clientId}/${driverKey}`,
     ...(connection?.config?.breaker || {}),
