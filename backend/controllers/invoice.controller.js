@@ -7,6 +7,14 @@ const { requireVendorScope, withVendorScope, scopedWhere } = require('../utils/r
 const { matchInvoiceDocument, AmbiguousInvoiceMatchError } = require('../sap/mappings/invoice-match');
 const { INVOICE_INCLUDE, formatInvoice } = require('../db/invoiceHelpers');
 const { flattenPaymentItems } = require('../db/paymentHelpers');
+const { mapWithConcurrency } = require('../utils/concurrencyPool');
+
+// At most this many invoicePaymentDetail calls run at once (issue #71) — an
+// unbounded Promise.all turned "one call per matched invoice" into a burst of
+// as many simultaneous requests as a supplier had matched invoices against
+// the customer's own SAP gateway, and the circuit breaker counts every
+// failure in that burst toward tripping SAP access off for the whole tenant.
+const SAP_DETAIL_CONCURRENCY = 5;
 
 // Adds the PaymentItems formatInvoice needs to compute amountPaid/
 // outstandingAmount (issue #63) — only for the reads a supplier/buyer
@@ -83,7 +91,24 @@ const getSapInvoiceStatus = asyncHandler(async (req, res, next) => {
     return next(ApiError.notFound('Vendor not found'));
   }
 
-  const invoices = await prisma.invoice.findMany({ where: { vendorId }, include: INVOICE_INCLUDE, orderBy: { createdAt: 'desc' } });
+  // Paginated, not opt-in (unlike GET /pos/sap-status, whose single
+  // vendorPoGrnDisplay call costs the same regardless of order count): here
+  // the expensive part scales with *how many invoices are being cross-
+  // checked*, one invoicePaymentDetail call per matched invoice, so an
+  // unbounded default would keep reproducing #71 for the one caller that
+  // exists today (useInvoices.js, which asks for neither page nor limit).
+  // Defaults match GET /api/invoices' own (page 1, limit 10), so a page load
+  // that already only shows a vendor's first 10 invoices doesn't also
+  // silently cross-check all the others in the background.
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 10));
+  const skip = (page - 1) * limit;
+
+  const where = { vendorId };
+  const [invoices, total] = await Promise.all([
+    prisma.invoice.findMany({ where, include: INVOICE_INCLUDE, orderBy: { createdAt: 'desc' }, skip, take: limit }),
+    prisma.invoice.count({ where }),
+  ]);
 
   const sap = await getSapAdapterForClient(req.clientId);
   const result = await sap.vendorMiroDisplay({ vendor, invoices: invoices.map(formatInvoice) });
@@ -153,7 +178,37 @@ const getSapInvoiceStatus = asyncHandler(async (req, res, next) => {
   }
 
   const paymentDetails = {};
-  await Promise.all(matchedInvoices.map(async (inv) => {
+  const needsSapDetail = [];
+  for (const inv of matchedInvoices) {
+    const localPayment = paymentByInvoiceId.get(inv.id);
+    // Issue #71: a cleared invoice's payment detail does not change — it was
+    // already captured once, by the job that recorded the clearing
+    // (jobs/handlers/awaitPaymentRun.js -> recordPaymentItem), the same way
+    // sapMiroDoc itself is only ever re-matched once. Re-reading it from SAP
+    // on every page load is exactly the unbounded fan-out this issue is
+    // about, and the answer is already sitting in Payment/PaymentItem.
+    if (localPayment) {
+      paymentDetails[inv.sapMiroDoc] = {
+        found: true,
+        status: 'CLEARED',
+        grossAmount: localPayment.grossAmount,
+        tdsDeducted: localPayment.tdsDeducted,
+        netDisbursed: localPayment.netAmount,
+        clearingDocument: localPayment.sapPaymentDoc || null,
+        clearingDate: localPayment.paymentDate,
+        postingDate: localPayment.paymentDate,
+        paymentMethod: localPayment.paymentMethod || null,
+        utrReference: localPayment.utrCode || null,
+      };
+      continue;
+    }
+    needsSapDetail.push(inv);
+  }
+
+  // Only a matched-but-not-yet-cleared invoice (SAP has posted the MIRO
+  // document but AP hasn't run the payment yet) still needs a live read, and
+  // even that is bounded rather than one uncapped burst per page load.
+  await mapWithConcurrency(needsSapDetail, SAP_DETAIL_CONCURRENCY, async (inv) => {
     const doc = documentsByMiroDoc.get(inv.sapMiroDoc);
     const detail = await sap.invoicePaymentDetail({
       invoiceDocNo: doc.miroDoc,
@@ -161,9 +216,13 @@ const getSapInvoiceStatus = asyncHandler(async (req, res, next) => {
       payment: paymentByInvoiceId.get(inv.id),
     });
     if (detail.found) paymentDetails[inv.sapMiroDoc] = detail;
-  }));
+  });
 
-  res.json({ documents, paymentDetails });
+  res.json({
+    documents,
+    paymentDetails,
+    pagination: { total, page, limit, pages: Math.ceil(total / limit) },
+  });
 });
 
 module.exports = {
