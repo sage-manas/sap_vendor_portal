@@ -312,6 +312,238 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
   const paymentTermsCache = { rows: null, fetchedAt: 0 };
   const paymentMethodCache = { rows: null, fetchedAt: 0 };
 
+  // Issue #69: vendorPoGrnDisplay/vendorMiroDisplay answer for one vendor's
+  // *entire* history — 22-84s and roughly half a megabyte for 173 orders —
+  // and awaitGoodsReceipt/awaitPaymentRun used to call it once per ASN/
+  // invoice, per job attempt. Twenty open shipments across fifty vendors on a
+  // one-minute cadence is ~1,000 of these calls an hour against an endpoint
+  // that can take a minute and a half to answer. This caches by vendor code
+  // for a short window — long enough that every open ASN/invoice for the
+  // same vendor, plus this tick's own discovery sweep, share one call instead
+  // of one each; short enough that a real goods receipt still surfaces
+  // within about a cadence's length of SAP posting it. Not catalogueTtlMs
+  // (an hour): unlike a payment-terms list, this data is expected to change
+  // during a live order's lifecycle.
+  //
+  // Keyed on vendor code alone, not the request body — the Z endpoint takes
+  // nothing else (see vendorPoGrnDisplay's own comment) — and the cached
+  // value is the in-flight *promise*, not just its resolved result, so
+  // concurrent callers racing for the same vendor (this tick's several
+  // watches, or a watch and a sweep) share one HTTP request rather than each
+  // opening their own. A rejected call is evicted immediately: a transient
+  // failure must not be remembered as "still no answer" for the rest of the
+  // window.
+  const vendorResponseCacheMs = Number(config.vendorResponseCacheMs) || 20_000;
+  const poGrnCache = new Map(); // sapVendorCode -> { promise, expiresAt }
+  const miroCache = new Map();
+
+  const withVendorCache = (cache, vendor, fetcher) => {
+    const key = vendor?.sapVendorCode;
+    if (!key) return fetcher();
+
+    const hit = cache.get(key);
+    if (hit && Date.now() < hit.expiresAt) return hit.promise;
+
+    const promise = fetcher().catch((error) => {
+      cache.delete(key);
+      throw error;
+    });
+    cache.set(key, { promise, expiresAt: Date.now() + vendorResponseCacheMs });
+    return promise;
+  };
+
+  // The actual MIRO-display HTTP call and parsing — extracted so
+  // vendorMiroDisplay can share it through withVendorCache above, unchanged
+  // otherwise.
+  const fetchMiroDisplay = async (vendor) => {
+    if (!vendor?.sapVendorCode) return { data: { documents: [] } };
+
+    const base = String(config.baseUrl || '').replace(/\/$/, '');
+    const path = config.miroDisplayPath || '/zmiro_display/MIRO';
+    const url = `${base}${path}${config.sapClient ? `?sap-client=${encodeURIComponent(config.sapClient)}` : ''}`;
+    const headers = baseHeaders(config, secrets);
+
+    const response = await getWithBody(url, {
+      headers,
+      body: { vendor: vendor.sapVendorCode },
+      timeoutMs: Number(config.timeoutMs) || 10000,
+    });
+
+    let parsed;
+    try { parsed = response.text ? JSON.parse(response.text) : []; } catch { parsed = null; }
+
+    // Confirmed against the live sandbox: a vendor with zero MIRO documents
+    // doesn't come back as an empty array — it comes back as HTTP 500 with a
+    // single object of blank fields (INV_DOC_NO: ""). That's this endpoint's
+    // way of saying "nothing found", not a real failure, so it's treated as
+    // an empty result rather than thrown. Anything else non-2xx or
+    // non-array/non-blank-object is a genuine failure.
+    const isEmptySentinel = parsed && !Array.isArray(parsed) && !parsed.INV_DOC_NO;
+    const rows = isEmptySentinel ? [] : parsed;
+
+    if (!isEmptySentinel && (response.status < 200 || response.status >= 300 || !Array.isArray(rows))) {
+      const error = new Error(`SAP MIRO display GET ${path} failed: ${response.status} ${response.statusText}`);
+      error.status = response.status;
+      throw error;
+    }
+
+    return {
+      data: {
+        documents: rows.map((row) => ({
+          miroDoc: row.INV_DOC_NO,
+          fiscalYear: row.FISCAL_YEAR,
+          docType: row.DOC_TYPE,
+          docDate: row.DOC_DATE,
+          postingDate: row.POST_DATE,
+          poNumber: row.REFERENCE,
+          companyCode: row.COM_CODE,
+          currency: row.CURRENCY,
+          grossAmount: Number(row.GROSS_AMOUNT),
+          taxableAmount: Number(row.TAXABLE_AMOUNT),
+          taxCode: row.TAX_CODE,
+          paymentTerm: row.PAYMENT_TERM,
+          items: (row.ITEM || []).map((item) => ({
+            poNumber: item.PO_NO,
+            poItem: item.PO_ITEM,
+            materialCode: item.MATERIAL,
+            amount: Number(item.AMOUNT),
+            quantity: Number(item.QUANTITY),
+            uom: item.UNIT,
+            totalValue: Number(item.TOT_VALUE),
+          })),
+        })),
+      },
+    };
+  };
+
+  // The actual PO/GRN-display HTTP call, filtering and mapping — extracted
+  // so vendorPoGrnDisplay can share it through withVendorCache above,
+  // unchanged otherwise.
+  const fetchPoGrnDisplay = async (vendor) => {
+    if (!vendor?.sapVendorCode) return { data: { orders: [] } };
+
+    const base = String(config.baseUrl || '').replace(/\/$/, '');
+    const path = config.poGrnPath || '/zpo_grn_vendor/Detail';
+    const url = `${base}${path}${config.sapClient ? `?sap-client=${encodeURIComponent(config.sapClient)}` : ''}`;
+
+    // This payload nests line items and GRNs per PO and has come back in
+    // 15s+ against the live sandbox even for a handful of orders — the
+    // shared config.timeoutMs (10s default, tuned for the lighter reads
+    // above) is too short for it, so it gets its own, longer default.
+    const response = await getWithBody(url, {
+      headers: baseHeaders(config, secrets),
+      body: { vendor: vendor.sapVendorCode },
+      timeoutMs: Number(config.poGrnTimeoutMs) || 120000,
+    });
+
+    let rows;
+    try { rows = response.text ? JSON.parse(response.text) : []; } catch { rows = null; }
+
+    if (response.status < 200 || response.status >= 300 || !Array.isArray(rows)) {
+      const error = new Error(`SAP PO/GRN display GET ${path} failed: ${response.status} ${response.statusText}`);
+      error.status = response.status;
+      throw error;
+    }
+
+    // zpo_grn_vendor/Detail has no company-code parameter of its own (see
+    // the note on declaredCompanyCodes above) — filtering happens here,
+    // after the fact, rather than trusting the endpoint to have scoped the
+    // rows itself. An order outside the tenant's declared company codes is
+    // dropped before it ever reaches a caller that might persist it (see
+    // jobs/handlers/sweepPurchaseOrders.js).
+    const allowed = declaredCompanyCodes(config);
+    const inScope = (po) => !allowed.length || allowed.includes(String(po.COM_CODE || ''));
+
+    return {
+      data: {
+        orders: rows.filter(inScope).map((po) => {
+          const items = (po.PO_LINE_ITEMS || []).map((item) => ({
+            itemNumber: item.ITEM_NUMBER,
+            materialCode: item.MATERIAL_CODE,
+            description: item.DESCRIPTION,
+            orderedQuantity: Number(item.ORDERED_QUANTITY),
+            receivedQuantity: Number(item.RECEIVED_QUANTITY),
+            invoicedQuantity: Number(item.INVOICED_QUANTITY),
+            // decodeFromSap('MEINS', ...) is a display decode (falls back to
+            // the raw SAP code rather than throwing on an unmapped unit) —
+            // this is a read, and failing a whole PO/GRN listing over one
+            // unfamiliar unit code would be worse than showing it verbatim.
+            // What it must never do is silently become a *different* real
+            // unit — see the fixed default a few lines below in
+            // awaitGoodsReceipt for the bug this replaced.
+            uom: decodeFromSap('MEINS', item.UOM),
+            unitPrice: Number(item.UNIT_PRICE),
+            netAmount: Number(item.NET_AMOUNT),
+            grossAmount: Number(item.GROSS_AMOUNT),
+            grStatus: item.GR_EXPECTED || null,
+            plant: item.PLANT,
+
+            grns: (item.GRN || []).filter(isGoodsReceipt).map((gr) => ({
+              grNumber: gr.GR_NUMBER,
+              // A GR document covers several PO lines, so GR_NUMBER repeats
+              // across items (159 of 410 rows in the sandbox). The item
+              // number is what makes a receipt row unique.
+              grItemNumber: gr.GR_ITEM_NUMBER,
+              grDate: sapDayToIso(gr.GR_DATE),
+              // MJAHR (the material document's fiscal year — GR_NUMBER
+              // alone is not unique once SAP recycles a number range) is
+              // nowhere in this payload; see awaitGoodsReceipt below for
+              // where the year this becomes actually comes from.
+              grYear: grFiscalYear(gr),
+              quantity: Number(gr.GR_QUANTITY),
+              uom: gr.UOM,
+              unitPrice: Number(gr.UNIT_PRICE),
+              netAmount: Number(gr.NET_AMOUNT),
+              location: gr.LOCATION || null,
+            })),
+
+            // Service lines (TYPE ZSER) are confirmed by service entry sheet,
+            // not by a goods movement, so SAP returns them in the same GRN
+            // array with every receipt field blank and the SSES_* fields
+            // filled instead. Left in `grns` they render as empty receipts
+            // with no number, date or quantity, so they are split out here.
+            serviceEntries: (item.GRN || []).filter((gr) => !isGoodsReceipt(gr)).map((gr) => ({
+              entrySheetNumber: gr.SSES_NO,
+              fiscalYear: gr.SSES_YEAR,
+              netAmount: Number(gr.SNET_AMOUNT || gr.NET_AMOUNT),
+              accountCategory: gr.SACC_CAT || null,
+              itemCategory: gr.SITEM_CAT || null,
+            })),
+          }));
+
+          // The header NET_AMOUNT/GROSS_AMOUNT this endpoint returns cannot
+          // be used. Against the live sandbox NET_AMOUNT is "0.00" for 115 of
+          // 173 orders, and GROSS_AMOUNT is non-decreasing across every one
+          // of the 172 row transitions — it is a running total that the ABAP
+          // handler never resets per PO, not this order's gross. Both are
+          // summed from the line items instead, which do reconcile.
+          const sumOf = (field) => items.reduce((total, item) => total + (item[field] || 0), 0);
+
+          return {
+            poNumber: po.PO_NUMBER,
+            // SAP's own report has no field naming the portal's PurchaseOrder
+            // — it is keyed only on the vendor code, not on anything we sent
+            // it (see this method's opening comment) — so there is no
+            // correlation to offer here. `null`, honestly, rather than
+            // guessing one order matches another by amount or date; see
+            // mock.driver.js's vendorPoGrnDisplay for the one driver that can
+            // answer this field for real.
+            poId: null,
+            poDate: sapDotDateToIso(po.PO_DATE),
+            buyerName: po.BUYER_NAME,
+            shipToCity: po.SHIP_TO_CITY,
+            shipToState: po.SHIP_TO_STATE,
+            companyCode: po.COM_CODE,
+            currency: po.CURRENCY || null,
+            netAmount: sumOf('netAmount'),
+            grossAmount: sumOf('grossAmount'),
+            items,
+          };
+        }),
+      },
+    };
+  };
+
   const driver = {
     ...notImplementedDriver('s4_odata'),
     name: 's4_odata',
@@ -437,68 +669,12 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
     // What SAP itself has posted (MIRO) against this vendor's Business
     // Partner code — a custom Z REST POST (same family as VENDOR_CR and the
     // catalogue reads above: sap-client as a query param, no OData session
-    // dance), not a per-tenant catalogue, so it is never cached. A vendor
-    // with no sapVendorCode yet has nothing in SAP to look up.
-    vendorMiroDisplay: async ({ vendor }) => {
-      if (!vendor?.sapVendorCode) return { data: { documents: [] } };
-
-      const base = String(config.baseUrl || '').replace(/\/$/, '');
-      const path = config.miroDisplayPath || '/zmiro_display/MIRO';
-      const url = `${base}${path}${config.sapClient ? `?sap-client=${encodeURIComponent(config.sapClient)}` : ''}`;
-      const headers = baseHeaders(config, secrets);
-
-      const response = await getWithBody(url, {
-        headers,
-        body: { vendor: vendor.sapVendorCode },
-        timeoutMs: Number(config.timeoutMs) || 10000,
-      });
-
-      let parsed;
-      try { parsed = response.text ? JSON.parse(response.text) : []; } catch { parsed = null; }
-
-      // Confirmed against the live sandbox: a vendor with zero MIRO documents
-      // doesn't come back as an empty array — it comes back as HTTP 500 with a
-      // single object of blank fields (INV_DOC_NO: ""). That's this endpoint's
-      // way of saying "nothing found", not a real failure, so it's treated as
-      // an empty result rather than thrown. Anything else non-2xx or
-      // non-array/non-blank-object is a genuine failure.
-      const isEmptySentinel = parsed && !Array.isArray(parsed) && !parsed.INV_DOC_NO;
-      const rows = isEmptySentinel ? [] : parsed;
-
-      if (!isEmptySentinel && (response.status < 200 || response.status >= 300 || !Array.isArray(rows))) {
-        const error = new Error(`SAP MIRO display GET ${path} failed: ${response.status} ${response.statusText}`);
-        error.status = response.status;
-        throw error;
-      }
-
-      return {
-        data: {
-          documents: rows.map((row) => ({
-            miroDoc: row.INV_DOC_NO,
-            fiscalYear: row.FISCAL_YEAR,
-            docType: row.DOC_TYPE,
-            docDate: row.DOC_DATE,
-            postingDate: row.POST_DATE,
-            poNumber: row.REFERENCE,
-            companyCode: row.COM_CODE,
-            currency: row.CURRENCY,
-            grossAmount: Number(row.GROSS_AMOUNT),
-            taxableAmount: Number(row.TAXABLE_AMOUNT),
-            taxCode: row.TAX_CODE,
-            paymentTerm: row.PAYMENT_TERM,
-            items: (row.ITEM || []).map((item) => ({
-              poNumber: item.PO_NO,
-              poItem: item.PO_ITEM,
-              materialCode: item.MATERIAL,
-              amount: Number(item.AMOUNT),
-              quantity: Number(item.QUANTITY),
-              uom: item.UNIT,
-              totalValue: Number(item.TOT_VALUE),
-            })),
-          })),
-        },
-      };
-    },
+    // dance). Not a slow-changing catalogue, so not fetchCatalogue's hour-long
+    // cache — but shared per vendor for vendorResponseCacheMs (issue #69),
+    // since awaitPaymentRun re-reads this on every attempt for every open
+    // invoice. A vendor with no sapVendorCode yet has nothing in SAP to look
+    // up.
+    vendorMiroDisplay: ({ vendor }) => withVendorCache(miroCache, vendor, () => fetchMiroDisplay(vendor)),
 
     // Clearing/payment detail for one MIRO document — a plain GET with
     // belnr/gjahr as query params (confirmed against the live sandbox, unlike
@@ -795,130 +971,17 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
     // GET+body is 200), so this reuses the getWithBody workaround. Unlike
     // the MIRO display, this is keyed directly on the vendor code — no
     // GSTIN-correlation guess needed.
-    vendorPoGrnDisplay: async ({ vendor }) => {
-      if (!vendor?.sapVendorCode) return { data: { orders: [] } };
-
-      const base = String(config.baseUrl || '').replace(/\/$/, '');
-      const path = config.poGrnPath || '/zpo_grn_vendor/Detail';
-      const url = `${base}${path}${config.sapClient ? `?sap-client=${encodeURIComponent(config.sapClient)}` : ''}`;
-
-      // This payload nests line items and GRNs per PO and has come back in
-      // 15s+ against the live sandbox even for a handful of orders — the
-      // shared config.timeoutMs (10s default, tuned for the lighter reads
-      // above) is too short for it, so it gets its own, longer default.
-      const response = await getWithBody(url, {
-        headers: baseHeaders(config, secrets),
-        body: { vendor: vendor.sapVendorCode },
-        timeoutMs: Number(config.poGrnTimeoutMs) || 120000,
-      });
-
-      let rows;
-      try { rows = response.text ? JSON.parse(response.text) : []; } catch { rows = null; }
-
-      if (response.status < 200 || response.status >= 300 || !Array.isArray(rows)) {
-        const error = new Error(`SAP PO/GRN display GET ${path} failed: ${response.status} ${response.statusText}`);
-        error.status = response.status;
-        throw error;
-      }
-
-      // zpo_grn_vendor/Detail has no company-code parameter of its own (see
-      // the note on declaredCompanyCodes above) — filtering happens here,
-      // after the fact, rather than trusting the endpoint to have scoped the
-      // rows itself. An order outside the tenant's declared company codes is
-      // dropped before it ever reaches a caller that might persist it (see
-      // jobs/handlers/sweepPurchaseOrders.js).
-      const allowed = declaredCompanyCodes(config);
-      const inScope = (po) => !allowed.length || allowed.includes(String(po.COM_CODE || ''));
-
-      return {
-        data: {
-          orders: rows.filter(inScope).map((po) => {
-            const items = (po.PO_LINE_ITEMS || []).map((item) => ({
-              itemNumber: item.ITEM_NUMBER,
-              materialCode: item.MATERIAL_CODE,
-              description: item.DESCRIPTION,
-              orderedQuantity: Number(item.ORDERED_QUANTITY),
-              receivedQuantity: Number(item.RECEIVED_QUANTITY),
-              invoicedQuantity: Number(item.INVOICED_QUANTITY),
-              // decodeFromSap('MEINS', ...) is a display decode (falls back to
-              // the raw SAP code rather than throwing on an unmapped unit) —
-              // this is a read, and failing a whole PO/GRN listing over one
-              // unfamiliar unit code would be worse than showing it verbatim.
-              // What it must never do is silently become a *different* real
-              // unit — see the fixed default a few lines below in
-              // awaitGoodsReceipt for the bug this replaced.
-              uom: decodeFromSap('MEINS', item.UOM),
-              unitPrice: Number(item.UNIT_PRICE),
-              netAmount: Number(item.NET_AMOUNT),
-              grossAmount: Number(item.GROSS_AMOUNT),
-              grStatus: item.GR_EXPECTED || null,
-              plant: item.PLANT,
-
-              grns: (item.GRN || []).filter(isGoodsReceipt).map((gr) => ({
-                grNumber: gr.GR_NUMBER,
-                // A GR document covers several PO lines, so GR_NUMBER repeats
-                // across items (159 of 410 rows in the sandbox). The item
-                // number is what makes a receipt row unique.
-                grItemNumber: gr.GR_ITEM_NUMBER,
-                grDate: sapDayToIso(gr.GR_DATE),
-                // MJAHR (the material document's fiscal year — GR_NUMBER
-                // alone is not unique once SAP recycles a number range) is
-                // nowhere in this payload; see awaitGoodsReceipt below for
-                // where the year this becomes actually comes from.
-                grYear: grFiscalYear(gr),
-                quantity: Number(gr.GR_QUANTITY),
-                uom: gr.UOM,
-                unitPrice: Number(gr.UNIT_PRICE),
-                netAmount: Number(gr.NET_AMOUNT),
-                location: gr.LOCATION || null,
-              })),
-
-              // Service lines (TYPE ZSER) are confirmed by service entry sheet,
-              // not by a goods movement, so SAP returns them in the same GRN
-              // array with every receipt field blank and the SSES_* fields
-              // filled instead. Left in `grns` they render as empty receipts
-              // with no number, date or quantity, so they are split out here.
-              serviceEntries: (item.GRN || []).filter((gr) => !isGoodsReceipt(gr)).map((gr) => ({
-                entrySheetNumber: gr.SSES_NO,
-                fiscalYear: gr.SSES_YEAR,
-                netAmount: Number(gr.SNET_AMOUNT || gr.NET_AMOUNT),
-                accountCategory: gr.SACC_CAT || null,
-                itemCategory: gr.SITEM_CAT || null,
-              })),
-            }));
-
-            // The header NET_AMOUNT/GROSS_AMOUNT this endpoint returns cannot
-            // be used. Against the live sandbox NET_AMOUNT is "0.00" for 115 of
-            // 173 orders, and GROSS_AMOUNT is non-decreasing across every one
-            // of the 172 row transitions — it is a running total that the ABAP
-            // handler never resets per PO, not this order's gross. Both are
-            // summed from the line items instead, which do reconcile.
-            const sumOf = (field) => items.reduce((total, item) => total + (item[field] || 0), 0);
-
-            return {
-              poNumber: po.PO_NUMBER,
-              // SAP's own report has no field naming the portal's PurchaseOrder
-              // — it is keyed only on the vendor code, not on anything we sent
-              // it (see this method's opening comment) — so there is no
-              // correlation to offer here. `null`, honestly, rather than
-              // guessing one order matches another by amount or date; see
-              // mock.driver.js's vendorPoGrnDisplay for the one driver that can
-              // answer this field for real.
-              poId: null,
-              poDate: sapDotDateToIso(po.PO_DATE),
-              buyerName: po.BUYER_NAME,
-              shipToCity: po.SHIP_TO_CITY,
-              shipToState: po.SHIP_TO_STATE,
-              companyCode: po.COM_CODE,
-              currency: po.CURRENCY || null,
-              netAmount: sumOf('netAmount'),
-              grossAmount: sumOf('grossAmount'),
-              items,
-            };
-          }),
-        },
-      };
-    },
+    //
+    // Shared per vendor for vendorResponseCacheMs (issue #69): this is the
+    // endpoint the issue is about — 22-84s and ~0.5MB for 173 orders, with
+    // no date/document filter available (the body carries only the vendor
+    // code; the Z endpoint accepts nothing else) — so a vendor with twenty
+    // open ASNs, each running its own awaitGoodsReceipt watch, now costs one
+    // call per cadence instead of twenty, and a same-tick discovery sweep
+    // for the same vendor (jobs/handlers/sweepPurchaseOrders.js, which calls
+    // this indirectly through the wrapped adapter) shares that same call
+    // rather than opening a second one.
+    vendorPoGrnDisplay: ({ vendor }) => withVendorCache(poGrnCache, vendor, () => fetchPoGrnDisplay(vendor)),
 
     // --- Invoicing plans (FPLA/FPLT) ------------------------------------
     //
