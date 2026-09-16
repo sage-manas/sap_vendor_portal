@@ -76,7 +76,7 @@ const wrapImmediate = (driverName, method, fn, breaker) => async (args = {}) => 
         documentRef: args.documentRef || '',
       });
     }
-    if (error.code === 'sap_circuit_open' || error.code === 'not_implemented') throw error;
+    if (error.code === 'sap_circuit_open' || error.code === 'not_implemented' || error.code === 'sap_not_found') throw error;
     throw new SapDriverError(error.message, { driver: driverName, method, cause: error });
   }
 

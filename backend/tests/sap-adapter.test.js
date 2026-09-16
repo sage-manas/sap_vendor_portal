@@ -63,6 +63,22 @@ describe('the SapAdapter contract', () => {
       .rejects.toMatchObject({ code: 'not_implemented' });
   });
 
+  // Issue #70's own reproduction: an unbuilt ecc_rfc method called repeatedly
+  // must not trip the breaker for the whole tenant — testConnection (which
+  // ecc_rfc *does* implement) has to keep answering.
+  it('repeatedly calling an unimplemented ecc_rfc method never opens the breaker for the rest of the tenant', async () => {
+    const adapter = buildTransientAdapter({ clientId: 'CLT-0001', driver: 'ecc_rfc', config: {}, secrets: {} });
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await expect(runWithTenant('CLT-0001', () => adapter.vendorCreate({ vendor: { vendorId: 'v' } })))
+        .rejects.toMatchObject({ code: 'not_implemented' });
+    }
+
+    expect(adapter.circuit().state).toBe('closed');
+    await expect(runWithTenant('CLT-0001', () => adapter.testConnection())).resolves.toMatchObject({ ok: false });
+  });
+
   it('s4_odata is implemented, so it fails on the unreachable gateway rather than reporting not_implemented', async () => {
     const adapter = buildTransientAdapter({ clientId: 'CLT-0001', driver: 's4_odata', config: {}, secrets: {} });
 
@@ -202,6 +218,68 @@ describe('the circuit breaker', () => {
     // against a threshold of one is enough because the system has just said it
     // is still down.
     await expect(breaker.run(failing)).rejects.toThrow();
+    expect(breaker.state).toBe('open');
+  });
+
+  // Issue #70: not_implemented is thrown *inside* the wrapped call, before
+  // sap/index.js's wrapImmediate ever gets a chance to re-throw it unwrapped
+  // — so, before this fix, calling an unbuilt driver method counted the same
+  // as a real transport failure, and five of them tripped the breaker for
+  // every other method on that tenant.
+  const notImplemented = () => {
+    const error = new Error('not_implemented: the ecc_rfc driver does not implement getPoStatus() yet');
+    error.code = 'not_implemented';
+    return Promise.reject(error);
+  };
+
+  it('ten not_implemented calls leave the breaker closed', async () => {
+    const breaker = createCircuitBreaker({ label: 'test', failureThreshold: 5, resetAfterMs: 10_000 });
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await expect(breaker.run(notImplemented)).rejects.toMatchObject({ code: 'not_implemented' });
+    }
+
+    expect(breaker.state).toBe('closed');
+    expect(breaker.snapshot().failures).toBe(0);
+
+    // A real method on the same tenant still gets to call through — the
+    // self-inflicted outage this issue describes never happens.
+    const call = jest.fn(() => Promise.resolve('ok'));
+    await expect(breaker.run(call)).resolves.toBe('ok');
+    expect(call).toHaveBeenCalledTimes(1);
+  });
+
+  // A driver's honest "SAP has nothing here" (contract.js's SapNotFoundError)
+  // is a business answer, not an outage, and must not count either.
+  const sapNotFound = () => {
+    const error = new Error('sap_not_found: no purchase order 4500000001 for this vendor');
+    error.code = 'sap_not_found';
+    return Promise.reject(error);
+  };
+
+  it('a sap_not_found error does not count toward the failure threshold', async () => {
+    const breaker = createCircuitBreaker({ label: 'test', failureThreshold: 3, resetAfterMs: 10_000 });
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await expect(breaker.run(sapNotFound)).rejects.toMatchObject({ code: 'sap_not_found' });
+    }
+
+    expect(breaker.state).toBe('closed');
+    expect(breaker.snapshot().failures).toBe(0);
+  });
+
+  it('still trips on a genuine failure even after exempt errors in between', async () => {
+    const breaker = createCircuitBreaker({ label: 'test', failureThreshold: 2, resetAfterMs: 10_000 });
+
+    await expect(breaker.run(notImplemented)).rejects.toMatchObject({ code: 'not_implemented' });
+    await expect(breaker.run(failing)).rejects.toThrow('gateway down');
+    await expect(breaker.run(sapNotFound)).rejects.toMatchObject({ code: 'sap_not_found' });
+    await expect(breaker.run(failing)).rejects.toThrow('gateway down');
+
+    // Two real failures against a threshold of two — the exempt calls in
+    // between never counted, but genuine ones still do.
     expect(breaker.state).toBe('open');
   });
 });

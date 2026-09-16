@@ -17,6 +17,18 @@ const DEFAULTS = {
   resetAfterMs: 30000,
 };
 
+// Codes that must never count toward tripping the breaker — they answer a
+// question about our own code or about a business fact, not about whether
+// SAP itself is reachable (issue #70). `not_implemented` is thrown from
+// *inside* the wrapped driver call, before sap/index.js's wrapImmediate ever
+// gets a chance to re-throw it unwrapped, so without this the breaker was
+// counting "we haven't built this method yet" the same as a real transport
+// failure — five calls to an unbuilt ecc_rfc method opened the circuit for
+// every other method on that tenant. `sap_not_found` is the same idea for a
+// driver's honest "SAP has nothing here" (see contract.js's SapNotFoundError)
+// — a 404-equivalent business answer, not an outage.
+const EXEMPT_FAILURE_CODES = new Set(['not_implemented', 'sap_not_found']);
+
 class CircuitOpenError extends Error {
   constructor(label, openedAt, resetAfterMs) {
     const waitMs = Math.max(0, resetAfterMs - (Date.now() - openedAt));
@@ -73,6 +85,14 @@ const createCircuitBreaker = ({ label, failureThreshold, resetAfterMs } = {}) =>
         close();
         return result;
       } catch (error) {
+        // Classify before counting: a method that doesn't exist yet, or a
+        // legitimate "not found" business answer, tells us nothing about
+        // whether SAP is actually reachable, so it must not move the breaker
+        // at all — not counted, not tripped, and (since nothing here mutates
+        // `state`) a half-open probe that hits one of these stays half-open
+        // for the next real call to actually test.
+        if (EXEMPT_FAILURE_CODES.has(error?.code)) throw error;
+
         failures += 1;
         // A half-open probe that fails re-opens immediately: the system has
         // just told us it is still down, and waiting for four more failures to
