@@ -167,6 +167,23 @@ class NotImplementedError extends Error {
   }
 }
 
+// A driver's honest "SAP has nothing to say here" — a legitimate business
+// response, not a transport or gateway failure. Most read methods in this
+// codebase already answer this by returning an empty result (see the several
+// `if (response.status === 404) return { data: { ... : [] } }` lines in
+// sap/drivers/s4odata.driver.js) rather than throwing, which is why nothing
+// throws this yet — it exists for a driver method whose contract genuinely
+// has no empty-result shape to return instead, so it doesn't have to invent
+// one just to avoid counting against the circuit breaker (issue #70).
+class SapNotFoundError extends Error {
+  constructor(message) {
+    super(`sap_not_found: ${message}`);
+    this.name = 'SapNotFoundError';
+    this.code = 'sap_not_found';
+    this.statusCode = 404;
+  }
+}
+
 // Raised when a driver refuses or fails a call. Distinct from a bug in our own
 // code, because the circuit breaker counts these and only these.
 class SapDriverError extends Error {
@@ -209,6 +226,7 @@ module.exports = {
   METHOD_NAMES,
   DEFERRED_METHODS,
   NotImplementedError,
+  SapNotFoundError,
   SapDriverError,
   assertImplements,
   notImplementedDriver,
