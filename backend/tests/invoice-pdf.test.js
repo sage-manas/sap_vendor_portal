@@ -123,3 +123,101 @@ describe('GET /api/reports/invoice/:id — no fabricated tax figures (issue #57)
     expect(text).not.toContain('Not available');
   });
 });
+
+// Issue #66: once an invoice actually carries per-line GST (hsnCode/gstRate/
+// cgst/sgst/igst — see services/gst.service.js), the PDF renders the real
+// breakdown instead of the single blended line #57 left as the honest
+// fallback for invoices that don't have it. Still "only stored values" —
+// there is simply more stored now.
+describe('GET /api/reports/invoice/:id — renders a real per-line GST breakdown (issue #66)', () => {
+  it('prints HSN, rate and a CGST+SGST split for an intra-state invoice', async () => {
+    const { token, vendor } = await registerVendor(app, {
+      vendorId: 'vendor_test_gst1', companyName: 'Gst Test Supplies Pvt Ltd',
+      gstin: '27AABCG1234F1Z1', pan: 'AABCG1235F', email: 'gst1@example.com',
+    }, { onboarded: true });
+
+    const invoice = await asTenant(async () => {
+      const po = await prisma.purchaseOrder.create({ data: { id: 'PO-2026-9702', vendorId: vendor.vendorId } });
+      return prisma.invoice.create({
+        data: {
+          id: 'INV-970003', poId: po.id, vendorId: vendor.vendorId,
+          invoiceNumber: 'ISSUE-66/1', invoiceDate: new Date(),
+          subTotal: 1000, taxAmount: 180, totalAmount: 1180, taxCode: 'G1',
+          placeOfSupply: 'Maharashtra',
+          invoicePlanRef: { line: 10, planLineNumber: 1, planType: 'Periodic', settlementDate: new Date().toISOString() },
+          items: {
+            create: [{
+              clientId: 'CLT-0001', line: 10, materialCode: 'MAT-1', description: 'Widget',
+              quantity: 10, unitPrice: 100, amount: 1000,
+              hsnCode: '7307', gstRate: 18, cgstAmount: 90, sgstAmount: 90, igstAmount: 0,
+            }],
+          },
+        },
+      });
+    });
+
+    const res = await request(app)
+      .get(`/api/reports/invoice/${invoice.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .buffer(true)
+      .parse((response, callback) => {
+        const chunks = [];
+        response.on('data', (chunk) => chunks.push(chunk));
+        response.on('end', () => callback(null, Buffer.concat(chunks)));
+      });
+
+    expect(res.status).toBe(200);
+    const text = textFromPdf(res.body);
+    expect(text).toContain('7307');
+    expect(text).toMatch(/CGST/);
+    expect(text).toMatch(/SGST/);
+    expect(text).not.toMatch(/IGST/);
+    expect(text).toContain('Maharashtra');
+    expect(text).toContain('90.00');
+  });
+
+  it('prints IGST, not CGST/SGST, for an inter-state invoice', async () => {
+    const { token, vendor } = await registerVendor(app, {
+      vendorId: 'vendor_test_gst2', companyName: 'Gst Test Supplies Two Pvt Ltd',
+      gstin: '27AABCG5678F1Z2', pan: 'AABCG5679F', email: 'gst2@example.com',
+    }, { onboarded: true });
+
+    const invoice = await asTenant(async () => {
+      const po = await prisma.purchaseOrder.create({ data: { id: 'PO-2026-9703', vendorId: vendor.vendorId } });
+      return prisma.invoice.create({
+        data: {
+          id: 'INV-970004', poId: po.id, vendorId: vendor.vendorId,
+          invoiceNumber: 'ISSUE-66/2', invoiceDate: new Date(),
+          subTotal: 1000, taxAmount: 180, totalAmount: 1180, taxCode: 'G1',
+          placeOfSupply: 'Karnataka',
+          invoicePlanRef: { line: 10, planLineNumber: 1, planType: 'Periodic', settlementDate: new Date().toISOString() },
+          items: {
+            create: [{
+              clientId: 'CLT-0001', line: 10, materialCode: 'MAT-1', description: 'Widget',
+              quantity: 10, unitPrice: 100, amount: 1000,
+              hsnCode: '7307', gstRate: 18, cgstAmount: 0, sgstAmount: 0, igstAmount: 180,
+            }],
+          },
+        },
+      });
+    });
+
+    const res = await request(app)
+      .get(`/api/reports/invoice/${invoice.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .buffer(true)
+      .parse((response, callback) => {
+        const chunks = [];
+        response.on('data', (chunk) => chunks.push(chunk));
+        response.on('end', () => callback(null, Buffer.concat(chunks)));
+      });
+
+    expect(res.status).toBe(200);
+    const text = textFromPdf(res.body);
+    expect(text).toMatch(/IGST/);
+    expect(text).not.toMatch(/CGST/);
+    expect(text).not.toMatch(/SGST/);
+    expect(text).toContain('Karnataka');
+    expect(text).toContain('180.00');
+  });
+});

@@ -18,6 +18,10 @@ const orDash = (value) => (value == null || value === '' ? '-' : String(value));
 // Account numbers are masked on a document that gets emailed and printed.
 const maskAccount = (value) => (value ? `XXXX${String(value).slice(-4)}` : '-');
 
+// Sums one Decimal-typed InvoiceItem field (issue #66's cgst/sgst/igst/
+// cessAmount) into a plain number — same reasoning as inr()'s own toNumber.
+const round2Sum = (items, field) => (items || []).reduce((sum, item) => sum + toNumber(item[field] || 0), 0);
+
 // Helper to draw horizontal lines
 const drawLine = (doc, y) => {
   doc.strokeColor('#d2d5d8')
@@ -217,15 +221,19 @@ const generateInvoicePDF = asyncHandler(async (req, res, next) => {
 
   drawLine(doc, 215);
 
-  // Table Headers
+  // Table Headers. HSN and GST% (issue #66) sit with the line itself — a
+  // real GST return is filed per HSN, so this is the one place that
+  // classification belongs, not folded into a single header-level taxCode.
   const tableTop = 235;
   doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#004080');
-  doc.text('Line', 50, tableTop, { width: 30 });
-  doc.text('Material / Description', 90, tableTop, { width: 180 });
-  doc.text('Quantity', 280, tableTop, { width: 50, align: 'right' });
-  doc.text('UOM', 340, tableTop, { width: 35 });
-  doc.text('Rate (Rs.)', 385, tableTop, { width: 70, align: 'right' });
-  doc.text('Amount (Rs.)', 465, tableTop, { width: 85, align: 'right' });
+  doc.text('Line', 50, tableTop, { width: 25 });
+  doc.text('Material / Description', 78, tableTop, { width: 140 });
+  doc.text('HSN', 222, tableTop, { width: 40 });
+  doc.text('Qty', 265, tableTop, { width: 35, align: 'right' });
+  doc.text('Rate (Rs.)', 303, tableTop, { width: 55, align: 'right' });
+  doc.text('Amount (Rs.)', 361, tableTop, { width: 65, align: 'right' });
+  doc.text('GST%', 429, tableTop, { width: 30, align: 'right' });
+  doc.text('Tax (Rs.)', 462, tableTop, { width: 88, align: 'right' });
 
   drawLine(doc, 250);
 
@@ -234,19 +242,20 @@ const generateInvoicePDF = asyncHandler(async (req, res, next) => {
   doc.font('Helvetica').fontSize(8.5).fillColor('#1c1c1c');
 
   invoice.items.forEach(item => {
-    doc.text(String(item.line), 50, y, { width: 30 });
-    doc.text(`${item.materialCode}\n${item.description}`, 90, y, { width: 180 });
-    // item.quantity is Decimal-typed (issue #65) — String() on a raw Decimal
-    // would print every stored decimal place (e.g. "10.000"); toNumber first
-    // prints it the way a plain number would.
-    doc.text(String(toNumber(item.quantity)), 280, y, { width: 50, align: 'right' });
-    doc.text('EA', 340, y, { width: 35 });
-    // unitPrice/amount are Decimal-typed — their own .toFixed() happens to
-    // match Number.prototype.toFixed's output, but converting first keeps this
-    // consistent with the subTotal/taxVal/totalAmount block below, where a raw
-    // Decimal's .toLocaleString() does NOT match (see there for why).
-    doc.text(toNumber(item.unitPrice).toFixed(2), 385, y, { width: 70, align: 'right' });
-    doc.text(toNumber(item.amount).toFixed(2), 465, y, { width: 85, align: 'right' });
+    // gstRate/cgst/sgst/igst are Decimal-typed (issue #66); quantity/
+    // unitPrice/amount already were (issue #65) — every one converts before
+    // arithmetic or display for the same reason (utils/money.js).
+    const gstRate = item.gstRate == null ? null : toNumber(item.gstRate);
+    const lineTax = toNumber(item.cgstAmount) + toNumber(item.sgstAmount) + toNumber(item.igstAmount);
+
+    doc.text(String(item.line), 50, y, { width: 25 });
+    doc.text(`${item.materialCode}\n${item.description}`, 78, y, { width: 140 });
+    doc.text(orDash(item.hsnCode), 222, y, { width: 40 });
+    doc.text(String(toNumber(item.quantity)), 265, y, { width: 35, align: 'right' });
+    doc.text(toNumber(item.unitPrice).toFixed(2), 303, y, { width: 55, align: 'right' });
+    doc.text(toNumber(item.amount).toFixed(2), 361, y, { width: 65, align: 'right' });
+    doc.text(gstRate == null ? '—' : `${gstRate}%`, 429, y, { width: 30, align: 'right' });
+    doc.text(gstRate == null ? 'N/A' : lineTax.toFixed(2), 462, y, { width: 88, align: 'right' });
 
     y += 28;
     doc.strokeColor('#f0f4f8').lineWidth(0.5).moveTo(50, y - 5).lineTo(550, y - 5).stroke();
@@ -264,11 +273,10 @@ const generateInvoicePDF = asyncHandler(async (req, res, next) => {
   // plain-number footing.
   //
   // Nothing here derives subTotal or taxAmount from totalAmount and an
-  // assumed rate — Invoice stores exactly one taxAmount, with no CGST/SGST/
-  // IGST breakdown (that needs per-line tax modelling — #17), so this prints
-  // only the figures actually on the row, or says plainly that they are not
-  // available rather than inventing them (issue #57). totalAmount is the one
-  // figure every invoice genuinely carries and is always printed as stored.
+  // assumed rate (issue #57) — this prints only the figures actually on the
+  // row, or says plainly that they are not available rather than inventing
+  // them. totalAmount is the one figure every invoice genuinely carries and
+  // is always printed as stored.
   const totalAmount = toNumber(invoice.totalAmount);
   const subTotal = toNumber(invoice.subTotal);
   const taxVal = toNumber(invoice.taxAmount);
@@ -279,12 +287,52 @@ const generateInvoicePDF = asyncHandler(async (req, res, next) => {
   doc.font('Helvetica-Bold').text(hasTaxBreakdown ? inr(subTotal) : 'Not available', 445, y, { align: 'right', width: 105 });
   y += 15;
 
-  // One tax line, at the rate the invoice's own taxCode names — not a
-  // CGST/SGST split, since nothing in this system records how the stored
-  // taxAmount divides between them.
-  doc.font('Helvetica').text(`GST (${orDash(invoice.taxCode)}):`, 300, y, { align: 'right', width: 150 });
-  doc.font('Helvetica-Bold').text(hasTaxBreakdown ? inr(taxVal) : 'Not available', 445, y, { align: 'right', width: 105 });
-  y += 15;
+  // Real per-line CGST/SGST/IGST totals (issue #66) when this invoice has
+  // them — summed from the items table above, not re-derived from an
+  // assumed rate. An invoice with no per-line gstRate anywhere (every SAP-
+  // discovered invoice today; nothing on the discovery path reports a rate)
+  // falls back to the single blended line #57 already established: the
+  // stored header taxAmount, under its taxCode, or "Not available" — never
+  // a computed guess either way.
+  const cgstTotal = round2Sum(invoice.items, 'cgstAmount');
+  const sgstTotal = round2Sum(invoice.items, 'sgstAmount');
+  const igstTotal = round2Sum(invoice.items, 'igstAmount');
+  const cessTotal = round2Sum(invoice.items, 'cessAmount');
+  const hasLineLevelGst = invoice.items.some((item) => item.gstRate != null);
+
+  if (hasLineLevelGst) {
+    doc.text(`Place of Supply: ${orDash(invoice.placeOfSupply)}${invoice.reverseCharge ? '  |  Reverse Charge Applicable' : ''}`, 300, y, { align: 'right', width: 250 });
+    y += 15;
+    if (cgstTotal > 0 || sgstTotal > 0) {
+      doc.text('CGST:', 300, y, { align: 'right', width: 150 });
+      doc.font('Helvetica-Bold').text(inr(cgstTotal), 445, y, { align: 'right', width: 105 });
+      doc.font('Helvetica');
+      y += 15;
+      doc.text('SGST:', 300, y, { align: 'right', width: 150 });
+      doc.font('Helvetica-Bold').text(inr(sgstTotal), 445, y, { align: 'right', width: 105 });
+      doc.font('Helvetica');
+      y += 15;
+    }
+    if (igstTotal > 0) {
+      doc.text('IGST:', 300, y, { align: 'right', width: 150 });
+      doc.font('Helvetica-Bold').text(inr(igstTotal), 445, y, { align: 'right', width: 105 });
+      doc.font('Helvetica');
+      y += 15;
+    }
+    if (cessTotal > 0) {
+      doc.text('Cess:', 300, y, { align: 'right', width: 150 });
+      doc.font('Helvetica-Bold').text(inr(cessTotal), 445, y, { align: 'right', width: 105 });
+      doc.font('Helvetica');
+      y += 15;
+    }
+  } else {
+    // One tax line, at the rate the invoice's own taxCode names — not a
+    // CGST/SGST split, since nothing in this system recorded how the stored
+    // taxAmount divides between them.
+    doc.text(`GST (${orDash(invoice.taxCode)}):`, 300, y, { align: 'right', width: 150 });
+    doc.font('Helvetica-Bold').text(hasTaxBreakdown ? inr(taxVal) : 'Not available', 445, y, { align: 'right', width: 105 });
+    y += 15;
+  }
 
   drawLine(doc, y);
   y += 8;

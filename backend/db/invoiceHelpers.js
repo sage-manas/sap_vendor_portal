@@ -38,11 +38,21 @@ const formatInvoice = (invoice) => {
       // supplier owes back.
       outstandingAmount: Math.max(total - amountPaid, 0),
     }),
-    items: (items || []).map(({ pk, clientId, invoicePk, unitPrice, amount, quantity, ...item }) => ({
+    items: (items || []).map(({
+      pk, clientId, invoicePk, unitPrice, amount, quantity,
+      gstRate, cgstAmount, sgstAmount, igstAmount, cessAmount, ...item
+    }) => ({
       ...item,
       unitPrice: toNumber(unitPrice),
       amount: toNumber(amount),
       quantity: toQty(quantity),
+      // Per-line GST (issue #66) — gstRate stays null (not 0) when it was
+      // never derived, same distinction services/gst.service.js draws.
+      gstRate: gstRate == null ? null : toNumber(gstRate),
+      cgstAmount: toNumber(cgstAmount),
+      sgstAmount: toNumber(sgstAmount),
+      igstAmount: toNumber(igstAmount),
+      cessAmount: toNumber(cessAmount),
     })),
   };
 };

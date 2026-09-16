@@ -15,6 +15,7 @@ const { buildExportPayload, EXPORT_FORMATS } = require('../services/export.servi
 const {
   DEFAULT_VENDOR_RATING, DEFAULT_LEAD_TIME_DAYS,
 } = require('../config/scoring');
+const { gstRateToCode } = require('../config/gstCodes');
 
 // The full nested shape a controller/frontend expects an RFQ in, matching
 // what the Mongoose document used to serialize as. `items`/`invitedVendors`
@@ -77,15 +78,6 @@ const formatRfq = (rfq) => ({
   bids: (rfq.bids || []).map(formatBid),
 });
 
-// Helper for tax codes
-const gstToTaxCode = (gstRate) => {
-  const cleanRate = String(gstRate).replace(/[^0-9]/g, '');
-  if (cleanRate === '5') return 'G3';
-  if (cleanRate === '12') return 'G2';
-  if (cleanRate === '18') return 'G1';
-  if (cleanRate === '28') return 'G4';
-  return 'G1'; // default
-};
 
 // @desc    Get RFQs (invited or all)
 // @route   GET /api/rfqs
@@ -349,7 +341,7 @@ const submitBid = asyncHandler(async (req, res, next) => {
     }
   }
 
-  const taxCode = gstToTaxCode(gstRate);
+  const taxCode = gstRateToCode(gstRate);
 
   const bidFields = {
     vendorId,
