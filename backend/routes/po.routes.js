@@ -5,7 +5,6 @@ const {
   acknowledgePO,
   submitASN,
   getASNForPO,
-  updatePOStatus,
   getSapPoStatus,
   getInvoicePlan,
   configureInvoicePlan,
@@ -35,7 +34,8 @@ router.put('/:id/items/:line/invoice-plan', requirePermission(PERMISSIONS.PO_MAN
 router.delete('/:id/items/:line/invoice-plan', requirePermission(PERMISSIONS.PO_MANAGE), removeInvoicePlan);
 router.put('/:id/items/:line/invoice-plan/lines/:lineNumber/block', requirePermission(PERMISSIONS.PO_MANAGE), validate(invoicePlanLineBlockSchema), setInvoicePlanLineBlock);
 router.put('/:id/acknowledge', requirePermission(PERMISSIONS.PO_ACKNOWLEDGE), acknowledgePO);
-router.put('/:id/status', requirePermission(PERMISSIONS.PO_MANAGE), updatePOStatus);
+// No PUT /:id/status: PurchaseOrder.status is derived, never written directly
+// (issue #60) — see db/poHelpers.js's syncPoStatus.
 router.post('/:id/asn', requirePermission(PERMISSIONS.ASN_CREATE), validate(asnCreateSchema), submitASN);
 router.get('/:id/asn', requirePermission(PERMISSIONS.ASN_READ), getASNForPO);
 

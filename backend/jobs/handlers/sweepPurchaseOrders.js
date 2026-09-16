@@ -1,5 +1,5 @@
 const { prisma } = require('../../db/prisma');
-const { formatPo } = require('../../db/poHelpers');
+const { formatPo, syncPoStatus } = require('../../db/poHelpers');
 const { nextSequentialId } = require('../../utils/nextSequentialId');
 const { EVENTS } = require('../../utils/socketEmitter');
 const { notifyProcurement } = require('../notify');
@@ -88,9 +88,7 @@ async function upsertOrder({ clientId, vendor, order, localPos }) {
   }
 
   // Genuinely unsolicited: SAP has an order for this vendor the portal has
-  // never seen. Status is inferred from what SAP already shows received,
-  // since there was no ASN/acknowledgement event here to derive it from —
-  // Open unless every line is already fully received.
+  // never seen.
   const items = (order.items || []).map((item) => ({
     line: Number(item.itemNumber) || 0,
     materialCode: item.materialCode,
@@ -101,8 +99,6 @@ async function upsertOrder({ clientId, vendor, order, localPos }) {
     netValue: item.netAmount || 0,
     uom: item.uom || 'EA',
   }));
-  const fullyReceived = items.length > 0 && items.every((item) => item.grnQuantity >= item.quantity);
-
   const year = new Date().getFullYear();
   const id = await nextSequentialId('purchaseOrder', `PO-${year}-`, 4);
 
@@ -118,10 +114,15 @@ async function upsertOrder({ clientId, vendor, order, localPos }) {
       buyerName: order.buyerName || 'SAP System Procurement',
       plant: order.items?.[0]?.plant || '1000',
       currency: order.currency || 'INR',
-      status: fullyReceived ? 'Delivered' : 'Open',
+      // status starts at the schema default (Open) and is corrected below by
+      // syncPoStatus, from whatever SAP already shows received on each line
+      // (issue #60) — this order never goes through the portal's own
+      // acknowledge/ASN steps, so its status has to be inferred from receipts
+      // alone, same as a partially received order discovered mid-flight.
       items: { create: items.map((item) => ({ clientId, ...item })) },
     },
   });
+  await syncPoStatus(prisma, created.pk);
 
   logger.info(`[jobs] sweepPurchaseOrders discovered ${created.id} (SAP ${order.poNumber}) for vendor ${vendor.vendorId}`);
   notifyProcurement(clientId, EVENTS.PO_NEW, { id: created.id, sapPoNumber: order.poNumber, vendorId: vendor.vendorId });

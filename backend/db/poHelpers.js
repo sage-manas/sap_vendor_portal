@@ -1,5 +1,6 @@
 const { prisma } = require('./prisma');
 const { toNumber } = require('../utils/money');
+const { statusRank, derivePoStatus } = require('../services/poStatus.service');
 
 // Shared between po.controller.js and invoice.controller.js: both need a
 // PurchaseOrder reshaped with its items' invoicePlan back into the plain-
@@ -139,6 +140,51 @@ const persistInvoicePlan = async (item, plan) => {
 const disableInvoicePlan = (item) =>
   prisma.invoicePlan.update({ where: { pk: item.invoicePlan.pk }, data: { enabled: false } });
 
+// The one place PurchaseOrder.status is ever written (issue #60). Every event
+// that used to set it directly — acknowledge, ASN submission, a goods
+// receipt, an invoice clearing — instead updates the fact that actually
+// changed (acknowledgedAt, an ASN row, an item's grnQuantity, an invoice's
+// status) and calls this afterward, inside the same transaction when one is
+// already open. `client` is `prisma` or a `tx` — whichever the caller is
+// already using, so this participates in the caller's transaction rather
+// than opening a second one.
+//
+// Re-fetches the PO rather than trusting what the caller has in memory: the
+// point of calling this from inside a transaction is to see the write that
+// transaction just made (a plain in-memory po object wouldn't).
+//
+// Never regresses: only writes when the derived status outranks the stored
+// one, so a stale/duplicate job re-running this against an already-`Paid`
+// order can never move it backward.
+const syncPoStatus = async (client, poPk) => {
+  const po = await client.purchaseOrder.findFirst({ where: { pk: poPk }, include: PO_INCLUDE });
+  if (!po) return null;
+
+  const [asnCount, invoices] = await Promise.all([
+    client.aSN.count({ where: { poId: po.id } }),
+    client.invoice.findMany({ where: { poId: po.id }, include: { items: true } }),
+  ]);
+
+  const invoicedQtyByLine = new Map();
+  for (const invoice of invoices) {
+    for (const item of invoice.items) {
+      if (item.line == null) continue;
+      invoicedQtyByLine.set(item.line, (invoicedQtyByLine.get(item.line) || 0) + item.quantity);
+    }
+  }
+
+  const derived = derivePoStatus(po, {
+    asnCount,
+    invoicedQtyByLine,
+    invoiceCount: invoices.length,
+    allInvoicesCleared: invoices.length > 0 && invoices.every((invoice) => invoice.status === 'Cleared'),
+  });
+
+  if (statusRank(derived) <= statusRank(po.status)) return po;
+
+  return client.purchaseOrder.update({ where: { pk: po.pk }, data: { status: derived }, include: PO_INCLUDE });
+};
+
 module.exports = {
   PO_INCLUDE,
   formatPlanLine,
@@ -147,4 +193,5 @@ module.exports = {
   formatPo,
   persistInvoicePlan,
   disableInvoicePlan,
+  syncPoStatus,
 };
