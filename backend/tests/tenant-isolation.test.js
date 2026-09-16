@@ -53,8 +53,10 @@ const MODEL_CASES = [
     } }),
     find: (t) => ({ vendorId: `VND-${t}` }),
     update: { companyName: 'Renamed by the wrong tenant' },
-    // Vendor is the one exception: vendorId/email/gstin are a login identity
-    // and stay globally unique (ADR-0002).
+    // Vendor is the one exception: vendorId/email are a login identity and
+    // stay globally unique (ADR-0002); gstin moved to per-tenant uniqueness
+    // (ADR-0039) but this case still gives each tenant a distinct gstin, so
+    // sharedBusinessId stays false here too.
     sharedBusinessId: false,
   },
   {

@@ -11,7 +11,7 @@ const { ROLES } = require('../config/roles');
 const { signToken } = require('../utils/authToken');
 const { sendMail } = require('../utils/mailer');
 const { frontendUrl } = require('../config/emailTemplates');
-const { generateVendorId } = require('../utils/vendorIdentity');
+const { generateVendorId, identityConflict } = require('../utils/vendorIdentity');
 const { settingValue } = require('../config/tenantSettings');
 const { hasSupplierInvitation } = require('./invitation.controller');
 const { assertCanCreate } = require('../utils/usage');
@@ -77,16 +77,11 @@ const register = asyncHandler(async (req, res, next) => {
     return next(ApiError.forbidden('This workspace admits suppliers by invitation only'));
   }
 
-  // Login identities are global and shared across the identity collections, so
-  // this collision check spans all tenants and both account kinds.
-  const existingVendor = await withoutTenantScope(() => prisma.vendor.findFirst({
-    where: { OR: [{ email }, { gstin }, ...(vendorId ? [{ vendorId }] : [])] },
-  }));
-  const existingUser = email
-    ? await withoutTenantScope(() => prisma.user.findFirst({ where: { email: email.toLowerCase() } }))
-    : null;
-
-  if (existingVendor || existingUser) {
+  // vendorId/email are global login identities; gstin is checked within this
+  // workspace only — a supplier trading with two buyers registers under the
+  // same real GSTIN in each (issue #67, ADR-0039).
+  const conflict = await identityConflict({ vendorId, email, gstin, clientId: client.clientId });
+  if (conflict) {
     return next(ApiError.conflict('Vendor with this ID, email, or GSTIN already exists'));
   }
 

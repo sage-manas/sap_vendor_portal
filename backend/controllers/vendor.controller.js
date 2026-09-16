@@ -221,8 +221,9 @@ const createProfile = asyncHandler(async (req, res, next) => {
 
   await assertCanCreate(client, 'vendors');
 
-  // Login identities are global, so this collision check spans all tenants.
-  const conflict = await identityConflict({ vendorId, email, gstin });
+  // vendorId/email are global login identities; gstin is checked within this
+  // workspace only (issue #67, ADR-0039).
+  const conflict = await identityConflict({ vendorId, email, gstin, clientId: client.clientId });
   if (conflict) {
     return next(ApiError.conflict(IDENTITY_CONFLICT_MESSAGE[conflict], { reason: conflict }));
   }
@@ -259,7 +260,7 @@ const createVendor = asyncHandler(async (req, res, next) => {
   const mappedBody = mapIncomingBody(req.body);
   const { companyName, gstin, pan, email } = mappedBody;
 
-  const conflict = await identityConflict({ email, gstin });
+  const conflict = await identityConflict({ email, gstin, clientId: req.client.clientId });
   if (conflict) {
     return next(ApiError.conflict(IDENTITY_CONFLICT_MESSAGE[conflict], { reason: conflict }));
   }
