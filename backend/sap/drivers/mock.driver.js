@@ -541,11 +541,19 @@ const createMockDriver = ({ config = {} } = {}) => {
       const startedAtMs = startedAt ? new Date(startedAt).getTime() : 0;
       if (Date.now() - startedAtMs < timings.goodsReceiptMs) return false;
 
+      const postingDate = new Date();
+      // MBLNR (the bare document number) only becomes unique together with
+      // MJAHR, its fiscal year — see the id-collision note on GRN.sapDocYear
+      // in schema.prisma. Minting the year into the id here keeps the
+      // simulator honest about that even though nothing forces a collision
+      // in a short-lived test run.
+      const docYear = postingDate.getFullYear();
       await handler({
         data: {
-          grnId: `GRN-1800${digits(5)}`,
+          grnId: `GRN-${docYear}-1800${digits(5)}`,
           sapMigoDoc: `MIGO-18${digits(9)}`,
-          postingDate: new Date(),
+          sapDocYear: docYear,
+          postingDate,
           receivedBy: 'SAP Warehouse Staff',
           items: asn.items.map((item) => {
             const received = item.shippedQuantity;
