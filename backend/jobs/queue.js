@@ -40,15 +40,28 @@ const claim = (workerId, limit = 20) => withoutTenantScope(() => rawPrisma.$quer
 // The completion path. `status` is one of pending (retry later) | succeeded |
 // failed (errored, will retry until maxAttempts) | abandoned (maxAttempts
 // exhausted with no answer) | cancelled.
-const release = (job, { status, runAt, lastError = null }) => withoutTenantScope(() => rawPrisma.sapJob.update({
-  where: { pk: job.pk },
-  data: {
-    status,
-    runAt: runAt || job.runAt,
-    lastError,
-    ...(status === 'succeeded' ? { succeededAt: new Date() } : {}),
-  },
-}));
+//
+// A compare-and-swap on lockedBy, not a plain update-by-pk: a SAP call this
+// worker is still waiting on can run past the lease (reapStale() returns the
+// job to `pending`, or worse, another worker claims and finishes it), and a
+// stale worker's own release must not then overwrite whatever the new owner
+// already wrote (#68). Matching on job.lockedBy — the value this worker's own
+// claim() row carries — means a release only takes effect while this worker
+// still owns the lease; zero rows updated means it does not, and the caller
+// is expected to treat that as "do nothing else" rather than an error.
+const release = async (job, { status, runAt, lastError = null }) => {
+  const rows = await withoutTenantScope(() => rawPrisma.$queryRaw`
+    UPDATE "sap_jobs" SET
+      status = ${status},
+      "runAt" = ${runAt || job.runAt},
+      "lastError" = ${lastError},
+      "lockedBy" = NULL,
+      "lockedAt" = NULL,
+      "succeededAt" = CASE WHEN ${status} = 'succeeded' THEN now() ELSE "succeededAt" END
+    WHERE pk = ${job.pk}::uuid AND "lockedBy" = ${job.lockedBy}
+    RETURNING pk`);
+  return rows.length > 0;
+};
 
 // Jobs `running` with `lockedAt` older than a lease timeout go back to
 // `pending` — this is how a worker killed mid-job recovers. Run at the top of

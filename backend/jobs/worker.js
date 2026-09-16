@@ -44,7 +44,8 @@ const processJob = async (job, { handlerFor = defaultHandlerFor } = {}) => {
     });
 
     if (outcome?.done) {
-      await release(job, { status: 'succeeded' });
+      const held = await release(job, { status: 'succeeded' });
+      if (!held) logger.warn(`[jobs] ${job.kind} (${job.pk}) lease lost before release — leaving the current owner's result alone`);
       return { ok: true, outcome };
     }
 
@@ -54,25 +55,51 @@ const processJob = async (job, { handlerFor = defaultHandlerFor } = {}) => {
     // and the document it was watching becomes `orphaned` (Phase 3).
     if (job.attempts >= job.maxAttempts) {
       const message = 'Exhausted maxAttempts — SAP never answered';
-      await release(job, { status: 'abandoned', lastError: message });
-      await runWithTenant(job.clientId, () => trySyncState(markOrphaned, job.kind, job.args, message));
+      const held = await release(job, { status: 'abandoned', lastError: message });
+      // A lease lost mid-call means some other worker's write is now the
+      // job's true terminal state — recording this job as orphaned over that
+      // would be exactly the clobber #68 is about, so it only happens when
+      // this release actually took effect.
+      if (held) {
+        await runWithTenant(job.clientId, () => trySyncState(markOrphaned, job.kind, job.args, message));
+      } else {
+        logger.warn(`[jobs] ${job.kind} (${job.pk}) lease lost before release — leaving the current owner's result alone`);
+      }
     } else {
-      await release(job, { runAt: nextRunAt({ spec, attempts: job.attempts, errored: false }), status: 'pending' });
+      const held = await release(job, { runAt: nextRunAt({ spec, attempts: job.attempts, errored: false }), status: 'pending' });
+      if (!held) logger.warn(`[jobs] ${job.kind} (${job.pk}) lease lost before release — leaving the current owner's result alone`);
     }
     return { ok: true, outcome };
   } catch (error) {
+    // A benign loser: this worker's own call finally landed after another
+    // worker already finished the same document (the deterministic SAP id
+    // hitting its unique constraint is the tell). The work is done — under
+    // its rightful owner's write, not this one's — so the job is succeeded,
+    // not failed; without this it retries a document that will never stop
+    // producing the same collision (#68).
+    if (error.code === 'P2002') {
+      logger.warn(`[jobs] ${job.kind} (${job.pk}) hit a duplicate-key error on an already-handled document — resolving as succeeded`);
+      const held = await release(job, { status: 'succeeded' });
+      if (!held) logger.warn(`[jobs] ${job.kind} (${job.pk}) lease lost before release — leaving the current owner's result alone`);
+      return { ok: true, outcome: { done: true, alreadyHandled: true } };
+    }
+
     logger.error(`[jobs] ${job.kind} (${job.pk}) errored: ${error.message}`);
     // A sweep tick (Phase 4, spec.recurring) that exhausts its own attempts
     // just sits `abandoned` — there is no single document to orphan, and the
     // next scheduled tick (materialiseSchedules(), a fresh job row per
     // due-tick) covers the vendor again regardless.
     if (job.attempts >= job.maxAttempts) {
-      await release(job, { status: 'abandoned', lastError: error.message });
-      if (!spec.recurring) {
-        await runWithTenant(job.clientId, () => trySyncState(markOrphaned, job.kind, job.args, error.message));
+      const held = await release(job, { status: 'abandoned', lastError: error.message });
+      if (held) {
+        if (!spec.recurring) {
+          await runWithTenant(job.clientId, () => trySyncState(markOrphaned, job.kind, job.args, error.message));
+        }
+      } else {
+        logger.warn(`[jobs] ${job.kind} (${job.pk}) lease lost before release — leaving the current owner's result alone`);
       }
     } else {
-      await release(job, {
+      const held = await release(job, {
         status: 'pending',
         runAt: nextRunAt({ spec, attempts: job.attempts, errored: true }),
         lastError: error.message,
@@ -80,8 +107,12 @@ const processJob = async (job, { handlerFor = defaultHandlerFor } = {}) => {
       // Phase 3: the job itself keeps retrying — this just records the last
       // error against the document for the reconciliation queue. No single
       // document for a sweep tick (spec.recurring) to record it against.
-      if (!spec.recurring) {
-        await runWithTenant(job.clientId, () => trySyncState(markFailed, job.kind, job.args, error.message));
+      if (held) {
+        if (!spec.recurring) {
+          await runWithTenant(job.clientId, () => trySyncState(markFailed, job.kind, job.args, error.message));
+        }
+      } else {
+        logger.warn(`[jobs] ${job.kind} (${job.pk}) lease lost before release — leaving the current owner's result alone`);
       }
     }
     return { ok: false, error };

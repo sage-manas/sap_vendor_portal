@@ -45,6 +45,45 @@ describe('jobs/queue', () => {
     expect(idsA.length + idsB.length).toBeGreaterThan(0);
   });
 
+  // Issue #68: release() used to write by pk alone. A worker whose call
+  // outlasts its lease (reaper reclaims it, or a second worker claims and
+  // finishes it) must not be able to overwrite that new owner's terminal
+  // state when its own slow call finally returns.
+  test('release() is a no-op once another worker holds the lease', async () => {
+    await enqueue(makeArgs('cas-race'));
+    const [staleJob] = await claim('worker-cas-race', 1);
+
+    // Simulate the lease changing hands: the reaper returned it to pending,
+    // a second worker claimed it, and that worker already finished it.
+    await withoutTenantScope(() => rawPrisma.sapJob.update({
+      where: { pk: staleJob.pk },
+      data: { status: 'succeeded', lockedBy: null, lockedAt: null, succeededAt: new Date() },
+    }));
+
+    // The first (stale) worker's own call now finally returns and tries to
+    // release with the job object it claimed — carrying its own, now-stale
+    // lockedBy.
+    const held = await release(staleJob, { status: 'abandoned', lastError: 'stale timeout' });
+
+    expect(held).toBe(false);
+    const row = await withoutTenantScope(() => rawPrisma.sapJob.findUnique({ where: { pk: staleJob.pk } }));
+    expect(row.status).toBe('succeeded');
+    expect(row.lastError).toBeNull();
+  });
+
+  test('release() succeeds and clears the lease while this worker still holds it', async () => {
+    await enqueue(makeArgs('cas-normal'));
+    const [job] = await claim('worker-cas-normal', 1);
+
+    const held = await release(job, { status: 'succeeded' });
+
+    expect(held).toBe(true);
+    const row = await withoutTenantScope(() => rawPrisma.sapJob.findUnique({ where: { pk: job.pk } }));
+    expect(row.status).toBe('succeeded');
+    expect(row.lockedBy).toBeNull();
+    expect(row.succeededAt).not.toBeNull();
+  });
+
   test('reapStale() returns a stale running job to pending', async () => {
     const job = await enqueue(makeArgs('stale'));
     await withoutTenantScope(() => rawPrisma.sapJob.update({
@@ -132,6 +171,49 @@ describe('jobs/worker processJob', () => {
     const row = await withoutTenantScope(() => rawPrisma.sapJob.findUnique({ where: { pk: enqueued.pk } }));
     expect(row.status).toBe('abandoned');
     expect(row.lastError).toBe('never came back');
+  });
+
+  // Issue #68's reproduction: worker 1 claims a job, its handler is still
+  // running when the lease is considered lost (reaped, or claimed and
+  // finished by a second worker); worker 1's handler then finally settles.
+  // Its processJob() call must not revert the second worker's terminal
+  // state.
+  test('a lease lost mid-handler leaves the second worker\'s result alone', async () => {
+    const job = await claimOne(makeArgs('two-workers'));
+
+    const handlerFor = () => async () => {
+      // While worker 1's handler is "still running" the lease changes hands
+      // and a second worker completes the same job for real.
+      await withoutTenantScope(() => rawPrisma.sapJob.update({
+        where: { pk: job.pk },
+        data: { status: 'succeeded', lockedBy: null, lockedAt: null, succeededAt: new Date() },
+      }));
+      return { done: true };
+    };
+
+    await processJob(job, { handlerFor });
+
+    const row = await withoutTenantScope(() => rawPrisma.sapJob.findUnique({ where: { pk: job.pk } }));
+    expect(row.status).toBe('succeeded');
+    expect(row.lastError).toBeNull();
+  });
+
+  // Suggested fix's second half: a handler racing another worker to the same
+  // deterministic SAP id resolves the job as succeeded, not failed — the
+  // document is already there, just written by the worker that won.
+  test('a duplicate-key error from a handler resolves the job as succeeded, not failed', async () => {
+    const job = await claimOne(makeArgs('dupe-key'));
+    const handlerFor = () => async () => {
+      const err = new Error('Unique constraint failed on the fields: (`id`)');
+      err.code = 'P2002';
+      throw err;
+    };
+
+    const result = await processJob(job, { handlerFor });
+
+    expect(result.ok).toBe(true);
+    const row = await withoutTenantScope(() => rawPrisma.sapJob.findUnique({ where: { pk: job.pk } }));
+    expect(row.status).toBe('succeeded');
   });
 
   test('the handler runs with the job\'s tenant bound, not the caller\'s', async () => {
