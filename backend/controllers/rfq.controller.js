@@ -8,6 +8,7 @@ const { EVENTS, emitToVendor } = require('../utils/socketEmitter');
 const { requireVendorScope, vendorScope, isSupplier } = require('../utils/requestScope');
 const { assertCanCreate } = require('../utils/usage');
 const { toNumber } = require('../utils/money');
+const { toNumber: toQty } = require('../utils/quantity');
 const { formatPo } = require('../db/poHelpers');
 const { nextSequentialId } = require('../utils/nextSequentialId');
 const { buildExportPayload, EXPORT_FORMATS } = require('../services/export.service');
@@ -62,10 +63,11 @@ const formatBid = (bid) => ({
   submittedAt: bid.submittedAt,
 });
 
-// targetPrice is likewise Decimal-typed.
-const formatRfqItem = ({ pk, clientId, rfqPk, targetPrice, ...item }) => ({
+// targetPrice is Decimal-typed; quantity is too (issue #65).
+const formatRfqItem = ({ pk, clientId, rfqPk, targetPrice, quantity, ...item }) => ({
   ...item,
   targetPrice: toNumber(targetPrice),
+  quantity: toQty(quantity),
 });
 
 const formatRfq = (rfq) => ({
@@ -459,8 +461,8 @@ const getEvaluationMatrix = asyncHandler(async (req, res, next) => {
     const prices = new Map(bid.unitPrices.map((u) => [String(u.lineNumber), u.price]));
     let totalCost = 0;
     rfq.items.forEach((item) => {
-      const price = prices.get(String(item.line)) || 0;
-      totalCost += price * item.quantity;
+      const price = toNumber(prices.get(String(item.line))) || 0;
+      totalCost += price * toQty(item.quantity);
     });
     // Add freight
     totalCost += Number(bid.freight || 0);
@@ -569,7 +571,7 @@ const awardBid = asyncHandler(async (req, res, next) => {
       quantity: item.quantity,
       grnQuantity: 0,
       unitPrice,
-      netValue: unitPrice * item.quantity,
+      netValue: unitPrice * toQty(item.quantity),
       uom: item.uom || 'EA',
       // Real per-line data the RFQ already carried, not a guess (issue #62)
       // — a multi-line PO can ship from more than one plant.

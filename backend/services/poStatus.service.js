@@ -20,13 +20,19 @@
 // stored duplicate of either would just be one more place to keep in sync.
 
 const { summarizePlan } = require('./invoicePlan.service');
+const { toNumber } = require('../utils/quantity');
 
 const STATUS_ORDER = ['Open', 'Acknowledged', 'Dispatched', 'Delivered', 'Invoiced', 'Paid'];
 const STATUS_RANK = Object.fromEntries(STATUS_ORDER.map((status, index) => [status, index]));
 
 const statusRank = (status) => STATUS_RANK[status] ?? 0;
 
-const itemFullyDelivered = (item) => item.quantity > 0 && item.grnQuantity >= item.quantity;
+// quantity/grnQuantity are Decimal-typed columns (issue #65) — converted
+// here rather than left to `>`/`>=`'s implicit coercion, which for two
+// Decimal instances compares decimal.js's own valueOf() strings
+// *lexicographically* ("10" < "9"), not numerically. See utils/money.js's
+// header comment for the same trap on `+`.
+const itemFullyDelivered = (item) => toNumber(item.quantity) > 0 && toNumber(item.grnQuantity) >= toNumber(item.quantity);
 
 // A plan-enabled line is billed by percentage/amount against its own
 // schedule, not by quantity — "fully invoiced" for it means the plan itself
@@ -38,7 +44,7 @@ const itemFullyInvoiced = (item, invoicedQtyByLine) => {
     return summarizePlan(item.invoicePlan)?.complete === true;
   }
   const invoiced = invoicedQtyByLine.get(item.line) || 0;
-  return item.quantity > 0 && invoiced >= item.quantity;
+  return toNumber(item.quantity) > 0 && invoiced >= toNumber(item.quantity);
 };
 
 /**
@@ -69,7 +75,7 @@ const derivePoStatus = (po, facts) => {
   // jobs/handlers/sweepPurchaseOrders.js) — because SAP already shows some
   // quantity received on at least one line. Either way, "nothing is moving
   // yet" would misrepresent a partially received order as untouched.
-  const shipmentInFlight = facts.asnCount > 0 || items.some((item) => item.grnQuantity > 0);
+  const shipmentInFlight = facts.asnCount > 0 || items.some((item) => toNumber(item.grnQuantity) > 0);
   if (shipmentInFlight) return 'Dispatched';
 
   return po.acknowledgedAt ? 'Acknowledged' : 'Open';
