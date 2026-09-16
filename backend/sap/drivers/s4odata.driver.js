@@ -1266,8 +1266,13 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
       }
 
       const { documents } = (await driver.vendorMiroDisplay({ vendor })).data;
+      // Issue #64: matchInvoiceDocument throws AmbiguousInvoiceMatchError
+      // rather than returning null when a periodic invoicing plan's
+      // same-amount siblings can't be told apart by date either — left to
+      // propagate uncaught here, since jobs/handlers/awaitPaymentRun.js is
+      // what owns deciding this invoice needs a human, not this driver.
       const found = matchInvoiceDocument(
-        { sapPoNumber: invoice.sapPoNumber, totalAmount: invoice.totalAmount },
+        { sapPoNumber: invoice.sapPoNumber, totalAmount: invoice.totalAmount, invoiceDate: invoice.invoiceDate },
         documents,
       );
       if (!found) return false; // AP has not posted it yet

@@ -53,6 +53,14 @@ const SAP_SYNC_STATE = {
   SYNCED: 'synced',     // correlated to a real SAP document number
   FAILED: 'failed',     // SAP rejected it, or the watching job errored
   ORPHANED: 'orphaned', // watched past maxAttempts; SAP never produced it
+  // More than one SAP document fits the match key equally well (issue #64 —
+  // a periodic invoicing plan bills the same PO/amount every period, so the
+  // second invoice onward always has a same-amount sibling in SAP's ledger).
+  // This is not "SAP never answered" (orphaned) or "the job errored"
+  // (failed) — SAP answered fine, the ambiguity is in the portal's own match
+  // key. Parked here instead of retried into the ground; a human resolves it
+  // via the reconciliation queue.
+  NEEDS_MANUAL_MATCH: 'needs_manual_match',
 };
 
 const SAP_SYNC_STATES = Object.values(SAP_SYNC_STATE);
@@ -63,9 +71,15 @@ const SAP_SYNC_STATES = Object.values(SAP_SYNC_STATE);
 // leaves `local` any other way, and nothing re-enters it.
 const SAP_SYNC_TRANSITIONS = {
   [SAP_SYNC_STATE.LOCAL]: [SAP_SYNC_STATE.PENDING],
-  [SAP_SYNC_STATE.PENDING]: [SAP_SYNC_STATE.SYNCED, SAP_SYNC_STATE.FAILED, SAP_SYNC_STATE.ORPHANED],
+  [SAP_SYNC_STATE.PENDING]: [
+    SAP_SYNC_STATE.SYNCED, SAP_SYNC_STATE.FAILED, SAP_SYNC_STATE.ORPHANED, SAP_SYNC_STATE.NEEDS_MANUAL_MATCH,
+  ],
   [SAP_SYNC_STATE.FAILED]: [SAP_SYNC_STATE.PENDING, SAP_SYNC_STATE.SYNCED],
   [SAP_SYNC_STATE.ORPHANED]: [SAP_SYNC_STATE.PENDING, SAP_SYNC_STATE.SYNCED],
+  // A human resolves the ambiguity by retrying the watch (which re-matches
+  // from scratch) or, if SAP itself later disambiguates it (e.g. only one
+  // candidate is still open), the next attempt reaching `synced` directly.
+  [SAP_SYNC_STATE.NEEDS_MANUAL_MATCH]: [SAP_SYNC_STATE.PENDING, SAP_SYNC_STATE.SYNCED],
   [SAP_SYNC_STATE.SYNCED]: [],
 };
 

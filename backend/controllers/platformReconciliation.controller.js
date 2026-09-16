@@ -28,12 +28,17 @@ const rowsFor = async ({ type, table }, { clientId } = {}) => {
 
   // withoutTenantScope + rawPrisma: this reads across every tenant by design
   // (the operator picks a tenant filter in the UI, not the database).
+  // 'needs_manual_match' (issue #64 — an ambiguous SAP match, e.g. two
+  // periodic-invoicing-plan invoices SAP shows the same amount for) surfaces
+  // unconditionally, same as 'failed'/'orphaned': a retry alone never
+  // resolves it, so it must not wait out the SLA window a merely-slow
+  // 'pending' row does. Keep in sync with config/statuses.js's SAP_SYNC_STATE.
   const rows = await withoutTenantScope(() => (clientId
     ? rawPrisma.$queryRawUnsafe(
       `SELECT pk, "clientId", id, "sapSyncState", "sapSyncError", "sapSyncedAt", "updatedAt", "createdAt"
        FROM "${table}"
        WHERE "clientId" = $1
-         AND ("sapSyncState" IN ('failed', 'orphaned')
+         AND ("sapSyncState" IN ('failed', 'orphaned', 'needs_manual_match')
            OR ("sapSyncState" = 'pending' AND "updatedAt" < $2))
        ORDER BY "updatedAt" ASC
        LIMIT 200`,
@@ -42,7 +47,7 @@ const rowsFor = async ({ type, table }, { clientId } = {}) => {
     : rawPrisma.$queryRawUnsafe(
       `SELECT pk, "clientId", id, "sapSyncState", "sapSyncError", "sapSyncedAt", "updatedAt", "createdAt"
        FROM "${table}"
-       WHERE "sapSyncState" IN ('failed', 'orphaned')
+       WHERE "sapSyncState" IN ('failed', 'orphaned', 'needs_manual_match')
           OR ("sapSyncState" = 'pending' AND "updatedAt" < $1)
        ORDER BY "updatedAt" ASC
        LIMIT 200`,

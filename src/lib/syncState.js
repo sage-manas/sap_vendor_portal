@@ -9,7 +9,7 @@
 // syncState.test.js checks this list against the real module via
 // createRequire, so a renamed/added state fails CI instead of a screen
 // silently falling through to the `local`/unknown default below.
-export const SAP_SYNC_STATES = ['local', 'pending', 'synced', 'failed', 'orphaned'];
+export const SAP_SYNC_STATES = ['local', 'pending', 'synced', 'failed', 'orphaned', 'needs_manual_match'];
 
 /**
  * `{ label, tone, showNumber }` for one sapSyncState value.
@@ -26,6 +26,12 @@ export function describeSyncState(sapSyncState) {
       return { label: 'Awaiting SAP confirmation', tone: 'pending', showNumber: false };
     case 'failed':
     case 'orphaned':
+    // An ambiguous SAP match (issue #64, most commonly a periodic invoicing
+    // plan's same-amount siblings) is a different internal reason than a
+    // failed/abandoned watch, but the same supplier-facing fact: SAP has not
+    // been confirmed as the source of this number yet, and the buyer's team
+    // — who sees it in the reconciliation queue — is who resolves it.
+    case 'needs_manual_match':
       return { label: 'Not yet recorded in SAP — your buyer has been notified', tone: 'suspended', showNumber: false };
     case 'local':
     default:

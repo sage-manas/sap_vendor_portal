@@ -75,6 +75,16 @@ const markOrphaned = (kind, args, errorMessage) => setSyncState(kind, args, SAP_
   sapSyncError: errorMessage || 'SAP never answered — job abandoned after exhausting its retry budget',
 });
 
+// Called by jobs/handlers/awaitPaymentRun.js when the driver reports an
+// AmbiguousInvoiceMatchError (issue #64) — SAP answered, but more than one
+// document fits this invoice's match key equally well. The job stops
+// retrying (there is nothing a retry alone would resolve) and the invoice
+// waits in the reconciliation queue instead of burning its attempt budget
+// toward `orphaned`.
+const markNeedsManualMatch = (kind, args, errorMessage) => setSyncState(kind, args, SAP_SYNC_STATE.NEEDS_MANUAL_MATCH, {
+  sapSyncError: errorMessage,
+});
+
 // The reconciliation queue (controllers/platformReconciliation.controller.js)
 // works from a table name, not a job kind — the inverse of DOCUMENT_FOR_KIND.
 const KIND_FOR_TABLE = {
@@ -127,5 +137,5 @@ const retryDocumentWatch = async (table, pk, req) => {
 };
 
 module.exports = {
-  markPending, markSynced, markFailed, markOrphaned, retryDocumentWatch, DOCUMENT_FOR_KIND,
+  markPending, markSynced, markFailed, markOrphaned, markNeedsManualMatch, retryDocumentWatch, DOCUMENT_FOR_KIND,
 };
