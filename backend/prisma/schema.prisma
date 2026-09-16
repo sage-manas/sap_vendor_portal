@@ -185,6 +185,16 @@ model Client {
   brandingLogo  String?
   brandingColor String?
 
+  // The buyer's own GST registration (issue #66) — real columns, not a
+  // tenantSettings.js key, matching how Vendor's own gstin/state are real
+  // columns rather than settings: this is the tenant's legal identity, not
+  // a per-tenant preference. Nullable because nothing sets them yet (no
+  // onboarding screen collects them) — a null state means place-of-supply
+  // cannot be derived for this tenant's invoices, which
+  // services/gst.service.js treats as "unknown," never as same-state.
+  gstin String?
+  state String?
+
   // Deliberately undeclared shape (ADR-0023) — config/tenantSettings.js is the
   // registry of valid keys, not this schema. Stays JSONB.
   featureFlags Json @default("{}")
@@ -778,11 +788,27 @@ model Invoice {
   sapMiroDoc    String?
   status        String   @default("Submitted")
   subTotal      Decimal  @db.Decimal(14, 2)
+  // Issue #66: derived, not an input — the sum of every InvoiceItem's own
+  // cgstAmount+sgstAmount+igstAmount+cessAmount (services/gst.service.js's
+  // deriveInvoiceTax). taxCode stays as a display-only legacy field (which
+  // SAP tax code this invoice is filed under); it no longer drives any rate
+  // computation — that lives per line, on InvoiceItem.gstRate.
   taxAmount     Decimal  @db.Decimal(14, 2)
   totalAmount   Decimal  @db.Decimal(14, 2)
   taxCode       String   @default("G1")
   currency      String   @default("INR")
   matchWarning  String?
+
+  // GST header fields (issue #66). placeOfSupply is the recipient's
+  // registered state (Client.state — this invoice's buyer) at the time the
+  // invoice's tax was derived; stored rather than re-read live from Client
+  // because a tenant's own registration can change after an old invoice was
+  // already filed, and a historical invoice must keep showing what applied
+  // when it was raised. Null on an invoice whose tax was never (re)computed
+  // through deriveGst — most invoices discovered from SAP today, since
+  // nothing there reports it either.
+  placeOfSupply String?
+  reverseCharge Boolean @default(false)
 
   // The invoicing-plan date this invoice bills, when it came from a plan
   // rather than a delivery. Small, always read/written whole — stays Json.
@@ -825,7 +851,23 @@ model InvoiceItem {
   // Decimal(13,3), matching SAP's MENGE (issue #65) — see utils/quantity.js.
   quantity     Decimal @db.Decimal(13, 3)
   unitPrice    Decimal @db.Decimal(14, 2)
+  // The line's own taxable value (quantity x unitPrice, pre-tax) —
+  // services/gst.service.js reads this as the base its CGST/SGST/IGST are a
+  // percentage of; nothing new needed for "taxable value" itself.
   amount       Decimal @db.Decimal(14, 2)
+
+  // Per-line GST (issue #66) — HSN/SAC classify what the line actually is,
+  // which is what a real GST return is filed by; a single invoice-level
+  // taxCode could never carry that. gstRate is null (not 0) when the line's
+  // rate has never been derived, so a genuinely nil-rated/exempt line (rate
+  // 0, real GST fields cgst/sgst/igst all correctly 0) stays distinguishable
+  // from "we don't know" — see services/gst.service.js.
+  hsnCode    String?
+  gstRate    Decimal? @db.Decimal(5, 2)
+  cgstAmount Decimal  @default(0) @db.Decimal(14, 2)
+  sgstAmount Decimal  @default(0) @db.Decimal(14, 2)
+  igstAmount Decimal  @default(0) @db.Decimal(14, 2)
+  cessAmount Decimal  @default(0) @db.Decimal(14, 2)
 
   @@map("invoice_items")
 }
