@@ -16,6 +16,7 @@ const {
 const { PO_INCLUDE, formatPlan, formatPo, persistInvoicePlan, disableInvoicePlan, syncPoStatus } = require('../db/poHelpers');
 const { createWithUniqueId } = require('../utils/createWithUniqueId');
 const { toNumber } = require('../utils/money');
+const { toNumber: toQty } = require('../utils/quantity');
 const { enqueue } = require('../jobs/queue');
 const { markPending } = require('../jobs/syncState');
 
@@ -210,7 +211,7 @@ const submitASN = asyncHandler(async (req, res, next) => {
       throw ApiError.badRequest(`Shipped quantity for line ${asnItem.line} must be greater than 0`);
     }
 
-    const remainingQty = poItem.quantity - poItem.grnQuantity;
+    const remainingQty = toQty(poItem.quantity) - toQty(poItem.grnQuantity);
     if (shippedQty > remainingQty) {
       throw ApiError.badRequest(`Shipped quantity (${shippedQty}) exceeds remaining unreceived quantity (${remainingQty}) for line ${asnItem.line}`);
     }
@@ -328,7 +329,7 @@ const planItemView = (item, asOf) => {
     line: item.line,
     materialCode: item.materialCode,
     description: item.description,
-    quantity: item.quantity,
+    quantity: toQty(item.quantity),
     unitPrice: toNumber(item.unitPrice),
     netValue: toNumber(item.netValue),
     uom: item.uom,

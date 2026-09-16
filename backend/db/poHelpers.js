@@ -1,5 +1,6 @@
 const { prisma } = require('./prisma');
 const { toNumber } = require('../utils/money');
+const { toNumber: toQty } = require('../utils/quantity');
 const { statusRank, derivePoStatus } = require('../services/poStatus.service');
 
 // Shared between po.controller.js and invoice.controller.js: both need a
@@ -59,11 +60,13 @@ const formatPlan = (plan) => (!plan ? { enabled: false } : {
 });
 
 const formatPoItem = (item) => {
-  const { pk, clientId, poPk, invoicePlan, unitPrice, netValue, ...rest } = item;
+  const { pk, clientId, poPk, invoicePlan, unitPrice, netValue, quantity, grnQuantity, ...rest } = item;
   return {
     ...rest,
     unitPrice: toNumber(unitPrice),
     netValue: toNumber(netValue),
+    quantity: toQty(quantity),
+    grnQuantity: toQty(grnQuantity),
     invoicePlan: formatPlan(invoicePlan),
   };
 };
@@ -169,7 +172,10 @@ const syncPoStatus = async (client, poPk) => {
   for (const invoice of invoices) {
     for (const item of invoice.items) {
       if (item.line == null) continue;
-      invoicedQtyByLine.set(item.line, (invoicedQtyByLine.get(item.line) || 0) + item.quantity);
+      // item.quantity is Decimal-typed (issue #65) — `+` on two Decimal
+      // instances (or a number and a Decimal) is string concatenation, not
+      // addition; see utils/money.js's header comment.
+      invoicedQtyByLine.set(item.line, (invoicedQtyByLine.get(item.line) || 0) + toQty(item.quantity));
     }
   }
 

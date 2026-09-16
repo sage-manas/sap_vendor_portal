@@ -376,7 +376,10 @@ model RfqItem {
   line         Int
   materialCode String
   description  String?
-  quantity     Float
+  // Decimal(13,3), matching SAP's MENGE (issue #65) — see utils/quantity.js
+  // for why a Float quantity is the wrong type here, same reasoning as the
+  // Decimal money columns throughout this schema.
+  quantity     Decimal   @db.Decimal(13, 3)
   uom          String    @default("EA")
   targetPrice  Decimal?  @db.Decimal(14, 2)
   plant        String    @default("1000")
@@ -538,8 +541,13 @@ model PurchaseOrderItem {
   line         Int
   materialCode String
   description  String?
-  quantity     Float
-  grnQuantity  Float   @default(0)
+  // Decimal(13,3), matching SAP's MENGE (issue #65) — see utils/quantity.js.
+  // grnQuantity accumulates across however many partial receipts a line
+  // gets; a Float residue (0.1 + 0.2 + 0.7 != 1.0) is exactly what made
+  // `grnQuantity >= quantity` false on a line that was actually fully
+  // received.
+  quantity     Decimal @db.Decimal(13, 3)
+  grnQuantity  Decimal @default(0) @db.Decimal(13, 3)
   unitPrice    Decimal @db.Decimal(14, 2)
   netValue     Decimal @db.Decimal(14, 2)
   uom          String  @default("EA")
@@ -665,7 +673,8 @@ model AsnItem {
   line            Int?
   materialCode    String
   description     String?
-  shippedQuantity Float
+  // Decimal(13,3), matching SAP's MENGE (issue #65) — see utils/quantity.js.
+  shippedQuantity Decimal @db.Decimal(13, 3)
   uom             String  @default("EA")
 
   @@map("asn_items")
@@ -734,9 +743,10 @@ model GrnItem {
   line             Int?
   materialCode     String
   description      String?
-  receivedQuantity Float
-  acceptedQuantity Float
-  rejectedQuantity Float   @default(0)
+  // Decimal(13,3), matching SAP's MENGE (issue #65) — see utils/quantity.js.
+  receivedQuantity Decimal @db.Decimal(13, 3)
+  acceptedQuantity Decimal @db.Decimal(13, 3)
+  rejectedQuantity Decimal @default(0) @db.Decimal(13, 3)
   rejectionReason  String?
   uom              String  @default("EA")
 
@@ -812,7 +822,8 @@ model InvoiceItem {
   line         Int?
   materialCode String
   description  String?
-  quantity     Float
+  // Decimal(13,3), matching SAP's MENGE (issue #65) — see utils/quantity.js.
+  quantity     Decimal @db.Decimal(13, 3)
   unitPrice    Decimal @db.Decimal(14, 2)
   amount       Decimal @db.Decimal(14, 2)
 

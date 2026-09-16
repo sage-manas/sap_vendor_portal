@@ -236,7 +236,10 @@ const generateInvoicePDF = asyncHandler(async (req, res, next) => {
   invoice.items.forEach(item => {
     doc.text(String(item.line), 50, y, { width: 30 });
     doc.text(`${item.materialCode}\n${item.description}`, 90, y, { width: 180 });
-    doc.text(String(item.quantity), 280, y, { width: 50, align: 'right' });
+    // item.quantity is Decimal-typed (issue #65) — String() on a raw Decimal
+    // would print every stored decimal place (e.g. "10.000"); toNumber first
+    // prints it the way a plain number would.
+    doc.text(String(toNumber(item.quantity)), 280, y, { width: 50, align: 'right' });
     doc.text('EA', 340, y, { width: 35 });
     // unitPrice/amount are Decimal-typed — their own .toFixed() happens to
     // match Number.prototype.toFixed's output, but converting first keeps this

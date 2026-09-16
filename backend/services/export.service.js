@@ -8,6 +8,7 @@
 // test on its own.
 
 const { toNumber } = require('../utils/money');
+const { toNumber: toQty } = require('../utils/quantity');
 
 // Reshapes the PO Prisma returned (with `items` and `vendor` included) plus
 // its originating RFQ into the flat, presentation-ready shape every format
@@ -41,7 +42,9 @@ const buildExportPayload = ({ rfq, po }) => ({
     line: item.line,
     materialCode: item.materialCode,
     description: item.description || '',
-    quantity: item.quantity,
+    // Decimal-typed (issue #65) — po.items is a raw Prisma read here, not
+    // run through formatPo.
+    quantity: toQty(item.quantity),
     uom: item.uom || 'EA',
     unitPrice: toNumber(item.unitPrice),
     netValue: toNumber(item.netValue),

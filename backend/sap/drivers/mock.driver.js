@@ -1,4 +1,5 @@
 const { assertImplements } = require('../contract');
+const { toNumber: toQty } = require('../../utils/quantity');
 
 // The mock SAP system.
 //
@@ -582,7 +583,10 @@ const createMockDriver = ({ config = {} } = {}) => {
           postingDate,
           receivedBy: 'SAP Warehouse Staff',
           items: asn.items.map((item) => {
-            const received = item.shippedQuantity;
+            // asn is passed in raw (unlike po, which the caller already ran
+            // through formatPo) — shippedQuantity is Decimal-typed (issue
+            // #65), so this converts before using it in arithmetic.
+            const received = toQty(item.shippedQuantity);
             const accepted = Math.round(received * behaviour.grnAcceptanceRate);
             const rejected = received - accepted;
             return {
