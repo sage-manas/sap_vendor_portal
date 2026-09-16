@@ -239,7 +239,7 @@ describe('jobs/worker materialiseSchedules (Phase 4 recurring sweeps)', () => {
 
     const schedules = await withoutTenantScope(() => rawPrisma.sapSchedule.findMany({ where: { clientId: CLIENT_A } }));
     const kinds = schedules.map((s) => s.kind).sort();
-    expect(kinds).toEqual(['sweepPayments', 'sweepPurchaseOrders', 'sweepQuotations']);
+    expect(kinds).toEqual(['sweepInvoices', 'sweepPayments', 'sweepPurchaseOrders', 'sweepQuotations']);
     expect(schedules.every((s) => s.enabled)).toBe(true);
   });
 
