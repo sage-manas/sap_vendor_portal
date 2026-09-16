@@ -229,13 +229,21 @@ describe('a temporary password is reported on every session, not just at login',
   it('reports false once the password has been changed', async () => {
     const { token } = await createAdminUser({ mustChangePassword: true });
 
-    await request(app)
+    // Issue #74's passwordChangedAt check means the token this request
+    // authenticated with is now stale the moment the write below lands —
+    // change-password mints and returns a fresh one for exactly this reason
+    // (see controllers/auth.controller.js), which is what a real caller
+    // would use for its next request instead of its old one.
+    const changed = await request(app)
       .post('/api/auth/change-password')
       .set(auth(token))
       .send({ currentPassword: 'secret123', newPassword: 'a-much-better-one' });
 
-    const res = await request(app).get('/api/auth/me').set(auth(token));
+    expect(changed.body.token).toBeTruthy();
 
+    const res = await request(app).get('/api/auth/me').set(auth(changed.body.token));
+
+    expect(res.status).toBe(200);
     expect(res.body.auth.mustChangePassword).toBe(false);
   });
 });
