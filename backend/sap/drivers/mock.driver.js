@@ -87,9 +87,13 @@ const isoDay = (value) => (value ? new Date(value).toISOString().slice(0, 10) : 
 
 // A stable stand-in for the MIRO document an AP clerk would have posted.
 // Derived from the invoice id rather than random, so every poll of
-// vendorMiroDisplay reports the same number for the same invoice.
+// vendorMiroDisplay reports the same number for the same invoice. A
+// discovery entry (config.discoveries.invoice — see the Discovery section
+// below) has no portal id at all, since discovery is exactly the case where
+// there isn't one yet — falls back to its poId so it still gets a stable
+// number instead of every id-less entry colliding on the same one.
 const mockMiroDoc = (invoice) => {
-  const serial = String(invoice.id || '').replace(/\D/g, '').padStart(6, '0').slice(-6);
+  const serial = String(invoice.id || invoice.poId || '').replace(/\D/g, '').padStart(6, '0').slice(-6);
   return `51${serial}${String(new Date(invoice.invoiceDate || Date.now()).getFullYear()).slice(-2)}`;
 };
 
@@ -113,16 +117,18 @@ const createMockDriver = ({ config = {} } = {}) => {
   // definition the portal has no record to hand this driver for. Without
   // *some* independent state, the mock can never simulate that, and
   // discovery would be undemoable and untestable end to end.
-  // `config.discoveries.{po,payment,quotation}` is that state: a small,
-  // explicit, opt-in seed (set from the platform console's SAP screen or a
-  // test's transient config, same as `timings`/`behaviour`), layered on top
-  // of — never replacing — whatever the caller already knows about. Each
-  // entry is shaped like the caller's own input to the same method, minus a
-  // portal `id`, since discovery is exactly the case where there isn't one.
+  // `config.discoveries.{po,payment,quotation,invoice}` is that state: a
+  // small, explicit, opt-in seed (set from the platform console's SAP
+  // screen or a test's transient config, same as `timings`/`behaviour`),
+  // layered on top of — never replacing — whatever the caller already
+  // knows about. Each entry is shaped like the caller's own input to the
+  // same method, minus a portal `id`, since discovery is exactly the case
+  // where there isn't one.
   const discoveries = {
     po: (config.discoveries?.po || []).map((po) => ({ ...po, id: null })),
     payment: (config.discoveries?.payment || []).map((p) => ({ ...p, id: null })),
     quotation: config.discoveries?.quotation || [],
+    invoice: (config.discoveries?.invoice || []).map((inv) => ({ ...inv, id: null })),
   };
 
   const driver = {
@@ -484,7 +490,7 @@ const createMockDriver = ({ config = {} } = {}) => {
     // would never converge.
     vendorMiroDisplay: async ({ vendor, invoices = [] }) => ({
       data: {
-        documents: invoices.map((invoice) => ({
+        documents: [...invoices, ...discoveries.invoice].map((invoice) => ({
           miroDoc: invoice.sapMiroDoc || mockMiroDoc(invoice),
           fiscalYear: String(new Date(invoice.invoiceDate).getFullYear()),
           docType: 'RD',
@@ -494,7 +500,11 @@ const createMockDriver = ({ config = {} } = {}) => {
           companyCode: behaviour.companyCode,
           currency: invoice.currency,
           grossAmount: invoice.totalAmount,
-          taxableAmount: invoice.taxAmount,
+          // SAP's TAXABLE_AMOUNT is the pre-tax base (this driver's own
+          // s4odata sibling reads it the same way) — the portal's subTotal,
+          // not taxAmount. sweepInvoices.js (issue #72's follow-up) is the
+          // first caller that actually reads this field back off a document.
+          taxableAmount: invoice.subTotal,
           taxCode: invoice.taxCode,
           paymentTerm: '',
           items: (invoice.items || []).map((item) => ({

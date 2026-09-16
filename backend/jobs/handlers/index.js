@@ -16,6 +16,7 @@ const HANDLERS = {
   // jobs/kinds.js for how their job-runtime lifecycle differs from the two
   // targeted watches above.
   sweepPurchaseOrders: require('./sweepPurchaseOrders'),
+  sweepInvoices: require('./sweepInvoices'),
   sweepPayments: require('./sweepPayments'),
   sweepQuotations: require('./sweepQuotations'),
 };
