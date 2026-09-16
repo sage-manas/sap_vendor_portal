@@ -2,9 +2,10 @@ const { prisma } = require('../../db/prisma');
 const { PO_INCLUDE, formatPo, syncPoStatus } = require('../../db/poHelpers');
 const { INVOICE_INCLUDE, formatInvoice } = require('../../db/invoiceHelpers');
 const { recordPaymentItem } = require('../../db/paymentHelpers');
+const { AmbiguousInvoiceMatchError } = require('../../sap/mappings/invoice-match');
 const { EVENTS } = require('../../utils/socketEmitter');
 const { notifyVendor } = require('../notify');
-const { markSynced } = require('../syncState');
+const { markSynced, markNeedsManualMatch } = require('../syncState');
 
 // Persists SAP's payment clearing once the driver finds one — moved here,
 // unchanged, from controllers/invoice.controller.js's `schedulePaymentRun`
@@ -26,93 +27,115 @@ module.exports = async ({ job, adapter }) => {
 
   const onCall = ({ code, type }) => notifyVendor(job.clientId, vendorId, EVENTS.LOG_NEW, { type, name: code });
 
-  const found = await adapter.awaitPaymentRun(
-    {
-      invoice: { ...formatInvoice(invoice), sapPoNumber: po.sapPoNumber },
-      vendor,
-      vendorId,
-      startedAt: job.createdAt,
-      onCall,
-    },
-    async (remittance) => {
-      // The Payment row, the invoice's Cleared status, and the PO/plan-line
-      // side effect all describe one event (AP cleared this invoice) and
-      // must land together.
-      const result = await prisma.$transaction(async (tx) => {
-        const latestInvoice = await tx.invoice.findFirst({ where: { id: invoice.id } });
-        const latestPo = await tx.purchaseOrder.findFirst({ where: { id: po.id }, include: PO_INCLUDE });
+  let found;
+  try {
+    found = await adapter.awaitPaymentRun(
+      {
+        invoice: { ...formatInvoice(invoice), sapPoNumber: po.sapPoNumber },
+        vendor,
+        vendorId,
+        startedAt: job.createdAt,
+        onCall,
+      },
+      async (remittance) => {
+        // The Payment row, the invoice's Cleared status, and the PO/plan-line
+        // side effect all describe one event (AP cleared this invoice) and
+        // must land together.
+        const result = await prisma.$transaction(async (tx) => {
+          const latestInvoice = await tx.invoice.findFirst({ where: { id: invoice.id } });
+          const latestPo = await tx.purchaseOrder.findFirst({ where: { id: po.id }, include: PO_INCLUDE });
 
-        // Guards a retried/duplicate deferred answer, which atomicity alone
-        // does not — an invoice already cleared must not be paid twice.
-        if (!latestInvoice || !latestPo || latestInvoice.status === 'Cleared') return null;
+          // Guards a retried/duplicate deferred answer, which atomicity alone
+          // does not — an invoice already cleared must not be paid twice.
+          if (!latestInvoice || !latestPo || latestInvoice.status === 'Cleared') return null;
 
-        // SAP's own MIRO number, learned by discovery rather than minted
-        // here. Storing it means the reconciliation view stops having to
-        // re-match.
-        const sapMiroDoc = (remittance.sapMiroDoc && !latestInvoice.sapMiroDoc)
-          ? remittance.sapMiroDoc
-          : latestInvoice.sapMiroDoc;
+          // SAP's own MIRO number, learned by discovery rather than minted
+          // here. Storing it means the reconciliation view stops having to
+          // re-match.
+          const sapMiroDoc = (remittance.sapMiroDoc && !latestInvoice.sapMiroDoc)
+            ? remittance.sapMiroDoc
+            : latestInvoice.sapMiroDoc;
 
-        // One Payment per SAP clearing document, not per invoice (issue
-        // #63) — see recordPaymentItem's own header comment for why this is
-        // safe to call once per invoice's independent watch job.
-        const payment = await recordPaymentItem(tx, {
-          clientId: job.clientId,
-          paymentId: remittance.paymentId,
-          vendorId: latestInvoice.vendorId,
-          remittance,
-          invoiceId: latestInvoice.id,
-          poId: latestPo.id,
-          invoiceNumber: latestInvoice.invoiceNumber,
-          sapMiroDoc,
-        });
+          // One Payment per SAP clearing document, not per invoice (issue
+          // #63) — see recordPaymentItem's own header comment for why this is
+          // safe to call once per invoice's independent watch job.
+          const payment = await recordPaymentItem(tx, {
+            clientId: job.clientId,
+            paymentId: remittance.paymentId,
+            vendorId: latestInvoice.vendorId,
+            remittance,
+            invoiceId: latestInvoice.id,
+            poId: latestPo.id,
+            invoiceNumber: latestInvoice.invoiceNumber,
+            sapMiroDoc,
+          });
 
-        await tx.invoice.update({
-          where: { pk: latestInvoice.pk },
-          data: { sapMiroDoc, status: 'Cleared', clearedAt: new Date() },
-        });
+          await tx.invoice.update({
+            where: { pk: latestInvoice.pk },
+            data: { sapMiroDoc, status: 'Cleared', clearedAt: new Date() },
+          });
 
-        // A plan-based invoice doesn't own the PO's overall status by itself
-        // — other lines may still be mid-delivery, and a periodic plan has
-        // more instalments to come — but it does own its own plan entry,
-        // which gains SAP's MIRO number so the plan and the invoice list
-        // agree about the document without re-matching.
-        if (latestInvoice.invoicePlanRef?.planLineNumber) {
-          const formattedPo = formatPo(latestPo);
-          const planItem = formattedPo.items.find((item) => item.line === latestInvoice.invoicePlanRef.line);
-          const planLine = (planItem?.invoicePlan?.lines || []).find(
-            (line) => line.lineNumber === latestInvoice.invoicePlanRef.planLineNumber,
-          );
-          if (planLine && sapMiroDoc) {
-            const rawItem = latestPo.items.find((item) => item.line === latestInvoice.invoicePlanRef.line);
-            await tx.invoicePlanLine.update({
-              where: { planPk_lineNumber: { planPk: rawItem.invoicePlan.pk, lineNumber: planLine.lineNumber } },
-              data: { sapMiroDoc },
-            });
+          // A plan-based invoice doesn't own the PO's overall status by itself
+          // — other lines may still be mid-delivery, and a periodic plan has
+          // more instalments to come — but it does own its own plan entry,
+          // which gains SAP's MIRO number so the plan and the invoice list
+          // agree about the document without re-matching.
+          if (latestInvoice.invoicePlanRef?.planLineNumber) {
+            const formattedPo = formatPo(latestPo);
+            const planItem = formattedPo.items.find((item) => item.line === latestInvoice.invoicePlanRef.line);
+            const planLine = (planItem?.invoicePlan?.lines || []).find(
+              (line) => line.lineNumber === latestInvoice.invoicePlanRef.planLineNumber,
+            );
+            if (planLine && sapMiroDoc) {
+              const rawItem = latestPo.items.find((item) => item.line === latestInvoice.invoicePlanRef.line);
+              await tx.invoicePlanLine.update({
+                where: { planPk_lineNumber: { planPk: rawItem.invoicePlan.pk, lineNumber: planLine.lineNumber } },
+                data: { sapMiroDoc },
+              });
+            }
           }
-        }
 
-        // Derived from every line's delivered/invoiced state plus every
-        // invoice's own clearing (issue #60) — a plan invoice clearing no
-        // longer leaves the header stuck wherever it was; it now reaches
-        // Invoiced/Paid exactly when the plan (and every other line) is
-        // actually done, the same helper GRN-matched invoices go through.
-        await syncPoStatus(tx, latestPo.pk);
+          // Derived from every line's delivered/invoiced state plus every
+          // invoice's own clearing (issue #60) — a plan invoice clearing no
+          // longer leaves the header stuck wherever it was; it now reaches
+          // Invoiced/Paid exactly when the plan (and every other line) is
+          // actually done, the same helper GRN-matched invoices go through.
+          await syncPoStatus(tx, latestPo.pk);
 
-        return { payment, sapMiroDoc, vendorId: latestInvoice.vendorId };
-      });
+          return { payment, sapMiroDoc, vendorId: latestInvoice.vendorId };
+        });
 
-      if (!result) return null;
+        if (!result) return null;
 
-      // Dual identity / sync state (Phase 3): the invoice itself moves
-      // pending -> synced the moment its payment clears.
-      await markSynced('awaitPaymentRun', { invoiceId: invoice.id }, result.sapMiroDoc);
+        // Dual identity / sync state (Phase 3): the invoice itself moves
+        // pending -> synced the moment its payment clears.
+        await markSynced('awaitPaymentRun', { invoiceId: invoice.id }, result.sapMiroDoc);
 
-      notifyVendor(job.clientId, result.vendorId, EVENTS.PAYMENT_CLEARED, result.payment);
+        notifyVendor(job.clientId, result.vendorId, EVENTS.PAYMENT_CLEARED, result.payment);
 
-      return result.payment;
-    },
-  );
+        return result.payment;
+      },
+    );
+  } catch (error) {
+    // Issue #64: more than one SAP document fits this invoice's match key
+    // (a periodic invoicing plan's same-amount siblings) and the date
+    // tiebreak couldn't narrow it to one either. SAP answered fine — the
+    // ambiguity is in the portal's own match key, not a SAP failure — so
+    // this stops the job (nothing about the outcome changes on a bare
+    // retry) and parks the invoice for a human to resolve via the
+    // reconciliation queue, instead of letting jobs/worker.js's generic
+    // error path retry it into `orphaned`.
+    if (error instanceof AmbiguousInvoiceMatchError) {
+      const candidateList = error.candidates.map((doc) => doc.miroDoc).filter(Boolean).join(', ');
+      await markNeedsManualMatch(
+        'awaitPaymentRun',
+        { invoiceId: invoice.id },
+        `Ambiguous match: ${error.candidates.length} SAP documents fit PO ${po.sapPoNumber} / amount ${invoice.totalAmount} (${candidateList}) — needs manual resolution.`,
+      );
+      return { done: true };
+    }
+    throw error;
+  }
 
   return { done: found };
 };

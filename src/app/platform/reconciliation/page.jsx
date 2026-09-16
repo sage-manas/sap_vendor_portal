@@ -6,14 +6,16 @@ import { PageHeader, Notice, Table, Status, Loading, useResource, formatDate } f
 
 // The reconciliation queue (docs/04-sap-runtime-engineering-plan.md Phase 3):
 // every RFQ/PO/ASN/GRN/Invoice/Payment that is not honestly `synced` or
-// `local` — failed, orphaned, or still pending past its SLA — across every
-// tenant. The screen that turns a silent integration failure into a ticket
-// someone closes.
+// `local` — failed, orphaned, needing a manual match (issue #64), or still
+// pending past its SLA — across every tenant. The screen that turns a
+// silent integration failure into a ticket someone closes.
 
 const DOCUMENT_TYPES = ['RFQ', 'PurchaseOrder', 'ASN', 'GRN', 'Invoice', 'Payment'];
-const SYNC_STATES = ['pending', 'failed', 'orphaned'];
+const SYNC_STATES = ['pending', 'failed', 'orphaned', 'needs_manual_match'];
 
-const capitalize = (value) => (value ? value.charAt(0).toUpperCase() + value.slice(1) : value);
+const capitalize = (value) => (value
+  ? value.split('_').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
+  : value);
 
 export default function ReconciliationPage() {
   const [filters, setFilters] = useState({ clientId: '', type: '', state: '' });

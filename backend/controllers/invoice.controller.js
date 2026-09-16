@@ -4,7 +4,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const { getSapAdapterForClient } = require('../sap');
 
 const { requireVendorScope, withVendorScope, scopedWhere } = require('../utils/requestScope');
-const { matchInvoiceDocument } = require('../sap/mappings/invoice-match');
+const { matchInvoiceDocument, AmbiguousInvoiceMatchError } = require('../sap/mappings/invoice-match');
 const { INVOICE_INCLUDE, formatInvoice } = require('../db/invoiceHelpers');
 const { flattenPaymentItems } = require('../db/paymentHelpers');
 
@@ -109,10 +109,22 @@ const getSapInvoiceStatus = asyncHandler(async (req, res, next) => {
     }
     if (inv.sapMiroDoc) continue;
 
-    const document = matchInvoiceDocument(
-      { sapPoNumber: poNumbers.get(inv.poId), totalAmount: inv.totalAmount },
-      documents,
-    );
+    let document;
+    try {
+      document = matchInvoiceDocument(
+        { sapPoNumber: poNumbers.get(inv.poId), totalAmount: inv.totalAmount, invoiceDate: inv.invoiceDate },
+        documents,
+      );
+    } catch (error) {
+      // Issue #64: a periodic invoicing plan's same-amount siblings that the
+      // date tiebreak couldn't separate either. This is a read-only
+      // cross-check, not the job that owns this invoice's sync state
+      // (jobs/handlers/awaitPaymentRun.js's own watch parks it for manual
+      // resolution) — here, the honest answer is the same as "not
+      // recognised yet": skip it rather than guessing.
+      if (error instanceof AmbiguousInvoiceMatchError) continue;
+      throw error;
+    }
     if (!document) continue;
 
     const updated = await prisma.invoice.update({ where: { pk: inv.pk }, data: { sapMiroDoc: document.miroDoc } });
