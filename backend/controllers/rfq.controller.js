@@ -12,7 +12,7 @@ const { formatPo } = require('../db/poHelpers');
 const { nextSequentialId } = require('../utils/nextSequentialId');
 const { buildExportPayload, EXPORT_FORMATS } = require('../services/export.service');
 const {
-  DEFAULT_VENDOR_RATING, DEFAULT_TECHNICAL_SCORE, DEFAULT_LEAD_TIME_DAYS,
+  DEFAULT_VENDOR_RATING, DEFAULT_LEAD_TIME_DAYS,
 } = require('../config/scoring');
 
 // The full nested shape a controller/frontend expects an RFQ in, matching
@@ -25,6 +25,19 @@ const RFQ_INCLUDE = {
   items: true,
   invitedVendors: true,
   bids: { include: { unitPrices: true, uploadedDocs: true } },
+};
+
+// A supplier reading a tender must never see another supplier's bid — this is
+// the portal's one sealed-tender guarantee. Scoped at the include itself
+// (rather than filtering the response afterwards) so there is no code path
+// that ever assembles a rival's unit prices before discarding them.
+const rfqIncludeFor = (req) => {
+  if (!isSupplier(req)) return RFQ_INCLUDE;
+  return {
+    items: true,
+    invitedVendors: true,
+    bids: { where: { vendorId: vendorScope(req) }, include: { unitPrices: true, uploadedDocs: true } },
+  };
 };
 
 // unitPrices[].price and freight are Decimal-typed columns — converted to
@@ -92,7 +105,7 @@ const getRFQs = asyncHandler(async (req, res, next) => {
 
   const skip = (page - 1) * limit;
   const [rfqs, total] = await Promise.all([
-    prisma.rFQ.findMany({ where, include: RFQ_INCLUDE, orderBy: { createdDate: 'desc' }, skip, take: Number(limit) }),
+    prisma.rFQ.findMany({ where, include: rfqIncludeFor(req), orderBy: { createdDate: 'desc' }, skip, take: Number(limit) }),
     prisma.rFQ.count({ where }),
   ]);
 
@@ -173,10 +186,22 @@ const getSapQuotationStatus = asyncHandler(async (req, res, next) => {
 // @route   GET /api/rfqs/:id
 // @access  Public
 const getRFQById = asyncHandler(async (req, res, next) => {
-  const rfq = await prisma.rFQ.findFirst({ where: { id: req.params.id }, include: RFQ_INCLUDE });
+  const rfq = await prisma.rFQ.findFirst({ where: { id: req.params.id }, include: rfqIncludeFor(req) });
   if (!rfq) {
     return next(ApiError.notFound('RFQ not found'));
   }
+
+  // A supplier absent from the invitee list gets the same 404 as a tender
+  // that doesn't exist — the API must not confirm a sealed tender exists (or
+  // leak its status/deadline/line structure) to a non-participant, mirroring
+  // submitBid's existing behaviour.
+  if (isSupplier(req)) {
+    const invited = rfq.invitedVendors.some((v) => v.vendorExtId === vendorScope(req));
+    if (!invited) {
+      return next(ApiError.notFound('RFQ not found'));
+    }
+  }
+
   res.json(formatRfq(rfq));
 });
 
@@ -322,7 +347,6 @@ const submitBid = asyncHandler(async (req, res, next) => {
     }
   }
 
-  const rating = invitation.rating || DEFAULT_VENDOR_RATING;
   const taxCode = gstToTaxCode(gstRate);
 
   const bidFields = {
@@ -333,8 +357,14 @@ const submitBid = asyncHandler(async (req, res, next) => {
     taxCode,
     freight: Number(freight || 0),
     deliveryLeadTimeDays: Number(deliveryLeadTimeDays || DEFAULT_LEAD_TIME_DAYS),
-    vendorRating: Number(rating),
-    technicalScore: DEFAULT_TECHNICAL_SCORE,
+    // Stored as-is: null when the invitation carries no rating, rather than
+    // silently resolving to DEFAULT_VENDOR_RATING here — that resolution now
+    // happens only where it's labelled as a default (getEvaluationMatrix
+    // below), so a caller reading the bid directly sees the real data it has.
+    vendorRating: invitation.rating != null ? Number(invitation.rating) : null,
+    // No technical evaluation is captured anywhere in the portal (issue #58)
+    // — left null ("not evaluated") rather than stamped with an invented
+    // score that would then sit in the ranking as if it were measured.
     validityDate: validityDate ? new Date(validityDate) : null,
     remarks,
     submittedAt: new Date(),
@@ -440,8 +470,17 @@ const getEvaluationMatrix = asyncHandler(async (req, res, next) => {
       vendorName: bid.vendorName,
       totalCost,
       deliveryLeadTimeDays: bid.deliveryLeadTimeDays || DEFAULT_LEAD_TIME_DAYS,
-      technicalScore: bid.technicalScore || DEFAULT_TECHNICAL_SCORE,
-      vendorRating: bid.vendorRating || DEFAULT_VENDOR_RATING
+      // Reported as the bid actually holds it — null means genuinely not
+      // evaluated, not "0". Never fed into weightedScore below: no code path
+      // captures a real technical score anywhere in the portal (issue #58),
+      // so there is nothing to weight it against.
+      technicalScore: bid.technicalScore ?? null,
+      technicalScoreSource: bid.technicalScore != null ? 'measured' : 'not_evaluated',
+      // Unlike technicalScore, a rating can be real (a buyer's own invitation
+      // may set one) — DEFAULT_VENDOR_RATING is applied only here, for
+      // ranking, and only when the bid has none; source says which happened.
+      vendorRating: bid.vendorRating ?? DEFAULT_VENDOR_RATING,
+      vendorRatingSource: bid.vendorRating != null ? 'measured' : 'default',
     };
   });
 
@@ -451,13 +490,19 @@ const getEvaluationMatrix = asyncHandler(async (req, res, next) => {
   // Formula:
   // priceScore    = (lowestTotalCost / vendorTotalCost) × 100
   // deliveryScore = (shortestLeadTime / vendorLeadTime) × 100
-  // weightedScore = priceScore×0.40 + techScore×0.30 + deliveryScore×0.20 + rating×0.10
+  // weightedScore = priceScore×0.40 + deliveryScore×0.20 + rating×0.10
+  //
+  // Technical evaluation used to contribute a further ×0.30 here, but that
+  // term was always DEFAULT_TECHNICAL_SCORE — a constant, not a measurement,
+  // fed into a weighted ranking as if it were one (issue #58). It is no
+  // longer part of the formula at all; weightedScore now tops out at 70, not
+  // 100, and technicalScore is reported for information only, alongside
+  // technicalScoreSource, so a "not evaluated" bid reads as exactly that.
   const scoredVendors = vendorsAnalysis.map(v => {
     const priceScore = v.totalCost > 0 ? (lowestTotalCost / v.totalCost) * 100 : 0;
     const deliveryScore = v.deliveryLeadTimeDays > 0 ? (lowestLeadTime / v.deliveryLeadTimeDays) * 100 : 0;
 
     const weightedScore = (priceScore * 0.40) +
-                          (v.technicalScore * 0.30) +
                           (deliveryScore * 0.20) +
                           (v.vendorRating * 0.10);
 

@@ -113,6 +113,62 @@ describe('GET /api/rfqs', () => {
   });
 });
 
+describe('GET /api/rfqs/:id', () => {
+  it('returns the RFQ to an invited vendor', async () => {
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload())).body;
+    const res = await asVendor(request(app).get(`/api/rfqs/${rfq.id}`));
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe(rfq.id);
+  });
+
+  it('404s for a supplier who was never invited, matching the cross-tenant 404 exactly', async () => {
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(
+      rfqPayload({ invitedVendors: [{ id: 'someone_else' }] })
+    )).body;
+
+    const res = await asVendor(request(app).get(`/api/rfqs/${rfq.id}`));
+    // 404, not 403: a sealed tender's existence must not be confirmed to a
+    // non-participant, mirroring submitBid and the cross-tenant convention
+    // (tests/tenant-isolation.test.js) — same status and same error body.
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ success: false, code: 404, error: 'RFQ not found' });
+  });
+
+  it("a supplier never sees a rival's bid, on the list endpoint or the detail endpoint", async () => {
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(
+      rfqPayload({ invitedVendors: [{ id: 'vendor_test_001' }, { id: 'vendor_test_002' }] })
+    )).body;
+
+    await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(
+      bidPayload({ unitPrices: { 10: 11.5, 20: 3.8 } })
+    );
+    await asVendor2(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(
+      bidPayload({ unitPrices: { 10: 99, 20: 88 } })
+    );
+
+    const detail = await asVendor(request(app).get(`/api/rfqs/${rfq.id}`));
+    expect(detail.status).toBe(200);
+    expect(detail.body.bids).toHaveLength(1);
+    expect(detail.body.bids[0].vendorId).toBe('vendor_test_001');
+    expect(detail.body.bids[0].unitPrices['10']).toBe(11.5);
+
+    const list = await asVendor(request(app).get('/api/rfqs'));
+    const listed = list.body.rfqs.find((r) => r.id === rfq.id);
+    expect(listed.bids).toHaveLength(1);
+    expect(listed.bids[0].vendorId).toBe('vendor_test_001');
+
+    // The other side of the same coin: vendor 2 sees only their own bid too.
+    const detail2 = await asVendor2(request(app).get(`/api/rfqs/${rfq.id}`));
+    expect(detail2.body.bids).toHaveLength(1);
+    expect(detail2.body.bids[0].vendorId).toBe('vendor_test_002');
+
+    // Tenant staff still see every bid — bid visibility is only restricted
+    // supplier-to-supplier.
+    const staffView = await asBuyer(request(app).get(`/api/rfqs/${rfq.id}`));
+    expect(staffView.body.bids.map((b) => b.vendorId).sort()).toEqual(['vendor_test_001', 'vendor_test_002']);
+  });
+});
+
 describe('POST /api/rfqs/:id/bid', () => {
   it('accepts a valid bid from an invited vendor and maps GST to a tax code', async () => {
     const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload())).body;
@@ -212,6 +268,19 @@ describe('POST /api/rfqs/:id/bid', () => {
 
     const res = await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bidPayload());
     expect(res.status).toBe(400);
+  });
+
+  // Issue #58: the bid as stored/returned must be honest about what it does
+  // not know, rather than silently carrying a fabricated default.
+  it('stores no technical score and no default rating — only what was actually submitted', async () => {
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(
+      rfqPayload({ invitedVendors: [{ id: 'vendor_test_001' }] }) // no rating on the invitation
+    )).body;
+    await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bidPayload());
+
+    const stored = await asTenant(() => readRfq(rfq.id));
+    expect(stored.bids[0].technicalScore).toBeNull();
+    expect(stored.bids[0].vendorRating).toBeNull();
   });
 });
 
@@ -341,6 +410,60 @@ describe('GET /api/rfqs/:id/evaluate', () => {
     // The only difference between the two bids, worth its 10% weight.
     expect(byVendor.vendor_test_001.weightedScore - byVendor.vendor_test_002.weightedScore)
       .toBeCloseTo((95 - DEFAULT_VENDOR_RATING) * 0.10, 5);
+  });
+
+  // Issue #58: DEFAULT_TECHNICAL_SCORE used to be stamped onto every bid and
+  // weighted into the ranking as if it were a measurement, even though no
+  // code path anywhere captures a real technical evaluation.
+  it('never weights technicalScore into the ranking, and reports it as not evaluated', async () => {
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(
+      rfqPayload({ invitedVendors: [{ id: 'vendor_test_001' }, { id: 'vendor_test_002' }] })
+    )).body;
+
+    // Identical bids in every dimension except price.
+    await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bidPayload({
+      unitPrices: { 10: 10, 20: 3 }, freight: 0, deliveryLeadTimeDays: 5,
+    }));
+    await asVendor2(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bidPayload({
+      unitPrices: { 10: 12, 20: 3 }, freight: 0, deliveryLeadTimeDays: 5,
+    }));
+
+    const res = await asBuyer(request(app).get(`/api/rfqs/${rfq.id}/evaluate`));
+    expect(res.status).toBe(200);
+
+    for (const row of res.body.evaluation) {
+      // Neither vendor was ever offered a way to submit one — so it must
+      // read as unmeasured, not as the old fabricated 80.
+      expect(row.technicalScore).toBeNull();
+      expect(row.technicalScoreSource).toBe('not_evaluated');
+      expect(row.vendorRatingSource).toBe('default');
+      // The formula no longer has a technical term: price 0.40 + delivery
+      // 0.20 + rating 0.10 tops out at 70, not 100.
+      expect(row.weightedScore).toBeLessThanOrEqual(70);
+    }
+
+    // Two bids that differ only in price rank on price alone.
+    const [first, second] = res.body.evaluation;
+    expect(first.vendorId).toBe('vendor_test_001'); // the cheaper bid
+    expect(first.priceScore).toBeGreaterThan(second.priceScore);
+    expect(first.deliveryScore).toBe(second.deliveryScore);
+    expect(first.weightedScore).toBeGreaterThan(second.weightedScore);
+    // The entire gap between them is exactly the price term — nothing else
+    // moved, because nothing else differed. priceScore and weightedScore are
+    // each independently rounded to 2dp in the response, so the two sides
+    // can differ by a rounding cent — compared to 1dp rather than 5.
+    expect(first.weightedScore - second.weightedScore)
+      .toBeCloseTo((first.priceScore - second.priceScore) * 0.40, 1);
+  });
+
+  it('labels a real, buyer-entered rating as measured rather than default', async () => {
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload({
+      invitedVendors: [{ id: 'vendor_test_001', rating: 95 }],
+    }))).body;
+    await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bidPayload());
+
+    const res = await asBuyer(request(app).get(`/api/rfqs/${rfq.id}/evaluate`));
+    expect(res.body.evaluation[0].vendorRatingSource).toBe('measured');
   });
 });
 

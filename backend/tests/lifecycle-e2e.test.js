@@ -1,6 +1,10 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
 const { registerVendor, createTenantUser, seedClient, baseVendor, runDueJobs } = require('./helpers');
+const { prisma } = require('../db/prisma');
+const { runWithTenant } = require('../utils/tenantContext');
+const { enqueue } = require('../jobs/queue');
+const { syncPoStatus } = require('../db/poHelpers');
 
 // One tenant runs a complete procurement cycle — RFQ → bid → award → PO →
 // ASN → GRN → invoice → payment — on the mock driver, while a second tenant
@@ -133,28 +137,55 @@ const runCycle = async (tenant) => {
   expect(accepted).toBeGreaterThan(0);
 
   // ── Invoice ──────────────────────────────────────────────────────────
+  // MIRO is AP's transaction, not a supplier's — the portal never creates an
+  // invoice through the API (PROJECT_CONTEXT.md §5.6). Seeded directly here,
+  // the same precondition AP posting one in SAP would leave behind, with the
+  // awaitPaymentRun job enqueued the way the controller used to on submit.
   const unitPrice = 11.5;
   const subTotal = Number((accepted * unitPrice).toFixed(2));
   const taxAmount = Number((subTotal * 0.18).toFixed(2));
+  const totalAmount = Number((subTotal + taxAmount).toFixed(2));
+  const invoiceId = `INV-${tenant.slug}-001`;
 
-  const invoiceRes = await asSupplier(request(app).post('/api/invoices')).send({
-    grnId: grn.id,
-    invoiceNumber: `INV-${tenant.slug}-001`,
-    invoiceDate: new Date().toISOString(),
-    subTotal,
-    taxAmount,
-    totalAmount: Number((subTotal + taxAmount).toFixed(2)),
-    items: [{
-      line: 10,
-      materialCode: 'MAT-001',
-      description: 'Hex bolts M8',
-      quantity: accepted,
-      unitPrice,
-      amount: subTotal,
-    }],
+  await runWithTenant(tenant.clientId, () => prisma.invoice.create({
+    data: {
+      id: invoiceId,
+      grnId: grn.id,
+      poId,
+      vendorId,
+      invoiceNumber: invoiceId,
+      invoiceDate: new Date(),
+      status: 'Submitted',
+      subTotal,
+      taxAmount,
+      totalAmount,
+      items: {
+        create: [{
+          clientId: tenant.clientId,
+          line: 10,
+          materialCode: 'MAT-001',
+          description: 'Hex bolts M8',
+          quantity: accepted,
+          unitPrice,
+          amount: subTotal,
+        }],
+      },
+    },
+  }));
+  await runWithTenant(tenant.clientId, () => prisma.gRN.updateMany({ where: { id: grn.id }, data: { invoiceSubmitted: true } }));
+  // PurchaseOrder.status is derived, never set directly (issue #60) — the
+  // same helper production code uses, applied to the invoice this test just
+  // seeded as AP's own posting would leave behind.
+  await runWithTenant(tenant.clientId, async () => {
+    const po = await prisma.purchaseOrder.findFirst({ where: { id: poId } });
+    await syncPoStatus(prisma, po.pk);
   });
-  expect(invoiceRes.status).toBe(201);
-  const invoiceId = invoiceRes.body.invoice?.id || invoiceRes.body.id;
+  await enqueue({
+    clientId: tenant.clientId,
+    kind: 'awaitPaymentRun',
+    dedupeKey: `awaitPaymentRun:${tenant.clientId}:${invoiceId}`,
+    args: { invoiceId, poId, vendorId },
+  });
 
   // ── Payment (F110) ───────────────────────────────────────────────────
   const payment = await until(async () => {
@@ -164,7 +195,7 @@ const runCycle = async (tenant) => {
 
   expect(payment.utrCode).toBeTruthy();
   // Withholding applied, so the remittance is less than the invoice.
-  expect(payment.netAmount).toBeLessThan(invoiceRes.body.invoice?.totalAmount ?? Infinity);
+  expect(payment.netAmount).toBeLessThan(totalAmount);
 
   return { rfqId, poId, asnId, grnId: grn.id, invoiceId, paymentId: payment.id };
 };

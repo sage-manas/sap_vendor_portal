@@ -4,9 +4,10 @@
 // not_implemented for everything but connectivity), and s4_odata (now
 // implemented against the real OData APIs — without a reachable gateway it
 // reports connectivity checks as "passed" with ok:false in their payload,
-// and every write as "failed" rather than "not_implemented", since it
-// genuinely tried and could not reach anything) — the same tool
-// `scripts/sap-conformance.js` points at a real sandbox once one exists.
+// and every write it genuinely attempts as "failed" rather than
+// "not_implemented"; a method with no confirmed SAP endpoint at all, like
+// vendorReject, still reports its own honest "not_implemented") — the same
+// tool `scripts/sap-conformance.js` points at a real sandbox once one exists.
 const { prisma } = require('../db/prisma');
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
 const { METHOD_NAMES, DEFERRED_METHODS, SAP_METHODS } = require('../sap/contract');
@@ -68,9 +69,15 @@ describe('the conformance suite', () => {
     // Bookkeeping-only methods (mirroring the mock: they log what the caller
     // already has rather than making a network call of their own) pass even
     // with no gateway configured — same as they would against a real one.
-    for (const method of ['vendorVerifyKyc', 'vendorReject', 'poAcknowledge']) {
+    for (const method of ['vendorVerifyKyc', 'poAcknowledge']) {
       expect(byMethod[method].status).toBe('passed');
     }
+
+    // vendorReject has no confirmed SAP endpoint (issue #59) and, unlike
+    // vendorVerifyKyc, VENDOR_REJECT is registered as a real OData transaction
+    // — logging from here would claim a call that never happened. It falls
+    // through to the skeleton's honest not_implemented instead.
+    expect(byMethod.vendorReject.status).toBe('not_implemented');
 
     // Methods that genuinely have to call SAP fail without a reachable
     // baseUrl — never the skeleton's untried not_implemented. There is no

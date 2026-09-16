@@ -39,11 +39,9 @@ const P = {
 
   // Finance
   INVOICE_READ: 'invoice:read',
-  INVOICE_SUBMIT: 'invoice:submit',
   INVOICE_APPROVE: 'invoice:approve',
   PAYMENT_READ: 'payment:read',
   PAYMENT_CREATE: 'payment:create',
-  PAYMENT_MANAGE: 'payment:manage',
 
   // Collaboration and content
   CHAT_READ: 'chat:read',
@@ -119,7 +117,6 @@ const FINANCE = [
   ...TENANT_READ_ONLY,
   P.INVOICE_APPROVE,
   P.PAYMENT_CREATE,
-  P.PAYMENT_MANAGE,
   P.DOCUMENT_WRITE,
 ];
 
@@ -154,7 +151,6 @@ const VENDOR = [
   P.ASN_CREATE,
   P.GRN_READ,
   P.INVOICE_READ,
-  P.INVOICE_SUBMIT,
   P.PAYMENT_READ,
   P.CHAT_READ,
   P.CHAT_WRITE,

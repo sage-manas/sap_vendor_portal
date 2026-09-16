@@ -1,6 +1,6 @@
 const { Prisma } = require('@prisma/client');
 const { prisma } = require('../../db/prisma');
-const { PO_INCLUDE, formatPo } = require('../../db/poHelpers');
+const { PO_INCLUDE, formatPo, syncPoStatus } = require('../../db/poHelpers');
 const { EVENTS } = require('../../utils/socketEmitter');
 const { notifyVendor } = require('../notify');
 const { markSynced } = require('../syncState');
@@ -78,7 +78,10 @@ module.exports = async ({ job, adapter }) => {
               });
             }
           }
-          await tx.purchaseOrder.update({ where: { pk: latestPo.pk }, data: { status: 'Delivered' } });
+          // Derived from every line's grnQuantity (issue #60) — a receipt on
+          // one line of a multi-line order must not present the whole order as
+          // Delivered while the others are untouched.
+          await syncPoStatus(tx, latestPo.pk);
 
           return createdGrn;
         });

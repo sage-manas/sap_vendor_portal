@@ -1,5 +1,5 @@
 const { prisma } = require('../../db/prisma');
-const { PO_INCLUDE } = require('../../db/poHelpers');
+const { PO_INCLUDE, syncPoStatus } = require('../../db/poHelpers');
 const { EVENTS } = require('../../utils/socketEmitter');
 const { notifyVendor } = require('../notify');
 const { dueVendors, recordSweepTick } = require('../sweepHelpers');
@@ -107,7 +107,9 @@ async function settleIfOpen({ clientId, vendor, row }) {
         sapDocNumber: sapMiroDoc, sapSyncState: 'synced', sapSyncedAt: new Date(),
       },
     });
-    await tx.purchaseOrder.update({ where: { pk: po.pk }, data: { status: 'Paid' } });
+    // Derived, not declared (issue #60) — same helper every other status
+    // change goes through.
+    await syncPoStatus(tx, po.pk);
 
     return payment;
   });

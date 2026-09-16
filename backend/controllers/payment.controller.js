@@ -2,7 +2,7 @@ const { prisma } = require('../db/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { getSapAdapterForClient } = require('../sap');
-const { withVendorScope, requireVendorScope } = require('../utils/requestScope');
+const { withVendorScope, requireVendorScope, scopedWhere } = require('../utils/requestScope');
 const { fiscalPeriodOf, fiscalYearLabel, fiscalQuarterLabel } = require('../utils/fiscalPeriod');
 const { createWithUniqueId } = require('../utils/createWithUniqueId');
 const { formatPayment } = require('../db/paymentHelpers');
@@ -147,7 +147,7 @@ const getTdsSummary = asyncHandler(async (req, res) => {
 // @route   GET /api/payments/:id
 // @access  Public
 const getPaymentById = asyncHandler(async (req, res, next) => {
-  const payment = await prisma.payment.findFirst({ where: { id: req.params.id } });
+  const payment = await prisma.payment.findFirst({ where: scopedWhere(req, { id: req.params.id }) });
   if (!payment) {
     return next(ApiError.notFound('Payment not found'));
   }
@@ -159,6 +159,18 @@ const getPaymentById = asyncHandler(async (req, res, next) => {
 // @access  Public
 const createPayment = asyncHandler(async (req, res, next) => {
   const vendorId = requireVendorScope(req);
+
+  // A bank-account change awaiting approval (issue #53) means the payout
+  // details on file are, by definition, in dispute — releasing money while
+  // that's unresolved is exactly the window an account-takeover attack needs.
+  const vendor = await prisma.vendor.findFirst({ where: { vendorId } });
+  if (vendor?.pendingBankChange) {
+    return next(ApiError.badRequest(
+      'This supplier has a bank-account change awaiting approval. Approve or reject it before releasing payment.',
+      { reason: 'bank_change_pending' },
+    ));
+  }
+
   const { id, ...body } = req.body;
   const paymentData = { ...body, vendorId };
 
@@ -177,33 +189,10 @@ const createPayment = asyncHandler(async (req, res, next) => {
   res.status(201).json(formatPayment(payment));
 });
 
-// @desc    Update Payment status
-// @route   PUT /api/payments/:id/status
-// @access  Public
-//
-// NOTE: `status` is not a Payment column — it never was (models/Payment.js
-// carried no such field either), so this endpoint has always updated nothing
-// in the database and returned a response object with `status` merely spliced
-// on in memory. Preserved exactly rather than "fixed" during this migration.
-const updatePaymentStatus = asyncHandler(async (req, res, next) => {
-  const { status } = req.body;
-  if (!status) {
-    return next(ApiError.badRequest('Status is required'));
-  }
-
-  const payment = await prisma.payment.findFirst({ where: { id: req.params.id } });
-  if (!payment) {
-    return next(ApiError.notFound('Payment not found'));
-  }
-
-  res.json({ message: 'Payment status updated successfully', payment: { ...formatPayment(payment), status } });
-});
-
 module.exports = {
   getPayments,
   getSapPaymentStatus,
   getTdsSummary,
   getPaymentById,
-  createPayment,
-  updatePaymentStatus
+  createPayment
 };

@@ -247,30 +247,34 @@ const generateInvoicePDF = asyncHandler(async (req, res, next) => {
   drawLine(doc, y);
   y += 10;
 
-  // Subtotals and GST rates display. subTotal/taxAmount/totalAmount are
+  // Subtotals and GST display. subTotal/taxAmount/totalAmount are
   // Decimal-typed columns: a raw Decimal's own .toLocaleString() silently
   // ignores the locale/fraction-digit options passed to it below (ignored,
   // not thrown — it just renders "1234.5" instead of "1,234.50"), unlike a
-  // plain number's. Converting here, before either fallback expression runs,
-  // keeps every downstream use — including the ones below that only "happen"
-  // to work today because `/` and `-` force numeric coercion — on the same
+  // plain number's. Converting here keeps every downstream use on the same
   // plain-number footing.
+  //
+  // Nothing here derives subTotal or taxAmount from totalAmount and an
+  // assumed rate — Invoice stores exactly one taxAmount, with no CGST/SGST/
+  // IGST breakdown (that needs per-line tax modelling — #17), so this prints
+  // only the figures actually on the row, or says plainly that they are not
+  // available rather than inventing them (issue #57). totalAmount is the one
+  // figure every invoice genuinely carries and is always printed as stored.
   const totalAmount = toNumber(invoice.totalAmount);
-  const subTotal = toNumber(invoice.subTotal) || (totalAmount / 1.18);
-  const taxVal = toNumber(invoice.taxAmount) || (totalAmount - subTotal);
+  const subTotal = toNumber(invoice.subTotal);
+  const taxVal = toNumber(invoice.taxAmount);
+  const hasTaxBreakdown = subTotal > 0;
 
   doc.font('Helvetica').fontSize(9);
   doc.text('Subtotal (Net Taxable Value):', 300, y, { align: 'right', width: 150 });
-  doc.font('Helvetica-Bold').text(inr(subTotal), 445, y, { align: 'right', width: 105 });
+  doc.font('Helvetica-Bold').text(hasTaxBreakdown ? inr(subTotal) : 'Not available', 445, y, { align: 'right', width: 105 });
   y += 15;
 
-  // Standard 18% split (CGST 9% + SGST 9%)
-  doc.font('Helvetica').text('CGST @ 9.0%:', 300, y, { align: 'right', width: 150 });
-  doc.font('Helvetica-Bold').text(inr(taxVal / 2), 445, y, { align: 'right', width: 105 });
-  y += 15;
-
-  doc.font('Helvetica').text('SGST @ 9.0%:', 300, y, { align: 'right', width: 150 });
-  doc.font('Helvetica-Bold').text(inr(taxVal / 2), 445, y, { align: 'right', width: 105 });
+  // One tax line, at the rate the invoice's own taxCode names — not a
+  // CGST/SGST split, since nothing in this system records how the stored
+  // taxAmount divides between them.
+  doc.font('Helvetica').text(`GST (${orDash(invoice.taxCode)}):`, 300, y, { align: 'right', width: 150 });
+  doc.font('Helvetica-Bold').text(hasTaxBreakdown ? inr(taxVal) : 'Not available', 445, y, { align: 'right', width: 105 });
   y += 15;
 
   drawLine(doc, y);

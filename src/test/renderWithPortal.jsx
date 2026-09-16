@@ -117,7 +117,7 @@ export const SUPPLIER_SESSION = {
     role: 'vendor',
     plane: 'supplier',
     email: 'supplier@example.com',
-    permissions: ['profile:read', 'rfq:read', 'rfq:bid', 'po:read', 'invoice:submit', 'payment:read'],
+    permissions: ['profile:read', 'rfq:read', 'rfq:bid', 'po:read', 'invoice:read', 'payment:read'],
     mustChangePassword: false,
   },
   workspace: { clientId: 'CLT-0001', companyName: 'Nucleus Manufacturing', branding: {} },

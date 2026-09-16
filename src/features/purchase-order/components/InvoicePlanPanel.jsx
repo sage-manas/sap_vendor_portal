@@ -299,7 +299,7 @@ function ConfigureDialog({ po, item, existingPlan, onClose, onSaved }) {
 
 // --- One line item's plan ---------------------------------------------------
 
-function PlanCard({ po, entry, canManage, busy, onConfigure, onRemove, onToggleBlock, onBill }) {
+function PlanCard({ po, entry, canManage, busy, onConfigure, onRemove, onToggleBlock }) {
   const { plan, summary } = entry;
   const currency = plan.currency || po.currency || 'INR';
   const PlanIcon = plan.type === 'Periodic' ? Repeat : SplitSquareHorizontal;
@@ -398,9 +398,7 @@ function PlanCard({ po, entry, canManage, busy, onConfigure, onRemove, onToggleB
                         </Button>
                       )
                     ) : state === 'due' ? (
-                      <Button size="sm" disabled={busy} onClick={() => onBill(entry, line)}>
-                        <Receipt className="size-3.5 mr-1.5" /> Create invoice
-                      </Button>
+                      <span className="text-[11px] font-semibold text-emerald-700">Due — awaiting invoice</span>
                     ) : (
                       <span className="text-[11px] text-text-tertiary">
                         {state === 'invoiced' ? (line.sapMiroDoc ? `MIRO ${line.sapMiroDoc}` : 'Submitted') : chip.label}
@@ -419,7 +417,7 @@ function PlanCard({ po, entry, canManage, busy, onConfigure, onRemove, onToggleB
 
 // --- The panel --------------------------------------------------------------
 
-export default function InvoicePlanPanel({ po, canManage = false, onInvoiceRaised }) {
+export default function InvoicePlanPanel({ po, canManage = false }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -469,23 +467,6 @@ export default function InvoicePlanPanel({ po, canManage = false, onInvoiceRaise
       setBusy(false);
     }
   };
-
-  const billPlanLine = (entry, line) =>
-    run(
-      () => poService.submitPlanInvoice({
-        poId: po.id,
-        line: entry.line,
-        planLineNumber: line.lineNumber,
-        // The supplier's own invoice number. Generated here the same way the
-        // GRN-based invoice form does, so the two flows produce comparable
-        // references rather than one of them looking hand-typed.
-        invoiceNumber: `INV-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`,
-        invoiceDate: todayIso(),
-      }),
-      `Invoice raised for ${money(line.amount, entry.currency || po.currency)} against date ${line.lineNumber}`,
-    ).then((result) => {
-      if (result && onInvoiceRaised) onInvoiceRaised(result.invoice);
-    });
 
   const plannedLines = new Set((data?.items || []).map((entry) => entry.line));
   const unplannedItems = (po?.items || []).filter((item) => !plannedLines.has(item.line));
@@ -545,7 +526,6 @@ export default function InvoicePlanPanel({ po, canManage = false, onInvoiceRaise
             onRemove={(target) => run(() => poService.removeInvoicePlan(po.id, target.line))}
             onToggleBlock={(target, line, blocked) =>
               run(() => poService.setInvoicePlanLineBlock(po.id, target.line, line.lineNumber, blocked))}
-            onBill={billPlanLine}
           />
         ))
       )}

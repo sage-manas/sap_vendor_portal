@@ -361,7 +361,7 @@ export default function DashboardView({ state, setActiveTab }) {
 
             <Button variant="default" size="sm" onClick={() => setActiveTab('invoices')}>
               <FileText className="size-3" />
-              <span>Submit Invoice</span>
+              <span>View Invoices</span>
             </Button>
           </div>
         </div>
@@ -394,7 +394,7 @@ export default function DashboardView({ state, setActiveTab }) {
           {/* QUICK ICON SHORTCUTS */}
           <div className="flex flex-wrap items-stretch gap-2 border-t border-border pt-4 lg:border-t-0 lg:pt-0">
             {[
-              { label: 'Submit Invoice', tab: 'invoices', icon: Receipt },
+              { label: 'View Invoices', tab: 'invoices', icon: Receipt },
               { label: 'Send shipment', tab: 'pos', icon: ShoppingBag },
               { label: 'View RFQs', tab: 'rfqs', icon: FileText },
               { label: 'Statement', tab: 'payments', icon: CreditCard },
@@ -620,9 +620,9 @@ export default function DashboardView({ state, setActiveTab }) {
             ) : !state.invoices || state.invoices.length === 0 ? (
               renderEmptyState(
                 'No Invoices Logged',
-                'No invoices submitted yet. You can invoice once the buyer has confirmed a goods receipt.',
+                'No invoices yet. Once your buyer\'s finance team posts one against a delivery, it will appear here.',
                 FileText,
-                'Submit New Invoice',
+                'View Invoices',
                 () => setActiveTab('invoices')
               )
             ) : (

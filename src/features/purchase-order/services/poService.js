@@ -26,10 +26,6 @@ export const poService = {
     return apiClient.get('/grns').catch(() => null);
   },
 
-  async updatePOStatus(poId, status) {
-    return apiClient.put(`/pos/${poId}/status`, { status }).catch(() => null);
-  },
-
   /** Every PO SAP itself has for this vendor, with line items and GRNs nested in */
   async getSapStatus() {
     return apiClient.get('/pos/sap-status').catch(() => null);
@@ -61,10 +57,5 @@ export const poService = {
   /** Re-read the plans SAP holds for this order and adopt them */
   async syncInvoicePlan(poId) {
     return apiClient.post(`/pos/${poId}/invoice-plan/sync`, {});
-  },
-
-  /** Raise an invoice against one settlement date of a plan */
-  async submitPlanInvoice(payload) {
-    return apiClient.post('/invoices/plan', payload);
   }
 };

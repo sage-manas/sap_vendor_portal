@@ -4,8 +4,7 @@ const {
   getSapPaymentStatus,
   getTdsSummary,
   getPaymentById,
-  createPayment,
-  updatePaymentStatus
+  createPayment
 } = require('../controllers/payment.controller');
 const { requirePermission } = require('../middleware/auth');
 const { PERMISSIONS } = require('../config/permissions');
@@ -16,6 +15,5 @@ router.post('/', requirePermission(PERMISSIONS.PAYMENT_CREATE), createPayment);
 router.get('/sap-status', requirePermission(PERMISSIONS.PAYMENT_READ), getSapPaymentStatus);
 router.get('/tds-summary', requirePermission(PERMISSIONS.PAYMENT_READ), getTdsSummary);
 router.get('/:id', requirePermission(PERMISSIONS.PAYMENT_READ), getPaymentById);
-router.put('/:id/status', requirePermission(PERMISSIONS.PAYMENT_MANAGE), updatePaymentStatus);
 
 module.exports = router;

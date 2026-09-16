@@ -7,6 +7,8 @@ const {
   submitRegistration,
   approveVendor,
   rejectVendor,
+  approveBankChange,
+  rejectBankChange,
   listVendors,
   getVendorById,
   getPerformance,
@@ -42,6 +44,10 @@ router.post('/', protect, tenantLimiter, requirePermission(PERMISSIONS.VENDOR_CR
 router.get('/', protect, tenantLimiter, requirePermission(PERMISSIONS.VENDOR_READ), listVendors);
 router.put('/:id/approve', protect, tenantLimiter, requirePermission(PERMISSIONS.VENDOR_APPROVE), approveVendor);
 router.put('/:id/reject', protect, tenantLimiter, requirePermission(PERMISSIONS.VENDOR_APPROVE), validate(rejectVendorSchema), rejectVendor);
+// Same gate as onboarding approval — a bank-account change on an already
+// Approved supplier is reviewed the same way the original registration was.
+router.put('/:id/bank-change/approve', protect, tenantLimiter, requirePermission(PERMISSIONS.VENDOR_APPROVE), approveBankChange);
+router.put('/:id/bank-change/reject', protect, tenantLimiter, requirePermission(PERMISSIONS.VENDOR_APPROVE), rejectBankChange);
 // Last: '/:id' would otherwise swallow '/profile', '/performance' and
 // '/sap-reference-data' above it.
 router.get('/:id', protect, tenantLimiter, requirePermission(PERMISSIONS.VENDOR_READ), getVendorById);

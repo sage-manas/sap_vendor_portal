@@ -37,7 +37,7 @@ export function PortalProvider({ children }) {
   const profileHook = useProfile();
   const poHook = usePOs(profileHook.profile);
   const paymentHook = usePayments();
-  const invoiceHook = useInvoices(profileHook.profile, poHook.setInvoiceSubmittedForGrn, paymentHook.addPayment);
+  const invoiceHook = useInvoices(profileHook.profile);
   const rfqHook = useRFQs(profileHook.profile);
   const dashboardHook = useDashboard(profileHook.profile);
 
@@ -185,9 +185,6 @@ export function PortalProvider({ children }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [selectedRfqId, setSelectedRfqId] = useState(null);
   const [selectedPoId, setSelectedPoId] = useState(null);
-  const [selectedGrnId, setSelectedGrnId] = useState(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
   // Forms states managed locally
   const [companyForm, setCompanyForm] = useState({
     companyName: '', tradeName: '', businessType: '', incorporationDate: '',
@@ -207,10 +204,6 @@ export function PortalProvider({ children }) {
     carrierName: '', trackingNumber: '', vehicleNumber: '',
     invoiceReference: '', shipDate: '', estimatedDeliveryDate: '',
     items: {}
-  });
-
-  const [invoiceForm, setInvoiceForm] = useState({
-    invoiceNumber: '', invoiceDate: ''
   });
 
   // Seed the registration form from the stored profile — once per supplier.
@@ -342,60 +335,6 @@ export function PortalProvider({ children }) {
     return res;
   };
 
-  const handleInvoiceSubmit = (grn) => {
-    if (!invoiceForm.invoiceNumber || !invoiceForm.invoiceDate) {
-      alert('Please enter Invoice Number and Billing Date.');
-      return;
-    }
-
-    const items = grn.items.map(item => {
-      const po = state.pos.find(p => p.id === grn.poId);
-      const poItem = po?.items.find(pi => pi.line === item.line);
-      const unitPrice = poItem?.unitPrice || 0;
-      return {
-        line: item.line,
-        materialCode: item.materialCode,
-        description: item.description,
-        quantity: item.acceptedQuantity,
-        unitPrice,
-        amount: item.acceptedQuantity * unitPrice
-      };
-    });
-
-    const subTotal = items.reduce((sum, item) => sum + item.amount, 0);
-    const taxAmount = Number((subTotal * 0.18).toFixed(2));
-    const totalAmount = Number((subTotal + taxAmount).toFixed(2));
-
-    setIsSubmitting(true);
-
-    setTimeout(() => {
-      invoiceHook.submitInvoice({
-        grnId: grn.id,
-        poId: grn.poId,
-        invoiceNumber: invoiceForm.invoiceNumber,
-        invoiceDate: invoiceForm.invoiceDate,
-        subTotal,
-        taxAmount,
-        totalAmount,
-        items
-      });
-      setIsSubmitting(false);
-      setSelectedGrnId(null);
-      setInvoiceForm({ invoiceNumber: '', invoiceDate: '' });
-      setActiveTab('invoices');
-
-      // MOCK — replace with real SAP payment-run polling/webhook when SAP integration lands.
-      // Backend (backend/controllers/invoice.controller.js submitInvoice) fakes the payment run
-      // via a 12s setTimeout ([SIMULATOR] logs); this just refreshes state 1s after that fires.
-      setTimeout(() => {
-        console.log('[PortalContext] Fallback refresh for Payment simulation...');
-        paymentHook.refreshPayments();
-        invoiceHook.refreshInvoices();
-        poHook.refreshPOs();
-      }, 13000);
-    }, 1500);
-  };
-
   const handleResetDatabase = () => {
     if (confirm('Reset the portal back to its default demo data? This will clear all transactions.')) {
       dashboardHook.clearAllState();
@@ -434,10 +373,6 @@ export function PortalProvider({ children }) {
         setSelectedRfqId,
         selectedPoId,
         setSelectedPoId,
-        selectedGrnId,
-        setSelectedGrnId,
-        isSubmitting,
-        setIsSubmitting,
         companyForm,
         setCompanyForm,
         bidPrices,
@@ -448,8 +383,6 @@ export function PortalProvider({ children }) {
         setBidRemarks,
         asnForm,
         setAsnForm,
-        invoiceForm,
-        setInvoiceForm,
         handleCompanySubmit,
         handleBidSubmit,
         handleSapQuotePriceUpdate,
@@ -457,7 +390,6 @@ export function PortalProvider({ children }) {
         handleReissueRFQ,
         handleCancelRFQ,
         handleAsnSubmit,
-        handleInvoiceSubmit,
         handleResetDatabase,
         logout,
         awardVendorBidWrapper,

@@ -38,6 +38,12 @@ const PROTECTED_VENDOR_FIELDS = new Set([
   'resetPasswordToken', 'resetPasswordExpires', 'passwordChangedAt',
 ]);
 
+// The payout account. Once a supplier is Approved, a change to any of these
+// is diverted to `pendingBankChange` instead of the live columns (issue #53)
+// — an approved supplier who could edit these directly, unaudited, is exactly
+// the account-takeover path AP fraud runs through.
+const BANK_FIELDS = ['bankName', 'accountNumber', 'ifscCode', 'accountName', 'bankBranch'];
+
 // Maps a body carrying flat and/or legacy nested fields onto flat Vendor
 // columns. The flat column the body names wins; a nested value only fills a gap.
 //
@@ -100,6 +106,10 @@ const formatVendorResponse = (vendor) => {
     branch: obj.bankBranch || '',
     accountType: 'Current'
   };
+
+  // Exposed as-is (not nested into bankDetails) so a caller can tell a
+  // pending request apart from the live account it would replace.
+  obj.pendingBankChange = obj.pendingBankChange || null;
 
   return obj;
 };
@@ -320,8 +330,47 @@ const updateProfile = asyncHandler(async (req, res, next) => {
     Object.assign(data, await hashPassword(data.password));
   }
 
+  // Once Approved, a bank-field change is never written to the live row
+  // directly — it becomes a pending request the tenant must approve
+  // (approveBankChange/rejectBankChange below), and every request is
+  // audited with the old and new values regardless of outcome. Every other
+  // field on the same PUT still applies immediately; only the bank fields
+  // are held back. Before approval, a supplier's bank details are still part
+  // of the one review their whole registration goes through, so this only
+  // engages post-approval.
+  let bankChangeRequested = false;
+  if (vendor.status === VENDOR_STATUS.APPROVED) {
+    const requestedBank = {};
+    for (const field of BANK_FIELDS) {
+      if (field in data && data[field] !== vendor[field]) {
+        requestedBank[field] = data[field];
+      }
+      delete data[field];
+    }
+
+    if (Object.keys(requestedBank).length) {
+      bankChangeRequested = true;
+      data.pendingBankChange = { ...requestedBank, requestedAt: new Date().toISOString() };
+
+      await recordAudit({
+        action: AUDIT_ACTIONS.VENDOR_BANK_CHANGE_REQUESTED,
+        req,
+        target: { type: 'Vendor', id: vendor.vendorId, label: vendor.companyName },
+        meta: {
+          old: Object.fromEntries(BANK_FIELDS.map((field) => [field, vendor[field]])),
+          new: Object.fromEntries(BANK_FIELDS.map((field) => [field, field in requestedBank ? requestedBank[field] : vendor[field]])),
+        },
+      });
+    }
+  }
+
   const updated = await prisma.vendor.update({ where: { pk: vendor.pk }, data });
-  res.json(formatVendorResponse(updated));
+  res.json({
+    ...formatVendorResponse(updated),
+    ...(bankChangeRequested && {
+      message: 'Your other changes were saved. The bank account change needs your buyer’s approval before it takes effect.',
+    }),
+  });
 });
 
 // @desc    Submit registration for review
@@ -443,6 +492,71 @@ const rejectVendor = asyncHandler(async (req, res, next) => {
   });
 
   res.json({ message: 'Vendor rejected successfully', vendor: formatVendorResponse(updated) });
+});
+
+// @desc    Approve a supplier's pending bank-account change and apply it to
+//          the live row
+// @route   PUT /api/vendors/:id/bank-change/approve
+// @access  Admin/Private (vendor:approve — the same gate the original
+//          onboarding approval sits behind)
+const approveBankChange = asyncHandler(async (req, res, next) => {
+  const { id } = req.params;
+  const vendor = await prisma.vendor.findFirst({ where: { pk: id } });
+  if (!vendor) {
+    return next(ApiError.notFound('Vendor not found'));
+  }
+  if (!vendor.pendingBankChange) {
+    return next(ApiError.badRequest('This supplier has no bank-account change awaiting approval'));
+  }
+
+  const { requestedAt, ...requestedBank } = vendor.pendingBankChange;
+  const updated = await prisma.vendor.update({
+    where: { pk: vendor.pk },
+    data: { ...requestedBank, pendingBankChange: null },
+  });
+
+  await recordAudit({
+    action: AUDIT_ACTIONS.VENDOR_BANK_CHANGE_APPROVED,
+    req,
+    target: { type: 'Vendor', id: updated.vendorId, label: updated.companyName },
+    meta: {
+      old: Object.fromEntries(BANK_FIELDS.map((field) => [field, vendor[field]])),
+      new: Object.fromEntries(BANK_FIELDS.map((field) => [field, updated[field]])),
+    },
+  });
+
+  res.json({ message: 'Bank account change approved and applied', vendor: formatVendorResponse(updated) });
+});
+
+// @desc    Reject a supplier's pending bank-account change — the live row is
+//          left exactly as it was
+// @route   PUT /api/vendors/:id/bank-change/reject
+// @access  Admin/Private (vendor:approve)
+const rejectBankChange = asyncHandler(async (req, res, next) => {
+  const { id } = req.params;
+  const { reason } = req.body || {};
+
+  const vendor = await prisma.vendor.findFirst({ where: { pk: id } });
+  if (!vendor) {
+    return next(ApiError.notFound('Vendor not found'));
+  }
+  if (!vendor.pendingBankChange) {
+    return next(ApiError.badRequest('This supplier has no bank-account change awaiting approval'));
+  }
+
+  const updated = await prisma.vendor.update({ where: { pk: vendor.pk }, data: { pendingBankChange: null } });
+
+  await recordAudit({
+    action: AUDIT_ACTIONS.VENDOR_BANK_CHANGE_REJECTED,
+    req,
+    target: { type: 'Vendor', id: updated.vendorId, label: updated.companyName },
+    meta: {
+      requested: vendor.pendingBankChange,
+      reason: reason || null,
+    },
+  });
+
+  res.json({ message: 'Bank account change rejected', vendor: formatVendorResponse(updated) });
 });
 
 // @desc    List all vendors (Admin)
@@ -712,6 +826,8 @@ module.exports = {
   submitRegistration,
   approveVendor,
   rejectVendor,
+  approveBankChange,
+  rejectBankChange,
   listVendors,
   getVendorById,
   getPerformance,

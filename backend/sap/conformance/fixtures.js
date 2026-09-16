@@ -9,7 +9,7 @@
 // reads every field below.
 
 const vendor = {
-  _id: 'VENDORDOC-CONFORMANCE-1',
+  pk: 'VENDORDOC-CONFORMANCE-1',
   vendorId: 'vendor_conformance',
   companyName: 'Conformance Testing Pvt Ltd',
   gstin: '27AAAPL1234C1ZV',

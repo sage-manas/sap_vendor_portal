@@ -5,7 +5,7 @@ import {
   ShoppingBag, Clock, CheckCircle2, Truck, ChevronRight, ChevronLeft, Search, Filter,
   Calendar, User, Download, AlertTriangle, MessageSquare, Plus, Send,
   FileText, X, ChevronDown, Check, MapPin, CreditCard, ArrowLeft,
-  Building, Building2, TrendingUp, Percent, ShieldCheck, ShieldAlert, Loader2, RefreshCw, FileCheck, HelpCircle, Receipt, CalendarClock, AlertCircle
+  Building, Building2, TrendingUp, Percent, ShieldCheck, ShieldAlert, Loader2, RefreshCw, HelpCircle, Receipt, CalendarClock, AlertCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import FileUploadZone from '@/components/shared/FileUploadZone';
@@ -87,8 +87,6 @@ function SapInputField({ label, required, children, icon: Icon }) {
   );
 }
 
-const generateInvoiceNumber = () => `INV-2026-${Math.floor(100000 + Math.random() * 900000)}`;
-
 const formatDate = (dateStr) => {
   if (!dateStr) return '';
   const d = new Date(dateStr);
@@ -123,8 +121,6 @@ export default function PurchaseOrdersView({
   setAsnForm,
   handleAsnSubmit,
   acknowledgePO,
-  setActiveTab,
-  submitInvoice,
   retrySapStatus
 }) {
   const [isLoading, setIsLoading] = useState(true);
@@ -191,7 +187,7 @@ export default function PurchaseOrdersView({
   // Navigation states:
   // poSubTab tracks the main top menu: 'list' (Orders Monitor), 'grn' (Goods Receipts), 'invoice' (Invoice Ready)
   const [poSubTab, setPoSubTab] = useState('list');
-  // currentView tracks detail sub-states: 'list' | 'detail' | 'asn' | 'asn_success' | 'grn_detail' | 'invoice_detail'
+  // currentView tracks detail sub-states: 'list' | 'detail' | 'asn' | 'asn_success' | 'grn_detail'
   const [currentView, setCurrentView] = useState('list');
   const [activePoState, setActivePo] = useState(null);
   const [activeGrnState, setActiveGrn] = useState(null);
@@ -246,12 +242,6 @@ export default function PurchaseOrdersView({
 
   // ASN Success Display state
   const [asnSuccessInfo, setAsnSuccessInfo] = useState(null);
-
-  // local Invoice input details (Screen 5)
-  const [vendorInvoiceNo, setVendorInvoiceNo] = useState('');
-  const [billingDate, setBillingDate] = useState('');
-  const [isPostingInvoice, setIsPostingInvoice] = useState(false);
-  const [invoicePostedSuccess, setInvoicePostedSuccess] = useState(false);
 
   // Sliding Side Drawer for Communication Center
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -309,21 +299,13 @@ export default function PurchaseOrdersView({
     return () => clearInterval(timer);
   }, [cleanPOs, cleanAsns, localSubmissionTimes]);
 
-  // Pre-load default chat messages for POs
+  // Every PO starts with an empty thread. Nothing here seeds a message
+  // attributed to Buyer — no buyer sent one, and inventing a greeting on
+  // their behalf is exactly the fabrication issue #55 removed from the
+  // backend's auto-reply too.
   useEffect(() => {
     cleanPOs.forEach(po => {
-      if (!poChats[po.id]) {
-        // Initialize mock thread
-        setPoChats(prev => ({
-          ...prev,
-          [po.id]: [
-            {
-              sender: 'Buyer',
-              message: `Hi Team, PO ${po.id} has been issued. Please review the payment terms (${po.paymentTerms || 'NET 30'}) and delivery locations and confirm acknowledgement.`,
-              timestamp: new Date(parseDateSafe(po.createdDate).getTime() + 10 * 60000).toISOString()
-            }
-          ]
-        }));
+      if (poIssueStatus[po.id] === undefined) {
         setPoIssueStatus(prev => ({ ...prev, [po.id]: 'In Review' }));
       }
     });
@@ -387,18 +369,6 @@ export default function PurchaseOrdersView({
     setActiveLineIdx(0);
   };
 
-  const handleOpenInvoiceDetail = (grn) => {
-    const po = cleanPOs.find(p => p.id === grn.poId);
-    setActiveGrn(grn);
-    setActivePo(po);
-    // Prefill fields
-    setVendorInvoiceNo(generateInvoiceNumber());
-    setBillingDate(new Date().toISOString().split('T')[0]);
-    setInvoicePostedSuccess(false);
-    setCurrentView('invoice_detail');
-    setActiveLineIdx(0);
-  };
-
   // Open Communication Drawer
   const handleOpenDrawer = (e, po) => {
     e.stopPropagation();
@@ -406,7 +376,8 @@ export default function PurchaseOrdersView({
     setDrawerOpen(true);
   };
 
-  // Send Drawer Message
+  // Send Drawer Message. Local to this screen only — nothing here reaches
+  // the buyer, so nothing writes a reply on their behalf (issue #55).
   const handleSendDrawerMessage = () => {
     if (!chatMessageInput.trim()) return;
 
@@ -421,32 +392,7 @@ export default function PurchaseOrdersView({
       [drawerPo.id]: [...(prev[drawerPo.id] || []), newMessage]
     }));
 
-    const text = chatMessageInput;
     setChatMessageInput('');
-
-    // Trigger mock response
-    setTimeout(() => {
-      let reply = "We have updated our records. Let us know if you need anything else.";
-      if (text.toLowerCase().includes('delivery') || text.toLowerCase().includes('date') || text.toLowerCase().includes('delay')) {
-        reply = "Acknowledged. Please make sure the dispatch quantity matches the quantity still outstanding, so nothing is rejected on delivery.";
-      } else if (text.toLowerCase().includes('price') || text.toLowerCase().includes('tax') || text.toLowerCase().includes('gst')) {
-        reply = "Our finance desk uses tax code G1 (18% GST). Standard payment terms will apply upon invoice verification.";
-      } else if (text.toLowerCase().includes('issue') || text.toLowerCase().includes('dented') || text.toLowerCase().includes('rejected')) {
-        reply = "Quality check failures must be supported with a signed inspection sheet. Please update documentation in the Attachments tab.";
-      }
-
-      setPoChats(prev => ({
-        ...prev,
-        [drawerPo.id]: [
-          ...(prev[drawerPo.id] || []),
-          {
-            sender: 'Buyer',
-            message: reply,
-            timestamp: new Date().toISOString()
-          }
-        ]
-      }));
-    }, 1500);
   };
 
   // Sort POs
@@ -591,48 +537,6 @@ export default function PurchaseOrdersView({
     }
   };
 
-  // Submit the invoice
-  const handleMiroInvoicePost = () => {
-    if (!vendorInvoiceNo.trim() || !billingDate) {
-      alert('Please fill in Invoice Reference and Document Date.');
-      return;
-    }
-
-    setIsPostingInvoice(true);
-
-    const items = (activeGrn?.items || []).map(item => {
-      const poItem = activePo?.items?.find(pi => pi.line === item.line);
-      const unitPrice = poItem?.unitPrice || 0;
-      return {
-        line: item.line,
-        materialCode: item.materialCode,
-        description: item.description,
-        quantity: item.acceptedQuantity,
-        unitPrice,
-        amount: item.acceptedQuantity * unitPrice
-      };
-    });
-
-    const subTotal = items.reduce((sum, item) => sum + item.amount, 0);
-    const taxAmount = Number((subTotal * 0.18).toFixed(2));
-    const totalAmount = Number((subTotal + taxAmount).toFixed(2));
-
-    setTimeout(() => {
-      submitInvoice({
-        grnId: activeGrn.id,
-        poId: activeGrn.poId,
-        invoiceNumber: vendorInvoiceNo.toUpperCase(),
-        invoiceDate: billingDate,
-        subTotal,
-        taxAmount,
-        totalAmount,
-        items
-      });
-      setIsPostingInvoice(false);
-      setInvoicePostedSuccess(true);
-    }, 1500);
-  };
-
   // Status Chip formatting
   const renderStatusChip = (status) => {
     const labelMap = {
@@ -702,16 +606,6 @@ export default function PurchaseOrdersView({
                 <span>Delivery Receipts</span>
                 <span className="bg-surface2 text-text-secondary font-mono text-[10px] px-1.5 py-0.5 rounded-full border border-border tabular-nums">
                   {cleanGrns.length}
-                </span>
-              </button>
-              <button
-                onClick={() => { setPoSubTab('invoice'); }}
-                className={`pb-2.5 text-sm font-bold border-b-2 transition-all duration-150 cursor-pointer flex items-center gap-2 ${poSubTab === 'invoice' ? 'border-text-primary text-text-primary' : 'border-transparent text-text-tertiary hover:text-text-secondary'}`}
-              >
-                <FileCheck className="size-4.5" />
-                <span>Ready to Invoice</span>
-                <span className="bg-amber-500/10 text-amber-600 font-mono text-[10px] px-1.5 py-0.5 rounded-full border border-amber-200 font-bold tabular-nums">
-                  {cleanGrns.filter(g => !g.invoiceSubmitted).length}
                 </span>
               </button>
             </div>
@@ -1175,89 +1069,6 @@ export default function PurchaseOrdersView({
                           </p>
                         </div>
                         <ChevronRight className="size-5 text-text-tertiary" />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ================================================================= */}
-        {/* SCREEN 1: READY TO INVOICE TAB */}
-        {/* ================================================================= */}
-        {currentView === 'list' && poSubTab === 'invoice' && (
-          <div className="space-y-4">
-            <div className="card p-4 flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-text-primary">Deliveries ready to invoice</h3>
-                <p className="text-xs text-text-secondary">Select verified warehouse receipts that are pending financial billing. Pre-fills lines automatically.</p>
-              </div>
-              <div className="text-xs text-text-secondary font-semibold font-mono bg-base border border-border px-2.5 py-1 rounded tabular-nums">
-                Awaiting Billing: {cleanGrns.filter(g => !g.invoiceSubmitted).length} docs
-              </div>
-            </div>
-
-            {cleanGrns.filter(g => !g.invoiceSubmitted).length === 0 ? (
-              <div className="card">
-                <EmptyState
-                  icon={FileCheck}
-                  title="No Pending Receipts for Invoicing"
-                  description={'Once goods receipts are posted by the warehouse and accepted, they will show up here as "Invoice Ready". If all are billed, verify under Invoices Registry.'}
-                />
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-3.5">
-                {cleanGrns.filter(g => !g.invoiceSubmitted).map(grn => {
-                  if (!grn) return null;
-                  const po = cleanPOs.find(p => p.id === grn.poId);
-                  const itemsCount = (grn.items || []).length;
-                  const acceptedTotal = (grn.items || []).reduce((s, i) => s + (i.acceptedQuantity || 0), 0);
-
-                  return (
-                    <div
-                      key={grn.id}
-                      onClick={() => handleOpenInvoiceDetail(grn)}
-                      className="card p-4 hover:border-amber-300 cursor-pointer transition-colors duration-150 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
-                    >
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-amber-700 font-mono bg-amber-500/10 border border-amber-200 px-2 py-0.5 rounded">
-                            {grn.id}
-                          </span>
-                          <span className="text-[10px] text-text-tertiary font-mono">
-                            Receipt no: {grn.sapMigoDoc}
-                          </span>
-                          <StatusBadge label="Ready to invoice" variant="warn" />
-                        </div>
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-[10px] text-text-tertiary font-bold">
-                          <span>Order: {grn.poId}</span>
-                          <span>&bull;</span>
-                          <span className="tabular-nums">Received on: {grn.postingDate}</span>
-                          <span>&bull;</span>
-                          <span>Delivered to: Site {po?.plant || '1000'}</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-6 self-stretch sm:self-auto justify-between border-t border-border pt-3 sm:border-t-0 sm:pt-0">
-                        <div className="text-right">
-                          <p className="text-[10px] text-text-tertiary font-bold uppercase">Accepted Quantity</p>
-                          <p className="text-xs font-bold text-text-primary font-mono tabular-nums">
-                            {acceptedTotal} units ({itemsCount} lines)
-                          </p>
-                        </div>
-                        <Button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenInvoiceDetail(grn);
-                          }}
-                          variant="default"
-                          size="sm"
-                        >
-                          <span>Create invoice</span>
-                          <ChevronRight className="size-3.5" />
-                        </Button>
                       </div>
                     </div>
                   );
@@ -1901,19 +1712,9 @@ export default function PurchaseOrdersView({
                             <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">Delivery receipt</h3>
                             <p className="text-[10px] text-text-secondary font-medium mt-0.5">Checked and accepted by your buyer’s receiving team</p>
                           </div>
-                          {!grn.invoiceSubmitted ? (
-                            <Button
-                              onClick={() => handleOpenInvoiceDetail(grn)}
-                              variant="default"
-                            >
-                              <span>Proceed with Invoice</span>
-                              <ChevronRight className="size-3.5" />
-                            </Button>
-                          ) : (
-                            <span className="px-3 py-1 rounded bg-surface2 text-text-secondary border border-border text-xs font-bold font-mono">
-                              Invoice submitted
-                            </span>
-                          )}
+                          <span className="px-3 py-1 rounded bg-surface2 text-text-secondary border border-border text-xs font-bold font-mono">
+                            {grn.invoiceSubmitted ? 'Invoice submitted' : 'Awaiting invoice from your buyer'}
+                          </span>
                         </div>
 
                         {/* Delivery receipt fields — 3-column grid, label-on-top aligned */}
@@ -2072,248 +1873,6 @@ export default function PurchaseOrdersView({
           </div>
         )}
 
-        {/* ==================== SCREEN 5: INVOICE PAGE (PREFILLED) ==================== */}
-        {currentView === 'invoice_detail' && activeGrn && activePo && (
-          <div className="space-y-6">
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => { setCurrentView('list'); setPoSubTab('invoice'); }}
-                className="flex items-center gap-2 text-text-secondary hover:text-text-primary text-xs font-bold transition-colors duration-150 cursor-pointer w-fit"
-              >
-                <ArrowLeft className="size-4" />
-                <span>Back to Invoice Ready List</span>
-              </button>
-            </div>
-            <h2 className="page-title">Invoice for {activeGrn.id}</h2>
-
-            {/* Success Post view */}
-            {invoicePostedSuccess ? (
-              <div className="card p-8 text-center max-w-md mx-auto space-y-6">
-                <div className="size-16 bg-green-50 border-2 border-green-500 rounded-full flex items-center justify-center text-green-600 mx-auto">
-                  <Check className="size-8" />
-                </div>
-                <div className="space-y-1">
-                  <h3 className="text-base font-bold text-text-primary">Invoice submitted</h3>
-                  <p className="text-xs text-text-secondary">Your invoice matched the order and delivery, and has been sent to your buyer</p>
-                </div>
-
-                <div className="p-3 bg-base border border-border rounded-lg text-xs font-mono font-bold text-text-secondary text-left space-y-1">
-                  <p>PO Reference: {activePo.id}</p>
-                  <p>Delivery receipt: {activeGrn.id}</p>
-                  <p>Invoice Doc Reference: {vendorInvoiceNo.toUpperCase()}</p>
-                  <p>Invoice reference: 510560{String(activeGrn?.id || '').split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % 9000 + 1000}</p>
-                </div>
-
-                <div className="p-3 bg-amber-500/10 border border-amber-200 rounded-lg text-[10px] text-amber-800 leading-normal font-semibold text-left">
-                  💳 Your invoice has been submitted. Your buyer runs payments weekly, and the status here updates to Paid once the money is released.
-                </div>
-
-                <div className="flex justify-center gap-3">
-                  <Button
-                    onClick={() => {
-                      setActiveTab('invoices');
-                    }}
-                    variant="default"
-                  >
-                    Go to Invoices Registry
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      setCurrentView('list');
-                      setPoSubTab('list');
-                    }}
-                    variant="outline"
-                  >
-                    Close
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-6">
-
-                {/* Notice Banner */}
-                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-start gap-3">
-                  <ShieldCheck className="size-5 text-emerald-600 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-bold text-emerald-800 text-xs uppercase tracking-wider">Order, delivery and invoice all match</p>
-                    <p className="text-emerald-700 text-xs mt-1 leading-normal font-semibold">
-                      The quantities and prices on the order match the quantities accepted on delivery. You can invoice this delivery now.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Prefilled Fields Section */}
-                <div className="card p-5 space-y-4">
-                  <h3 className="text-xs font-bold text-text-primary uppercase border-b border-border pb-2">Prefilled Header Parameters</h3>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 text-xs">
-                    <div>
-                      <span className="text-[10px] text-text-tertiary font-bold uppercase block">Vendor Code</span>
-                      <span className="font-semibold text-text-secondary">{state?.profile?.sapVendorCode || 'VND-4001'}</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-text-tertiary font-bold uppercase block">Vendor Name</span>
-                      <span className="font-semibold text-text-secondary">{state?.profile?.companyName || 'Your Firm'}</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-text-tertiary font-bold uppercase block">PO Reference</span>
-                      <span className="font-mono font-bold text-text-secondary">{activePo.id}</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-text-tertiary font-bold uppercase block">Delivery receipt</span>
-                      <span className="font-mono font-bold text-text-secondary">{activeGrn.id} (SAP MIGO: {activeGrn.sapMigoDoc})</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-text-tertiary font-bold uppercase block">Tax Scheme</span>
-                      <span className="font-semibold text-text-secondary">GST 18% (G1 code)</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-text-tertiary font-bold uppercase block">Payment Terms</span>
-                      <span className="font-semibold text-text-secondary">{activePo.paymentTerms}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Form Entry Block */}
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-
-                  {/* Billing items grid (8 cols) */}
-                  <div className="lg:col-span-8 card p-5 space-y-4">
-                    <h3 className="text-xs font-bold text-text-primary uppercase border-b border-border pb-2">Billed Line Allocation</h3>
-
-                    <div className="border border-border rounded-lg overflow-hidden">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr>
-                            <th>Line</th>
-                            <th>Item & description</th>
-                            <th className="text-right">Billed Qty</th>
-                            <th className="text-right font-mono">Unit Price</th>
-                            <th className="text-right">GST Tax</th>
-                            <th className="text-right">Total Net Value</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(activeGrn.items || []).map(item => {
-                            const poItem = activePo?.items?.find(pi => pi.line === item.line);
-                            const unitPrice = poItem?.unitPrice || 0;
-                            const netValue = item.acceptedQuantity * unitPrice;
-
-                            return (
-                              <tr key={item.line}>
-                                <td className="font-mono text-text-tertiary">{item.line}</td>
-                                <td>
-                                  <p className="font-semibold text-text-primary">{item.description}</p>
-                                  <p className="text-[10px] text-text-tertiary font-mono mt-0.5">{item.materialCode}</p>
-                                </td>
-                                <td className="text-right font-mono font-bold text-emerald-700 bg-emerald-50/20 tabular-nums">
-                                  {item.acceptedQuantity} {poItem?.uom || 'EA'}
-                                </td>
-                                <td className="text-right font-mono tabular-nums">₹ {Number(unitPrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                <td className="text-right font-mono">18% (G1)</td>
-                                <td className="text-right font-mono font-bold text-text-primary tabular-nums">
-                                  ₹ {Number(netValue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {/* Manual Billing Inputs */}
-                    <div className="border-t border-border pt-4">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <EnterpriseFieldCard label="Vendor Tax Invoice No." required icon={FileText}>
-                          <input
-                            type="text"
-                            maxLength={16}
-                            value={vendorInvoiceNo}
-                            onChange={e => setVendorInvoiceNo(e.target.value)}
-                            placeholder="INV-2026-8890"
-                            className="w-[20ch] uppercase h-8"
-                          />
-                        </EnterpriseFieldCard>
-
-                        <EnterpriseFieldCard label="Invoice Date" required icon={Calendar}>
-                          <input
-                            type="date"
-                            value={billingDate}
-                            onChange={e => setBillingDate(e.target.value)}
-                            className="w-[15ch] h-8"
-                          />
-                        </EnterpriseFieldCard>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Summary calculation card (4 cols) */}
-                  <div className="lg:col-span-4 card p-5 space-y-4">
-                    <h3 className="text-xs font-bold text-text-primary uppercase border-b border-border pb-2">Invoice Summary</h3>
-
-                    {(() => {
-                      const subtotal = (activeGrn.items || []).reduce((sum, item) => {
-                        const poItem = activePo?.items?.find(pi => pi.line === item.line);
-                        const unitPrice = poItem?.unitPrice || 0;
-                        return sum + item.acceptedQuantity * unitPrice;
-                      }, 0);
-                      const gst = Number((subtotal * 0.18).toFixed(2));
-                      const total = subtotal + gst;
-
-                      return (
-                        <div className="space-y-4 text-xs">
-                          <div className="space-y-2 text-text-secondary font-semibold">
-                            <div className="flex justify-between">
-                              <span>Subtotal</span>
-                              <span className="font-mono text-text-secondary tabular-nums">₹ {Number(subtotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>GST Tax (18% G1)</span>
-                              <span className="font-mono text-text-secondary tabular-nums">₹ {gst.toLocaleString()}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>Freight charges</span>
-                              <span className="font-mono text-text-secondary tabular-nums">₹ 0.00</span>
-                            </div>
-                          </div>
-
-                          <div className="border-t border-border pt-3 flex justify-between items-baseline">
-                            <span className="font-bold text-text-primary text-sm">Grand Gross Value</span>
-                            <span className="text-lg font-bold text-text-primary font-mono tabular-nums">
-                              ₹ {total.toLocaleString()}
-                            </span>
-                          </div>
-
-                          <div className="pt-2">
-                            <Button
-                              disabled={isPostingInvoice}
-                              onClick={handleMiroInvoicePost}
-                              variant="default"
-                              className="w-full"
-                            >
-                              {isPostingInvoice ? (
-                                <>
-                                  <RefreshCw className="size-3.5 animate-spin" />
-                                  <span>Checking your invoice...</span>
-                                </>
-                              ) : (
-                                <>
-                                  <FileCheck className="size-4" />
-                                  <span>Submit invoice</span>
-                                </>
-                              )}
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
         {/* ================================================================= */}
         {/* COLLAPSIBLE RIGHT DRAWER: COMMUNICATION CENTER                   */}
         {/* ================================================================= */}
@@ -2367,7 +1926,7 @@ export default function PurchaseOrdersView({
                   {(poChats[drawerPo.id] || []).map((msg, idx) => (
                     <div key={idx} className={`flex flex-col gap-1 max-w-[85%] ${msg.sender === 'Vendor' ? 'ml-auto items-end' : 'mr-auto items-start'}`}>
                       <span className="text-[8px] font-bold text-text-tertiary uppercase tracking-widest font-mono">
-                        {msg.sender === 'Vendor' ? 'Your Firm' : 'Amit Sharma (Buyer)'}
+                        {msg.sender === 'Vendor' ? 'Your Firm' : 'Buyer'}
                       </span>
                       <div className={`p-3 rounded-2xl border text-xs ${msg.sender === 'Vendor' ? 'bg-[rgb(var(--color-emerald-default-rgb))] border-transparent text-white rounded-tr-none' : 'bg-surface border-border text-text-primary rounded-tl-none shadow-xs'}`}>
                         <p className="leading-relaxed">{msg.message}</p>

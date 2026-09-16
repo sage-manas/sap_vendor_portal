@@ -20,6 +20,7 @@ const buildTestApp = require('./testApp');
 const { prisma } = require('../db/prisma');
 const { registerVendor, createAdminUser, runDueJobs } = require('./helpers');
 const { runWithTenant } = require('../utils/tenantContext');
+const { enqueue } = require('../jobs/queue');
 
 const app = buildTestApp();
 const auth = (token) => (req) => req.set('Authorization', `Bearer ${token}`);
@@ -66,7 +67,7 @@ describe('money fields survive the Float → Decimal migration', () => {
     expect(typeof rfqDetail.body.items[0].targetPrice).toBe('number');
   });
 
-  it('a submitted invoice and its eventual payment carry plain numbers throughout', async () => {
+  it('an invoice and its eventual payment carry plain numbers throughout', async () => {
     const supplier = await registerVendor(app, { vendorId: 'vendor_decimal_2', gstin: '27AAAAA3002A1Z1' }, { onboarded: true });
     const asSupplier = auth(supplier.token);
 
@@ -90,23 +91,28 @@ describe('money fields survive the Float → Decimal migration', () => {
       data: { clientId: 'CLT-0001', grnPk: grn.pk, line: 10, materialCode: 'MAT-1', description: 'Widget', receivedQuantity: 10, acceptedQuantity: 10, rejectedQuantity: 0 },
     }));
 
-    const invoiceRes = await asSupplier(request(app).post('/api/invoices')).send({
-      grnId: grn.id,
-      invoiceNumber: 'INV-DECIMAL-0002',
-      invoiceDate: new Date().toISOString(),
-      subTotal: 333.30,
-      taxAmount: 59.99,
-      totalAmount: 393.29,
-      items: [{ line: 10, materialCode: 'MAT-1', description: 'Widget', quantity: 10, unitPrice: 33.33, amount: 333.30 }],
+    // Invoices are no longer created through the API (AP posts MIRO, the
+    // portal only discovers it) — seeded directly the same way
+    // tds-summary.test.js/discovery-sweeps.test.js do.
+    const invoice = await runWithTenant('CLT-0001', () => prisma.invoice.create({
+      data: {
+        id: 'INV-DECIMAL-0002', grnId: grn.id, poId: po.id, vendorId: 'vendor_decimal_2',
+        invoiceNumber: 'INV-DECIMAL-0002', invoiceDate: new Date(),
+        subTotal: 333.30, taxAmount: 59.99, totalAmount: 393.29,
+        items: { create: [{ clientId: 'CLT-0001', line: 10, materialCode: 'MAT-1', description: 'Widget', quantity: 10, unitPrice: 33.33, amount: 333.30 }] },
+      },
+      include: { items: true },
+    }));
+    expect(invoice.subTotal.toNumber()).toBeCloseTo(333.30, 2);
+
+    // Submission used to enqueue this itself; seeding the invoice directly
+    // means the test has to ask for the same wait explicitly.
+    await enqueue({
+      clientId: 'CLT-0001',
+      kind: 'awaitPaymentRun',
+      dedupeKey: `awaitPaymentRun:CLT-0001:${invoice.id}`,
+      args: { invoiceId: invoice.id, poId: po.id, vendorId: 'vendor_decimal_2' },
     });
-    expect(invoiceRes.status).toBe(201);
-    const inv = invoiceRes.body.invoice;
-    expect(typeof inv.subTotal).toBe('number');
-    expect(typeof inv.taxAmount).toBe('number');
-    expect(typeof inv.totalAmount).toBe('number');
-    expect(typeof inv.items[0].unitPrice).toBe('number');
-    expect(typeof inv.items[0].amount).toBe('number');
-    expect(inv.totalAmount).toBeCloseTo(393.29, 2);
 
     // The deferred SAP payment run now lands as a durable SapJob row that
     // nothing processes under test unless asked — runDueJobs() is that ask.
@@ -115,7 +121,7 @@ describe('money fields survive the Float → Decimal migration', () => {
     for (let i = 0; i < 50 && !payment; i += 1) {
       await runDueJobs();
       const res = await asSupplier(request(app).get('/api/payments'));
-      payment = (res.body.payments || []).find((p) => p.invoiceId === inv.id);
+      payment = (res.body.payments || []).find((p) => p.invoiceId === invoice.id);
       if (!payment) await new Promise((resolve) => setTimeout(resolve, 20));
     }
     expect(payment).toBeTruthy();

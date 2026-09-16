@@ -440,7 +440,9 @@ const seedRfqs = async (vendor) => {
     freight: 4500,
     deliveryLeadTimeDays: 21,
     vendorRating: 4.4,
-    technicalScore: 86,
+    // No technicalScore: the demo data shouldn't show a measurement that no
+    // code path in the portal actually produces (issue #58) — left null,
+    // same as a real bid would be.
     moq: 50,
     unitPrices: { create: prices.map(([lineNumber, price]) => ({ clientId, lineNumber, price })) },
     ...extra,
@@ -711,8 +713,8 @@ const seedInvoicingPlan = async (vendor) => {
     include: { items: true },
   });
 
-  // submitPlanInvoice's own shape: quantity 1, unitPrice/amount = the plan
-  // line's amount, invoicePlanRef naming the line it bills, no grnId.
+  // A plan invoice's shape: quantity 1, unitPrice/amount = the plan line's
+  // amount, invoicePlanRef naming the line it bills, no grnId.
   const planInvoice = await prisma.invoice.create({
     data: {
       clientId, id: planInvoiceId, grnId: null, poId, vendorId: VENDOR_ID,

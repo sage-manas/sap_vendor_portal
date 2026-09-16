@@ -31,7 +31,7 @@ function Section({ title, children }) {
 export default function WorkspacePurchaseOrderPage({ params }) {
   const { id } = use(params);
   const { can } = useWorkspaceSession();
-  const { data: po, error, loading, reload } = useResource(() => poService.getPOById(id), id);
+  const { data: po, error, loading } = useResource(() => poService.getPOById(id), id);
 
   if (loading) return <Loading label="Loading the order" />;
   if (!po) return <Notice tone="error">{error || 'That purchase order could not be loaded.'}</Notice>;
@@ -75,7 +75,7 @@ export default function WorkspacePurchaseOrderPage({ params }) {
         </Section>
 
         <Section title="Invoicing plan">
-          <InvoicePlanPanel po={po} canManage={can('po:manage')} onInvoiceRaised={reload} />
+          <InvoicePlanPanel po={po} canManage={can('po:manage')} />
         </Section>
       </div>
     </div>
