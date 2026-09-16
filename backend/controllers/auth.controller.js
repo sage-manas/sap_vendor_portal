@@ -327,12 +327,22 @@ const changePassword = asyncHandler(async (req, res, next) => {
   }
 
   const { password, passwordChangedAt } = await hashPassword(newPassword);
-  await withoutTenantScope(() => prisma[kind].update({
+  const updated = await withoutTenantScope(() => prisma[kind].update({
     where: { pk: account.pk },
     data: { password, passwordChangedAt, mustChangePassword: false },
   }));
 
-  res.json({ success: true, message: 'Password updated.' });
+  // middleware/auth.js's resolveAccountFromToken (issue #74) now rejects any
+  // token issued before this account's passwordChangedAt — correctly, for a
+  // token that isn't the caller's own, but this request's own bearer token
+  // was just issued before the write above completed. Without a fresh one,
+  // the legitimate caller who just changed their own password is logged out
+  // by their own action, non-deterministically (only when passwordChangedAt
+  // and the old token's second-resolution `iat` land in different seconds —
+  // exactly the gap between "changed just now" and "changed sometime in the
+  // last few hundred milliseconds"). Minting a new token here is the
+  // difference between ending every *other* session and ending this one too.
+  res.json({ success: true, message: 'Password updated.', token: signToken(updated) });
 });
 
 module.exports = {
