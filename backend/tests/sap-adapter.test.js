@@ -607,6 +607,44 @@ describe('platform SAP configuration', () => {
     expect(res.body.error).toMatch(/no credential named apiKey/);
   });
 
+  // Issue #79: this driver's Z endpoints are documented as reachable with no
+  // authentication at all when no technical-user credentials are configured
+  // (see the driver's own authHeader). A sandbox can run that way; a
+  // production connection must not be savable without credentials.
+  it('refuses a production connection with no credentials', async () => {
+    const { token } = await createOperatorSession();
+
+    const res = await configure(token, 'production', s4Body({ secrets: {} }));
+
+    expect(res.status).toBe(400);
+    expect(res.body.errors.credentials).toMatch(/production requires/i);
+  });
+
+  it('refuses a production connection missing just one of two required credentials', async () => {
+    const { token } = await createOperatorSession();
+
+    const res = await configure(token, 'production', s4Body({ secrets: { username: 'RFCUSER' } }));
+
+    expect(res.status).toBe(400);
+    expect(res.body.errors.credentials).toMatch(/password/i);
+  });
+
+  it('accepts a sandbox connection with no credentials — only production requires them', async () => {
+    const { token } = await createOperatorSession();
+
+    const res = await configure(token, 'sandbox', s4Body({ secrets: {} }));
+
+    expect(res.status).toBe(200);
+  });
+
+  it('accepts a production connection once both credentials are configured', async () => {
+    const { token } = await createOperatorSession();
+
+    const res = await configure(token, 'production', s4Body());
+
+    expect(res.status).toBe(200);
+  });
+
   it('refuses an unknown driver and an unknown environment', async () => {
     const { token } = await createOperatorSession();
 

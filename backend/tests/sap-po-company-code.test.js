@@ -101,3 +101,29 @@ describe('validateConfig — company code is required (issue #62)', () => {
     expect(errors.companyCode).toBeUndefined();
   });
 });
+
+describe('validateConfig — production requires credentials (issue #79)', () => {
+  const { validateConfig } = require('../sap/drivers/s4odata.driver');
+  const validConfig = { baseUrl: 'https://s4.example.com', sapClient: '100', companyCode: '1000' };
+
+  it('does not require credentials when no environment is given (an unsaved "test connection" config)', () => {
+    const errors = validateConfig(validConfig);
+    expect(errors.credentials).toBeUndefined();
+  });
+
+  it('does not require credentials for a sandbox connection', () => {
+    const errors = validateConfig(validConfig, { environment: 'sandbox', secrets: {} });
+    expect(errors.credentials).toBeUndefined();
+  });
+
+  it('requires credentials for a production connection', () => {
+    const errors = validateConfig(validConfig, { environment: 'production', secrets: {} });
+    expect(errors.credentials).toMatch(/technical user/i);
+    expect(errors.credentials).toMatch(/password/i);
+  });
+
+  it('accepts a production connection once both credentials are present', () => {
+    const errors = validateConfig(validConfig, { environment: 'production', secrets: { username: 'RFCUSER', password: 'x' } });
+    expect(errors.credentials).toBeUndefined();
+  });
+});
