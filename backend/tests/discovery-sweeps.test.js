@@ -219,7 +219,7 @@ describe('sweepPayments discovery', () => {
     expect(reloadedInvoice.status).toBe('Cleared');
     expect(reloadedInvoice.sapSyncState).toBe('synced');
 
-    const payment = await runWithTenant('CLT-0001', () => prisma.payment.findFirst({ where: { invoiceId: invoice.id } }));
+    const payment = await runWithTenant('CLT-0001', () => prisma.payment.findFirst({ where: { items: { some: { invoiceId: invoice.id } } } }));
     expect(payment).toBeTruthy();
     expect(payment.sapPaymentDoc).toBe('PAY-SWEEP-1');
 
@@ -244,7 +244,7 @@ describe('sweepPayments discovery', () => {
       payment: [{ poId: po.sapPoNumber, grossAmount: 590, netAmount: 584, paymentDate: new Date(), sapPaymentDoc: 'PAY-SWEEP-2' }],
     });
 
-    const payment = await runWithTenant('CLT-0001', () => prisma.payment.findFirst({ where: { poId: po.id } }));
+    const payment = await runWithTenant('CLT-0001', () => prisma.payment.findFirst({ where: { items: { some: { poId: po.id } } } }));
     expect(payment).toBeNull();
   });
 

@@ -6,7 +6,14 @@ const { getSapAdapterForClient } = require('../sap');
 const { requireVendorScope, withVendorScope, scopedWhere } = require('../utils/requestScope');
 const { matchInvoiceDocument } = require('../sap/mappings/invoice-match');
 const { INVOICE_INCLUDE, formatInvoice } = require('../db/invoiceHelpers');
-const { formatPayment } = require('../db/paymentHelpers');
+const { flattenPaymentItems } = require('../db/paymentHelpers');
+
+// Adds the PaymentItems formatInvoice needs to compute amountPaid/
+// outstandingAmount (issue #63) — only for the reads a supplier/buyer
+// actually looks at an invoice's settlement status through; the shared
+// INVOICE_INCLUDE stays lean for jobs/handlers/awaitPaymentRun.js's own
+// per-tick fetch, which has no use for it.
+const INVOICE_INCLUDE_WITH_PAYMENTS = { ...INVOICE_INCLUDE, paymentItems: true };
 
 // @desc    Get Invoices
 // @route   GET /api/invoices
@@ -21,7 +28,7 @@ const getInvoices = asyncHandler(async (req, res, next) => {
 
   const skip = (page - 1) * limit;
   const [invoices, total] = await Promise.all([
-    prisma.invoice.findMany({ where, include: INVOICE_INCLUDE, orderBy: { createdAt: 'desc' }, skip, take: Number(limit) }),
+    prisma.invoice.findMany({ where, include: INVOICE_INCLUDE_WITH_PAYMENTS, orderBy: { createdAt: 'desc' }, skip, take: Number(limit) }),
     prisma.invoice.count({ where }),
   ]);
 
@@ -40,7 +47,7 @@ const getInvoices = asyncHandler(async (req, res, next) => {
 // @route   GET /api/invoices/:id
 // @access  Public
 const getInvoiceById = asyncHandler(async (req, res, next) => {
-  const invoice = await prisma.invoice.findFirst({ where: scopedWhere(req, { id: req.params.id }), include: INVOICE_INCLUDE });
+  const invoice = await prisma.invoice.findFirst({ where: scopedWhere(req, { id: req.params.id }), include: INVOICE_INCLUDE_WITH_PAYMENTS });
   if (!invoice) {
     return next(ApiError.notFound('Invoice not found'));
   }
@@ -112,10 +119,26 @@ const getSapInvoiceStatus = asyncHandler(async (req, res, next) => {
     matchedInvoices.push(updated);
   }
 
-  const payments = matchedInvoices.length
-    ? await prisma.payment.findMany({ where: { invoiceId: { in: matchedInvoices.map((inv) => inv.id) } } })
+  // Issue #63: Payment is a header over PaymentItem now — an invoice's own
+  // settlement is one item, potentially under a clearing document several
+  // other invoices share. Reads through PaymentItem and flattens each back
+  // into the per-invoice shape invoicePaymentDetail's mock echo expects (see
+  // flattenPaymentItems). An invoice settled across two separate runs (the
+  // reverse case this redesign exists for) picks the most recent one here —
+  // this is a display cross-check, not the source of truth for what's owed.
+  const paymentItems = matchedInvoices.length
+    ? await prisma.paymentItem.findMany({
+      where: { invoiceId: { in: matchedInvoices.map((inv) => inv.id) } },
+      include: { payment: true },
+      orderBy: { payment: { paymentDate: 'desc' } },
+    })
     : [];
-  const paymentByInvoiceId = new Map(payments.map((p) => [p.invoiceId, formatPayment(p)]));
+  const paymentByInvoiceId = new Map();
+  for (const { payment, ...item } of paymentItems) {
+    if (!paymentByInvoiceId.has(item.invoiceId)) {
+      paymentByInvoiceId.set(item.invoiceId, flattenPaymentItems([{ ...payment, items: [item] }])[0]);
+    }
+  }
 
   const paymentDetails = {};
   await Promise.all(matchedInvoices.map(async (inv) => {

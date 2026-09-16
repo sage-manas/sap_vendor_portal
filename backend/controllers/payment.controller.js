@@ -2,10 +2,13 @@ const { prisma } = require('../db/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { getSapAdapterForClient } = require('../sap');
+const { getTenantId } = require('../utils/tenantContext');
 const { withVendorScope, requireVendorScope, scopedWhere } = require('../utils/requestScope');
 const { fiscalPeriodOf, fiscalYearLabel, fiscalQuarterLabel } = require('../utils/fiscalPeriod');
 const { createWithUniqueId } = require('../utils/createWithUniqueId');
-const { formatPayment } = require('../db/paymentHelpers');
+const { formatPayment, flattenPaymentItems } = require('../db/paymentHelpers');
+
+const PAYMENT_INCLUDE = { items: true };
 
 // @desc    Get Payments
 // @route   GET /api/payments
@@ -17,7 +20,7 @@ const getPayments = asyncHandler(async (req, res, next) => {
 
   const skip = (page - 1) * limit;
   const [payments, total] = await Promise.all([
-    prisma.payment.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: Number(limit) }),
+    prisma.payment.findMany({ where, include: PAYMENT_INCLUDE, orderBy: { createdAt: 'desc' }, skip, take: Number(limit) }),
     prisma.payment.count({ where }),
   ]);
 
@@ -45,11 +48,12 @@ const getSapPaymentStatus = asyncHandler(async (req, res, next) => {
 
   // The mock driver has no database of its own, so it is handed the rows we
   // already track and re-describes them; the real driver ignores this and asks
-  // SAP. Same call either way, which is the point of the adapter.
-  const payments = await prisma.payment.findMany({ where: { vendorId }, orderBy: { createdAt: 'desc' } });
+  // SAP. Same call either way, which is the point of the adapter. Flattened
+  // to one row per settled item (issue #63) — see flattenPaymentItems.
+  const payments = await prisma.payment.findMany({ where: { vendorId }, include: PAYMENT_INCLUDE, orderBy: { createdAt: 'desc' } });
 
   const sap = await getSapAdapterForClient(req.clientId);
-  const result = await sap.vendorPaymentDisplay({ vendor, payments: payments.map(formatPayment) });
+  const result = await sap.vendorPaymentDisplay({ vendor, payments: flattenPaymentItems(payments) });
 
   res.json({ payments: result.payments });
 });
@@ -147,14 +151,20 @@ const getTdsSummary = asyncHandler(async (req, res) => {
 // @route   GET /api/payments/:id
 // @access  Public
 const getPaymentById = asyncHandler(async (req, res, next) => {
-  const payment = await prisma.payment.findFirst({ where: scopedWhere(req, { id: req.params.id }) });
+  const payment = await prisma.payment.findFirst({ where: scopedWhere(req, { id: req.params.id }), include: PAYMENT_INCLUDE });
   if (!payment) {
     return next(ApiError.notFound('Payment not found'));
   }
   res.json(formatPayment(payment));
 });
 
-// @desc    Create Payment
+// @desc    Create Payment — a manual/off-cycle remittance a finance user
+//          records by hand, distinct from the two SAP-discovered paths
+//          (jobs/handlers/awaitPaymentRun.js, sweepPayments.js). Accepts
+//          either a real `items` array (settling several invoices at once,
+//          the same shape those two paths produce) or the old flat
+//          single-invoice fields, folded into one item for convenience —
+//          see recordPaymentItem's shape in db/paymentHelpers.js.
 // @route   POST /api/payments
 // @access  Public
 const createPayment = asyncHandler(async (req, res, next) => {
@@ -171,8 +181,46 @@ const createPayment = asyncHandler(async (req, res, next) => {
     ));
   }
 
-  const { id, ...body } = req.body;
-  const paymentData = { ...body, vendorId };
+  const {
+    id, items: rawItems, poId, invoiceId, invoiceNumber, sapMiroDoc, grossAmount, tdsDeducted, netAmount,
+    ...header
+  } = req.body;
+
+  const items = Array.isArray(rawItems) && rawItems.length
+    ? rawItems
+    : (poId && invoiceId) ? [{ poId, invoiceId, invoiceNumber, sapMiroDoc, grossAmount, tdsDeducted, netAmount }] : [];
+
+  if (!items.length) {
+    return next(ApiError.badRequest('At least one settled invoice (poId + invoiceId, or an items array) is required'));
+  }
+
+  const sum = (key) => items.reduce((total, item) => total + (Number(item[key]) || 0), 0);
+  const clientId = getTenantId();
+
+  const create = (paymentId) => prisma.payment.create({
+    data: {
+      ...header,
+      id: paymentId,
+      vendorId,
+      grossAmount: sum('grossAmount'),
+      tdsDeducted: sum('tdsDeducted'),
+      netAmount: sum('netAmount'),
+      totalTds: sum('tdsDeducted'),
+      items: {
+        create: items.map((item) => ({
+          clientId,
+          invoiceId: item.invoiceId,
+          poId: item.poId,
+          invoiceNumber: item.invoiceNumber,
+          sapMiroDoc: item.sapMiroDoc,
+          grossAmount: item.grossAmount,
+          tdsDeducted: item.tdsDeducted || 0,
+          netAmount: item.netAmount,
+        })),
+      },
+    },
+    include: PAYMENT_INCLUDE,
+  });
 
   // A caller-supplied id is trusted as-is — colliding with an existing one is
   // the caller's own duplicate to resolve (surfaced as a 409, mapped by
@@ -181,11 +229,8 @@ const createPayment = asyncHandler(async (req, res, next) => {
   // fallback — a random 6-digit suffix on a per-tenant-unique id — gets the
   // retry; see createWithUniqueId's header for why that one needs it.
   const payment = id
-    ? await prisma.payment.create({ data: { ...paymentData, id } })
-    : await createWithUniqueId({
-      genId: () => 'PMT-' + Math.floor(100000 + Math.random() * 900000),
-      create: (paymentId) => prisma.payment.create({ data: { ...paymentData, id: paymentId } }),
-    });
+    ? await create(id)
+    : await createWithUniqueId({ genId: () => 'PMT-' + Math.floor(100000 + Math.random() * 900000), create });
   res.status(201).json(formatPayment(payment));
 });
 

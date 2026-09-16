@@ -743,13 +743,18 @@ const seedInvoicingPlan = async (vendor) => {
   const planPaymentId = 'PMT-410552';
   await prisma.payment.create({
     data: {
-      clientId, id: planPaymentId, invoiceId: planInvoice.id, poId, vendorId: VENDOR_ID,
-      invoiceRef: planInvoice.id, invoiceNumber: planInvoice.invoiceNumber, sapMiroDoc: planMiro,
+      clientId, id: planPaymentId, vendorId: VENDOR_ID,
       grossAmount: 177000, tdsDeducted: tds, netAmount: money(177000 - tds),
       paymentDate: planClearedAt, utrCode: 'UTR2026071800552104', paymentMethod: 'NEFT',
       sapPaymentDoc: 'PAY-5341021009', bankName: 'HDFC Bank Ltd', runId: 'F110-071826',
       ...fiscalPeriodOf(planClearedAt),
       tdsSection: '194C', deducteePan: vendor.pan, deductorTan: 'TAN-SAP1000', totalTds: tds,
+      items: {
+        create: [{
+          clientId, invoiceId: planInvoice.id, poId, invoiceNumber: planInvoice.invoiceNumber, sapMiroDoc: planMiro,
+          grossAmount: 177000, tdsDeducted: tds, netAmount: money(177000 - tds),
+        }],
+      },
     },
   });
 
@@ -869,13 +874,18 @@ const seedInvoicesAndPayments = async (vendor, pos, grns) => {
   const tds = money(clearedTotal * TDS_RATE);
   await prisma.payment.create({
     data: {
-      clientId, id: 'PMT-310884', invoiceId: cleared.id, poId: 'PO-2026-0001', vendorId: VENDOR_ID,
-      invoiceRef: cleared.id, invoiceNumber: cleared.invoiceNumber, sapMiroDoc: miro,
+      clientId, id: 'PMT-310884', vendorId: VENDOR_ID,
       grossAmount: clearedTotal, tdsDeducted: tds, netAmount: money(clearedTotal - tds),
       paymentDate, utrCode: 'UTR2026072400418823', paymentMethod: 'NEFT',
       sapPaymentDoc: 'PAY-5341009827', bankName: 'HDFC Bank Ltd', runId: 'F110-072426',
       ...fiscalPeriodOf(paymentDate),
       tdsSection: '194C', deducteePan: vendor.pan, deductorTan: 'TAN-SAP1000', totalTds: tds,
+      items: {
+        create: [{
+          clientId, invoiceId: cleared.id, poId: 'PO-2026-0001', invoiceNumber: cleared.invoiceNumber, sapMiroDoc: miro,
+          grossAmount: clearedTotal, tdsDeducted: tds, netAmount: money(clearedTotal - tds),
+        }],
+      },
     },
   });
 

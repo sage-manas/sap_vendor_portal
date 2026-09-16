@@ -421,10 +421,10 @@ model RfqBid {
 // Json map) because bids are the kind of thing invoice-plan-style reporting
 // will want to join on by line number.
 model RfqBidUnitPrice {
-  pk         String @id @default(uuid()) @db.Uuid
+  pk         String  @id @default(uuid()) @db.Uuid
   clientId   String
-  bidPk      String @db.Uuid
-  bid        RfqBid @relation(fields: [bidPk], references: [pk], onDelete: Cascade)
+  bidPk      String  @db.Uuid
+  bid        RfqBid  @relation(fields: [bidPk], references: [pk], onDelete: Cascade)
   lineNumber Int
   price      Decimal @db.Decimal(14, 2)
 
@@ -519,7 +519,7 @@ model PurchaseOrder {
   asns         ASN[]
   grns         GRN[]
   invoices     Invoice[]
-  payments     Payment[]
+  paymentItems PaymentItem[]
   chatMessages ChatMessage[]
 
   @@unique([clientId, id])
@@ -548,7 +548,7 @@ model PurchaseOrderItem {
   // guessed from `items[0]` — both at award (rfq.controller.js) and at
   // discovery (sweepPurchaseOrders.js). No default: null means genuinely
   // unknown, not "1000".
-  plant String?
+  plant        String?
 
   invoicePlan InvoicePlan?
 
@@ -572,7 +572,7 @@ model InvoicePlan {
   endDate        DateTime?
   frequency      String?
   invoicingRule  InvoicingRule @default(Arrears)
-  periodicAmount Decimal? @db.Decimal(14, 2)
+  periodicAmount Decimal?      @db.Decimal(14, 2)
   currency       String        @default("INR")
   reference      String?
   source         PlanSource    @default(portal)
@@ -793,8 +793,8 @@ model Invoice {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  items    InvoiceItem[]
-  payments Payment[]
+  items        InvoiceItem[]
+  paymentItems PaymentItem[]
 
   @@unique([clientId, id])
   @@index([clientId, vendorId])
@@ -823,26 +823,32 @@ model InvoiceItem {
 // Payment (F110 run)
 // ---------------------------------------------------------------------------
 
+// Issue #63: an F110 run settles many open items (invoices, potentially
+// across several POs) in one payment document, with one clearing document
+// and one UTR — the old shape (`invoiceId String` directly on Payment)
+// could only ever represent one invoice per payment, so a consolidated run
+// either got split into fabricated payments or silently lost invoices. This
+// is now a header (the remittance itself — clearing doc, UTR, date, method)
+// over a child table of settled items, each its own invoice/amount. The
+// reverse case (one invoice settled across two runs) is representable too:
+// nothing here stops the same invoiceId appearing in two different
+// Payments' items, and an invoice's outstanding balance is computed from
+// the sum of all of them (see db/paymentHelpers.js), not stored redundantly.
 model Payment {
   pk       String @id @default(uuid()) @db.Uuid
   clientId String
   id       String
 
-  invoiceId String
-  invoice   Invoice       @relation(fields: [clientId, invoiceId], references: [clientId, id])
-  poId      String
-  po        PurchaseOrder @relation(fields: [clientId, poId], references: [clientId, id])
-
   vendorId      String
-  invoiceRef    String?
-  invoiceNumber String?
-  sapMiroDoc    String?
-  grossAmount   Decimal?      @db.Decimal(14, 2)
-  tdsDeducted   Decimal       @default(0) @db.Decimal(14, 2)
-  netAmount     Decimal       @db.Decimal(14, 2)
   paymentDate   DateTime
   utrCode       String
   paymentMethod PaymentMethod @default(NEFT)
+  // The F110 clearing document is the real natural key for "this is the same
+  // remittance" — jobs/handlers/awaitPaymentRun.js and sweepPayments.js both
+  // find-or-create a Payment by (clientId, sapPaymentDoc) before adding an
+  // item, so N invoices settled under one clearing document converge on one
+  // Payment row no matter which order their independent watch jobs discover
+  // them in.
   sapPaymentDoc String?
   bankName      String?
   runId         String? // F110 Run ID
@@ -852,6 +858,15 @@ model Payment {
   tdsSection  String?
   deducteePan String?
   deductorTan String?
+
+  // Aggregate totals across every settled item — denormalised so the list
+  // read path (and every screen built when this was 1:1 with Invoice) don't
+  // have to sum items on every render. Recomputed by the one place that
+  // writes items whenever an item is added; for the common single-invoice
+  // remittance this is numerically identical to the old per-invoice amount.
+  grossAmount Decimal? @db.Decimal(14, 2)
+  tdsDeducted Decimal  @default(0) @db.Decimal(14, 2)
+  netAmount   Decimal  @db.Decimal(14, 2)
   totalTds    Decimal? @db.Decimal(14, 2)
 
   // Dual identity / sync state — see the note on RFQ above. A Payment, like a
@@ -865,11 +880,42 @@ model Payment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  items PaymentItem[]
+
   @@unique([clientId, id])
+  @@unique([clientId, sapPaymentDoc])
   @@index([clientId, vendorId])
-  @@index([clientId, invoiceId])
   @@index([clientId, sapSyncState])
   @@map("payments")
+}
+
+// One settled invoice within a Payment (F110 clearing document). Everything
+// that used to live on Payment itself when it was 1:1 with Invoice.
+model PaymentItem {
+  pk        String  @id @default(uuid()) @db.Uuid
+  clientId  String
+  paymentPk String  @db.Uuid
+  payment   Payment @relation(fields: [paymentPk], references: [pk], onDelete: Cascade)
+
+  invoiceId     String
+  invoice       Invoice       @relation(fields: [clientId, invoiceId], references: [clientId, id])
+  poId          String
+  po            PurchaseOrder @relation(fields: [clientId, poId], references: [clientId, id])
+  invoiceNumber String?
+  sapMiroDoc    String?
+
+  grossAmount Decimal? @db.Decimal(14, 2)
+  tdsDeducted Decimal  @default(0) @db.Decimal(14, 2)
+  netAmount   Decimal  @db.Decimal(14, 2)
+
+  // One clearing document settling the same invoice twice would be SAP
+  // double-paying it, not a second legitimate item — but the *reverse* case
+  // this redesign exists for (one invoice settled across two separate runs)
+  // is still representable: that's two PaymentItem rows under two different
+  // Payment (paymentPk) parents, which this constraint does not touch.
+  @@unique([paymentPk, invoiceId])
+  @@index([clientId, invoiceId])
+  @@map("payment_items")
 }
 
 // ---------------------------------------------------------------------------
@@ -1159,10 +1205,10 @@ model SapJob {
   dedupeKey String @unique // stable identity, e.g. "awaitGoodsReceipt:CLT-0001:ASN-000412"
   args      Json // ids only, never hydrated documents
 
-  status      String    @default("pending") // pending|running|succeeded|failed|abandoned|cancelled
-  runAt       DateTime  @default(now())
-  attempts    Int       @default(0)
-  maxAttempts Int       @default(240)
+  status      String   @default("pending") // pending|running|succeeded|failed|abandoned|cancelled
+  runAt       DateTime @default(now())
+  attempts    Int      @default(0)
+  maxAttempts Int      @default(240)
 
   lockedBy    String?
   lockedAt    DateTime?
@@ -1204,9 +1250,9 @@ model SapSchedule {
 // ---------------------------------------------------------------------------
 
 model SapSyncCursor {
-  clientId    String
-  feed        String // 'po' | 'grn' | 'payment' | 'quotation' — jobs/sweeps.js FEEDS
-  vendorCode  String // LIFNR — the SAP vendor code a sweep polls by
+  clientId   String
+  feed       String // 'po' | 'grn' | 'payment' | 'quotation' — jobs/sweeps.js FEEDS
+  vendorCode String // LIFNR — the SAP vendor code a sweep polls by
 
   watermark   DateTime?
   // sha256 of the normalised (sorted keys, volatile fields stripped) last

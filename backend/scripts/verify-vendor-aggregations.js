@@ -110,8 +110,9 @@ async function main() {
 
   await runWithTenant('CLT-0001', () => prisma.payment.create({
     data: {
-      id: 'PMT-1', invoiceId: 'INV-1', poId: po2.id, vendorId: 'VND-AAAAA',
+      id: 'PMT-1', vendorId: 'VND-AAAAA',
       grossAmount: 354, tdsDeducted: 3.54, netAmount: 350.46, paymentDate: new Date(), utrCode: 'UTR1',
+      items: { create: [{ clientId: 'CLT-0001', invoiceId: 'INV-1', poId: po2.id, grossAmount: 354, tdsDeducted: 3.54, netAmount: 350.46 }] },
     },
   }));
 
