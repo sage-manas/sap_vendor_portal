@@ -1,8 +1,12 @@
+const { Prisma } = require('@prisma/client');
 const { prisma } = require('../../db/prisma');
 const { PO_INCLUDE, formatPo } = require('../../db/poHelpers');
 const { EVENTS } = require('../../utils/socketEmitter');
 const { notifyVendor } = require('../notify');
 const { markSynced } = require('../syncState');
+
+const isUniqueViolation = (err) =>
+  err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
 
 // Persists SAP's goods receipt once the driver finds one — moved here,
 // unchanged, from the closure controllers/po.controller.js's submitASN used
@@ -30,51 +34,67 @@ module.exports = async ({ job, adapter }) => {
       // The GRN creation, the ASN's status flip, the PO items' grnQuantity,
       // and the PO's own status all describe one physical event (goods
       // arrived) and must land together.
-      const grn = await prisma.$transaction(async (tx) => {
-        const latestPo = await tx.purchaseOrder.findFirst({ where: { id: po.id }, include: { items: true } });
-        const latestAsn = await tx.aSN.findFirst({ where: { id: asn.id } });
+      let grn;
+      try {
+        grn = await prisma.$transaction(async (tx) => {
+          const latestPo = await tx.purchaseOrder.findFirst({ where: { id: po.id }, include: { items: true } });
+          const latestAsn = await tx.aSN.findFirst({ where: { id: asn.id } });
 
-        // Guards a retried/duplicate deferred answer, which atomicity alone
-        // does not — a cancelled or already-received ASN must not gain a
-        // second GRN.
-        if (!latestPo || !latestAsn || latestAsn.status !== 'Submitted') return null;
+          // Guards a retried/duplicate deferred answer, which atomicity alone
+          // does not — a cancelled or already-received ASN must not gain a
+          // second GRN.
+          if (!latestPo || !latestAsn || latestAsn.status !== 'Submitted') return null;
 
-        const createdGrn = await tx.gRN.create({
-          data: {
-            id: receipt.grnId,
-            poId: latestPo.id,
-            asnId: latestAsn.id,
-            vendorId: latestAsn.vendorId,
-            sapMigoDoc: receipt.sapMigoDoc,
-            postingDate: receipt.postingDate,
-            receivedBy: receipt.receivedBy,
-            invoiceSubmitted: false,
-            // Dual identity / sync state (Phase 3): a GRN is only ever
-            // created *from* a found SAP goods receipt, so it starts life
-            // already synced — there is no "local" or "pending" GRN.
-            sapDocNumber: receipt.sapMigoDoc,
-            sapSyncState: 'synced',
-            sapSyncedAt: new Date(),
-            items: { create: receipt.items.map((item) => ({ clientId: job.clientId, ...item })) },
-          },
-          include: { items: true },
-        });
+          const createdGrn = await tx.gRN.create({
+            data: {
+              id: receipt.grnId,
+              poId: latestPo.id,
+              asnId: latestAsn.id,
+              vendorId: latestAsn.vendorId,
+              sapMigoDoc: receipt.sapMigoDoc,
+              sapDocYear: receipt.sapDocYear,
+              postingDate: receipt.postingDate,
+              receivedBy: receipt.receivedBy,
+              invoiceSubmitted: false,
+              // Dual identity / sync state (Phase 3): a GRN is only ever
+              // created *from* a found SAP goods receipt, so it starts life
+              // already synced — there is no "local" or "pending" GRN.
+              sapDocNumber: receipt.sapMigoDoc,
+              sapSyncState: 'synced',
+              sapSyncedAt: new Date(),
+              items: { create: receipt.items.map((item) => ({ clientId: job.clientId, ...item })) },
+            },
+            include: { items: true },
+          });
 
-        await tx.aSN.update({ where: { pk: latestAsn.pk }, data: { status: 'Received' } });
+          await tx.aSN.update({ where: { pk: latestAsn.pk }, data: { status: 'Received' } });
 
-        for (const gItem of receipt.items) {
-          const poItem = latestPo.items.find((pItem) => pItem.line === gItem.line);
-          if (poItem) {
-            await tx.purchaseOrderItem.update({
-              where: { pk: poItem.pk },
-              data: { grnQuantity: poItem.grnQuantity + gItem.acceptedQuantity },
-            });
+          for (const gItem of receipt.items) {
+            const poItem = latestPo.items.find((pItem) => pItem.line === gItem.line);
+            if (poItem) {
+              await tx.purchaseOrderItem.update({
+                where: { pk: poItem.pk },
+                data: { grnQuantity: poItem.grnQuantity + gItem.acceptedQuantity },
+              });
+            }
           }
-        }
-        await tx.purchaseOrder.update({ where: { pk: latestPo.pk }, data: { status: 'Delivered' } });
+          await tx.purchaseOrder.update({ where: { pk: latestPo.pk }, data: { status: 'Delivered' } });
 
-        return createdGrn;
-      });
+          return createdGrn;
+        });
+      } catch (error) {
+        // `receipt.grnId` is minted from SAP's own key (MBLNR + MJAHR), not
+        // a random reference the caller can just draw again — see
+        // sap/drivers/*.driver.js. A collision here means this exact receipt
+        // was already recorded (most likely a race with another worker
+        // between the `latestAsn.status` check above and this create), not a
+        // once-in-900k random clash, so the fix is to recognise it as already
+        // handled rather than let it surface through jobs/worker.js as a
+        // generic SAP failure that backs off and eventually abandons the
+        // watch, which would leave a real receipt unrecorded.
+        if (!isUniqueViolation(error)) throw error;
+        return prisma.gRN.findFirst({ where: { id: receipt.grnId }, include: { items: true } });
+      }
 
       if (!grn) return null;
 

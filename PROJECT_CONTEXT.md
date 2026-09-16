@@ -370,7 +370,7 @@ several places (a holdover from the abandoned Clerk-auth plan, §4).
 - `id` `ASN-######`, `poId`, `vendorId`, `status` (`Submitted`|`In Transit`|`Received`), `shipDate`, `estimatedDeliveryDate`, `carrierName`, `trackingNumber`, `vehicleNumber`, `invoiceReference`, `ewayBillNo`, `sapInboundDelivery`. `AsnItem[]` (`asnPk` FK): `line, materialCode, description, shippedQuantity, uom`.
 
 ### GRN — goods receipt (MIGO)
-- `id` `GRN-…`, `poId`, `asnId`, `vendorId`, `sapMigoDoc`, `postingDate`, `receivedBy`, `invoiceSubmitted`. `GrnItem[]` (`grnPk` FK): `line, materialCode, description, receivedQuantity, acceptedQuantity, rejectedQuantity, rejectionReason, uom`.
+- `id` `GRN-{year}-…`, `poId`, `asnId`, `vendorId`, `sapMigoDoc` (bare MBLNR), `sapDocYear` (MJAHR — SAP's own document number is only unique together with its fiscal year; minted into the `id` and stored here too, since the number range recycles across a fiscal-year boundary. The live Z endpoint carries no MJAHR field yet, so this is derived from the receipt's posting date — see sap/drivers/s4odata.driver.js's `grFiscalYear`), `postingDate`, `receivedBy`, `invoiceSubmitted`. `GrnItem[]` (`grnPk` FK): `line, materialCode, description, receivedQuantity, acceptedQuantity, rejectedQuantity, rejectionReason, uom`.
 - `totalAccepted`/`rejectionRate` were Mongoose virtuals; now an app-layer compute-after-fetch helper over `GrnItem[]` (same formula), not a stored/generated column.
 
 ### Invoice

@@ -219,6 +219,23 @@ const sapDotDateToIso = (value) => {
 // sheets, no row with both.
 const isGoodsReceipt = (gr) => Boolean(String(gr.GR_NUMBER || '').trim());
 
+// zpo_grn_vendor/Detail carries no MJAHR (or equivalent) field — confirmed
+// against the live sandbox, see the evidence in this driver's awaitGoodsReceipt
+// comment. Some Z reports do expose a raw MJAHR/GR_YEAR under those names, so
+// this checks for one before falling back to the calendar year of GR_DATE,
+// which is the best a client with no real posting-year field can do. Ask ABAP
+// to add MJAHR to this endpoint; the fallback becomes dead code the day they
+// do, not a silent wrong answer before then — a material document's fiscal
+// year and its posting date's calendar year agree except in the rare case a
+// document is posted into a prior/future period, which this cannot detect.
+const grFiscalYear = (gr) => {
+  const raw = gr.MJAHR ?? gr.GR_YEAR;
+  const parsed = raw != null ? Number(String(raw).trim()) : NaN;
+  if (Number.isInteger(parsed) && parsed > 0) return parsed;
+  const iso = sapDayToIso(gr.GR_DATE);
+  return iso ? Number(iso.slice(0, 4)) : new Date().getFullYear();
+};
+
 const sapDayToIso = (value) => {
   const match = /^(\d{4})(\d{2})(\d{2})$/.exec(String(value || '').trim());
   return match ? `${match[1]}-${match[2]}-${match[3]}` : null;
@@ -821,6 +838,11 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
                 // number is what makes a receipt row unique.
                 grItemNumber: gr.GR_ITEM_NUMBER,
                 grDate: sapDayToIso(gr.GR_DATE),
+                // MJAHR (the material document's fiscal year — GR_NUMBER
+                // alone is not unique once SAP recycles a number range) is
+                // nowhere in this payload; see awaitGoodsReceipt below for
+                // where the year this becomes actually comes from.
+                grYear: grFiscalYear(gr),
                 quantity: Number(gr.GR_QUANTITY),
                 uom: gr.UOM,
                 unitPrice: Number(gr.UNIT_PRICE),
@@ -1146,6 +1168,7 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
       if (matched.some(({ orderItem }) => !orderItem || !orderItem.grns.length)) return false;
 
       const firstGrn = matched[0].orderItem.grns[0];
+      const docYear = firstGrn.grYear;
       const items = matched.map(({ asnItem, orderItem }) => {
         const received = orderItem.receivedQuantity;
         return {
@@ -1163,8 +1186,14 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
 
       await handler({
         data: {
-          grnId: `GRN-${firstGrn.grNumber}`,
+          // MBLNR alone collides once SAP recycles a number range across a
+          // fiscal-year boundary — the year is part of the real SAP key, so
+          // it goes into both the minted business id and its own column
+          // (sapDocYear), matching how sapMiroDoc/fiscalYear is already
+          // handled below for MIRO documents.
+          grnId: `GRN-${docYear}-${firstGrn.grNumber}`,
           sapMigoDoc: firstGrn.grNumber,
+          sapDocYear: docYear,
           // grDate already comes off vendorPoGrnDisplay as an ISO
           // "YYYY-MM-DD" string (via sapDayToIso), not raw digits.
           postingDate: firstGrn.grDate ? new Date(firstGrn.grDate) : new Date(),

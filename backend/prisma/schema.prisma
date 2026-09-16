@@ -652,6 +652,15 @@ model GRN {
 
   vendorId         String
   sapMigoDoc       String?
+  // MJAHR — a material document number is only unique together with its
+  // fiscal year (SAP recycles MBLNR ranges across years). Best-effort: the
+  // Z endpoint this portal reads (zpo_grn_vendor/Detail) does not return
+  // MJAHR today, so this is derived from the receipt's posting date rather
+  // than SAP's own value — see the mint site in sap/drivers/s4odata.driver.js
+  // for the caveat. Still real enough to keep two years' receipts of the
+  // same bare number from colliding, which a derived value from the correct
+  // date always will.
+  sapDocYear       Int?
   postingDate      DateTime
   receivedBy       String?
   invoiceSubmitted Boolean  @default(false)
