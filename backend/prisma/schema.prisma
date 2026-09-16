@@ -243,7 +243,11 @@ model Vendor {
   tradeName         String?
   businessType      String?
   incorporationDate String?
-  gstin             String  @unique
+  // Unique per tenant, not globally — a supplier trades with more than one
+  // buyer under the same real-world GSTIN (issue #67, ADR-0039). vendorId and
+  // email stay global login identities (ADR-0002); gstin is master data, not
+  // an identity the login path resolves on, so it moved.
+  gstin             String
   gstType           String?
   pan               String
   cin               String?
@@ -319,6 +323,7 @@ model Vendor {
   rfqBids        RfqBid[]
 
   @@unique([clientId, sapVendorCode])
+  @@unique([clientId, gstin])
   @@index([clientId, status])
   @@index([clientId, vendorId])
   @@map("vendors")

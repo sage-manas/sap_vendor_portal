@@ -5,6 +5,60 @@ Each entry: the call, why, and what it costs.
 
 ---
 
+## ADR-0039 — Vendor.gstin moves to per-tenant uniqueness; vendorId and email stay global
+
+**Bug fix · 2026-09-19 · Accepted**
+
+**Context.** ADR-0002 made `Vendor.vendorId`, `Vendor.email` and `Vendor.gstin` all globally
+unique, on the reasoning that login happens before any tenant is known and all three were
+being treated as login identities. That conflated two different things `Vendor` carries: the
+account a supplier logs into, and the master data a buyer holds about them. `gstin` is the
+second — it is never looked up on the login path (`login()` in `auth.controller.js` resolves
+on `vendorId`/`email` only) — and a global unique index on it meant a real supplier who trades
+with two buyer tenants could only ever onboard with the first one; the second registration
+failed on `vendors_gstin_key` (#67). ADR-0002 flagged this exact limitation and named its own
+trigger: "revisit in Phase 6 when registration becomes subdomain-aware." That phase has
+shipped — `resolveRealmForRequest`/`resolveClientForRequest` (`utils/resolveClient.js`) already
+resolve a tenant by subdomain, with header/slug fallbacks for local development, and `login()`
+already refuses a cross-tenant match once a real subdomain is present.
+
+**Decision.** `Vendor.gstin` becomes `@@unique([clientId, gstin])`. `vendorId` and `email` are
+unchanged — they stay globally unique — because they are the two fields the pre-tenancy login
+lookup (`withoutTenantScope` in `login()`) actually queries on, and de-duplicating a login
+lookup across tenants with a non-unique key means guessing which of several matching accounts
+the caller meant, which subdomain resolution only partially covers today (the non-subdomain
+fallback path still exists for local development and is explicitly documented as "a guess").
+`utils/vendorIdentity.js`'s `identityConflict()` — the one place that checks all three fields
+before a `Vendor` row is created, called from both self-registration
+(`auth.controller.js#register`) and the two tenant-side creation paths
+(`vendor.controller.js#createProfile`/`createVendor`) — now takes a `clientId` and scopes only
+its `gstin` check to it; the `vendorId`/`email` checks are untouched and remain cross-tenant.
+
+This is Option A from the issue: the smaller fix, keeping one `Vendor` row per (tenant,
+supplier) and one login per buyer relationship. Option B — a global supplier *identity*
+separate from N tenant-scoped *vendor master-data records*, letting one login serve every
+buyer relationship a supplier has — is the more complete answer to the same login-side
+duplication ADR-0002 already accepted as a known cost (one company still cannot register with
+the same *email* to two tenants; that limitation is unchanged by this ADR). It is not built
+here: it touches the login/token/session model (`utils/authToken.js`'s `signToken`, everywhere
+a request handler assumes `req.vendorId` names exactly one tenant-scoped row), not just a
+unique index, and no current tenant has asked for one login across buyers — the reported
+defect is the GSTIN collision, not the email one. Recorded here so it isn't rediscovered from
+scratch: **the identity/master-data split is the right design once a supplier's shared login
+across tenants is an actual requirement, not just a theoretical one** — the same trigger
+ADR-0002 named, now more precisely aimed at `email` specifically rather than at
+`vendorId`/`email`/`gstin` together.
+
+**Consequences.** The same GSTIN can be onboarded by any number of tenants — each gets its own
+`Vendor` row, its own status/approval lifecycle, its own login. Tenant isolation is unaffected:
+each row still carries its own `clientId` and every existing tenant-scoping mechanism
+(`db/tenantExtension.js`) applies to it exactly as it did before. The known remaining gap —
+one company, two buyers, wants one login instead of two — is unchanged from ADR-0002 and is
+now the specific, narrower thing to revisit before it starts costing a real onboarding, rather
+than the three-field problem originally described.
+
+---
+
 ## ADR-0038 — A document-by-id lookup is scoped through one helper, enforced at review
 
 **Security remediation · 2026-09-15 · Accepted**
