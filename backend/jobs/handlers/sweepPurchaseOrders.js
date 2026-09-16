@@ -98,6 +98,10 @@ async function upsertOrder({ clientId, vendor, order, localPos }) {
     unitPrice: item.unitPrice || 0,
     netValue: item.netAmount || 0,
     uom: item.uom || 'EA',
+    // Per line, not guessed from the order as a whole (issue #62) — a real
+    // PO can ship from more than one plant. `null`, honestly, when SAP
+    // didn't say — never a demo-value guess.
+    plant: item.plant || null,
   }));
   const year = new Date().getFullYear();
   const id = await nextSequentialId('purchaseOrder', `PO-${year}-`, 4);
@@ -112,7 +116,12 @@ async function upsertOrder({ clientId, vendor, order, localPos }) {
       vendorId: vendor.vendorId,
       vendorPk: vendor.pk,
       buyerName: order.buyerName || 'SAP System Procurement',
-      plant: order.items?.[0]?.plant || '1000',
+      // The driver has already scoped `order` to a company code this tenant
+      // declared (issue #62 — see declaredCompanyCodes in
+      // sap/drivers/s4odata.driver.js), so this is always real when set.
+      // purchasingOrg/purchasingGroup/docType stay null: nothing in
+      // zpo_grn_vendor/Detail's response names them yet.
+      companyCode: order.companyCode || null,
       currency: order.currency || 'INR',
       // status starts at the schema default (Open) and is corrected below by
       // syncPoStatus, from whatever SAP already shows received on each line

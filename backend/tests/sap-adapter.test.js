@@ -462,7 +462,7 @@ describe('platform SAP configuration', () => {
 
   const s4Body = (overrides = {}) => ({
     driver: 's4_odata',
-    config: { baseUrl: 'https://s4.example.com', sapClient: '100' },
+    config: { baseUrl: 'https://s4.example.com', sapClient: '100', companyCode: '1000' },
     secrets: { username: 'RFCUSER', password: 'hunter2' },
     ...overrides,
   });
@@ -505,7 +505,7 @@ describe('platform SAP configuration', () => {
     expect(res.status).toBe(200);
     expect(JSON.stringify(res.body)).not.toContain('hunter2');
     expect(res.body.connection.configuredSecrets).toEqual(['password', 'username']);
-    expect(res.body.connection.config).toEqual({ baseUrl: 'https://s4.example.com', sapClient: '100' });
+    expect(res.body.connection.config).toEqual({ baseUrl: 'https://s4.example.com', sapClient: '100', companyCode: '1000' });
 
     const reread = await request(app).get('/api/platform/tenants/CLT-0001/sap').set(bearer(token));
     expect(JSON.stringify(reread.body)).not.toContain('hunter2');
@@ -568,7 +568,7 @@ describe('platform SAP configuration', () => {
     const { token } = await createOperatorSession();
 
     await configure(token, 'sandbox', s4Body());
-    await configure(token, 'sandbox', s4Body({ config: { baseUrl: 'https://s4-new.example.com', sapClient: '200' }, secrets: { password: 'newpass' } }));
+    await configure(token, 'sandbox', s4Body({ config: { baseUrl: 'https://s4-new.example.com', sapClient: '200', companyCode: '1000' }, secrets: { password: 'newpass' } }));
 
     const entries = await withoutTenantScope(() => rawPrisma.sapConnectionAudit.findMany({ where: { clientId: 'CLT-0001' }, orderBy: { at: 'asc' } }));
 
@@ -694,7 +694,7 @@ describe('one tenant’s SAP configuration is invisible to another', () => {
     await request(app).put('/api/platform/tenants/CLT-0001/sap/sandbox').set(bearer(token))
       .send({ driver: 'mock', config: { timings: { paymentRunMs: 1 } }, secrets: {} });
     await request(app).put('/api/platform/tenants/CLT-0002/sap/sandbox').set(bearer(token))
-      .send({ driver: 's4_odata', config: { baseUrl: 'https://rival.example.com', sapClient: '900' }, secrets: { password: 'rival-secret' } });
+      .send({ driver: 's4_odata', config: { baseUrl: 'https://rival.example.com', sapClient: '900', companyCode: '2000' }, secrets: { password: 'rival-secret' } });
 
     const first = await request(app).get('/api/platform/tenants/CLT-0001/sap').set(bearer(token));
     expect(JSON.stringify(first.body)).not.toContain('rival.example.com');

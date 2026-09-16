@@ -38,7 +38,6 @@ const seedPO = (vendorId, overrides = {}) =>
       sapPoNumber: overrides.sapPoNumber || '4500022503',
       vendorId,
       buyerName: 'Test Buyer',
-      plant: '1000',
       status: 'Open',
       createdDate: overrides.createdDate || new Date('2025-11-12'),
       items: { create: [{ clientId: 'CLT-0001', line: 10, materialCode: 'MAT-3849', description: 'Steel Pipe', quantity: 10, grnQuantity: 0, unitPrice: 100, netValue: 1000 }] },

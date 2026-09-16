@@ -571,6 +571,9 @@ const awardBid = asyncHandler(async (req, res, next) => {
       unitPrice,
       netValue: unitPrice * item.quantity,
       uom: item.uom || 'EA',
+      // Real per-line data the RFQ already carried, not a guess (issue #62)
+      // — a multi-line PO can ship from more than one plant.
+      plant: item.plant || null,
     };
   });
 
@@ -634,7 +637,12 @@ const awardBid = asyncHandler(async (req, res, next) => {
         vendorId,
         vendorPk: vendor ? vendor.pk : winningBid.vendorPk,
         buyerName: 'SAP System Procurement',
-        plant: rfq.items[0]?.plant || '1000',
+        // Carried from the RFQ that was actually awarded, not guessed (issue
+        // #62) — plant moved to the line item (poItemsData above) since a
+        // multi-line order can ship from more than one.
+        companyCode: rfq.companyCode || null,
+        purchasingOrg: rfq.purchasingOrg || null,
+        purchasingGroup: rfq.purchasingGroup || null,
         paymentTerms: rfq.paymentTerms || 'NET 30 Days',
         currency: rfq.currency || 'INR',
         deliveryAddress: rfq.deliveryLocation || 'Plant 1000 Address',

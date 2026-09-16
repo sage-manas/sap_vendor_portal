@@ -25,9 +25,9 @@ const discoveryPo = (sapPoNumber, overrides = {}) => ({
   ...overrides,
 });
 
-const runSweep = (clientId, discoveries) => runWithTenant(clientId, () => sweepPurchaseOrders({
+const runSweep = (clientId, discoveries, extraConfig = {}) => runWithTenant(clientId, () => sweepPurchaseOrders({
   job: { clientId, args: {} },
-  adapter: buildTransientAdapter({ clientId, driver: 'mock', config: { discoveries }, secrets: {} }),
+  adapter: buildTransientAdapter({ clientId, driver: 'mock', config: { discoveries, ...extraConfig }, secrets: {} }),
 }));
 
 describe('sweepPurchaseOrders discovery', () => {
@@ -45,6 +45,34 @@ describe('sweepPurchaseOrders discovery', () => {
     expect(po.vendorId).toBe('vendor_sweep_1');
     expect(po.items).toHaveLength(1);
     expect(po.status).toBe('Open'); // grnQuantity 0 < quantity 10
+  });
+
+  // Issue #62: a supplier can trade with several company codes in the same
+  // SAP client, and the Z endpoint this sweep reads has no company-code
+  // filter of its own — it answers everything on the vendor code alone. The
+  // tenant declares which company codes are actually theirs
+  // (config.companyCodes), and an order outside that set must never be
+  // imported, whatever SAP hands back for the same vendor.
+  it('imports only the declared company code when a sweep returns two', async () => {
+    await seedVendor('CLT-0001', 'vendor_sweep_cc', 'VEN00CC');
+
+    await runSweep(
+      'CLT-0001',
+      {
+        po: [
+          discoveryPo('4500098010', { companyCode: '1000' }),
+          discoveryPo('4500098011', { companyCode: '2000' }),
+        ],
+      },
+      { companyCodes: '1000' },
+    );
+
+    const owned = await runWithTenant('CLT-0001', () => prisma.purchaseOrder.findFirst({ where: { sapPoNumber: '4500098010' } }));
+    const outOfScope = await runWithTenant('CLT-0001', () => prisma.purchaseOrder.findFirst({ where: { sapPoNumber: '4500098011' } }));
+
+    expect(owned).toBeTruthy();
+    expect(owned.companyCode).toBe('1000');
+    expect(outOfScope).toBeNull();
   });
 
   it('infers Delivered when SAP already shows every line fully received', async () => {

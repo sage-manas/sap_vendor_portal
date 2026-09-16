@@ -42,6 +42,15 @@ const DEFAULT_BEHAVIOUR = {
 
 const digits = (n) => Math.floor(10 ** (n - 1) + Math.random() * 9 * 10 ** (n - 1));
 
+// Mirrors s4odata.driver.js's declaredCompanyCodes — unset (the mock's
+// default) means no scoping at all, so every existing demo/test keeps
+// seeing every order; a test exercising issue #62's filtering sets
+// config.companyCodes explicitly, same as a real tenant would.
+const declaredCompanyCodes = (config = {}) => {
+  if (Array.isArray(config.companyCodes)) return config.companyCodes.map(String).map((s) => s.trim()).filter(Boolean);
+  return String(config.companyCodes || '').split(',').map((s) => s.trim()).filter(Boolean);
+};
+
 const CATALOGUE = [
   { code: 'MAT-3849', desc: 'Steel Pipe 3" SCH40' },
   { code: 'MAT-9210', desc: 'Flange 3" ANSI 150#' },
@@ -229,50 +238,67 @@ const createMockDriver = ({ config = {} } = {}) => {
     // way to produce. Seeded entries are PO-shaped like the caller's own
     // `pos`, minus a portal `id` — `mockSapPoNumber` falls through to their
     // explicit `sapPoNumber` exactly as it would for a real one.
-    vendorPoGrnDisplay: async ({ pos = [] }) => ({
-      data: {
-        orders: [...pos, ...discoveries.po].map((po) => ({
-          poNumber: mockSapPoNumber(po),
-          // Which of the caller's own PurchaseOrder rows this is — the mock can
-          // say so honestly because it built this row from that same `po`. The
-          // real driver queries SAP directly by vendor code (see its own
-          // vendorPoGrnDisplay) and has no such correlation, so it always
-          // answers `poId: null` here; a caller that wants to persist the SAP
-          // number it just discovered back onto its own record checks this
-          // rather than assuming array order lines up between the two sides.
-          poId: po.id,
-          // ISO date string, matching the real driver's normalized shape
-          // (see sapDotDateToIso in s4odata.driver.js) — callers that sort or
-          // compare poDate as a string must not care which driver answered.
-          poDate: po.createdDate ? new Date(po.createdDate).toISOString().slice(0, 10) : null,
-          buyerName: po.buyerName,
-          shipToCity: null,
-          shipToState: null,
-          companyCode: behaviour.companyCode,
-          currency: po.currency,
-          netAmount: po.items.reduce((sum, item) => sum + item.netValue, 0),
-          grossAmount: po.items.reduce((sum, item) => sum + item.netValue, 0),
-          items: po.items.map((item) => ({
-            itemNumber: String(item.line).padStart(5, '0'),
-            materialCode: item.materialCode,
-            description: item.description,
-            orderedQuantity: item.quantity,
-            receivedQuantity: item.grnQuantity,
-            invoicedQuantity: item.grnQuantity,
-            uom: item.uom,
-            unitPrice: item.unitPrice,
-            netAmount: item.netValue,
-            grossAmount: item.netValue,
-            grStatus: item.grnQuantity >= item.quantity ? 'Closed' : null,
-            plant: po.plant,
-            grns: [],
-            // The simulator has no service-procurement POs, so this is always
-            // empty — it exists so both drivers return the same item shape.
-            serviceEntries: [],
+    // Issue #62: `companyCode` used to be a single simulator-wide value
+    // (`behaviour.companyCode`) no matter which order was asked about, which
+    // made it impossible to demo or test the one thing that bug was about —
+    // a vendor whose orders span more than one company code. A caller's own
+    // `po.companyCode` (or a discovery seed's) wins when set; the behaviour
+    // default is just what a plain demo PO gets when nobody's said otherwise.
+    // Optional company-code scoping mirrors the real driver's
+    // declaredCompanyCodes (s4odata.driver.js): set for a test that wants to
+    // exercise filtering, left unset for every existing demo/test that
+    // doesn't care.
+    vendorPoGrnDisplay: async ({ pos = [] }) => {
+      const allowed = declaredCompanyCodes(config);
+      const inScope = (po) => !allowed.length || allowed.includes(String(po.companyCode || behaviour.companyCode));
+
+      return {
+        data: {
+          orders: [...pos, ...discoveries.po].filter(inScope).map((po) => ({
+            poNumber: mockSapPoNumber(po),
+            // Which of the caller's own PurchaseOrder rows this is — the mock can
+            // say so honestly because it built this row from that same `po`. The
+            // real driver queries SAP directly by vendor code (see its own
+            // vendorPoGrnDisplay) and has no such correlation, so it always
+            // answers `poId: null` here; a caller that wants to persist the SAP
+            // number it just discovered back onto its own record checks this
+            // rather than assuming array order lines up between the two sides.
+            poId: po.id,
+            // ISO date string, matching the real driver's normalized shape
+            // (see sapDotDateToIso in s4odata.driver.js) — callers that sort or
+            // compare poDate as a string must not care which driver answered.
+            poDate: po.createdDate ? new Date(po.createdDate).toISOString().slice(0, 10) : null,
+            buyerName: po.buyerName,
+            shipToCity: null,
+            shipToState: null,
+            companyCode: po.companyCode || behaviour.companyCode,
+            currency: po.currency,
+            netAmount: po.items.reduce((sum, item) => sum + item.netValue, 0),
+            grossAmount: po.items.reduce((sum, item) => sum + item.netValue, 0),
+            items: po.items.map((item) => ({
+              itemNumber: String(item.line).padStart(5, '0'),
+              materialCode: item.materialCode,
+              description: item.description,
+              orderedQuantity: item.quantity,
+              receivedQuantity: item.grnQuantity,
+              invoicedQuantity: item.grnQuantity,
+              uom: item.uom,
+              unitPrice: item.unitPrice,
+              netAmount: item.netValue,
+              grossAmount: item.netValue,
+              grStatus: item.grnQuantity >= item.quantity ? 'Closed' : null,
+              // Per line, not guessed from the order as a whole (issue #62) —
+              // a real PO can ship from more than one plant.
+              plant: item.plant || behaviour.plant,
+              grns: [],
+              // The simulator has no service-procurement POs, so this is always
+              // empty — it exists so both drivers return the same item shape.
+              serviceEntries: [],
+            })),
           })),
-        })),
-      },
-    }),
+        },
+      };
+    },
 
     // --- Invoicing plans (FPLA/FPLT) ------------------------------------
     //

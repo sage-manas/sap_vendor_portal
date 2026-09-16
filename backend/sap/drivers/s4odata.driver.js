@@ -219,6 +219,22 @@ const sapDotDateToIso = (value) => {
 // sheets, no row with both.
 const isGoodsReceipt = (gr) => Boolean(String(gr.GR_NUMBER || '').trim());
 
+// Issue #62: a supplier can trade with several company codes in the same SAP
+// client, and zpo_grn_vendor/Detail has no company-code filter of its own —
+// it answers everything on the vendor code (LIFNR) alone. A tenant declares
+// which company codes belong to it via config.companyCodes (comma-separated;
+// falls back to the single required config.companyCode when unset, so a
+// single-entity tenant only has to say it once). No default beyond that: a
+// connection with neither set has declared nothing, and validateConfig below
+// refuses to save one, so this only ever sees an empty list on a config that
+// was never meant to reach a live tenant (a test's transient config, say).
+const declaredCompanyCodes = (config = {}) => {
+  if (Array.isArray(config.companyCodes)) return config.companyCodes.map(String).map((s) => s.trim()).filter(Boolean);
+  const csv = String(config.companyCodes || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (csv.length) return csv;
+  return config.companyCode ? [String(config.companyCode)] : [];
+};
+
 // zpo_grn_vendor/Detail carries no MJAHR (or equivalent) field — confirmed
 // against the live sandbox, see the evidence in this driver's awaitGoodsReceipt
 // comment. Some Z reports do expose a raw MJAHR/GR_YEAR under those names, so
@@ -252,8 +268,6 @@ const isoToSapDay = (value) => {
 const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
   const odata = createODataClient({ config });
   const svc = services(config);
-  const companyCode = config.companyCode || '1000';
-  const plant = config.plant || '1000';
   // Polling cadence and timeout for awaitGoodsReceipt/awaitPaymentRun used to
   // live here (pollIntervalMs, goodsReceiptTimeoutMs, paymentRunTimeoutMs) —
   // moved to jobs/kinds.js's defaultIntervalMs/defaultMaxAttempts, since
@@ -807,9 +821,18 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
         throw error;
       }
 
+      // zpo_grn_vendor/Detail has no company-code parameter of its own (see
+      // the note on declaredCompanyCodes above) — filtering happens here,
+      // after the fact, rather than trusting the endpoint to have scoped the
+      // rows itself. An order outside the tenant's declared company codes is
+      // dropped before it ever reaches a caller that might persist it (see
+      // jobs/handlers/sweepPurchaseOrders.js).
+      const allowed = declaredCompanyCodes(config);
+      const inScope = (po) => !allowed.length || allowed.includes(String(po.COM_CODE || ''));
+
       return {
         data: {
-          orders: rows.map((po) => {
+          orders: rows.filter(inScope).map((po) => {
             const items = (po.PO_LINE_ITEMS || []).map((item) => ({
               itemNumber: item.ITEM_NUMBER,
               materialCode: item.MATERIAL_CODE,
@@ -1290,6 +1313,12 @@ const validateConfig = (config = {}) => {
   if (!config.baseUrl) errors.baseUrl = 'A gateway base URL is required';
   else if (!/^https?:\/\//i.test(config.baseUrl)) errors.baseUrl = 'Must be an http(s) URL';
   if (!config.sapClient) errors.sapClient = 'An SAP client number is required (e.g. 100)';
+  // Issue #62: this used to default silently to '1000' (the SAP IDES demo
+  // company code), so a tenant that never configured it ran on a value
+  // nobody chose. It is also the company-code filter's own fallback when
+  // companyCodes isn't set (declaredCompanyCodes above) — required here
+  // means that filter can never see an empty list on a live connection.
+  if (!config.companyCode) errors.companyCode = 'A company code is required';
   return errors;
 };
 
@@ -1304,8 +1333,8 @@ module.exports = {
     { name: 'baseUrl', label: 'Gateway base URL', type: 'text', placeholder: 'https://my-s4.example.com' },
     { name: 'sapClient', label: 'SAP client', type: 'text', placeholder: '100' },
     { name: 'timeoutMs', label: 'Request timeout (ms)', type: 'number', default: 10000 },
-    { name: 'companyCode', label: 'Company code', type: 'text', default: '1000' },
-    { name: 'plant', label: 'Plant', type: 'text', default: '1000' },
+    { name: 'companyCode', label: 'Company code (required)', type: 'text', placeholder: '1000' },
+    { name: 'companyCodes', label: 'All company codes this tenant covers, comma-separated (optional — defaults to just Company code)', type: 'text', placeholder: '1000, 2000' },
     { name: 'supplierAccountGroup', label: 'Supplier account group', type: 'text', default: 'LIEF' },
     { name: 'bpGrouping', label: 'Business Partner grouping', type: 'text', default: 'BP03' },
     { name: 'vendorCrPath', label: 'VENDOR_CR endpoint path (custom Z REST, not OData — unverified)', type: 'text', default: '/zvendor_create/VENDOR_CR' },
