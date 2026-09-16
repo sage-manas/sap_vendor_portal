@@ -190,7 +190,9 @@ const runCycle = async (tenant) => {
   // ── Payment (F110) ───────────────────────────────────────────────────
   const payment = await until(async () => {
     const res = await asFinance(request(app).get('/api/payments'));
-    return (res.body.payments || res.body || []).find((p) => p.invoiceId === invoiceId);
+    // Payment is a header over PaymentItem now (issue #63) — match on which
+    // invoice one of its items settled, not a header-level invoiceId.
+    return (res.body.payments || res.body || []).find((p) => (p.items || []).some((item) => item.invoiceId === invoiceId));
   }, `a payment run for ${invoiceId}`);
 
   expect(payment.utrCode).toBeTruthy();

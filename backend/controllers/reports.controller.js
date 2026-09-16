@@ -35,7 +35,7 @@ const generateStatement = asyncHandler(async (req, res, next) => {
   const vendor = await prisma.vendor.findFirst({ where: { OR: [{ vendorId }, { clerkId: vendorId }] } });
 
   // Get all payments for this vendor
-  const payments = await prisma.payment.findMany({ where: { vendorId }, orderBy: { paymentDate: 'desc' } });
+  const payments = await prisma.payment.findMany({ where: { vendorId }, include: { items: true }, orderBy: { paymentDate: 'desc' } });
 
   const doc = new PDFDocument({ margin: 50, size: 'A4' });
 
@@ -97,7 +97,9 @@ const generateStatement = asyncHandler(async (req, res, next) => {
     payments.forEach(pmt => {
       const pmtDate = new Date(pmt.paymentDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
       const utr = pmt.utrCode || pmt.id;
-      const invRef = orDash(pmt.invoiceNumber || pmt.invoiceId);
+      // A remittance can settle more than one invoice (issue #63) — every
+      // one it covers, not just the first.
+      const invRef = orDash((pmt.items || []).map((item) => item.invoiceNumber || item.invoiceId).filter(Boolean).join(', '));
       // grossAmount/tdsDeducted/netAmount are Decimal-typed columns — converted
       // here rather than left to `totalGross += gross` below's string-
       // concatenation trap (see utils/money.js), and because Decimal's own

@@ -59,8 +59,9 @@ describe('cross-supplier document access (issue #51)', () => {
       });
       payment = await prisma.payment.create({
         data: {
-          id: 'PMT-900001', invoiceId: invoice.id, poId: po.id, vendorId: 'vendor_test_002',
+          id: 'PMT-900001', vendorId: 'vendor_test_002',
           netAmount: 118, paymentDate: new Date(), utrCode: 'UTRB9001',
+          items: { create: [{ clientId: 'CLT-0001', invoiceId: invoice.id, poId: po.id, netAmount: 118 }] },
         },
       });
     });

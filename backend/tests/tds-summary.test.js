@@ -60,10 +60,11 @@ describe('GET /api/payments/tds-summary', () => {
     return asTenant(() => prisma.payment.create({
       data: {
         id: `PMT-${Math.random().toString().slice(2, 8)}`,
-        invoiceId: 'INV-1', poId: 'PO-1', vendorId,
+        vendorId,
         netAmount: 990, utrCode: 'UTR1', paymentDate: new Date('2026-05-10'),
         grossAmount: 1000, tdsDeducted: 10,
         ...overrides,
+        items: { create: [{ clientId: 'CLT-0001', invoiceId: 'INV-1', poId: 'PO-1', grossAmount: 1000, tdsDeducted: 10, netAmount: 990 }] },
       },
     }));
   };
@@ -176,10 +177,11 @@ describe('the tenant-wide TDS view must not blend vendor identities', () => {
     return asTenant(() => prisma.payment.create({
       data: {
         id: `PMT-${Math.random().toString().slice(2, 8)}`,
-        invoiceId: invId, poId, vendorId,
+        vendorId,
         netAmount: 990, utrCode: `UTR-${Math.random().toString().slice(2, 8)}`, paymentDate: new Date('2026-05-10'),
         grossAmount: 1000, tdsDeducted: 10,
         ...overrides,
+        items: { create: [{ clientId: 'CLT-0001', invoiceId: invId, poId, grossAmount: 1000, tdsDeducted: 10, netAmount: 990 }] },
       },
     }));
   };

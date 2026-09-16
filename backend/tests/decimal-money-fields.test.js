@@ -121,7 +121,9 @@ describe('money fields survive the Float → Decimal migration', () => {
     for (let i = 0; i < 50 && !payment; i += 1) {
       await runDueJobs();
       const res = await asSupplier(request(app).get('/api/payments'));
-      payment = (res.body.payments || []).find((p) => p.invoiceId === invoice.id);
+      // Payment is a header over PaymentItem now (issue #63) — match on
+      // which invoice one of its items settled, not a header-level invoiceId.
+      payment = (res.body.payments || []).find((p) => (p.items || []).some((item) => item.invoiceId === invoice.id));
       if (!payment) await new Promise((resolve) => setTimeout(resolve, 20));
     }
     expect(payment).toBeTruthy();
@@ -237,11 +239,19 @@ describe('money fields survive the Float → Decimal migration', () => {
     }));
     // Two payments, so a string-concatenation bug (rather than a single value
     // just happening to print correctly) is unambiguous in the result.
-    await runWithTenant('CLT-0001', () => prisma.payment.createMany({
-      data: [
-        { id: 'PMT-DECIMAL-0005A', clientId: 'CLT-0001', invoiceId: invoice.id, poId: po.id, vendorId: 'vendor_decimal_5', netAmount: 50.25, paymentDate: new Date(), utrCode: 'UTR1' },
-        { id: 'PMT-DECIMAL-0005B', clientId: 'CLT-0001', invoiceId: invoice.id, poId: po.id, vendorId: 'vendor_decimal_5', netAmount: 25.75, paymentDate: new Date(), utrCode: 'UTR2' },
-      ],
+    // Two separate `create` calls, not `createMany` — a nested `items`
+    // relation (issue #63) isn't something createMany can write.
+    await runWithTenant('CLT-0001', () => prisma.payment.create({
+      data: {
+        id: 'PMT-DECIMAL-0005A', vendorId: 'vendor_decimal_5', netAmount: 50.25, paymentDate: new Date(), utrCode: 'UTR1',
+        items: { create: [{ clientId: 'CLT-0001', invoiceId: invoice.id, poId: po.id, netAmount: 50.25 }] },
+      },
+    }));
+    await runWithTenant('CLT-0001', () => prisma.payment.create({
+      data: {
+        id: 'PMT-DECIMAL-0005B', vendorId: 'vendor_decimal_5', netAmount: 25.75, paymentDate: new Date(), utrCode: 'UTR2',
+        items: { create: [{ clientId: 'CLT-0001', invoiceId: invoice.id, poId: po.id, netAmount: 25.75 }] },
+      },
     }));
 
     const res = await asSupplier(request(app).get('/api/dashboard/summary'));
@@ -271,7 +281,10 @@ describe('money fields survive the Float → Decimal migration', () => {
       },
     }));
     await runWithTenant('CLT-0001', () => prisma.payment.create({
-      data: { id: 'PMT-DECIMAL-0006', invoiceId: invoice.id, poId: po.id, vendorId: 'vendor_decimal_6', netAmount: 42.42, paymentDate: new Date(), utrCode: 'UTR3' },
+      data: {
+        id: 'PMT-DECIMAL-0006', vendorId: 'vendor_decimal_6', netAmount: 42.42, paymentDate: new Date(), utrCode: 'UTR3',
+        items: { create: [{ clientId: 'CLT-0001', invoiceId: invoice.id, poId: po.id, netAmount: 42.42 }] },
+      },
     }));
 
     const res = await request(app).get('/api/reports/metrics').set('Authorization', `Bearer ${staff.token}`);

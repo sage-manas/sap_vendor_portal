@@ -1,9 +1,9 @@
 const { prisma } = require('../../db/prisma');
 const { PO_INCLUDE, syncPoStatus } = require('../../db/poHelpers');
+const { flattenPaymentItems, recordPaymentItem } = require('../../db/paymentHelpers');
 const { EVENTS } = require('../../utils/socketEmitter');
 const { notifyVendor } = require('../notify');
 const { dueVendors, recordSweepTick } = require('../sweepHelpers');
-const { fiscalPeriodOf } = require('../../utils/fiscalPeriod');
 const logger = require('../../utils/logger');
 
 const FEED = 'payment';
@@ -33,9 +33,12 @@ async function sweepOneVendor({ clientId, vendor, adapter }) {
   // The mock/s4odata driver need the caller's own Payment rows to describe
   // (see mock.driver.js's file header) — passing what already exists keeps
   // an unchanged payment's fingerprint stable across sweeps; only a CLEARED
-  // row with no local match below is something to act on.
-  const existingPayments = await prisma.payment.findMany({ where: { vendorId: vendor.vendorId } });
-  const result = await adapter.vendorPaymentDisplay({ vendor, payments: existingPayments });
+  // row with no local match below is something to act on. Flattened to one
+  // row per settled item (issue #63): vendorPaymentDisplay was written when
+  // Payment carried one invoice's miroDoc/poId/amounts directly, and still
+  // expects that shape — see flattenPaymentItems's own header comment.
+  const existingPayments = await prisma.payment.findMany({ where: { vendorId: vendor.vendorId }, include: { items: true } });
+  const result = await adapter.vendorPaymentDisplay({ vendor, payments: flattenPaymentItems(existingPayments) });
   const rows = (result?.payments || []).filter((row) => row.status === 'CLEARED');
 
   const { changed } = await recordSweepTick({ clientId, feed: FEED, vendorCode: vendor.sapVendorCode, data: rows });
@@ -77,27 +80,33 @@ async function settleIfOpen({ clientId, vendor, row }) {
     const sapMiroDoc = row.miroDoc || latestInvoice.sapMiroDoc;
     const paymentDate = row.clearingDate ? new Date(row.clearingDate) : new Date();
 
-    const payment = await tx.payment.create({
-      data: {
-        id: `PMT-SWEEP-${(row.clearingDocument || `${Date.now()}`).replace(/[^A-Za-z0-9]/g, '')}`,
-        invoiceId: latestInvoice.id,
-        poId: po.id,
-        vendorId: latestInvoice.vendorId,
-        invoiceRef: latestInvoice.id,
-        invoiceNumber: latestInvoice.invoiceNumber,
-        sapMiroDoc,
-        grossAmount: row.grossAmount,
-        tdsDeducted: row.tdsDeducted || 0,
-        netAmount: row.netDisbursed ?? row.grossAmount,
+    // One Payment per SAP clearing document, not per invoice (issue #63) —
+    // see recordPaymentItem's own header comment. A second invoice this same
+    // sweep tick settles under the same clearing document (settleIfOpen runs
+    // once per row, sequentially — see sweepOneVendor above) converges on
+    // the same Payment row this call either found or just created.
+    const payment = await recordPaymentItem(tx, {
+      clientId,
+      paymentId: `PMT-SWEEP-${(row.clearingDocument || `${Date.now()}`).replace(/[^A-Za-z0-9]/g, '')}`,
+      vendorId: latestInvoice.vendorId,
+      remittance: {
         paymentDate,
         utrCode: row.utrReference || `SWEEP-${Date.now()}`,
         paymentMethod: row.paymentMethod || 'NEFT',
         sapPaymentDoc: row.clearingDocument || null,
-        ...fiscalPeriodOf(paymentDate),
-        sapDocNumber: row.clearingDocument || sapMiroDoc,
-        sapSyncState: 'synced',
-        sapSyncedAt: new Date(),
+        bankName: row.bankName || null,
+        runId: row.runId || null,
+        tdsSection: row.tdsSection || null,
+        deducteePan: row.deducteePan || null,
+        deductorTan: row.deductorTan || null,
+        grossAmount: row.grossAmount,
+        tdsDeducted: row.tdsDeducted || 0,
+        netAmount: row.netDisbursed ?? row.grossAmount,
       },
+      invoiceId: latestInvoice.id,
+      poId: po.id,
+      invoiceNumber: latestInvoice.invoiceNumber,
+      sapMiroDoc,
     });
 
     await tx.invoice.update({

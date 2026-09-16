@@ -30,8 +30,9 @@ describe('PUT /api/payments/:id/status is gone (issue #56)', () => {
       });
       return prisma.payment.create({
         data: {
-          id: 'PMT-990001', invoiceId: invoice.id, poId: po.id, vendorId: vendor.vendorId,
+          id: 'PMT-990001', vendorId: vendor.vendorId,
           netAmount: 100, paymentDate: new Date(), utrCode: 'UTRTEST9900',
+          items: { create: [{ clientId: 'CLT-0001', invoiceId: invoice.id, poId: po.id, netAmount: 100 }] },
         },
       });
     });

@@ -619,21 +619,32 @@ const createMockDriver = ({ config = {} } = {}) => {
 
     // --- Invoice and payment ----------------------------------------------
 
-    // Same one-shot shape as awaitGoodsReceipt above.
+    // Same one-shot shape as awaitGoodsReceipt above. sapPaymentDoc/runId/
+    // utrCode are deterministic — a pure function of the vendor and the
+    // calendar day — rather than random (issue #63): an F110 run pays a
+    // vendor's several open invoices together, one clearing document for
+    // all of them, and jobs/handlers/awaitPaymentRun.js's find-or-create
+    // only consolidates invoices whose watch jobs report the *same*
+    // sapPaymentDoc. A fresh random one per call could never simulate that;
+    // "one run per vendor per day" is the simplest rule that lets it happen
+    // without new config, and is realistic enough for a demo besides.
     awaitPaymentRun: async ({ invoice, vendor, vendorId, startedAt }, handler) => {
       const startedAtMs = startedAt ? new Date(startedAt).getTime() : 0;
       if (Date.now() - startedAtMs < timings.paymentRunMs) return false;
 
       const gross = invoice.totalAmount;
       const tdsDeducted = Math.round(gross * behaviour.tdsRate * 100) / 100;
+      const paymentDate = new Date();
+      const runDay = paymentDate.toISOString().slice(0, 10).replace(/-/g, '');
+      const vendorCode = vendor?.sapVendorCode || vendorId || invoice.vendorId || 'UNKNOWN';
 
       await handler({
         data: {
-          paymentId: `PMT-${digits(6)}`,
-          sapPaymentDoc: `PAY-53${digits(8)}`,
-          runId: `F110-${Date.now().toString().slice(-6)}`,
-          utrCode: `UTR${Date.now()}${digits(3)}`,
-          paymentDate: new Date(),
+          paymentId: `PMT-${runDay}-${vendorCode}`,
+          sapPaymentDoc: `PAY-53${runDay}-${vendorCode}`,
+          runId: `F110-${runDay}-${vendorCode}`,
+          utrCode: `UTR${runDay}${vendorCode}`,
+          paymentDate,
           paymentMethod: behaviour.paymentMethod,
           bankName: behaviour.bankName,
           grossAmount: gross,

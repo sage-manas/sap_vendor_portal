@@ -1,9 +1,9 @@
 const { prisma } = require('../../db/prisma');
 const { PO_INCLUDE, formatPo, syncPoStatus } = require('../../db/poHelpers');
 const { INVOICE_INCLUDE, formatInvoice } = require('../../db/invoiceHelpers');
+const { recordPaymentItem } = require('../../db/paymentHelpers');
 const { EVENTS } = require('../../utils/socketEmitter');
 const { notifyVendor } = require('../notify');
-const { fiscalPeriodOf } = require('../../utils/fiscalPeriod');
 const { markSynced } = require('../syncState');
 
 // Persists SAP's payment clearing once the driver finds one — moved here,
@@ -53,38 +53,18 @@ module.exports = async ({ job, adapter }) => {
           ? remittance.sapMiroDoc
           : latestInvoice.sapMiroDoc;
 
-        const payment = await tx.payment.create({
-          data: {
-            id: remittance.paymentId,
-            invoiceId: latestInvoice.id,
-            poId: latestPo.id,
-            vendorId: latestInvoice.vendorId,
-            invoiceRef: latestInvoice.id,
-            invoiceNumber: latestInvoice.invoiceNumber,
-            sapMiroDoc,
-            grossAmount: remittance.grossAmount,
-            tdsDeducted: remittance.tdsDeducted,
-            netAmount: remittance.netAmount,
-            paymentDate: remittance.paymentDate,
-            utrCode: remittance.utrCode,
-            paymentMethod: remittance.paymentMethod,
-            sapPaymentDoc: remittance.sapPaymentDoc,
-            bankName: remittance.bankName,
-            runId: remittance.runId,
-            // The Indian fiscal quarter of the payment itself — not the
-            // calendar quarter, and not "now".
-            ...fiscalPeriodOf(remittance.paymentDate),
-            tdsSection: remittance.tdsSection,
-            deducteePan: remittance.deducteePan,
-            deductorTan: remittance.deductorTan,
-            totalTds: remittance.tdsDeducted,
-            // Dual identity / sync state (Phase 3): a Payment, like a GRN, is
-            // only ever created *from* a found SAP clearing, so it starts
-            // life already synced.
-            sapDocNumber: remittance.sapPaymentDoc,
-            sapSyncState: 'synced',
-            sapSyncedAt: new Date(),
-          },
+        // One Payment per SAP clearing document, not per invoice (issue
+        // #63) — see recordPaymentItem's own header comment for why this is
+        // safe to call once per invoice's independent watch job.
+        const payment = await recordPaymentItem(tx, {
+          clientId: job.clientId,
+          paymentId: remittance.paymentId,
+          vendorId: latestInvoice.vendorId,
+          remittance,
+          invoiceId: latestInvoice.id,
+          poId: latestPo.id,
+          invoiceNumber: latestInvoice.invoiceNumber,
+          sapMiroDoc,
         });
 
         await tx.invoice.update({
@@ -119,15 +99,14 @@ module.exports = async ({ job, adapter }) => {
         // actually done, the same helper GRN-matched invoices go through.
         await syncPoStatus(tx, latestPo.pk);
 
-        return { payment, vendorId: latestInvoice.vendorId };
+        return { payment, sapMiroDoc, vendorId: latestInvoice.vendorId };
       });
 
       if (!result) return null;
 
       // Dual identity / sync state (Phase 3): the invoice itself moves
-      // pending -> synced the moment its payment clears. `result.payment`
-      // already carries the resolved sapMiroDoc from inside the transaction.
-      await markSynced('awaitPaymentRun', { invoiceId: invoice.id }, result.payment.sapMiroDoc);
+      // pending -> synced the moment its payment clears.
+      await markSynced('awaitPaymentRun', { invoiceId: invoice.id }, result.sapMiroDoc);
 
       notifyVendor(job.clientId, result.vendorId, EVENTS.PAYMENT_CLEARED, result.payment);
 
