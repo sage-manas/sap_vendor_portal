@@ -30,7 +30,11 @@ router.get('/health', async (req, res) => {
     status: "healthy",
     db: dbConnected ? "connected" : "disconnected",
     socketConnections: io ? io.sockets.sockets.size : 0,
-    sapMockMode: process.env.SAP_MOCK_MODE === 'true' ? "Mock Mode" : "Live",
+    // No `sapMockMode` here. It reported a process-wide SAP_MOCK_MODE variable
+    // that selected nothing — since Phase 4 the driver is per tenant, from the
+    // SapConnection row — so this endpoint could and did answer "Mock Mode"
+    // for a deployment talking to a real SAP system. /api/status and
+    // /platform/health report SAP state from the connections themselves.
     timestamp: new Date().toISOString()
   });
 });

@@ -170,7 +170,6 @@ SMTP_USER=<smtp user>
 SMTP_PASSWORD=<smtp password>
 SMTP_SECURE=true/false
 MAIL_FROM=<sender email>
-SAP_MOCK_MODE=true
 LOG_LEVEL=info
 UPLOAD_DIR=uploads
 MAX_FILE_SIZE_MB=10
@@ -252,11 +251,9 @@ Use secret manager or encrypted handoff. Do not send SMTP passwords in normal ch
 
 ## 10. SAP Details
 
-Current default deployment can run with:
-
-```text
-SAP_MOCK_MODE=true
-```
+SAP connectivity is configured per tenant in the platform console, not by an
+environment variable. A tenant with no SAP connection row uses the built-in
+simulator; one that names a driver talks to that system.
 
 If real SAP integration is needed, share:
 
