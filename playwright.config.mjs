@@ -1,4 +1,21 @@
+import { createRequire } from 'node:module';
 import { defineConfig, devices } from '@playwright/test';
+
+const require = createRequire(import.meta.url);
+require('dotenv').config({ path: './backend/.env' });
+const { resolveTestDatabaseUrl, assertSafeToWipe } = require('./backend/config/testDatabase');
+
+// Never the database `npm run dev` uses. globalSetup seeds a tenant and
+// rewrites its SapConnection, and the specs write documents throughout — on a
+// development database that destroys real SAP configuration (issue #107).
+// Set TEST_DATABASE_URL to override; otherwise this is DATABASE_URL's database
+// name with a `_test` suffix.
+const DATABASE_URL = assertSafeToWipe(resolveTestDatabaseUrl(), 'The Playwright suite');
+
+// globalSetup runs inside this process and reaches Prisma through
+// backend/db/prisma.js, which reads process.env at require time — so the
+// redirect has to be in place before it loads, not only in the webServer envs.
+process.env.DATABASE_URL = DATABASE_URL;
 
 // End-to-end coverage: a real browser against the real Next app, the real
 // Express API and a real Postgres, with SAP on the mock driver.
@@ -61,9 +78,11 @@ export default defineConfig({
       env: {
         NODE_ENV: 'development',
         PORT: String(API_PORT),
+        DATABASE_URL,
         // The mock driver is the whole point: a deterministic SAP that
-        // confirms goods receipts and clears payments on a timer.
-        SAP_MOCK_MODE: 'true',
+        // confirms goods receipts and clears payments on a timer. It is
+        // selected by the tenant's SapConnection row, which globalSetup
+        // writes — there is no environment variable that chooses a driver.
         JWT_SECRET: 'e2e-secret',
         FRONTEND_URL: WEB_URL,
         ALLOWED_ORIGINS: WEB_URL,
@@ -84,7 +103,10 @@ export default defineConfig({
       timeout: 600_000,
       stdout: 'pipe',
       stderr: 'pipe',
-      env: { NEXT_PUBLIC_API_URL: API_URL },
+      // The web server never talks to Postgres directly, but it runs Next's
+      // build, which loads this repo's env — keep it on the test database so
+      // nothing it does at build time can reach development data.
+      env: { NEXT_PUBLIC_API_URL: API_URL, DATABASE_URL },
     },
   ],
 });
