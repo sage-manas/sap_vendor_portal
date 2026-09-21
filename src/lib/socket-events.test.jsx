@@ -43,7 +43,10 @@ describe('realtime updates from the buyer', () => {
     const { socket } = renderProbe();
 
     await subscribed(socket, 'po:new');
-    for (const event of ['po:new', 'grn:received', 'payment:cleared', 'chat:message']) {
+    // No 'chat:message': the portal subscribed to it to refresh a thread view
+    // that does not exist on any plane, so the listener was removed with the
+    // rest of the chat wiring (issue #109).
+    for (const event of ['po:new', 'grn:received', 'payment:cleared']) {
       expect(socket.listenerCount(event)).toBeGreaterThan(0);
     }
   });
