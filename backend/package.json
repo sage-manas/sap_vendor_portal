@@ -14,7 +14,9 @@
     "seed:platform-admin": "node scripts/seed-platform-admin.js",
     "backup:drill": "node scripts/backup-restore-drill.js",
     "sap:conformance": "node scripts/sap-conformance.js",
-    "seed:demo": "node scripts/seed-demo.js"
+    "seed:demo": "node scripts/seed-demo.js",
+    "test:db:setup": "node scripts/setup-test-db.js",
+    "pretest": "node scripts/setup-test-db.js"
   },
   "author": "",
   "license": "ISC",

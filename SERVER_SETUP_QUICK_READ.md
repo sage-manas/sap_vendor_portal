@@ -73,7 +73,6 @@ SMTP_PORT=<smtp port>
 SMTP_USER=<smtp user>
 SMTP_PASSWORD=<smtp password>
 MAIL_FROM=<sender email>
-SAP_MOCK_MODE=true
 ```
 
 Use `backend/.env.example` as the full reference.
