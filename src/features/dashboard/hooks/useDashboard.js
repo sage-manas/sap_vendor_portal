@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { INITIAL_CHATS, INITIAL_PERFORMANCE } from '../constants';
+import { INITIAL_PERFORMANCE } from '../constants';
 import { hasOwnChrome } from '../../../lib/planes';
 import { dashboardService } from '../services/dashboardService';
 
@@ -16,7 +16,6 @@ const canFetchVendorData = () =>
   && !hasOwnChrome(window.location.pathname);
 
 export function useDashboard(profile) {
-  const [chats, setChats] = useState([]);
 
   const [performance, setPerformance] = useState(INITIAL_PERFORMANCE);
 
@@ -63,60 +62,11 @@ export function useDashboard(profile) {
     }
   }, [profile]);
 
-  const persistChats = (updated) => {
-    try {
-      localStorage.setItem('sap_vendor_portal_chats', JSON.stringify(updated));
-    } catch (e) {}
-  };
-
-  const refreshChats = useCallback(async () => {
-    if (!canFetchVendorData()) return;
-    try {
-      const data = await dashboardService.getChats();
-      if (data) {
-        setChats(data);
-        persistChats(data);
-      }
-    } catch (e) {
-      console.error('Failed to load chats from API', e);
-    }
-  }, []);
-
-  useEffect(() => {
-    void (async () => { await refreshChats(); })();
-  }, [refreshChats]);
-
-  const sendChatMessage = async (text) => {
-    const tempMsg = {
-      id: `MSG-${Date.now()}`,
-      sender: 'Vendor',
-      message: text,
-      timestamp: new Date().toISOString()
-    };
-    setChats(prev => [...prev, tempMsg]);
-
-    try {
-      await dashboardService.sendChatMessage({ message: text });
-      refreshChats();
-    } catch (e) {
-      console.error(e);
-      refreshChats();
-    }
-  };
-
-  const addSystemMessage = (messageText) => {
-    const sysMsg = {
-      id: `MSG-SYS-${Date.now()}`,
-      sender: 'System',
-      message: messageText,
-      timestamp: new Date().toISOString()
-    };
-    setChats(prev => {
-      const final = [...prev, sysMsg];
-      persistChats(final);
-      return final;
-    });
-  };
+  // No chat state here any more (issue #109). `GET /api/chats` was fetched on
+  // every page load, and `sendChatMessage` posted rows, for a thread view this
+  // application does not have on either plane — so a supplier's message went
+  // to a table nothing reads. The localStorage key is still cleared below so an
+  // existing client drops its stale copy.
 
   const clearAllState = () => {
     localStorage.removeItem('sap_vendor_profile_data');
@@ -137,11 +87,7 @@ export function useDashboard(profile) {
   };
 
   return {
-    chats,
     performance,
-    sendChatMessage,
-    addSystemMessage,
-    clearAllState,
-    refreshChats
+    clearAllState
   };
 }
