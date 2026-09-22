@@ -36,7 +36,7 @@ export function PortalProvider({ children }) {
   const shell = useShell();
   const profileHook = useProfile();
   const poHook = usePOs(profileHook.profile);
-  const paymentHook = usePayments();
+  const paymentHook = usePayments(profileHook.profile);
   const invoiceHook = useInvoices(profileHook.profile);
   const rfqHook = useRFQs(profileHook.profile);
   const dashboardHook = useDashboard(profileHook.profile);

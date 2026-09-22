@@ -6,8 +6,13 @@ import { paymentService } from '../services/paymentService';
 
 const STORAGE_KEY = 'sap_vendor_portal_payments';
 
-export function usePayments() {
-  const [payments, setPayments] = useState([]);
+export function usePayments(profile) {
+  // null until the first fetch answers, so the dashboard can tell "still
+  // loading" apart from "this vendor really has no payments" — the same
+  // convention as sapPayments/tdsSummary below. Rendering [] as the initial
+  // value made the first paint after sign-in indistinguishable from a
+  // confirmed empty history (issue #111).
+  const [payments, setPayments] = useState(null);
   // null until the first SAP read answers, so the UI can tell "still loading"
   // apart from "SAP has nothing for this vendor" — same convention useInvoices
   // uses for sapMiroDocuments.
@@ -63,11 +68,17 @@ export function usePayments() {
     void (async () => {
       await Promise.all([refreshPayments(), refreshSapPayments(), refreshTdsSummary()]);
     })();
-  }, [refreshPayments, refreshSapPayments, refreshTdsSummary]);
+    // profile is the trigger, not an input to the fetch itself: it goes from
+    // null to the signed-in vendor's profile once sign-in completes and
+    // PortalProvider re-renders with it, which is the only thing that changes
+    // here (the useCallbacks above are stable). Without it in the dependency
+    // list this effect ran exactly once, on the /sign-in mount, before a
+    // token existed — and never again (issue #111).
+  }, [profile, refreshPayments, refreshSapPayments, refreshTdsSummary]);
 
   const addPayment = useCallback((newPayment) => {
     setPayments(prev => {
-      const updated = [newPayment, ...prev];
+      const updated = [newPayment, ...(prev || [])];
       persistLocally(updated);
       paymentService.createPayment(newPayment).catch(() => {});
       return updated;
