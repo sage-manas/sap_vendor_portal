@@ -420,6 +420,12 @@ const createAssetPo = asyncHandler(async (req, res, next) => {
             taxCode: item.taxCode || null,
             assetNumber: item.assetNumber,
             assetSubNumber: item.assetSubNumber,
+            // What this order *is*, in SAP's terms. zasset_po/create posts with
+            // account assignment A by definition, so the category is known here
+            // without reading it back — and recording it now means an asset PO
+            // is identifiable the same way whether the portal raised it or the
+            // sweep discovered it (jobs/handlers/sweepPurchaseOrders.js).
+            accountAssignmentCategory: 'A',
             // Stored, not just forwarded to SAP: without it netValue cannot be
             // re-derived or reconciled against SAP's own copy (issue #108).
             priceUnit: item.priceUnit,
@@ -618,6 +624,10 @@ const syncInvoicePlan = asyncHandler(async (req, res, next) => {
   try {
     const { lines = [] } = await sap.poInvoicePlanNumbers({ po: formattedPo });
     for (const { line, planNumber } of lines) {
+      // This read now answers for every line, not only planned ones (it also
+      // carries the account assignment category), so an unplanned line has to
+      // be skipped here rather than by the driver.
+      if (!planNumber) continue;
       const item = (formattedPo.items || []).find((candidate) => Number(candidate.line) === Number(line));
       if (!item || item.invoicePlan?.planNumber) continue;
       item.invoicePlan = { ...(item.invoicePlan || {}), enabled: true, planNumber };

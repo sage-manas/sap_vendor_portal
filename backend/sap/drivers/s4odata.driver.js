@@ -536,12 +536,22 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
             grStatus: item.GR_EXPECTED || null,
             plant: item.PLANT,
 
-            // FPLA-FPLNR. Blank means this line has no invoicing plan at all —
-            // which is the *normal* case, not a missing field — so blank stays
-            // null rather than becoming the string "". This is the only place
-            // SAP volunteers a plan number without being told one first; see
-            // poInvoicePlanNumbers below for why that matters.
+            // FPLA-FPLNR. **This endpoint does not return it**, confirmed
+            // against the live sandbox: the line objects here carry no
+            // INV_PLANNO key at all, while the single-order sibling
+            // zpo_grn/Detail does. So this reads null for every line, always.
+            // Kept rather than dropped so the shape matches that read, and so
+            // the asymmetry is recorded where someone trusting this field
+            // would look — poInvoicePlanNumbers is what actually answers it.
             invoicePlanNumber: String(item.INV_PLANNO || '').trim() || null,
+
+            // EKPO-KNTTP: 'A' asset, 'D' service, 'K' cost centre, blank an
+            // ordinary material line. Added to this endpoint after
+            // ACC_ASSIGNMNT_CAT was already available on zpo_grn/Detail, so
+            // unlike INV_PLANNO above this one is real here — which is what
+            // lets the sweep classify an order from the ledger read alone,
+            // without a second call per order.
+            accountAssignmentCategory: String(item.ACC_ASSIGNMNT_CAT || '').trim().toUpperCase() || null,
 
             grns: (item.GRN || []).filter(isGoodsReceipt).map((gr) => ({
               grNumber: gr.GR_NUMBER,
@@ -1220,14 +1230,24 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
       return {
         data: {
           poNumber: json.PO_NUMBER || po.sapPoNumber,
+          // Every line, not only the planned ones. The filter used to drop a
+          // line with a blank INV_PLANNO, which was right while a plan number
+          // was the only thing this read was for — but ACC_ASSIGNMNT_CAT is
+          // most interesting exactly where there is no plan, and a line whose
+          // category is 'A' with no invoicing plan is an ordinary asset order.
+          // Callers that only want plans filter on planNumber themselves.
           lines: json.PO_LINE_ITEMS
             .map((item) => ({
               // "00010" is SAP's item number; the portal's own line numbers are
               // 10, 20, ... — the same value, differently spelled.
               line: Number(item.ITEM_NUMBER),
               planNumber: String(item.INV_PLANNO || '').trim() || null,
+              // EKPO-KNTTP: 'A' asset, 'D' service, blank an ordinary material
+              // line. This endpoint is the only one that reports it — see
+              // vendorPoGrnDisplay above, whose response omits it entirely.
+              accountAssignmentCategory: String(item.ACC_ASSIGNMNT_CAT || '').trim().toUpperCase() || null,
             }))
-            .filter((row) => Number.isInteger(row.line) && row.planNumber),
+            .filter((row) => Number.isInteger(row.line)),
         },
       };
     },

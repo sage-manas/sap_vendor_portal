@@ -560,14 +560,44 @@ describe('zpo_grn/Detail — the live contract (invoicing plan number discovery)
 
     expect(result.data).toEqual({
       poNumber: '4500022789',
-      // "00010" is SAP's spelling of line 10.
-      lines: [{ line: 10, planNumber: '0000001255' }],
+      // "00010" is SAP's spelling of line 10. This fixture line carries no
+      // ACC_ASSIGNMNT_CAT at all, which is an ordinary material line.
+      lines: [{ line: 10, planNumber: '0000001255', accountAssignmentCategory: null }],
     });
   });
 
-  it('omits a line with no invoicing plan rather than reporting a blank plan number', async () => {
+  // The other half of what this endpoint uniquely answers. zpo_grn_vendor/Detail
+  // — the vendor-wide ledger the sweep reads — returns neither INV_PLANNO nor
+  // ACC_ASSIGNMNT_CAT on its lines, so an asset or service order is only
+  // identifiable through this per-order read.
+  it('reports the account assignment category that marks an asset or service line', async () => {
+    const payload = {
+      ...LIVE_PO_DETAIL,
+      PO_LINE_ITEMS: [
+        { ...LIVE_PO_DETAIL.PO_LINE_ITEMS[0], INV_PLANNO: '', ACC_ASSIGNMNT_CAT: 'A' },
+        { ...LIVE_PO_DETAIL.PO_LINE_ITEMS[0], ITEM_NUMBER: '00020', INV_PLANNO: '', ACC_ASSIGNMNT_CAT: 'D' },
+        { ...LIVE_PO_DETAIL.PO_LINE_ITEMS[0], ITEM_NUMBER: '00030', INV_PLANNO: '', ACC_ASSIGNMNT_CAT: '' },
+      ],
+    };
+    const { restore } = mockHttpRequest(JSON.stringify(payload));
+    let result;
+    try {
+      result = await driverFor().poInvoicePlanNumbers({ po: { id: 'PO-1', sapPoNumber: '4500022789' } });
+    } finally { restore(); }
+
+    expect(result.data.lines).toEqual([
+      { line: 10, planNumber: null, accountAssignmentCategory: 'A' },
+      { line: 20, planNumber: null, accountAssignmentCategory: 'D' },
+      // Blank is the ordinary material line, and must not become the string "".
+      { line: 30, planNumber: null, accountAssignmentCategory: null },
+    ]);
+  });
+
+  it('reports a line with no invoicing plan as planNumber null, not as a blank string', async () => {
     // Most order lines have no invoicing plan; a blank INV_PLANNO is the normal
-    // case, not a missing field, and must not become the string "".
+    // case, not a missing field, and must not become the string "". The line
+    // itself is still reported — it carries the account assignment category,
+    // which is most interesting precisely where there is no plan.
     const payload = {
       ...LIVE_PO_DETAIL,
       PO_LINE_ITEMS: [
@@ -582,7 +612,11 @@ describe('zpo_grn/Detail — the live contract (invoicing plan number discovery)
       result = await driverFor().poInvoicePlanNumbers({ po: { id: 'PO-1', sapPoNumber: '4500022789' } });
     } finally { restore(); }
 
-    expect(result.data.lines).toEqual([{ line: 10, planNumber: '0000001255' }]);
+    expect(result.data.lines).toEqual([
+      { line: 10, planNumber: '0000001255', accountAssignmentCategory: null },
+      { line: 20, planNumber: null, accountAssignmentCategory: null },
+      { line: 30, planNumber: null, accountAssignmentCategory: null },
+    ]);
   });
 
   it('never calls SAP for an order that has no SAP number yet', async () => {

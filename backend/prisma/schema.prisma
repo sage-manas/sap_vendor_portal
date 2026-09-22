@@ -589,6 +589,15 @@ model PurchaseOrderItem {
   // becoming nullable: an asset line is text-only (SHORT_TEXT, no MATNR), and
   // '' is already what zpo_grn_vendor/Detail returns for a text line and what
   // sweepPurchaseOrders already stores for one.
+  // EKPO-KNTTP. What kind of purchasing line this is, in SAP's own terms:
+  // 'A' asset, 'D' service, null an ordinary stock/material line. Distinct
+  // from the asset fields below, which only a portal-raised asset PO carries —
+  // this is read back from SAP (zpo_grn/Detail's ACC_ASSIGNMNT_CAT) for *any*
+  // line, including one SAP raised itself, so an asset or service order
+  // discovered by the sweep is recognisable as one without the portal having
+  // been the thing that created it.
+  accountAssignmentCategory String?
+
   assetNumber      String?
   assetSubNumber   String?
   materialGroup    String? // MATKL

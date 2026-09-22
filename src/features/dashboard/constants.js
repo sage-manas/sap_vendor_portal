@@ -1,12 +1,7 @@
 /** Seed / initial demo data for the Dashboard feature domain. */
-export const INITIAL_CHATS = [
-  {
-    id: 'MSG-001',
-    sender: 'System',
-    message: 'Welcome to the Supplier Portal. Please go to the Onboarding tab to complete your registration.',
-    timestamp: '2026-06-02T10:00:00Z'
-  }
-];
+
+// INITIAL_CHATS was removed with the rest of the chat wiring (issue #109):
+// there is no thread view on any plane to seed.
 
 // Unknown until GET /vendors/performance answers. Every score starts null so a
 // screen shows "—" rather than a grade nobody earned.

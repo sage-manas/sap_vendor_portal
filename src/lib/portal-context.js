@@ -36,7 +36,7 @@ export function PortalProvider({ children }) {
   const shell = useShell();
   const profileHook = useProfile();
   const poHook = usePOs(profileHook.profile);
-  const paymentHook = usePayments();
+  const paymentHook = usePayments(profileHook.profile);
   const invoiceHook = useInvoices(profileHook.profile);
   const rfqHook = useRFQs(profileHook.profile);
   const dashboardHook = useDashboard(profileHook.profile);
@@ -139,12 +139,6 @@ export function PortalProvider({ children }) {
       addToast('success', `Payment cleared! UTR: ${pmt.utrCode} · Net Amount: ₹${pmt.netAmount.toLocaleString('en-IN')}`);
     });
 
-    socket.on('chat:message', (msg) => {
-      if (dashboardHook?.refreshChats) {
-        dashboardHook.refreshChats();
-      }
-    });
-
     return () => {
       closeSocket();
     };
@@ -178,7 +172,6 @@ export function PortalProvider({ children }) {
     payments: paymentHook.payments,
     sapPayments: paymentHook.sapPayments,
     tdsSummary: paymentHook.tdsSummary,
-    chats: dashboardHook.chats,
     performance: dashboardHook.performance
   };
 
@@ -347,7 +340,6 @@ export function PortalProvider({ children }) {
     if (result.success && result.po) {
       poHook.addPO(result.po);
       poHook.refreshPOs();
-      dashboardHook.addSystemMessage(`Purchase Order ${result.po.id} has been created and dispatched to the awarded vendor.`);
       addToast('success', `BAPI_PO_CREATE sync complete — RFQ ${rfqId} converted to Purchase Order ${result.po.id}.`);
     } else {
       addToast('error', result.error || `Failed to award bid and convert RFQ ${rfqId} to a Purchase Order.`);

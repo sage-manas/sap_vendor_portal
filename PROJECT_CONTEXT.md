@@ -561,11 +561,12 @@ payment in the wrong return period). It reports tax actually withheld, and leave
 reporting API. It is deliberately **not** a Form 16A: that is a statutory certificate the
 buyer issues from TRACES after filing its quarterly Form 26Q, and the portal cannot know
 whether that happened, so no row carries a filing status. The screen's "Request
-Certificate" action routes to Finance through the chat endpoint. Until Phase 8 this
+Certificate" action copies a request for the supplier to send to their buyer's
+finance team — the portal has no channel that reaches a person (issue #109). Until Phase 8 this
 registry was five **hardcoded** quarters with invented amounts and reference numbers,
 badged "Filed & Signed" against the supplier's real PAN.
 
-**Chats** (`chat.routes.js`, JWT): `GET /chats`, `POST /chats` (`chatMessageSchema`) — also used as the generic "reach a human" channel (payment disputes, Form 16A requests).
+**Chats** (`chat.routes.js`, JWT): `GET /chats`, `POST /chats` (`chatMessageSchema`). **Nothing in the application calls either one** (issue #109): there is no thread view on any plane, and `POST /chats` is structurally supplier-only — the controller requires a vendor scope and hardcodes `sender: 'Vendor'` — so no member of the buyer's staff could reply even if there were. The routes, the `ChatMessage` model, the `chat:read`/`chat:write` permissions and the `features.supplierChat` flag are kept as the foundation a real messaging feature would build on; the frontend no longer writes rows nobody can read.
 
 **Uploads** (`upload.routes.js`, JWT): `POST /uploads` (multer single `file`), `GET /uploads` (list), `GET /uploads/:id` (download), `DELETE /uploads/:id`.
 
@@ -620,7 +621,6 @@ This *is* a real multi-route App Router app. (Earlier `workflow/` docs described
 | `/pos` | `PurchaseOrdersView` | purchase-order |
 | `/invoices` | `InvoiceProcessingView` | billing |
 | `/payments` | `PaymentTrackingView` | payments |
-| `/chats` | `CommunicationsView` | dashboard |
 | `/performance` | `PerformanceView` | dashboard |
 | `/analytics` | `ReportsAnalyticsView` | dashboard |
 | `/admin` | — | **gone**: redirects to `/workspace` (Phase 5 promoted it, ADR-0024) |
@@ -643,9 +643,9 @@ Composes all feature hooks and exposes them plus cross-cutting handlers via `use
 - Instantiates: `useProfile`, `usePOs(profile)`, `usePayments`, `useInvoices(profile, …)`, `useRFQs(profile)`, `useDashboard(profile, clearSapLogs)`.
 - **Toasts + notifications:** `addToast(type, message)` pushes an auto-dismissing toast **and** appends to a capped (30) `notifications` history (for the Header bell). `<ToastNotification>` is mounted here app-wide.
 - **Auth gating:** redirects to `/sign-in` when no `jwt_token` (except on auth pages); multi-tab logout via `storage` event; `logout()` clears localStorage + redirects.
-- **Socket wiring:** on `profile.vendorId`, `initSocket(token, vendorId)` and subscribes to `po:new`, `grn:received`, `payment:cleared`, `chat:message`, `log:new` — each refreshes the relevant hook, fires a toast, and writes SAP logs.
+- **Socket wiring:** on `profile.vendorId`, `initSocket(token, vendorId)` and subscribes to `po:new`, `grn:received`, `payment:cleared`, `log:new` — each refreshes the relevant hook, fires a toast, and writes SAP logs.
 - **Cross-cutting action handlers** (async, toast success/error from real backend results): `handleCreateRFQ`, `handleBidSubmit`, `handleReissueRFQ`, `handleCancelRFQ`, `awardVendorBidWrapper`, `handleAsnSubmit`, `handleInvoiceSubmit`, `handleCompanySubmit`, `handleSendMessage`, `handleResetDatabase` (dev-only; only clears localStorage + reloads — never hit a real DB despite the label).
-- A legacy `state` object (`{profile, rfqs, pos, asns, grns, invoices, payments, chats, logs, performance}`) is assembled for component back-compat.
+- A legacy `state` object (`{profile, rfqs, pos, asns, grns, invoices, payments, logs, performance}`) is assembled for component back-compat.
 
 ### 8.4 Feature-sliced structure (`src/features/<domain>/`)
 Each domain follows **`components/` + `hooks/` + `services/`** (+ sometimes `constants.js`, `validation.js`):
@@ -656,8 +656,8 @@ Each domain follows **`components/` + `hooks/` + `services/`** (+ sometimes `con
 | `rfq/` | `RfqView` (create/bid/evaluate/award, largest component), `useRFQs`, `rfqService`, `constants.js` |
 | `purchase-order/` | `PurchaseOrdersView`, `usePOs`, `poService` |
 | `billing/` | `InvoiceProcessingView`, `InvoicesView`, `useInvoices`, `invoiceService` |
-| `payments/` | `PaymentTrackingView` (ledger CSV export, TDS registry, dispute→chat, Form-16A request→chat), `usePayments`, `paymentService` |
-| `dashboard/` | `DashboardView`, `CommunicationsView`, `PerformanceView`, `ReportsAnalyticsView`, `useDashboard`, `dashboardService`, `constants.js` (INITIAL_CHATS / INITIAL_PERFORMANCE seeds) |
+| `payments/` | `PaymentTrackingView` (ledger CSV export, TDS registry, dispute and Form-16A request → copied to clipboard for the supplier to send on), `usePayments`, `paymentService` |
+| `dashboard/` | `DashboardView`, `PerformanceView`, `ReportsAnalyticsView`, `useDashboard`, `dashboardService`, `constants.js` (INITIAL_PERFORMANCE seed) |
 
 **Convention:** `service` = thin `apiClient` wrappers per endpoint; `hook` = React state + calls the service, returns `{success, error, ...}` shaped results (errors propagate, not swallowed); `View` = presentation, reads from `usePortal()`/props.
 

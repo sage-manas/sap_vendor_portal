@@ -110,6 +110,13 @@ export const apiClient = {
 
     const disposition = response.headers.get('Content-Disposition') || '';
     const match = disposition.match(/filename="([^"]+)"/);
+    // A missing header used to fail silently into an unnamed 'export' file —
+    // exactly what CORS not exposing Content-Disposition did to every download
+    // in the app (issue #110). Loud here so that regressing the CORS config
+    // shows up the moment someone downloads something, not months later.
+    if (!match) {
+      console.warn(`[apiClient.getBlob] No Content-Disposition filename for ${endpoint} — saving as 'export'.`);
+    }
     return { blob: await response.blob(), filename: match ? match[1] : 'export' };
   }
 };

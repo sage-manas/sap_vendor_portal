@@ -5,14 +5,6 @@ export const dashboardService = {
     return apiClient.get('/vendors/performance').catch(() => null);
   },
 
-  async getChats() {
-    return apiClient.get('/chats').catch(() => null);
-  },
-
-  async sendChatMessage(messageData) {
-    return apiClient.post('/chats', messageData).catch(() => null);
-  },
-
   async getDashboardSummary() {
     return apiClient.get('/dashboard/summary').catch(() => null);
   }

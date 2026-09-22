@@ -387,12 +387,20 @@ const createMockDriver = ({ config = {} } = {}) => {
     // does not already know about, which is precisely the case the real
     // driver's zpo_grn/Detail read exists to cover. Nothing to be done about
     // that here without the simulator growing records of its own.
+    // Answers for every line, matching the real driver: `planNumber` is null on
+    // an unplanned line rather than the line being absent, and the account
+    // assignment category is echoed back from the line the caller passed in —
+    // the simulator holds no purchasing master of its own to read it from.
     poInvoicePlanNumbers: async ({ po }) => ({
       data: {
         poNumber: mockSapPoNumber(po || {}),
-        lines: (po?.items || [])
-          .filter((item) => item.invoicePlan?.enabled)
-          .map((item) => ({ line: item.line, planNumber: item.invoicePlan.planNumber || mockPlanNumber(po, item) })),
+        lines: (po?.items || []).map((item) => ({
+          line: item.line,
+          planNumber: item.invoicePlan?.enabled
+            ? (item.invoicePlan.planNumber || mockPlanNumber(po, item))
+            : null,
+          accountAssignmentCategory: item.accountAssignmentCategory || null,
+        })),
       },
     }),
 

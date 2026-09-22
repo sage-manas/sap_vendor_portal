@@ -102,6 +102,12 @@ async function upsertOrder({ clientId, vendor, order, localPos }) {
     // PO can ship from more than one plant. `null`, honestly, when SAP
     // didn't say — never a demo-value guess.
     plant: item.plant || null,
+    // EKPO-KNTTP: 'A' asset, 'D' service, 'K' cost centre, null an ordinary
+    // material line. Recorded so an asset or service order SAP raised itself
+    // is recognisable as one — the asset fields are only ever set by the
+    // portal's own createAssetPo, so without this a discovered asset PO would
+    // be indistinguishable from a stock order.
+    accountAssignmentCategory: item.accountAssignmentCategory || null,
   }));
   const year = new Date().getFullYear();
   const id = await nextSequentialId('purchaseOrder', `PO-${year}-`, 4);

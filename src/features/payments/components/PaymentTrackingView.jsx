@@ -284,34 +284,44 @@ export default function PaymentTrackingView({ state }) {
     window.URL.revokeObjectURL(url);
   };
 
-  // No dedicated dispute/query backend endpoint exists yet, so route the inquiry through
-  // the same chat endpoint the (now-removed) Communications tab used to send —
-  // it still reaches a buyer officer, there's just no thread view for it in the portal.
-  const handleRaiseInquiry = async (payment) => {
-    const message = `Raising a query regarding settlement UTR: ${payment.utrCode || payment.id}, Invoice: ${invoiceLabelFor(payment) || 'N/A'}. Please review and advise.`;
+  // These two used to POST to /api/chats and tell the supplier a buyer officer
+  // would respond. Nothing in this application renders a ChatMessage on either
+  // plane, and `POST /api/chats` is structurally supplier-only — `sender` is
+  // hardcoded to 'Vendor' and the controller requires a vendor scope — so no
+  // member of the buyer's staff could have replied even if a thread view
+  // existed. The message went to a table nobody reads (issue #109).
+  //
+  // Rather than delete the affordance, it now does the part the portal can
+  // honestly do: assemble the reference the supplier needs to quote and put it
+  // on the clipboard. Routing it is the supplier's own email or phone call,
+  // and the copy says so instead of promising a reply.
+  const copyForBuyer = async (text, what) => {
     try {
-      await portal.dashboardHook.sendChatMessage(message);
-      portal.addToast('success', 'Your inquiry has been sent to your buyer. A buyer officer will respond shortly.');
+      await navigator.clipboard.writeText(text);
+      portal.addToast('success', `${what} copied. The portal cannot message your buyer — send this to their accounts team.`);
     } catch (err) {
-      portal.addToast('error', 'Failed to send inquiry. Please try again.');
+      // Clipboard is unavailable over plain HTTP and in some browsers. Showing
+      // the reference is still better than silently doing nothing.
+      portal.addToast('info', `${what}: ${text}`);
     }
   };
 
+  const handleRaiseInquiry = (payment) =>
+    copyForBuyer(
+      `Query regarding settlement UTR ${payment.utrCode || payment.id}, invoice ${invoiceLabelFor(payment) || 'N/A'}. Please review and advise.`,
+      'Query reference',
+    );
+
   // Form 16A is issued by the buyer from TRACES after filing its quarterly
   // return — the portal cannot generate one, and the registry below is a
-  // deduction ledger rather than a filing record. So the request goes through
-  // the same chat endpoint to Finance instead of faking a download.
-  const handleRequestForm16A = async (row) => {
-    const message = `Requesting Form 16A TDS certificate — ${row.quarterLabel}, FY ${row.fiscalYearLabel}`
-      + `${row.deducteePan ? `, PAN: ${row.deducteePan}` : ''}`
-      + `, TDS deducted ₹${Number(row.taxWithheld).toLocaleString('en-IN')} across ${row.paymentCount} payment(s).`;
-    try {
-      await portal.dashboardHook.sendChatMessage(message);
-      portal.addToast('info', 'Form 16A certificates are issued by Finance and are not available for direct download yet. Your request has been sent to your buyer.');
-    } catch (err) {
-      portal.addToast('error', 'Failed to send certificate request. Please try again.');
-    }
-  };
+  // deduction ledger rather than a filing record.
+  const handleRequestForm16A = (row) =>
+    copyForBuyer(
+      `Form 16A request — ${row.quarterLabel}, FY ${row.fiscalYearLabel}`
+      + `${row.deducteePan ? `, PAN ${row.deducteePan}` : ''}`
+      + `, TDS deducted ₹${Number(row.taxWithheld).toLocaleString('en-IN')} across ${row.paymentCount} payment(s).`,
+      'Certificate request',
+    );
 
   if (isLoading) {
     return (
@@ -517,7 +527,7 @@ export default function PaymentTrackingView({ state }) {
                                 variant="outline"
                                 size="xs"
                                 onClick={() => handleRaiseInquiry(payment)}
-                                title="Raise query / dispute"
+                                title="Copy a query reference to send to your buyer's accounts team"
                               >
                                 Query
                               </Button>
@@ -712,9 +722,9 @@ export default function PaymentTrackingView({ state }) {
                             variant="default"
                             size="xs"
                             onClick={() => handleRequestForm16A(row)}
-                            title="Request the Form 16A certificate from Finance"
+                            title="Copy a Form 16A request to send to your buyer's finance team"
                           >
-                            Request Certificate
+                            Copy Request
                           </Button>
                         </td>
                       </tr>
