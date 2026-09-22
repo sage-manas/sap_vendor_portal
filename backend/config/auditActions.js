@@ -51,6 +51,13 @@ const AUDIT_ACTIONS = {
   SAP_CONNECTION_TESTED: 'sap.connection_tested',
   SAP_CONNECTION_PROMOTED: 'sap.connection_promoted',
 
+  // Purchase orders (tenant plane). Only one action, because only one thing a
+  // user does to a purchase order originates a document in SAP rather than
+  // recording something SAP already decided (ADR-0042). The asset number it
+  // carries in `meta` is operator-entered and unverifiable by this application,
+  // so this entry is the only record of who chose it.
+  PO_ASSET_CREATE: 'po.asset_created',
+
   // SAP job runtime (Phase 1 of docs/04-sap-runtime-engineering-plan.md)
   JOB_RETRIED: 'job.retried',
 };

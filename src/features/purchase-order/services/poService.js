@@ -14,6 +14,19 @@ export const poService = {
     return apiClient.put(`/pos/${poId}/acknowledge`, {});
   },
 
+  /**
+   * Raise an asset purchase order (account assignment A) in SAP.
+   *
+   * The only call in this application that creates a document in SAP rather
+   * than reading or annotating one SAP already owns — see DECISIONS.md
+   * ADR-0042. Deliberately not `.catch(() => null)` like the reads above: a
+   * failure here has to reach the caller so the operator learns the order was
+   * not created, instead of a silent null that looks like an empty result.
+   */
+  async createAssetPo(payload) {
+    return apiClient.post('/pos/asset', payload);
+  },
+
   async submitASN(poId, asnData) {
     return apiClient.post(`/pos/${poId}/asn`, asnData);
   },

@@ -113,6 +113,32 @@ const SAP_METHODS = {
   // about an order, and it is a change to a document SAP already owns.
   poAcknowledge:     { transaction: 'PO_ACKNOWLEDGE', fields: { 'po.sapPoNumber': 'EBELN' } },
 
+  // ...with exactly one exception, added deliberately and scoped narrowly:
+  // poAssetCreate creates an **asset** purchase order (account assignment
+  // category A) in SAP through the confirmed POST /zasset_po/create, and SAP
+  // answers with the real document number.
+  //
+  // This reverses half of a rule, not the whole of it (ADR-0042). The rule was
+  // written against `poProvision`, which *fabricated* a number — `'4500' + six
+  // random digits` — and showed it to a supplier as though SAP had issued it.
+  // A real creation returning a real number is the cure for that, not a
+  // relapse. What the rule still forbids, and what this does not touch: the
+  // portal does not post MIRO (AP's transaction against the buyer's own
+  // books), does not post goods receipts, and does not create ordinary
+  // material purchase orders — ME21N for a material order is still SAP's own,
+  // and the export bridge is still how an awarded material order gets there.
+  //
+  // Capex procurement is also the one place where the portal is the system of
+  // record for something SAP has no other way to learn: there is no RFQ, no
+  // award and no supplier bid behind an asset PO, so there is no ledger for a
+  // discovery sweep to correlate it against later.
+  // `createsDocument` marks the one property that makes this method different
+  // from every other write on the contract: poAcknowledge, quotationUpdatePrice
+  // and poInvoicePlanUpdate all *change* a document SAP already owns and can be
+  // run twice harmlessly, but this one brings a new document into existence.
+  // The conformance runner reads the flag and skips it — see runner.js.
+  poAssetCreate:     { transaction: 'PO_ASSET_CREATE', createsDocument: true, fields: { 'vendor.sapVendorCode': 'LIFNR' } },
+
   // Invoicing plans (ME22N → item → Invoicing Plan; tables FPLA/FPLT).
   //
   // A PO line item can carry an invoicing plan instead of being invoiced
@@ -128,12 +154,25 @@ const SAP_METHODS = {
   //                          SAP owns, same category as poAcknowledge, so it is
   //                          logged as a business transaction.
   //
-  // poInvoicePlanDisplay is confirmed against the live sandbox
-  // (GET /zinv_milestone/plan, keyed on the FPLA plan number rather than the
-  // PO — see the note on it in s4odata.driver.js for what that changes).
-  // poInvoicePlanUpdate has not been run against a live system yet; its path
-  // and field names in s4odata.driver.js remain a provisional guess.
+  //   poInvoicePlanNumbers — which plan (FPLA-FPLNR) SAP holds against each
+  //                          line of one order. Read-only and unlogged. It
+  //                          exists because poInvoicePlanDisplay is keyed on a
+  //                          plan number, so something has to say what the plan
+  //                          numbers *are*: this is the only read that
+  //                          volunteers one the portal did not already assign,
+  //                          and it is what makes a plan configured directly in
+  //                          ME22N discoverable at all.
+  //
+  // All three are confirmed against the live sandbox:
+  // GET /zinv_milestone/plan (keyed on the FPLA plan number rather than the PO —
+  // see the note on it in s4odata.driver.js for what that changes),
+  // GET /zpo_grn/Detail (keyed on the PO number) and POST /zinv_plan/update.
+  // The update's own customizing values (plan category/type, date category,
+  // billing rule, block codes) are connection config rather than constants, and
+  // the periodic plan type is deliberately left unset — only partial/milestone
+  // plans have been exercised live.
   poInvoicePlanDisplay: { transaction: null, logged: false, fields: { 'po.sapPoNumber': 'EBELN' } },
+  poInvoicePlanNumbers: { transaction: null, logged: false, fields: { 'po.sapPoNumber': 'EBELN' } },
   poInvoicePlanUpdate:  { transaction: 'PO_INVOICE_PLAN_UPDATE', fields: { 'po.sapPoNumber': 'EBELN' } },
 
   // Delivery and goods receipt.

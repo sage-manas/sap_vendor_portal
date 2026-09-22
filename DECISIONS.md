@@ -5,6 +5,128 @@ Each entry: the call, why, and what it costs.
 
 ---
 
+## ADR-0042 — Asset PO creation is a narrow, confirmed exception to "the portal creates no purchase orders in SAP"
+
+**SAP integration · 2026-09-17 · Accepted**
+
+**Context.** `docs/04-sap-runtime-engineering-plan.md` §B3 listed portal-side PO creation
+under **Things to refuse**: *"you removed `POST /pos/simulate` for good reason. Do not
+reintroduce it."* A confirmed live endpoint then arrived — `POST /zasset_po/create`, which
+raises an **asset** purchase order (account assignment category A) and answers with
+`{ TYPE, MESSAGE, PO_NUMBER: '4500022807', RESULTS: [...] }`.
+
+Taking it at face value would contradict a written decision. Refusing it on the letter of
+that decision would be equally wrong, because the decision's *reason* does not apply.
+
+**Decision.** Allow it, scoped to asset POs only, and amend the refuse-list rather than
+quietly working around it.
+
+The removed `poProvision` was a **fabricator**: it invented `'4500' + six random digits`, a
+number indistinguishable from a real SAP order number, and showed it to suppliers. That is
+what the rule was written against. A call where SAP creates the document and reports its own
+number is the cure for that failure, not a repetition of it — the driver throws if a success
+response arrives without a `PO_NUMBER`, precisely so the fabrication cannot creep back in.
+
+Capex is also the one procurement path where read-only leaves the portal *wrong*: an asset PO
+has no RFQ, no award and no supplier bid behind it, so unlike a material order there is no
+SAP-side ledger for a discovery sweep to correlate against later.
+
+Implementation, in the order that matters:
+
+- **SAP first, then persist.** `createAssetPo` calls SAP and writes locally only on success,
+  storing the number SAP returned with `sapSyncState: 'synced'`. There is no local-first path
+  and no fallback. A driver that cannot do it (the ECC skeleton) throws and nothing is saved.
+- **`sapSyncState: 'synced'`, not `'pending'`.** The order *is* SAP's from creation, and this
+  is also what stops `sweepPurchaseOrders` creating a duplicate local record when it later
+  rediscovers the order (it matches on `sapPoNumber` and returns early on synced).
+- **The asset number is operator-entered and unverifiable.** The portal holds no asset master.
+  `assetNumber`/`assetSubNumber` are validated for *shape* only (ANLN1/ANLN2, digits) and
+  passed through verbatim; the driver refuses to default either. The audit entry
+  (`po.asset_created`) records who chose them, because that is the only accountability
+  available — a well-formed wrong number posts capex to the wrong fixed asset and nothing in
+  this system can detect it. The UI says so in as many words.
+- **Behind `po:manage`**, which no supplier role holds: a supplier must never originate an
+  order against themselves.
+- **Not conformance-testable.** The contract marks it `createsDocument: true` and the
+  conformance runner reports it `skipped` with a reason. Running it would consume a real
+  purchase order number and leave an orphan capex order on every run. `skipped` is a third
+  status added for this: `passed` would be a lie and `failed` would put a red mark against a
+  working driver, in the one report an operator reads to decide whether a sandbox is wired up.
+
+**Consequences.** The portal can raise capex orders end to end, and they enter the normal
+ASN → GRN → invoice → payment chain with a real `sapPoNumber` from the start — which
+portal-awarded material orders still do not (§5.6). Costs:
+
+1. **A genuinely irreversible action now exists in the UI.** No draft, no undo; reversing is an
+   ME22N/ME23N job on SAP's side. Mitigated by a warning on the form, not by a confirmation
+   dialog — the decision was that an accurate description beats a modal people click through.
+2. **The asset-number gap is real and unclosed.** Closing it needs an asset-master read
+   (AS03-equivalent) that does not exist yet; with one, this becomes a picker and the
+   validator can stop guessing. Worth asking ABAP for.
+3. **The precedent is narrow by construction.** A general `zpo_create` does *not* inherit this
+   exception — the export bridge already covers material orders, so that case would have to be
+   argued on its own merits.
+4. `zasset_po/create` is a fourteenth unauthenticated Z endpoint, and the **third write** —
+   see ADR-0040, still open.
+
+---
+
+## ADR-0041 — The invoicing plan write is the confirmed contract, and plan numbers are discovered rather than assumed
+
+**SAP integration · 2026-09-17 · Accepted**
+
+**Context.** Milestone invoicing was built end to end — schema (`InvoicePlan`/`InvoicePlanLine`),
+arithmetic (`services/invoicePlan.service.js`), API, and the buyer-facing panel — against a
+*read* endpoint confirmed live (`zinv_milestone/plan`) and a *write* endpoint that was a
+guess. `s4odata.driver.js` posted a nested `{header, dates[]}` document to
+`/zpo_invplan/PLAN_UPD`, a path that does not exist, so `configureInvoicePlan` threw for
+every tenant on the `s4_odata` driver; only the mock made the feature appear to work. Two
+further contracts have now been captured from the sandbox: the real update
+(`POST /zinv_plan/update`) and a single-order detail read (`GET /zpo_grn/Detail`).
+
+**Decision.** Three changes, each pinned by a live-payload test in
+`tests/sap-read-contracts.test.js`:
+
+- **`poInvoicePlanUpdate` speaks the real contract.** It is flat and bulk — every FPLT date
+  is its own row in one `DATA` array, repeating the PO number, item and header customizing —
+  success is `TYPE`, not `STATUS`, and the **dates are `MM/DD/YYYY` while the read endpoint
+  returns `YYYYMMDD`**. That asymmetry sits inside one feature, so the two directions get two
+  visibly different helpers (`isoToSapDay` / `isoToSapSlashDay`) rather than one with a flag.
+  Because the endpoint is bulk, the per-PO `RESULTS` row is checked as well as the envelope:
+  a response that reports `S` overall while rejecting this order would otherwise be recorded
+  as a clean push.
+- **Plan numbers are discovered, via a new `poInvoicePlanNumbers`.** `zinv_milestone/plan` is
+  keyed on the FPLA plan number and has no "list the plans on this order" form, so the portal
+  could only read back a plan whose number it had assigned itself — a plan configured directly
+  in ME22N was invisible to Sync no matter how often a buyer pressed it, and the update
+  response reports no plan number at all. `zpo_grn/Detail` carries `INV_PLANNO` per line item,
+  which is the only read where SAP volunteers one. `syncInvoicePlan` now asks it first, and
+  `poInvoicePlanUpdate` reads the assigned number back through it after a successful push.
+- **The plan's customizing is tenant config, not constants.** `CATEGORY`, `INV_PLAN_TYPE`,
+  `DATE_CATG`, `DATE_DESC`, `BILL_RULE` and the two block codes are IMG values that differ
+  per SAP client. The observed sandbox values are the defaults; each is a connection field.
+
+**Consequences.** Milestone invoicing works against a real SAP for the first time, and a plan
+SAP owns is now adoptable. Three costs, taken deliberately:
+
+1. **A periodic plan is refused until the tenant names its SAP plan type.** Only the
+   partial/milestone type (`M2`) has been observed live. Pushing a periodic schedule under
+   `M2` would file it in SAP as something it is not, so `invoicePlanTypePeriodic` has no
+   default and the error names the setting. This is a visible refusal rather than a silent
+   misfiling, consistent with §5.6's "no simulation fallback" rule.
+2. **The blocked-date block code is still unverified.** No blocked row has been seen live.
+   `'01'` (SAP's standard FAKSP block) is the default and a config field, flagged inline, so
+   FI can correct it without a deploy. The unblocked code is `'99'` — this sandbox's own
+   spelling of "not blocked", already established by the read side.
+3. **A failed read-back does not fail the push.** Once the POST succeeds the plan *is* in SAP;
+   losing that over the follow-up discovery read would tell a buyer that a plan SAP accepted
+   was rejected. The plan number stays null and the next sync picks it up.
+
+Still unaddressed: `zpo_grn/Detail` is an eleventh custom Z service on the same
+unauthenticated footing as the rest — see ADR-0040.
+
+---
+
 ## ADR-0040 — The Z-endpoint authentication gap is disclosed and gated, not silently fixed
 
 **Risk acknowledgment · 2026-09-16 · Accepted**

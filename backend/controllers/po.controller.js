@@ -2,7 +2,11 @@ const { prisma } = require('../db/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { getSapAdapterForClient } = require('../sap');
-const { EVENTS, emitToVendor } = require('../utils/socketEmitter');
+const { EVENTS, emitToVendor, emitToProcurement } = require('../utils/socketEmitter');
+const { recordAudit } = require('../utils/audit');
+const { AUDIT_ACTIONS } = require('../config/auditActions');
+const { nextSequentialId } = require('../utils/nextSequentialId');
+const { lineNetValue } = require('../utils/lineValue');
 const { TtlCache } = require('../utils/ttlCache');
 
 const { requireVendorScope, withVendorScope, scopedWhere } = require('../utils/requestScope');
@@ -301,6 +305,160 @@ const getASNs = asyncHandler(async (req, res, next) => {
   res.json(asns);
 });
 
+// --- Asset purchase orders (the one document the portal creates in SAP) ----
+//
+// See ADR-0042 and sap/contract.js's note on poAssetCreate for why this is a
+// deliberate, narrow exception to "the portal creates no purchase orders in
+// SAP" rather than a reversal of it. Two things about the implementation are
+// load-bearing:
+//
+// 1. **SAP first, then persist.** The order is created in SAP, and only the
+//    number SAP returns is written locally. There is no local-first path and
+//    no fallback: if SAP refuses, nothing is saved. The alternative — recording
+//    the order and reconciling later — is exactly the "order the portal thinks
+//    exists but SAP has never heard of" state §5.6 spent a phase removing.
+//
+// 2. **The asset number is the operator's, not ours.** The portal holds no
+//    asset master, so nothing here can tell a valid ANLN1 from a typo that
+//    happens to be twelve digits. It is validated for *shape* only and passed
+//    through verbatim; the audit log records who submitted it, because that is
+//    the only accountability available.
+const createAssetPo = asyncHandler(async (req, res, next) => {
+  const body = req.body;
+
+  // The vendor has to exist here, be approved, and carry an SAP vendor code.
+  // SAP will reject an unknown LIFNR anyway, but failing here means the
+  // supplier's own name is in the error rather than an SAP message quoting a
+  // code the operator never typed.
+  const vendor = await prisma.vendor.findFirst({ where: { vendorId: body.vendorId } });
+  if (!vendor) {
+    return next(ApiError.notFound(`Vendor ${body.vendorId} not found`));
+  }
+  if (vendor.status !== 'Approved') {
+    return next(ApiError.badRequest(`${vendor.companyName} is ${vendor.status}, not Approved — an asset purchase order can only be raised against an approved supplier`));
+  }
+  if (!vendor.sapVendorCode) {
+    return next(ApiError.badRequest(`${vendor.companyName} has no SAP vendor master yet — approve the supplier so XK01 runs before raising an order against them`));
+  }
+
+  const order = {
+    companyCode: body.companyCode,
+    purchasingOrg: body.purchasingOrg,
+    purchasingGroup: body.purchasingGroup,
+    docType: body.docType,
+    paymentTerms: body.paymentTerms,
+    currency: body.currency,
+    docDate: body.docDate || new Date().toISOString(),
+  };
+
+  // netValue divides by priceUnit (PEINH) — SAP's NETPR is the price for that
+  // many units, not for one. This used to be `quantity * unitPrice`, which
+  // overstated any line with a price unit other than 1 by exactly that factor
+  // (issue #108). The arithmetic is shared with the form that previews it.
+  const items = body.items.map((item, index) => ({
+    ...item,
+    line: (index + 1) * 10,
+    netValue: lineNetValue(item),
+  }));
+
+  // SAP first. A driver that cannot do this (the ECC skeleton) throws
+  // not_implemented and nothing is written, which is the correct outcome —
+  // better no order than a local one claiming an SAP document that was never
+  // created.
+  const sap = await getSapAdapterForClient(req.clientId);
+  const result = await sap.poAssetCreate({ vendor, order, items });
+
+  // nextSequentialId hands out numbers from an atomic per-tenant counter, not a
+  // scan of existing rows, so this needs no createWithUniqueId retry — same as
+  // awardRfq (rfq.controller.js), which allocates PO ids the same way.
+  const poId = await nextSequentialId('purchaseOrder', `PO-${new Date().getFullYear()}-`, 4);
+  const po = await prisma.purchaseOrder.create({
+      data: {
+        id: poId,
+        // The real number SAP issued — never generated here. This is the whole
+        // difference between this method and the poProvision it is allowed to
+        // exist alongside.
+        sapPoNumber: result.sapPoNumber,
+        sapDocNumber: result.sapPoNumber,
+        // Not 'pending': unlike an awarded order waiting to be correlated
+        // against SAP's ledger, this order IS SAP's, from the moment it was
+        // created. sweepPurchaseOrders skips a synced order it rediscovers
+        // (it matches on sapPoNumber), so this also stops the sweep creating
+        // a duplicate local record for it later.
+        sapSyncState: 'synced',
+        sapSyncedAt: new Date(),
+        vendorId: vendor.vendorId,
+        vendorPk: vendor.pk,
+        buyerName: req.account?.name || req.account?.email || null,
+        companyCode: order.companyCode,
+        purchasingOrg: order.purchasingOrg,
+        purchasingGroup: order.purchasingGroup,
+        docType: order.docType || 'NB',
+        paymentTerms: order.paymentTerms || null,
+        currency: order.currency,
+        deliveryAddress: body.deliveryAddress || null,
+        status: 'Open',
+        items: {
+          create: items.map((item) => ({
+            // Tenant-stamped explicitly: a nested create does not re-enter the
+            // tenant extension (§5.5).
+            clientId: req.clientId,
+            line: item.line,
+            // An asset line is text-only — SAP took SHORT_TEXT and no MATNR.
+            // '' rather than null keeps it identical to what
+            // zpo_grn_vendor/Detail returns for a text line, and to what
+            // sweepPurchaseOrders already stores for one.
+            materialCode: '',
+            description: item.description,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            netValue: item.netValue,
+            uom: item.uom,
+            plant: item.plant,
+            storageLocation: item.storageLocation || null,
+            materialGroup: item.materialGroup || null,
+            taxCode: item.taxCode || null,
+            assetNumber: item.assetNumber,
+            assetSubNumber: item.assetSubNumber,
+            // What this order *is*, in SAP's terms. zasset_po/create posts with
+            // account assignment A by definition, so the category is known here
+            // without reading it back — and recording it now means an asset PO
+            // is identifiable the same way whether the portal raised it or the
+            // sweep discovered it (jobs/handlers/sweepPurchaseOrders.js).
+            accountAssignmentCategory: 'A',
+            // Stored, not just forwarded to SAP: without it netValue cannot be
+            // re-derived or reconciled against SAP's own copy (issue #108).
+            priceUnit: item.priceUnit,
+          })),
+        },
+      },
+      include: { items: { orderBy: { line: 'asc' } } },
+  });
+
+  const io = req.app.get('io');
+  emitToProcurement(io, req.clientId, EVENTS.PO_NEW, { id: po.id, sapPoNumber: po.sapPoNumber, vendorId: po.vendorId });
+  emitToVendor(io, req.clientId, po.vendorId, EVENTS.PO_NEW, { id: po.id, sapPoNumber: po.sapPoNumber });
+
+  await recordAudit({
+    req,
+    action: AUDIT_ACTIONS.PO_ASSET_CREATE,
+    target: { type: 'PurchaseOrder', id: po.id, label: po.sapPoNumber },
+    meta: {
+      sapPoNumber: po.sapPoNumber,
+      vendorId: po.vendorId,
+      companyCode: po.companyCode,
+      // Recorded because nothing else can verify it — see this section's header.
+      assets: items.map((item) => ({ line: item.line, assetNumber: item.assetNumber, assetSubNumber: item.assetSubNumber })),
+      totalValue: items.reduce((sum, item) => sum + item.netValue, 0),
+    },
+  });
+
+  res.status(201).json({
+    message: `Asset purchase order ${result.sapPoNumber} created in SAP`,
+    po: formatPo(po),
+  });
+});
+
 // --- Invoicing plans -------------------------------------------------------
 //
 // A PO line item with an invoicing plan is not invoiced against goods receipts
@@ -451,7 +609,34 @@ const syncInvoicePlan = asyncHandler(async (req, res, next) => {
   }
 
   const sap = await getSapAdapterForClient(req.clientId);
-  const { plans = [] } = await sap.poInvoicePlanDisplay({ po: formatPo(po) });
+  const formattedPo = formatPo(po);
+
+  // poInvoicePlanDisplay reads one FPLA plan number at a time and can only ask
+  // about lines that already carry one, so on its own a sync could never find a
+  // plan the portal had not written itself — a plan configured directly in
+  // ME22N stayed invisible no matter how many times a buyer pressed Sync. Ask
+  // the order which plans SAP holds first, and the display read has something to
+  // ask about.
+  //
+  // Degrading quietly is deliberate: a driver without this read (the ECC
+  // skeleton throws not_implemented) still syncs exactly as well as it did
+  // before, which is to say for plans the portal already knows.
+  try {
+    const { lines = [] } = await sap.poInvoicePlanNumbers({ po: formattedPo });
+    for (const { line, planNumber } of lines) {
+      // This read now answers for every line, not only planned ones (it also
+      // carries the account assignment category), so an unplanned line has to
+      // be skipped here rather than by the driver.
+      if (!planNumber) continue;
+      const item = (formattedPo.items || []).find((candidate) => Number(candidate.line) === Number(line));
+      if (!item || item.invoicePlan?.planNumber) continue;
+      item.invoicePlan = { ...(item.invoicePlan || {}), enabled: true, planNumber };
+    }
+  } catch (error) {
+    req.log?.warn?.({ err: error, poId: po.id }, 'Invoicing plan number discovery unavailable; syncing known plans only');
+  }
+
+  const { plans = [] } = await sap.poInvoicePlanDisplay({ po: formattedPo });
 
   const adopted = [];
   const adoptedItems = [];
@@ -562,6 +747,7 @@ module.exports = {
   getASNForPO,
   getASNs,
   getSapPoStatus,
+  createAssetPo,
   getInvoicePlan,
   configureInvoicePlan,
   removeInvoicePlan,

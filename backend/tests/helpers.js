@@ -62,6 +62,36 @@ const registerVendor = async (app, overrides = {}, { clientSlug = 'legacy', onbo
   return { token: res.body.token, vendor: res.body.vendor, payload };
 };
 
+// What VENDOR_CR needs that sign-up never asks for: registerSchema collects
+// identity, address and bank details only, and the registration form supplies
+// the rest before submitting. submitRegistration refuses an incomplete
+// profile (SAP answers a bare "Vendor Creation Failed" otherwise), so a test
+// that needs a *submitted* vendor fills these first — through the real API,
+// which is the only thing that makes the refusal meaningful.
+const VENDOR_CREATE_FIELDS = {
+  tradeName: 'Acme',
+  region: '13',
+  country: 'IN',
+  paymentTerms: '0001',
+  paymentMethod: 'T',
+  currency: 'INR',
+  incoterms1: 'FOB',
+  // SAP wants Incoterms part 2 once part 1 is set — the omission that used to
+  // fail at approval instead of here.
+  incoterms2: 'Pune',
+};
+
+const completeProfile = async (app, token, overrides = {}) => {
+  const res = await request(app)
+    .put('/api/vendors/profile')
+    .set('Authorization', `Bearer ${token}`)
+    .send({ ...VENDOR_CREATE_FIELDS, ...overrides });
+  if (res.status !== 200) {
+    throw new Error(`completeProfile failed: ${JSON.stringify(res.body)}`);
+  }
+  return res.body;
+};
+
 const signTokenFor = (account) => signToken(account);
 
 // Tenant staff live in the User table (ADR-0007) and are created by
@@ -139,6 +169,8 @@ const runDueJobs = (...args) => require('../jobs/worker').tick(...args);
 module.exports = {
   baseVendor,
   registerVendor,
+  completeProfile,
+  VENDOR_CREATE_FIELDS,
   onboardVendor,
   createTenantUser,
   createAdminUser,

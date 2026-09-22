@@ -985,8 +985,29 @@ Requests that will arrive and should be declined, with the reason:
   behalf puts the supplier inside the buyer's ledger and skips the AP review the
   `finance` role exists for. This is already documented in `contract.js` and the
   reasoning is sound.
-- **Portal-side PO creation in SAP** — you removed `POST /pos/simulate` for good
-  reason. Do not reintroduce it.
+- **Portal-side creation of *material* POs in SAP** — you removed
+  `POST /pos/simulate` for good reason. Do not reintroduce it. ME21N for a
+  material order is SAP's own transaction, and an awarded order reaches a
+  buyer's MM team through Phase 5's export bridge.
+
+  **Amended 2026-09-17 (ADR-0042).** This entry used to read "Portal-side PO
+  creation in SAP … do not reintroduce it", full stop, and one narrow case has
+  since been allowed through: `poAssetCreate` (`POST /zasset_po/create`,
+  confirmed live) raises an **asset** PO — account assignment category A — and
+  SAP returns the real document number.
+
+  Why that is not a relapse. The rule was written against `poProvision`, whose
+  sin was *fabrication*: it invented `'4500' + six random digits` and showed a
+  supplier a number SAP had never issued. A call where SAP creates the document
+  and tells us its number is the cure for that, not a repeat of it. Capex is
+  also the one procurement path with no RFQ, no award and no supplier bid
+  behind it, so there is no SAP-side ledger for a discovery sweep to correlate
+  against later — read-only is not an option that leaves the portal correct.
+
+  What is still refused, unchanged: material PO creation (above), MIRO posting
+  (below), and goods-receipt posting. If a general `zpo_create` appears, it does
+  **not** inherit this exception — that is a separate decision, and the argument
+  for it is weaker, because the export bridge already covers the need.
 
 ---
 
