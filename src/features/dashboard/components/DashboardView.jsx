@@ -757,12 +757,17 @@ export default function DashboardView({ state, setActiveTab }) {
                   Statement
                 </button>
               </div>
-              {isLoading ? (
+              {/* state.payments is null until usePayments' first fetch answers
+                  (issue #111) — distinct from [], a vendor confirmed to have
+                  no payments. Rendering the empty state for null told a
+                  supplier who simply hadn't loaded yet that they had never
+                  been paid. */}
+              {isLoading || state.payments === null ? (
                 <div className="p-3 space-y-3 animate-pulse">
                   <div className="skeleton h-8 rounded"></div>
                   <div className="skeleton h-8 rounded"></div>
                 </div>
-              ) : !state.payments || state.payments.length === 0 ? (
+              ) : state.payments.length === 0 ? (
                 renderEmptyState(
                   'No Disbursement Logs',
                   'No payments yet. Payments are released 45 days after your buyer approves an invoice.',
