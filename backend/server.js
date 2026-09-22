@@ -158,6 +158,11 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   // x-vendor-id is gone (ADR-0010): the JWT is the only identity the API accepts.
   allowedHeaders: ['Content-Type', 'Authorization', 'x-client-slug'],
+  // Without this, only the CORS-safelisted response headers are readable from
+  // JavaScript — Content-Disposition isn't one of them. getBlob() (api-client.js)
+  // read null from every download and fell back to naming the file 'export',
+  // with no extension (issue #110).
+  exposedHeaders: ['Content-Disposition'],
 }));
 
 // The job worker process (jobs/worker.js) has no Socket.io server of its

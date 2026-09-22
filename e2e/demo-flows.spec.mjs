@@ -151,6 +151,21 @@ test.describe('demo flows, through the UI', () => {
     // --- The dashboard tells the supplier there is an order to acknowledge ---
     await expect(page.getByText(new RegExp(`awaiting acknowledgement.*${po.id}`))).toBeVisible();
 
+    // --- The awarded PO downloads under the name the server chose --------------
+    // CORS has to expose Content-Disposition for the browser to read it at all
+    // (issue #110) — without it, apiClient.getBlob() falls back to an
+    // extensionless 'export', which is exactly what shipped undetected.
+    await page.goto('/rfqs');
+    await page.getByPlaceholder('Search RFQs...').fill(rfq.id);
+    await page.getByRole('button', { name: new RegExp(rfq.id) }).click();
+    const download = await Promise.all([
+      page.waitForEvent('download'),
+      // The button's text is styled with CSS `uppercase` (`text-transform`),
+      // which Chromium folds into the accessible name — match case-insensitively.
+      page.getByRole('button', { name: /^csv$/i }).click(),
+    ]).then(([d]) => d);
+    expect(download.suggestedFilename()).toBe(`${po.id}.csv`);
+
     // --- Acknowledge ----------------------------------------------------------
     await page.goto('/pos');
     await page.getByPlaceholder('PO # or material description...').fill(po.id);
