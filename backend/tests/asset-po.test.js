@@ -82,6 +82,9 @@ describe('POST /api/pos/asset', () => {
     expect(stored.sapSyncState).toBe('synced');
     expect(stored.status).toBe('Open');
     expect(stored.companyCode).toBe('SSDN');
+    // Issue #112: this used to read req.account, which nothing ever set, so
+    // every asset PO recorded a null buyer. createAdminUser's default name.
+    expect(stored.buyerName).toBe('Test client_admin');
 
     expect(stored.items).toHaveLength(1);
     const [item] = stored.items;
@@ -96,6 +99,25 @@ describe('POST /api/pos/asset', () => {
     expect(item.materialCode).toBe('');
     expect(Number(item.netValue)).toBe(50000);
     expect(item.line).toBe(10);
+  });
+
+  it('records the staff member who raised the order as buyerName', async () => {
+    // Issue #112. `req.account` was read nowhere in middleware/auth.js —
+    // protect() attaches req.user (tenant staff) / req.auth (email, role,
+    // plane) — so `req.account?.name || req.account?.email || null` was
+    // always null, silently, for every asset PO ever created. A name distinct
+    // from the helper's default, so this fails if the fix is ever undone by a
+    // change to that default rather than to the controller.
+    const vendor = await approvedVendor('vendor_asset_16', '27AAAAA2016A1Z1');
+    const { token } = await createAdminUser({ email: 'buyer-name-16@example.com', name: 'Priya Raghavan' });
+
+    const res = await create(token, { ...VALID, vendorId: vendor.vendorId });
+
+    expect(res.status).toBe(201);
+    const stored = await runWithTenant('CLT-0001', () => prisma.purchaseOrder.findFirst({
+      where: { id: res.body.po.id },
+    }));
+    expect(stored.buyerName).toBe('Priya Raghavan');
   });
 
   it('records who chose the asset number, since nothing else can verify it', async () => {
