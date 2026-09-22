@@ -12,6 +12,7 @@ import WorkspaceSettingsPage from '@/app/workspace/settings/page';
 import WorkspaceInvoicesPage from '@/app/workspace/invoices/page';
 import WorkspacePaymentsPage from '@/app/workspace/payments/page';
 import WorkspacePurchaseOrdersPage from '@/app/workspace/purchase-orders/page';
+import WorkspaceNewAssetPoPage from '@/app/workspace/purchase-orders/new-asset/page';
 
 // Every route in the tenant back office renders, names itself, and says so
 // honestly when it has no data. Cheap, and it catches the things that are
@@ -29,6 +30,7 @@ const ROUTES = [
   ['/workspace/invoices', WorkspaceInvoicesPage, 'Invoices'],
   ['/workspace/payments', WorkspacePaymentsPage, 'Payments'],
   ['/workspace/purchase-orders', WorkspacePurchaseOrdersPage, 'Purchase Orders'],
+  ['/workspace/purchase-orders/new-asset', WorkspaceNewAssetPoPage, 'New asset purchase order'],
 ];
 
 const settle = () => waitFor(() => {

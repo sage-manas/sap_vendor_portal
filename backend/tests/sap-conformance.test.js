@@ -13,20 +13,54 @@ const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
 const { METHOD_NAMES, DEFERRED_METHODS, SAP_METHODS } = require('../sap/contract');
 const { buildTransientAdapter, invalidateSapAdapter } = require('../sap');
 const { runConformanceSuite } = require('../sap/conformance/runner');
+const { FIXTURES } = require('../sap/conformance/fixtures');
 const { seedClient } = require('./helpers');
 
 beforeEach(() => invalidateSapAdapter());
 
 describe('the conformance suite', () => {
-  it('passes every method against the mock driver', async () => {
+  it('passes every method against the mock driver, bar the ones it must not run', async () => {
     const adapter = buildTransientAdapter({ clientId: 'CLT-0001', driver: 'mock', config: {}, secrets: {} });
 
     const report = await runConformanceSuite({ adapter, clientId: 'CLT-0001' });
 
     expect(report.driver).toBe('mock');
     expect(report.results).toHaveLength(METHOD_NAMES.length);
-    expect(report.results.every((r) => r.status === 'passed')).toBe(true);
-    expect(report.summary).toEqual({ passed: METHOD_NAMES.length });
+
+    // A method the contract marks  is skipped, not run — see
+    // runner.js. Today that is poAssetCreate alone: exercising it would create
+    // a real purchase order. Derived from the contract rather than hardcoded so
+    // adding one does not quietly leave this assertion measuring the wrong
+    // thing. Note this is NOT "every method without a fixture": most reads need
+    // no arguments and are deliberately fixture-less but still exercised.
+    const skippable = METHOD_NAMES.filter((method) => SAP_METHODS[method].createsDocument);
+    expect(skippable).toEqual(['poAssetCreate']);
+
+    const notSkipped = report.results.filter((r) => r.status !== 'skipped');
+    expect(notSkipped.every((r) => r.status === 'passed')).toBe(true);
+    expect(report.summary).toEqual({
+      passed: METHOD_NAMES.length - skippable.length,
+      skipped: skippable.length,
+    });
+  });
+
+  it('says why a skipped method was skipped, rather than marking a working driver red', async () => {
+    const adapter = buildTransientAdapter({ clientId: 'CLT-0001', driver: 'mock', config: {}, secrets: {} });
+
+    const report = await runConformanceSuite({ adapter, clientId: 'CLT-0001' });
+    const skipped = report.results.find((r) => r.method === 'poAssetCreate');
+
+    expect(skipped.status).toBe('skipped');
+    expect(skipped.error).toMatch(/not safe to exercise against a live system/);
+  });
+
+  it('writes no SapLog entry for a skipped method — nothing reached SAP', async () => {
+    const adapter = buildTransientAdapter({ clientId: 'CLT-0001', driver: 'mock', config: {}, secrets: {} });
+
+    await runConformanceSuite({ adapter, clientId: 'CLT-0001', methods: ['poAssetCreate'] });
+
+    const logged = await runWithTenant('CLT-0001', () => prisma.sapLog.count({}));
+    expect(logged).toBe(0);
   });
 
   it('reports not_implemented for everything but connectivity on the ecc_rfc skeleton', async () => {
@@ -47,9 +81,16 @@ describe('the conformance suite', () => {
     expect(byMethod.testConnection).toBe('passed');
     expect(byMethod.health).toBe('passed');
 
-    const rest = report.results.filter((r) => !['testConnection', 'health'].includes(r.method));
+    // A createsDocument method is skipped before the driver is ever consulted,
+    // so it reports 'skipped' here rather than 'not_implemented' — the runner
+    // never asked ecc_rfc whether it could do it. Excluded explicitly rather
+    // than loosened to "not failed", so a genuine regression still shows.
+    const skipped = METHOD_NAMES.filter((method) => SAP_METHODS[method].createsDocument);
+    const rest = report.results.filter((r) =>
+      !['testConnection', 'health'].includes(r.method) && !skipped.includes(r.method));
     expect(rest.every((r) => r.status === 'not_implemented')).toBe(true);
-    expect(report.summary.not_implemented).toBe(METHOD_NAMES.length - 2);
+    expect(report.summary.not_implemented).toBe(METHOD_NAMES.length - 2 - skipped.length);
+    expect(report.summary.skipped).toBe(skipped.length);
   });
 
   it('exercises real logic on s4_odata without a live gateway: bookkeeping-only methods pass, everything that has to reach SAP fails honestly', async () => {
@@ -137,7 +178,10 @@ describe('the conformance suite', () => {
     // read-only cross-check added since (the catalogues, the MIRO/payment/RFQ/
     // PO-GRN/quotation displays) is unlogged too, and a fixed offset went stale
     // silently each time one landed.
-    const loggedMethods = METHOD_NAMES.filter((method) => SAP_METHODS[method].logged !== false);
+    // A createsDocument method is skipped, so it writes nothing — it would
+    // otherwise be counted here as a logged method that never ran.
+    const loggedMethods = METHOD_NAMES.filter((method) =>
+      SAP_METHODS[method].logged !== false && !SAP_METHODS[method].createsDocument);
     expect(logged).toBeGreaterThanOrEqual(loggedMethods.length);
   });
 

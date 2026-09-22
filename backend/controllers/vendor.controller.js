@@ -15,7 +15,7 @@ const { recordAudit } = require('../utils/audit');
 const { AUDIT_ACTIONS } = require('../config/auditActions');
 const { settingValue } = require('../config/tenantSettings');
 const { toNumber } = require('../utils/money');
-const { settingsFromClient } = require('../sap/mappings/vendor-create.map');
+const { settingsFromClient, missingVendorCreateFields } = require('../sap/mappings/vendor-create.map');
 const { VENDOR_STATUS, VENDOR_STATUSES, VENDOR_AWAITING_DECISION } = require('../config/statuses');
 const { generateVendorId, identityConflict, unguessablePassword } = require('../utils/vendorIdentity');
 
@@ -391,6 +391,25 @@ const submitRegistration = asyncHandler(async (req, res, next) => {
     return next(ApiError.conflict(
       'This registration has already been approved and created in SAP.',
       { reason: 'already_approved' },
+    ));
+  }
+
+  // Everything VENDOR_CR needs a value for has to be here before this can be
+  // submitted. Approval is where the vendor master is created, and SAP rejects
+  // an incomplete payload with a bare "Vendor Creation Failed" naming no field
+  // — so without this check the gap surfaces as a 502 on the admin's approve
+  // click, about a form the admin cannot fix. The list is derived from the
+  // VENDOR_CR field map, not restated here.
+  const missing = missingVendorCreateFields(vendor);
+  if (missing.length) {
+    return next(ApiError.badRequest(
+      'Your registration is missing details needed before it can be approved.',
+      {
+        reason: 'incomplete_profile',
+        // Same field → message shape middleware/validate.js returns for a zod
+        // failure, so the registration form renders this identically.
+        errors: Object.fromEntries(missing.map((field) => [field, 'This is required before you can submit'])),
+      },
     ));
   }
 

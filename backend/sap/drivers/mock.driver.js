@@ -350,6 +350,52 @@ const createMockDriver = ({ config = {} } = {}) => {
       },
     }),
 
+    // The one document the portal creates in SAP (§5.6, ADR-0042). The
+    // simulator's job here is to answer with a purchase order number the way
+    // SAP would — derived, not random, so two reads of the same order agree,
+    // and in the 45xxxxxxx range real orders use. It invents nothing else: the
+    // asset number is echoed back exactly as the caller sent it, because the
+    // simulator has no asset master either and pretending otherwise would hide
+    // the very gap that makes this operator-entered in the first place.
+    poAssetCreate: async ({ vendor, order, items }) => {
+      const sapPoNumber = `45${String(digits(8))}`;
+      return {
+        data: { sapPoNumber, message: `Asset PO ${sapPoNumber} created successfully`, items: (items || []).length },
+        log: {
+          vendorId: vendor.vendorId,
+          payload: {
+            sapPoNumber,
+            companyCode: order.companyCode,
+            purchasingOrg: order.purchasingOrg,
+            vendor: vendor.sapVendorCode,
+            items: (items || []).map((item) => ({
+              description: item.description,
+              quantity: toQty(item.quantity),
+              unitPrice: item.unitPrice,
+              assetNumber: item.assetNumber,
+              assetSubNumber: item.assetSubNumber,
+            })),
+          },
+          documentRef: sapPoNumber,
+        },
+      };
+    },
+
+    // The simulator's answer to "which plan does SAP hold on each line". Like
+    // poInvoicePlanDisplay above it reads back what the portal configured
+    // rather than inventing a store — so it can never surface a plan the portal
+    // does not already know about, which is precisely the case the real
+    // driver's zpo_grn/Detail read exists to cover. Nothing to be done about
+    // that here without the simulator growing records of its own.
+    poInvoicePlanNumbers: async ({ po }) => ({
+      data: {
+        poNumber: mockSapPoNumber(po || {}),
+        lines: (po?.items || [])
+          .filter((item) => item.invoicePlan?.enabled)
+          .map((item) => ({ line: item.line, planNumber: item.invoicePlan.planNumber || mockPlanNumber(po, item) })),
+      },
+    }),
+
     poInvoicePlanUpdate: async ({ po, item, plan }) => {
       const planNumber = plan.planNumber || mockPlanNumber(po, item);
       return {
