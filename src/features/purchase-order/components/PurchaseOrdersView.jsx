@@ -1440,7 +1440,16 @@ export default function PurchaseOrdersView({
                                     <td className="font-bold text-text-primary text-right font-mono tabular-nums">{item.quantity}</td>
                                     <td className="font-medium">{item.uom || 'EA'}</td>
                                     <td className="font-bold text-text-primary text-right font-mono tabular-nums">₹ {Number(item.unitPrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                    <td className="font-medium">G1 (18%)</td>
+                                    {/* Issue #113: this used to be the literal "G1 (18%)" for every
+                                        line regardless of the line's real tax code. taxCode is SAP's
+                                        raw MWSKZ (config/gstCodes.js's G1..G6 registry is for the RFQ
+                                        bid → invoice GST path, not this field — an asset line's code
+                                        like 'V0' isn't in it, so this renders the code itself rather
+                                        than guessing a rate for it) and is null on every line except an
+                                        asset PO's own (ADR-0042); awardRfq never carries a bid's tax
+                                        code onto the PO line it creates, so null is the honest, common
+                                        case here, not a display gap. */}
+                                    <td className="font-medium font-mono">{item.taxCode || '—'}</td>
                                     <td className="font-medium font-mono tabular-nums">{formatDate(item.deliveryDate || activePo.createdDate)}</td>
                                     <td className="font-bold text-text-primary text-right font-mono tabular-nums">₹ {Number(item.netValue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                   </tr>
