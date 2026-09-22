@@ -389,7 +389,13 @@ const createAssetPo = asyncHandler(async (req, res, next) => {
         sapSyncedAt: new Date(),
         vendorId: vendor.vendorId,
         vendorPk: vendor.pk,
-        buyerName: req.account?.name || req.account?.email || null,
+        // req.account was never set by anything — protect() attaches req.user
+        // (tenant staff) / req.vendor (suppliers) and req.auth (email, role,
+        // plane). Optional chaining let this fail silently: every asset PO
+        // recorded a null buyer (issue #112). po:manage is never held by a
+        // supplier, so req.user is always the caller here; req.auth.email is
+        // the fallback the original name || email intended.
+        buyerName: req.user?.name || req.auth?.email || null,
         companyCode: order.companyCode,
         purchasingOrg: order.purchasingOrg,
         purchasingGroup: order.purchasingGroup,
