@@ -1,7 +1,7 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
 const { prisma } = require('../db/prisma');
-const { baseVendor, registerVendor, createAdminUser, asTenant } = require('./helpers');
+const { baseVendor, registerVendor, completeProfile, createAdminUser, asTenant } = require('./helpers');
 
 const app = buildTestApp();
 
@@ -120,6 +120,10 @@ describe('the registration form round-trip', () => {
       .send({ ...profile, city: 'Pune', businessType: 'MFGR' });
     expect(saved.status).toBe(200);
 
+    // The trade terms VENDOR_CR needs are not part of what sign-up collects,
+    // so the form fills them before this can be submitted.
+    await completeProfile(app, token);
+
     const submitted = await request(app)
       .post('/api/vendors/profile/submit')
       .set('Authorization', `Bearer ${token}`)
@@ -157,6 +161,7 @@ describe('the registration form round-trip', () => {
 describe('registration approval flow', () => {
   it('submit moves status to Pending Approval', async () => {
     const { token } = await registerVendor(app);
+    await completeProfile(app, token);
     const res = await request(app)
       .post('/api/vendors/profile/submit')
       .set('Authorization', `Bearer ${token}`);
@@ -164,6 +169,37 @@ describe('registration approval flow', () => {
     expect(res.status).toBe(200);
     expect(res.body.vendor.status).toBe('Pending Approval');
     expect(res.body.vendor.submittedAt).toBeTruthy();
+  });
+
+  // A registration missing any of these reached SAP as a VENDOR_CR with the
+  // field blank, and SAP refused the whole payload with "Vendor Creation
+  // Failed" naming nothing — a 502 on the buyer's approve click, about a form
+  // only the supplier can fix. It is refused at submission instead, where the
+  // supplier is still looking at the form.
+  it('refuses to submit a registration missing fields VENDOR_CR needs', async () => {
+    const { token } = await registerVendor(app);
+    await completeProfile(app, token, { incoterms2: '' });
+
+    const res = await request(app)
+      .post('/api/vendors/profile/submit')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(400);
+    expect(res.body.reason).toBe('incomplete_profile');
+    expect(Object.keys(res.body.errors)).toEqual(['incoterms2']);
+  });
+
+  it('names every missing VENDOR_CR field at once, not just the first', async () => {
+    const { token } = await registerVendor(app);
+    // Straight from sign-up: the trade terms have never been filled in.
+    const res = await request(app)
+      .post('/api/vendors/profile/submit')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(400);
+    expect(Object.keys(res.body.errors)).toEqual(expect.arrayContaining([
+      'tradeName', 'region', 'country', 'paymentTerms', 'paymentMethod', 'currency', 'incoterms1', 'incoterms2',
+    ]));
   });
 
   it('admin approve sets Approved and assigns a sapVendorCode', async () => {

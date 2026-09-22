@@ -113,12 +113,68 @@ describe('when the SAP cross-check cannot be reached', () => {
     expect(await badge(/Could not reach your buyer's system/i)).toBeInTheDocument();
   });
 
-  it('offers a retry on the SAP orders tab rather than a dead spinner', async () => {
+  // One list, not two. An order the buyer raised in SAP is real whether or not
+  // jobs/handlers/sweepPurchaseOrders.js has recorded it yet, so it belongs in
+  // the same table as the rest — marked, because there is nothing here to
+  // acknowledge or ship against until that sweep runs.
+  it('lists an order SAP holds that the portal has not recorded yet', async () => {
+    renderLedger([po({ sapSyncState: 'synced', sapPoNumber: '4500000123' })], {
+      'GET /pos/sap-status': {
+        orders: [
+          { poNumber: '4500000123', poDate: '2026-01-01', buyerName: 'SSDN', items: [] },
+          {
+            poNumber: '4500000999',
+            poDate: '2026-02-02',
+            buyerName: 'SSDN Technologies Pvt. Ltd.',
+            currency: 'INR',
+            items: [{ itemNumber: '00010', materialCode: 'MAT-009', description: 'Flanges', orderedQuantity: 10, receivedQuantity: 10, unitPrice: 100, netAmount: 1000, uom: 'EA' }],
+          },
+        ],
+      },
+    });
+    await settle();
+
+    // The order only SAP knows about is listed, and flagged...
+    expect(await screen.findByText('4500000999')).toBeInTheDocument();
+    expect(screen.getByText(/not recorded here yet/i)).toBeInTheDocument();
+    // ...while the tracked one is not duplicated by its own ledger entry.
+    expect(screen.getAllByText('PO-2026-0001')).toHaveLength(1);
+  });
+
+  it('opens the same detail page for an unrecorded order, without offering writes', async () => {
+    const user = userEvent.setup();
+    renderLedger([po()], {
+      'GET /pos/sap-status': {
+        orders: [{
+          poNumber: '4500000999',
+          poDate: '2026-02-02',
+          buyerName: 'SSDN Technologies Pvt. Ltd.',
+          currency: 'INR',
+          items: [{ itemNumber: '00010', materialCode: 'MAT-009', description: 'Flanges', orderedQuantity: 10, receivedQuantity: 0, unitPrice: 100, netAmount: 1000, uom: 'EA' }],
+        }],
+      },
+    });
+    await settle();
+    await screen.findByText('4500000999');
+
+    // The row's own View PO — the second one, after the tracked order's.
+    await user.click((await screen.findAllByRole('button', { name: /^View PO$/ }))[1]);
+
+    expect(await screen.findByText(/Purchase Order: 4500000999/)).toBeInTheDocument();
+    expect(screen.getByText('Flanges')).toBeInTheDocument();
+    // Nothing here addresses a PurchaseOrder row, because there isn't one.
+    expect(screen.getByText(/Read-only — not recorded in this portal yet/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Acknowledge Purchase Order/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /2\. Send shipment/i })).not.toBeInTheDocument();
+  });
+
+  // The orders list is one table now, not a "Portal Orders"/"All SAP Orders"
+  // pair, so the failed-ledger notice sits above that single list rather than
+  // behind a tab the supplier has to find first.
+  it('offers a retry rather than a dead spinner when the SAP ledger cannot be read', async () => {
     const user = userEvent.setup();
     const { apiMock } = renderLedger([po()], unanswerable);
     await settle();
-
-    await user.click(await screen.findByRole('button', { name: /All SAP Orders/i }));
 
     expect(await screen.findByText(/Could not reach your buyer.s records/i)).toBeInTheDocument();
     const before = apiMock.callsTo('GET', '/pos/sap-status').length;

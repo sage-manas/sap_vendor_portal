@@ -7,10 +7,14 @@ import { PageHeader, Notice, Status, Table, Loading, useResource, formatDate } f
 
 // Every purchase order this workspace has raised, across every supplier —
 // the buyer/finance/client_admin view of what suppliers/[id]'s "Recent
-// purchase orders" table only shows one row of at a time. Read-only: an order
-// itself is SAP's document (see PROJECT_CONTEXT.md §5 — the portal creates no
-// POs of its own), so the only thing this screen's detail page lets staff
-// configure is the invoicing plan on a line, which is the portal's write.
+// purchase orders" table only shows one row of at a time.
+//
+// A material order is SAP's own document: it is read from SAP or awarded from
+// an RFQ here and exported for a buyer's MM team, never created in SAP by this
+// application (PROJECT_CONTEXT.md §5.6). The two writes this section owns are
+// the invoicing plan on a line (the detail page) and — the one exception, added
+// deliberately and scoped to capex — raising an *asset* PO, which SAP creates
+// and numbers on submission (ADR-0042, new-asset/page.jsx).
 
 const money = (value, currency = 'INR') =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency, maximumFractionDigits: 0 })
@@ -25,7 +29,12 @@ export default function WorkspacePurchaseOrdersPage() {
 
   return (
     <>
-      <PageHeader title="Purchase Orders" caption="Every order SAP holds for this workspace's suppliers" />
+      <PageHeader title="Purchase Orders" caption="Every order SAP holds for this workspace's suppliers">
+        <button type="button" className="btn btn-v h-9"
+          onClick={() => router.push('/workspace/purchase-orders/new-asset')}>
+          New asset PO
+        </button>
+      </PageHeader>
       <Notice tone="error">{error}</Notice>
 
       {loading ? (

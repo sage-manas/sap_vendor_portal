@@ -573,6 +573,46 @@ model PurchaseOrderItem {
   // unknown, not "1000".
   plant        String?
 
+  // Asset procurement (account assignment category A) — set only on a line of
+  // an order the portal raised in SAP through zasset_po/create. Everything
+  // here is SAP's own vocabulary for a purchasing line, deliberately nullable:
+  // a line awarded from an RFQ or discovered through zpo_grn_vendor/Detail has
+  // none of it, and null means "this is not an asset line", never "unknown".
+  //
+  // `assetNumber` (ANLN1) and `assetSubNumber` (ANLN2) identify the fixed asset
+  // the capex posts to. **The portal cannot validate them.** It holds no asset
+  // master — they come from AS03 in SAP and are recorded here exactly as the
+  // operator typed them, which is why controllers/po.controller.js's
+  // createAssetPo refuses to guess a default for either.
+  //
+  // materialCode stays a required empty string on these lines rather than
+  // becoming nullable: an asset line is text-only (SHORT_TEXT, no MATNR), and
+  // '' is already what zpo_grn_vendor/Detail returns for a text line and what
+  // sweepPurchaseOrders already stores for one.
+  // EKPO-KNTTP. What kind of purchasing line this is, in SAP's own terms:
+  // 'A' asset, 'D' service, null an ordinary stock/material line. Distinct
+  // from the asset fields below, which only a portal-raised asset PO carries —
+  // this is read back from SAP (zpo_grn/Detail's ACC_ASSIGNMNT_CAT) for *any*
+  // line, including one SAP raised itself, so an asset or service order
+  // discovered by the sweep is recognisable as one without the portal having
+  // been the thing that created it.
+  accountAssignmentCategory String?
+
+  assetNumber      String?
+  assetSubNumber   String?
+  materialGroup    String? // MATKL
+  storageLocation  String? // LGORT
+  taxCode          String? // MWSKZ
+
+  // PEINH — the number of units `unitPrice` is quoted for. SAP's NETPR is the
+  // price for PEINH units, not for one, so a line's net value is
+  // `quantity / priceUnit * unitPrice` (utils/lineValue.js). Stored rather
+  // than sent-and-forgotten: without it a line's value cannot be re-derived or
+  // reconciled against SAP, which is how a 100x overstatement went unnoticed
+  // (issue #108). Defaults to 1 — the overwhelmingly common case, and what
+  // every row written before this column existed implicitly meant.
+  priceUnit        Int     @default(1)
+
   invoicePlan InvoicePlan?
 
   @@unique([poPk, line])

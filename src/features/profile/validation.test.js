@@ -4,11 +4,14 @@ import { validateField } from './validation';
 describe('validateField — required fields', () => {
   const requiredTextFields = [
     ['companyName', 'Legal Entity Name is required'],
+    ['tradeName', 'Trade / Brand Name is required'],
     ['address', 'Street address is required'],
     ['city', 'City is required'],
     ['accountName', 'Account Holder Name is required'],
     ['bankName', 'Bank Name is required'],
     ['bankBranch', 'Bank Branch is required'],
+    ['incoterms1', 'Shipping Terms 1 is required'],
+    ['incoterms2', 'Shipping Terms 2 is required'],
   ];
 
   it.each(requiredTextFields)('%s: empty and whitespace-only values are rejected', (field, message) => {
@@ -25,6 +28,32 @@ describe('validateField — required fields', () => {
     expect(validateField('cancelledCheque', null)).toMatch(/required/);
     expect(validateField('panCardCopy', undefined)).toMatch(/required/);
     expect(validateField('gstCertificate', '')).toMatch(/required/);
+  });
+
+  // These feed VENDOR_CR (backend/sap/mappings/vendor-create.map.js). They
+  // were rendered but left out of the form's step config, so nothing validated
+  // them and they reached SAP empty — which SAP refuses without naming a
+  // field. submitRegistration refuses the same set server-side.
+  it('trade & payment terms are required', () => {
+    expect(validateField('paymentTerms', '')).toMatch(/required/);
+    expect(validateField('paymentMethod', '')).toMatch(/required/);
+    expect(validateField('currency', undefined)).toMatch(/required/);
+    expect(validateField('incoterms1', '')).toMatch(/required/);
+    expect(validateField('incoterms2', '')).toMatch(/required/);
+
+    expect(validateField('paymentTerms', '0001')).toBe('');
+    expect(validateField('paymentMethod', 'T')).toBe('');
+    expect(validateField('currency', 'INR')).toBe('');
+    expect(validateField('incoterms1', 'FOB')).toBe('');
+    expect(validateField('incoterms2', 'Pune')).toBe('');
+  });
+
+  // Confirmed live: a VENDOR_CR with both flags empty is accepted. They are
+  // booleans where '' means "no", so requiring them would mean forcing every
+  // supplier to switch the behaviour on.
+  it('the two SAP flags stay optional', () => {
+    expect(validateField('doubleInvoiceCheck', false)).toBe('');
+    expect(validateField('grBasedInvoiceVerification', false)).toBe('');
   });
 
   it('unknown fields are always valid', () => {

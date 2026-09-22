@@ -17,9 +17,13 @@ const SAP_TRANSACTIONS = {
   VENDOR_REJECT:      { code: 'OData_VENDOR_REJECT',       type: 'OData', direction: 'INBOUND',  label: 'Vendor master rejected' },
   VENDOR_KYC_VERIFY:  { code: 'GSTIN_PAN_VERIFY',          type: 'KYC',   direction: 'OUTBOUND', label: 'GSTIN and PAN verification' },
 
-  // Purchase orders. The portal creates none — ME21N is SAP's own. The only
-  // outbound call is a supplier acknowledging an order SAP already owns.
+  // Purchase orders. The portal creates no *material* orders — ME21N for one
+  // is SAP's own, and an awarded order reaches a buyer's MM team through the
+  // export bridge. Two outbound calls: a supplier acknowledging an order SAP
+  // already owns, and the one narrow creation exception (ADR-0042) — an asset
+  // PO, where SAP issues the document and reports its real number back.
   PO_ACKNOWLEDGE:     { code: 'RFC_PO_ACKNOWLEDGE',        type: 'RFC',   direction: 'OUTBOUND', label: 'Acknowledge purchase order' },
+  PO_ASSET_CREATE:    { code: 'ZASSET_PO_CREATE',          type: 'OData', direction: 'OUTBOUND', label: 'Create asset purchase order' },
 
   // Invoicing plan (ME22N item → Invoicing Plan; FPLA header + FPLT dates).
   // The second write the portal makes to an order SAP already owns.

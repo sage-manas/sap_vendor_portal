@@ -95,8 +95,45 @@ const FIELD_MAP = [
   { group: 'purchasing_data', sapField: 'schema_group_vendor', source: 'setting:schemaGroupVendor' },
 ];
 
+// The vendor-sourced fields VENDOR_CR needs an actual value for, derived from
+// FIELD_MAP rather than restated, so it cannot drift from the contract.
+//
+// Two exclusions, both deliberate:
+//   - `setting:` and `derived:` rows. Those are the tenant's to configure or
+//     computed here; a supplier is never asked for them.
+//   - `flag: true` rows (check_double_invoice, gr_based_invoice_verification).
+//     Those are SAP flag characters where '' is a legitimate value meaning
+//     "no" — confirmed live: a VENDOR_CR with both empty is accepted. Demanding
+//     them would mean forcing every supplier to switch the behaviour *on*.
+//
+// Why this list exists at all: SAP rejects the whole payload with a bare
+// "Vendor Creation Failed" — no field name — when a required field is blank.
+// The one that bit us was incoterms_2 (SAP wants Incoterms part 2 once part 1
+// is set), and it took a bisect against the live endpoint to find. Everything
+// here is checked before a registration can be submitted, so that failure
+// surfaces on the supplier's own form instead of on the admin's approve click.
+const REQUIRED_VENDOR_FIELDS = [...new Set(
+  FIELD_MAP
+    .filter((row) => row.source.startsWith('vendor:') && !row.flag)
+    .map((row) => row.source.split(':')[1]),
+)];
+
 // SAP wants a flag character, not a JSON boolean.
 const sapFlag = (value) => (value ? 'X' : '');
+
+/**
+ * Which REQUIRED_VENDOR_FIELDS a vendor has not filled in. An empty array
+ * means VENDOR_CR will not be rejected for a missing value.
+ */
+const missingVendorCreateFields = (vendor = {}) =>
+  REQUIRED_VENDOR_FIELDS.filter((field) => {
+    const value = vendor[field];
+    if (value === null || value === undefined) return true;
+    // `address` is a string on every current row but the schema still permits
+    // the legacy object shape, which is complete by virtue of existing.
+    if (typeof value === 'object') return false;
+    return String(value).trim() === '';
+  });
 
 const searchTerms = (companyName) => {
   const normalized = String(companyName || '').trim().toUpperCase().replace(/\s+/g, ' ');
@@ -171,4 +208,13 @@ const CONTRACT_CORRECTIONS = Object.freeze({
   'booleans as JSON true/false': "SAP flag characters 'X' / ''",
 });
 
-module.exports = { FIELD_MAP, buildVendorCreatePayload, searchTerms, settingsFromClient, sapFlag, CONTRACT_CORRECTIONS };
+module.exports = {
+  FIELD_MAP,
+  REQUIRED_VENDOR_FIELDS,
+  buildVendorCreatePayload,
+  missingVendorCreateFields,
+  searchTerms,
+  settingsFromClient,
+  sapFlag,
+  CONTRACT_CORRECTIONS,
+};

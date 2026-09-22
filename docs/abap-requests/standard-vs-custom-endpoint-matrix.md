@@ -1,12 +1,12 @@
-# Standard-vs-custom matrix for the eleven Z endpoints
+# Standard-vs-custom matrix for the fourteen Z endpoints
 
 **Raised by:** issue #79, as the medium-term half of the same risk the authentication
 disclosure (`z-endpoint-authentication-disclosure.md`) covers: this driver is coded against
 one customer's custom ABAP, which is also a portability problem — a second customer will not
-have these eleven Z services, so onboarding them means either building the same services
+have these fourteen Z services, so onboarding them means either building the same services
 again or driving these reads through standard SAP OData APIs instead.
 
-**Confidence, stated once so it isn't repeated eleven times:** nothing below has been run
+**Confidence, stated once so it isn't repeated fourteen times:** nothing below has been run
 against a live sandbox — the same "not run against a live system" caveat
 `s4odata.driver.js`'s own header comment (lines 8-16) already carries for its unused standard
 API declarations. Every "plausible" verdict is a starting hypothesis for Basis/MM to confirm
@@ -26,15 +26,18 @@ of invented confidence ADR-0036/ADR-0037 already refuse elsewhere in this codeba
 | 9 | `/ZREGION_CODE/REGION` | Region code catalogue | Generic value-help / domain-value OData services exist in most S/4 systems, but which one (if any) exposes this specific domain is system-configuration-dependent. | **Unknown — ask Basis/MM directly**; low priority given the low sensitivity of this one. |
 | 10 | `/zpaym_term/PAY_TERM` | Payment terms catalogue | Same as #9 — payment terms are often exposed via a standard value-help service, but confirming which one needs a live system. | **Unknown — ask Basis/MM directly.** |
 | 11 | `/ZPAYM_METHOD/PAYM_METHOD` | Payment method catalogue | Same as #9/#10. | **Unknown — ask Basis/MM directly.** |
+| 12 | `/zpo_grn/Detail` | One PO in full, keyed on the PO number — including each line's invoicing plan number (`INV_PLANNO`) | `API_PURCHASEORDER_PROCESS_SRV`, same candidate as #1 | **Plausible for the PO body, unclear for the plan number.** The header/item data is the same shape #1 needs, and keyed on the document rather than the vendor it is a closer fit to a standard PO read than #1 is. What is not obviously available is the FPLA plan number per item, which is the only reason this endpoint is called — so it inherits #5's uncertainty, not #1's verdict. |
+| 13 | `/zinv_plan/update` | **Write:** creates/replaces a PO line's invoicing plan (FPLA/FPLT) | Same gap as #5 — and a write, where #5 is a read. | **Likely needs custom**, same reasoning as #5 and with less standard-API surface to hope for: writing a milestone billing plan onto a PO item is an ME22N-level operation, not something the PO process service exposes as a sub-entity in a form this integration could use. |
+| 14 | `/zasset_po/create` | **Write:** creates an asset purchase order (account assignment A) | `API_PURCHASEORDER_PROCESS_SRV` — declared, unused. PO creation with account assignment is within this service's documented scope. | **Plausible, and the best standard-API candidate among the writes.** Creating a PO is core purchasing, unlike the sourcing and milestone-billing gaps above, so this is the one write here that a standard service most likely does cover. Worth prototyping early: it would also answer whether a *material* PO create is available the same way, which is the open question behind ADR-0042's scope. |
 
 ## Reading this table
 
-- **Plausible (1, 2, 4):** worth a real prototyping pass once a design-partner sandbox exists
+- **Plausible (1, 2, 4, 14, and the PO body of 12):** worth a real prototyping pass once a design-partner sandbox exists
   (the same gate ADR-0036 recorded for Phase 8's real driver work) — these three are where a
   second customer's onboarding cost drops fastest if the standard APIs pan out.
-- **Likely/needs custom (3, 5, 6, 7, 8):** these are the genuine "yes, ABAP has to build this"
+- **Likely/needs custom (3, 5, 6, 7, 8, 13, and the plan-number half of 12):** these are the genuine "yes, ABAP has to build this"
   set — worth saying so explicitly now rather than promising a second customer a smaller
-  integration than eleven Z services will actually turn out to be.
+  integration than fourteen Z services will actually turn out to be.
 - **Unknown (9, 10, 11):** low-value, low-risk, low-priority to resolve — a five-minute Basis
   conversation once one is already happening about the higher-value items.
 

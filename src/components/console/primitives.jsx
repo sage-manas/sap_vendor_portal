@@ -27,12 +27,16 @@ export const Notice = ({ tone = 'error', children, onDismiss }) => {
   const tones = {
     error: 'border-rose-500/50 bg-rose-500/10 text-rose-400',
     success: 'border-emerald-500/50 bg-emerald-500/10 text-emerald-text',
+    // Not an error — nothing has gone wrong — but louder than info: for a
+    // consequence the reader needs to weigh before acting, like an action that
+    // writes to SAP and cannot be undone from here.
+    warn: 'border-amber-500/50 bg-amber-500/10 text-amber-400',
     info: 'border-border-em text-text-secondary',
   };
 
   return (
-    <div role="status" className={`mb-4 flex items-start gap-2.5 rounded-lg border p-3 text-xs ${tones[tone]}`}>
-      {tone === 'error' && <AlertCircle className="mt-0.5 size-4 shrink-0" />}
+    <div role="status" className={`mb-4 flex items-start gap-2.5 rounded-lg border p-3 text-xs ${tones[tone] || tones.info}`}>
+      {(tone === 'error' || tone === 'warn') && <AlertCircle className="mt-0.5 size-4 shrink-0" />}
       <span className="flex-1">{children}</span>
       {onDismiss && (
         <button type="button" onClick={onDismiss} aria-label="Dismiss"><X className="size-3.5" /></button>

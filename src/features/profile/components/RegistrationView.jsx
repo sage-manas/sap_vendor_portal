@@ -551,7 +551,11 @@ export default function RegistrationView({
       name: 'Company Information',
       sections: [
         { title: 'COMPANY IDENTITY', fields: ['companyName', 'tradeName', 'businessType', 'incorporationDate'] },
-        { title: 'REGISTERED ADDRESS', fields: ['address', 'city', 'country', 'region', 'postalCode', 'email', 'phone'] }
+        { title: 'REGISTERED ADDRESS', fields: ['address', 'city', 'country', 'region', 'postalCode', 'email', 'phone'] },
+        // Rendered as FormSection 03 below but absent from this list until now,
+        // which meant validateStep never looked at them and every one of them
+        // could reach SAP empty. VENDOR_CR needs all five.
+        { title: 'TRADE & PAYMENT TERMS', fields: ['paymentTerms', 'paymentMethod', 'currency', 'incoterms1', 'incoterms2'] }
       ]
     },
     {
@@ -965,7 +969,7 @@ export default function RegistrationView({
                 <EnterpriseFieldCard label="Legal entity name" required error={validationErrors[1]?.companyName}>
                   <input type="text" maxLength={35} value={companyForm.companyName} onChange={e => handleFieldChange('companyName', e.target.value)} placeholder="Bharat Steel Alloys Pvt. Ltd." className="w-[39ch] max-w-full" />
                 </EnterpriseFieldCard>
-                <EnterpriseFieldCard label="Trade / brand name" error={validationErrors[1]?.tradeName}>
+                <EnterpriseFieldCard label="Trade / brand name" required error={validationErrors[1]?.tradeName}>
                   <input type="text" maxLength={35} value={companyForm.tradeName} onChange={e => handleFieldChange('tradeName', e.target.value)} placeholder="Bharat Steel" className="w-[39ch] max-w-full" />
                 </EnterpriseFieldCard>
                 <EnterpriseFieldCard label="Business type" required error={validationErrors[1]?.businessType}>
@@ -1038,7 +1042,7 @@ export default function RegistrationView({
               </FormSection>
 
               <FormSection number="03" title="Trade & payment terms">
-                <EnterpriseFieldCard label="Payment terms" hint="Choose one of the options your buyer accepts">
+                <EnterpriseFieldCard label="Payment terms" required error={validationErrors[1]?.paymentTerms} hint="Choose one of the options your buyer accepts">
                   <select
                     value={companyForm.paymentTerms || ''}
                     onChange={e => handleFieldChange('paymentTerms', e.target.value)}
@@ -1053,7 +1057,7 @@ export default function RegistrationView({
                     ))}
                   </select>
                 </EnterpriseFieldCard>
-                <EnterpriseFieldCard label="Payment method" hint="Choose one of the options your buyer accepts">
+                <EnterpriseFieldCard label="Payment method" required error={validationErrors[1]?.paymentMethod} hint="Choose one of the options your buyer accepts">
                   <select
                     value={companyForm.paymentMethod || ''}
                     onChange={e => handleFieldChange('paymentMethod', e.target.value)}
@@ -1068,7 +1072,7 @@ export default function RegistrationView({
                     ))}
                    </select>
                 </EnterpriseFieldCard>
-                <EnterpriseFieldCard label="Currency" hint="Currency you invoice in">
+                <EnterpriseFieldCard label="Currency" required error={validationErrors[1]?.currency} hint="Currency you invoice in">
                   <select value={companyForm.currency || ''} onChange={e => handleFieldChange('currency', e.target.value)} className="w-[20ch] max-w-full">
                     <option value="">Select currency</option>
                     <option value="INR">INR - Indian Rupee</option>
@@ -1079,10 +1083,10 @@ export default function RegistrationView({
                     <option value="SGD">SGD - Singapore Dollar</option>
                   </select>
                 </EnterpriseFieldCard>
-                <EnterpriseFieldCard label="Shipping terms 1" hint="Incoterm, e.g. FOB">
+                <EnterpriseFieldCard label="Shipping terms 1" required error={validationErrors[1]?.incoterms1} hint="Incoterm, e.g. FOB">
                   <input type="text" maxLength={3} value={companyForm.incoterms1 || ''} onChange={e => handleFieldChange('incoterms1', e.target.value.toUpperCase())} placeholder="FOB" className="uppercase w-[10ch] max-w-full" />
                 </EnterpriseFieldCard>
-                <EnterpriseFieldCard label="Shipping terms 2" hint="Named place, e.g. Mumbai Port">
+                <EnterpriseFieldCard label="Shipping terms 2" required error={validationErrors[1]?.incoterms2} hint="Named place, e.g. Mumbai Port — SAP requires this once Shipping terms 1 is set">
                   <input type="text" maxLength={35} value={companyForm.incoterms2 || ''} onChange={e => handleFieldChange('incoterms2', e.target.value)} placeholder="Mumbai Port" className="w-[25ch] max-w-full" />
                 </EnterpriseFieldCard>
                 <div className="flex flex-col gap-2 justify-center">
