@@ -203,6 +203,10 @@ class NotImplementedError extends Error {
     this.name = 'NotImplementedError';
     this.code = 'not_implemented';
     this.statusCode = 501;
+    // Safe and useful to show as-is — names a driver and a method, nothing
+    // about the request or the tenant's SAP connection (middleware/
+    // errorHandler.js, issue #115).
+    this.isOperational = true;
   }
 }
 
@@ -220,11 +224,21 @@ class SapNotFoundError extends Error {
     this.name = 'SapNotFoundError';
     this.code = 'sap_not_found';
     this.statusCode = 404;
+    // A legitimate business answer ("SAP has nothing here"), not an internal
+    // detail (issue #115).
+    this.isOperational = true;
   }
 }
 
 // Raised when a driver refuses or fails a call. Distinct from a bug in our own
 // code, because the circuit breaker counts these and only these.
+//
+// Deliberately NOT isOperational: `message` is `error.message` from whatever
+// the driver threw — s4odata.driver.js composes those from the Z-endpoint
+// path it called and SAP's own raw response text (issue #115). Useful in the
+// SapLog entry this call already writes, and in a server log; not something
+// to hand to whichever tenant-staff member's request happened to trip it.
+// middleware/errorHandler.js falls back to a generic message for it.
 class SapDriverError extends Error {
   constructor(message, { driver, method, cause } = {}) {
     super(message);

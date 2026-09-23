@@ -40,6 +40,9 @@ class InvoicePlanError extends Error {
     this.name = 'InvoicePlanError';
     this.code = 'invalid_invoice_plan';
     this.statusCode = 400;
+    // A validation message about the plan the caller submitted — the whole
+    // point of throwing it (issue #115).
+    this.isOperational = true;
   }
 }
 

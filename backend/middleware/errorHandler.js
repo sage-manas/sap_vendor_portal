@@ -1,4 +1,3 @@
-const ApiError = require('../utils/ApiError');
 const { mapPrismaError } = require('../utils/prismaErrors');
 const logger = require('../utils/logger');
 
@@ -12,19 +11,30 @@ const errorHandler = (err, req, res, next) => {
   const mapped = mapPrismaError(err);
   if (mapped) err = mapped;
 
-  let { statusCode, message } = err;
+  const statusCode = err.statusCode || 500;
+  const message = err.message || 'Internal Server Error';
 
-  // If error is not an instance of ApiError, default to 500 Internal Server Error
-  if (!(err instanceof ApiError)) {
-    statusCode = err.statusCode || 500;
-    message = err.message || 'Internal Server Error';
-  }
+  // The client sees a message only when something in this codebase decided,
+  // on purpose, that this exact text is safe and useful to show — that is
+  // what `isOperational` means (see utils/ApiError.js, true by default for
+  // every ApiError; also set explicitly on the handful of non-ApiError
+  // classes that earn it — SapFieldError, SapNotFoundError,
+  // NotImplementedError, CircuitOpenError, InvoicePlanError). Everything
+  // else falls back to a generic message: a Prisma error mapPrismaError did
+  // not recognise, a raw Node TypeError, SapDriverError (which wraps
+  // whatever an upstream SAP call failed with — a Z-endpoint path, SAP's own
+  // raw response text), MissingTenantContextError (a message written for a
+  // developer reading a stack trace, not an API caller). Before this fix all
+  // of those reached the client verbatim (issue #115); only `stack` was
+  // gated to development, and the message carries most of the same
+  // information stack does.
+  const clientMessage = err.isOperational ? message : 'Internal Server Error';
 
-  res.locals.errorMessage = err.message;
+  res.locals.errorMessage = message;
 
   const response = {
     success: false,
-    error: message,
+    error: clientMessage,
     code: statusCode,
     ...(err.reason && { reason: err.reason }),
     ...(err.errors && { errors: err.errors }),
