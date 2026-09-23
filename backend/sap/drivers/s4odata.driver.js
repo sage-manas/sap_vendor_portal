@@ -536,13 +536,12 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
             grStatus: item.GR_EXPECTED || null,
             plant: item.PLANT,
 
-            // FPLA-FPLNR. **This endpoint does not return it**, confirmed
-            // against the live sandbox: the line objects here carry no
-            // INV_PLANNO key at all, while the single-order sibling
-            // zpo_grn/Detail does. So this reads null for every line, always.
-            // Kept rather than dropped so the shape matches that read, and so
-            // the asymmetry is recorded where someone trusting this field
-            // would look — poInvoicePlanNumbers is what actually answers it.
+            // FPLA-FPLNR. Blank means the line has no invoicing plan, which is
+            // the ordinary case and not a missing field, so blank stays null
+            // rather than becoming "". Added to this endpoint alongside
+            // ACC_ASSIGNMNT_CAT (both were once only on the single-order
+            // sibling zpo_grn/Detail), which is what lets the sweep learn a
+            // plan SAP owns without a second call per order.
             invoicePlanNumber: String(item.INV_PLANNO || '').trim() || null,
 
             // EKPO-KNTTP: 'A' asset, 'D' service, 'K' cost centre, blank an
