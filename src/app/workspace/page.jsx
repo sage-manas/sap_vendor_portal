@@ -104,6 +104,27 @@ export default function WorkspaceOverviewPage() {
               </div>
             </section>
           )}
+
+          {/* Issue #116: limitStorageMb was settable in the platform console
+              and shown nowhere a workspace could see how much of it was
+              used. No href — like the platform health board's own Usage
+              badges, this is a quota gauge, not a work queue; there is no
+              per-document screen in this app to send it to yet. */}
+          {data.usage?.storageMb && (
+            <section className="space-y-2">
+              <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-tertiary">Plan</h2>
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <Tile
+                  label="Storage used"
+                  value={data.usage.storageMb.limit
+                    ? `${data.usage.storageMb.used} / ${data.usage.storageMb.limit} MB`
+                    : `${data.usage.storageMb.used} MB`}
+                  caption={data.usage.storageMb.limit ? 'Used against your plan limit' : 'No storage limit set'}
+                  tone={data.usage.storageMb.breached ? 'alert' : 'normal'}
+                />
+              </div>
+            </section>
+          )}
         </div>
       )}
     </>
