@@ -108,6 +108,19 @@ async function upsertOrder({ clientId, vendor, order, localPos }) {
     // portal's own createAssetPo, so without this a discovered asset PO would
     // be indistinguishable from a stock order.
     accountAssignmentCategory: item.accountAssignmentCategory || null,
+    // FPLA-FPLNR. A number here means SAP bills this line on an invoicing
+    // plan's dates rather than against a goods receipt, which changes what the
+    // supplier should expect to invoice — so the line is recorded as planned
+    // rather than reading as an ordinary one until someone presses Sync.
+    //
+    // Deliberately just the number, `source: sap`, and no lines: the plan's
+    // dates and amounts live in zinv_milestone/plan and are a separate read
+    // (po.controller.js's syncInvoicePlan). Inventing dates here to fill the
+    // shape would be inventing a billing schedule. `syncedAt` stays null,
+    // which is the honest "we know this exists, we have not read it yet".
+    ...(item.invoicePlanNumber
+      ? { invoicePlan: { create: { clientId, enabled: true, planNumber: item.invoicePlanNumber, source: 'sap' } } }
+      : {}),
   }));
   const year = new Date().getFullYear();
   const id = await nextSequentialId('purchaseOrder', `PO-${year}-`, 4);
