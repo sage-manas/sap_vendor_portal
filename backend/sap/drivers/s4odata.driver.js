@@ -665,6 +665,75 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
       };
     },
 
+    // Line-item detail for ONE document — an order number or an RFQ number
+    // alike, confirmed live (see sweepQuotations.js for why an RFQ number is
+    // the caller here). Same GET-with-body family as zmiro_display/MIRO and
+    // zpo_grn_vendor/Detail (POST is 405, GET+body is 200), and the same
+    // response shape as that plural sibling's rows — this is genuinely the
+    // same endpoint, PO- or RFQ-keyed, not a lookalike.
+    //
+    // A vanished document (closed and purged, a typo'd number) answers 404
+    // with an empty PO_LINE_ITEMS on the live sandbox — read as "nothing to
+    // report", the same convention every other display read in this driver
+    // uses, not a failure worth throwing over.
+    vendorRfqDetail: async ({ rfqNumber }) => {
+      if (!rfqNumber) return { data: null };
+
+      const base = String(config.baseUrl || '').replace(/\/$/, '');
+      const path = config.poDetailPath || '/zpo_grn/Detail';
+      const url = `${base}${path}${config.sapClient ? `?sap-client=${encodeURIComponent(config.sapClient)}` : ''}`;
+
+      const response = await getWithBody(url, {
+        headers: baseHeaders(config, secrets),
+        body: { PO: rfqNumber },
+        timeoutMs: Number(config.timeoutMs) || 10000,
+      });
+
+      if (response.status === 404) return { data: null };
+
+      let json;
+      try { json = response.text ? JSON.parse(response.text) : null; } catch { json = null; }
+
+      if (response.status < 200 || response.status >= 300 || !json || !Array.isArray(json.PO_LINE_ITEMS)) {
+        const error = new Error(`SAP RFQ detail GET ${path} failed for ${rfqNumber}: ${response.status} ${response.statusText}`);
+        error.status = response.status;
+        throw error;
+      }
+
+      return {
+        data: {
+          rfqNumber: json.PO_NUMBER || rfqNumber,
+          date: sapDotDateToIso(json.PO_DATE),
+          buyerName: json.BUYER_NAME || null,
+          buyerGstin: json.BUYER_GSTIN || null,
+          shipToCity: json.SHIP_TO_CITY || null,
+          shipToState: json.SHIP_TO_STATE || null,
+          companyCode: json.COM_CODE || null,
+          currency: json.CURRENCY || null,
+          items: json.PO_LINE_ITEMS.map((item) => ({
+            // "00010" is SAP's spelling of line 10 — same convention as
+            // vendorPoGrnDisplay's items.
+            line: Number(item.ITEM_NUMBER),
+            // EKPO-PSTYP's document-type twin at header level, confirmed
+            // live as "AN" on every RFQ line the sandbox holds — matches
+            // Prisma's RfqType enum (AN/AB) directly, so this is passed
+            // through rather than decoded.
+            type: item.TYPE || null,
+            materialCode: item.MATERIAL_CODE || null,
+            description: item.DESCRIPTION || null,
+            // Observed 0 on every line of a real RFQ in the sandbox (an RFQ
+            // awaiting a supplier's own quote has nothing of its own to
+            // quantify yet) — stored as-is, not substituted, since a bid still
+            // needs every rfq.items line priced regardless of quantity
+            // (controllers/rfq.controller.js's submitBid).
+            quantity: Number(item.ORDERED_QUANTITY) || 0,
+            uom: decodeFromSap('MEINS', item.UOM),
+            plant: item.PLANT || null,
+          })),
+        },
+      };
+    },
+
     // Every purchasing document SAP holds against this vendor code (ME48
     // Display Quotation). Plain GET with LIFNR as a query param, same shape
     // and row format as vendorRfqDisplay above. Confirmed against the live
@@ -1319,6 +1388,7 @@ module.exports = {
     { name: 'quotationDisplayPath', label: 'Quotation display path (custom Z REST, ME48) — returns all purchasing documents for the vendor, not only quotations', type: 'text', default: '/ZCL_ME48/vendor' },
     { name: 'quotationUpdatePricePath', label: 'Quotation net price update path (custom Z REST, ME47)', type: 'text', default: '/ZQUOT_NETPR/QUOT_UPDPR' },
     { name: 'poGrnPath', label: 'PO/GRN detail path (custom Z REST)', type: 'text', default: '/zpo_grn_vendor/Detail' },
+    { name: 'poDetailPath', label: 'Single order/RFQ detail path (custom Z REST — confirmed live for both PO and RFQ document numbers)', type: 'text', default: '/zpo_grn/Detail' },
     { name: 'invoicePlanPath', label: 'Invoicing plan display path (custom Z REST, FPLA/FPLT — confirmed live)', type: 'text', default: '/zinv_milestone/plan' },
     { name: 'invoicePlanUpdatePath', label: 'Invoicing plan update path (custom Z REST, ME22N — unverified)', type: 'text', default: '/zpo_invplan/PLAN_UPD' },
     { name: 'poGrnTimeoutMs', label: 'PO/GRN detail request timeout (ms) — this endpoint is very slow (22–84s observed for 173 orders)', type: 'number', default: 120000 },

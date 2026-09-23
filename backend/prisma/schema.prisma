@@ -324,8 +324,14 @@ model RFQ {
   id       String // 'RFQ-2026-001'
 
   description      String
-  status           String   @default("Bidding Open")
-  deadlineDate     DateTime
+  status           String    @default("Bidding Open")
+  // Nullable: an RFQ SAP raised directly (ME41, discovered by
+  // jobs/handlers/sweepQuotations.js) carries no bid-deadline field on either
+  // read that names it (ZME43/ME43, zpo_grn/Detail) — null, honestly, rather
+  // than a synthesized cutoff nobody agreed to. A portal-created RFQ always
+  // sets this; controllers/rfq.controller.js's submitBid treats a null
+  // deadline as "no cutoff enforced", never as already expired.
+  deadlineDate     DateTime?
   rfqType          RfqType  @default(AN)
   paymentTerms     String?
   purchasingOrg    String   @default("1000")
@@ -341,11 +347,14 @@ model RFQ {
   convertedPoId     String?
 
   // Dual identity / sync state (Phase 3 of docs/04-sap-runtime-engineering-plan.md).
-  // An RFQ is portal-internal by design (sourcing has no SAP write path — see
-  // contract.js) — sapDocNumber and sapSyncState stay at their defaults
-  // (null / "local") for the whole lifetime of every RFQ that was never
-  // matched against an SAP-native quotation. See config/statuses.js
-  // SAP_SYNC_STATES for the full state machine and what each value means.
+  // Sourcing has no SAP *write* path (see contract.js — no rfqCreate exists,
+  // core S/4 offers none) — but an RFQ SAP raised directly (ME41) is read
+  // back and given a local row all the same, by jobs/handlers/sweepQuotations.js,
+  // exactly as sweepPurchaseOrders.js does for a PO raised in ME21N. Such a
+  // row is born with sapDocNumber/sapSyncState already set ("synced"), not at
+  // their defaults — the defaults (null / "local") describe an RFQ nothing
+  // in SAP has echoed back yet, whichever side created it. See
+  // config/statuses.js SAP_SYNC_STATES for the full state machine.
   sapDocNumber String?
   sapSyncState String    @default("local")
   sapSyncedAt  DateTime?

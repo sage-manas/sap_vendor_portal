@@ -1,10 +1,13 @@
 // Discovery sweeps — Phase 4 of docs/04-sap-runtime-engineering-plan.md.
+const request = require('supertest');
 const { prisma, rawPrisma } = require('../db/prisma');
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
 const { buildTransientAdapter } = require('../sap');
 const sweepPurchaseOrders = require('../jobs/handlers/sweepPurchaseOrders');
 const sweepPayments = require('../jobs/handlers/sweepPayments');
-const { seedClient } = require('./helpers');
+const sweepQuotations = require('../jobs/handlers/sweepQuotations');
+const buildTestApp = require('./testApp');
+const { seedClient, registerVendor, onboardVendor } = require('./helpers');
 
 const seedVendor = (clientId, vendorId, sapVendorCode) => runWithTenant(clientId, () => prisma.vendor.create({
   data: {
@@ -229,5 +232,138 @@ describe('sweepPayments discovery', () => {
 
     const payment = await runWithTenant('CLT-0001', () => prisma.payment.findFirst({ where: { sapPaymentDoc: 'PAY-SWEEP-3' } }));
     expect(payment).toBeNull();
+  });
+});
+
+describe('sweepQuotations discovery — RFQs raised directly in SAP (issue #117)', () => {
+  const app = buildTestApp();
+
+  const discoveryRfq = (sapRfqNumber, overrides = {}) => ({
+    sapRfqNumber,
+    date: '20260923',
+    currency: 'INR',
+    purchasingOrg: 'SSDN',
+    open: true,
+    items: [
+      { line: 10, materialCode: 'MAT-9210', description: 'Flange 3" ANSI 150#', quantity: 20, uom: 'EA', plant: 'SSDN', type: 'AN' },
+    ],
+    ...overrides,
+  });
+
+  const runQuotationSweep = (clientId, discoveries) => runWithTenant(clientId, () => sweepQuotations({
+    job: { clientId, args: {} },
+    adapter: buildTransientAdapter({ clientId, driver: 'mock', config: { discoveries }, secrets: {} }),
+  }));
+
+  const forceQuotationDue = (clientId, vendorCode) => withoutTenantScope(() => rawPrisma.sapSyncCursor.updateMany({
+    where: { clientId, feed: 'quotation', vendorCode },
+    data: { lastRunAt: new Date(Date.now() - 24 * 3600 * 1000) },
+  }));
+
+  it('creates a local RFQ, with real line items, for one SAP has opened but the portal never raised', async () => {
+    await seedVendor('CLT-0001', 'vendor_rfq_1', 'VENRFQ1');
+
+    await runQuotationSweep('CLT-0001', { rfq: [discoveryRfq('6000000901')] });
+
+    const rfq = await runWithTenant('CLT-0001', () => prisma.rFQ.findFirst({
+      where: { sapDocNumber: '6000000901' }, include: { items: true, invitedVendors: true },
+    }));
+    expect(rfq).toBeTruthy();
+    expect(rfq.status).toBe('Bidding Open');
+    expect(rfq.sapSyncState).toBe('synced');
+    // No SAP source names a bid-by date — honestly null, not invented.
+    expect(rfq.deadlineDate).toBeNull();
+    expect(rfq.items).toHaveLength(1);
+    expect(rfq.items[0]).toMatchObject({ materialCode: 'MAT-9210', quantity: 20 });
+    expect(rfq.invitedVendors.map((v) => v.vendorExtId)).toEqual(['vendor_rfq_1']);
+  });
+
+  it('discovers a document already fallen out of ME43 as Closed, not Open', async () => {
+    await seedVendor('CLT-0001', 'vendor_rfq_2', 'VENRFQ2');
+
+    await runQuotationSweep('CLT-0001', { rfq: [discoveryRfq('6000000902', { open: false })] });
+
+    const rfq = await runWithTenant('CLT-0001', () => prisma.rFQ.findFirst({ where: { sapDocNumber: '6000000902' } }));
+    expect(rfq.status).toBe('Closed');
+  });
+
+  it('closes an already-discovered RFQ once it falls out of the open list, and reopens it if SAP does', async () => {
+    await seedVendor('CLT-0001', 'vendor_rfq_3', 'VENRFQ3');
+
+    await runQuotationSweep('CLT-0001', { rfq: [discoveryRfq('6000000903')] }); // open
+    let rfq = await runWithTenant('CLT-0001', () => prisma.rFQ.findFirst({ where: { sapDocNumber: '6000000903' } }));
+    expect(rfq.status).toBe('Bidding Open');
+
+    await forceQuotationDue('CLT-0001', 'VENRFQ3');
+    await runQuotationSweep('CLT-0001', { rfq: [discoveryRfq('6000000903', { open: false })] });
+    rfq = await runWithTenant('CLT-0001', () => prisma.rFQ.findFirst({ where: { sapDocNumber: '6000000903' } }));
+    expect(rfq.status).toBe('Closed');
+
+    await forceQuotationDue('CLT-0001', 'VENRFQ3');
+    await runQuotationSweep('CLT-0001', { rfq: [discoveryRfq('6000000903', { open: true })] });
+    rfq = await runWithTenant('CLT-0001', () => prisma.rFQ.findFirst({ where: { sapDocNumber: '6000000903' } }));
+    expect(rfq.status).toBe('Bidding Open');
+  });
+
+  it('never moves an RFQ the portal has already Awarded, even if SAP shows it closed', async () => {
+    await seedVendor('CLT-0001', 'vendor_rfq_4', 'VENRFQ4');
+    await runQuotationSweep('CLT-0001', { rfq: [discoveryRfq('6000000904')] });
+    await runWithTenant('CLT-0001', () => prisma.rFQ.updateMany({
+      where: { sapDocNumber: '6000000904' }, data: { status: 'Awarded', awardedVendorId: 'vendor_rfq_4' },
+    }));
+
+    await forceQuotationDue('CLT-0001', 'VENRFQ4');
+    await runQuotationSweep('CLT-0001', { rfq: [discoveryRfq('6000000904', { open: false })] });
+
+    const rfq = await runWithTenant('CLT-0001', () => prisma.rFQ.findFirst({ where: { sapDocNumber: '6000000904' } }));
+    expect(rfq.status).toBe('Awarded');
+  });
+
+  it('a repeated sweep over identical data creates nothing new (idempotent)', async () => {
+    await seedVendor('CLT-0001', 'vendor_rfq_5', 'VENRFQ5');
+    const discoveries = { rfq: [discoveryRfq('6000000905')] };
+
+    await runQuotationSweep('CLT-0001', discoveries);
+    await forceQuotationDue('CLT-0001', 'VENRFQ5');
+    await runQuotationSweep('CLT-0001', discoveries);
+
+    const count = await runWithTenant('CLT-0001', () => prisma.rFQ.count({ where: { sapDocNumber: '6000000905' } }));
+    expect(count).toBe(1);
+  });
+
+  it('a document with no line items on SAP is left undiscovered rather than created empty', async () => {
+    await seedVendor('CLT-0001', 'vendor_rfq_6', 'VENRFQ6');
+
+    await runQuotationSweep('CLT-0001', { rfq: [discoveryRfq('6000000906', { items: [] })] });
+
+    const rfq = await runWithTenant('CLT-0001', () => prisma.rFQ.findFirst({ where: { sapDocNumber: '6000000906' } }));
+    expect(rfq).toBeNull();
+  });
+
+  // The point of all of the above: once discovered, a supplier can actually
+  // bid on it — the same submitBid a portal-created RFQ always accepted,
+  // unmodified, including a null deadline never blocking the submission.
+  it('a supplier can bid on an RFQ that reached the portal only through discovery', async () => {
+    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_rfq_bid_1', gstin: '27AAAAA9010A1Z1' }, { onboarded: true });
+    await runWithTenant('CLT-0001', () => prisma.vendor.updateMany({ where: { vendorId: vendor.vendorId }, data: { sapVendorCode: 'VENRFQBID1' } }));
+
+    await runQuotationSweep('CLT-0001', { rfq: [discoveryRfq('6000000910')] });
+    const rfq = await runWithTenant('CLT-0001', () => prisma.rFQ.findFirst({ where: { sapDocNumber: '6000000910' }, include: { items: true } }));
+    expect(rfq.deadlineDate).toBeNull();
+
+    const res = await request(app)
+      .post(`/api/rfqs/${rfq.id}/bid`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        unitPrices: { [rfq.items[0].line]: 450 },
+        gstRate: '18%',
+        freight: 0,
+        deliveryLeadTimeDays: 14,
+        validityDate: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString(),
+      });
+
+    expect(res.status).toBe(200);
+    const bid = await runWithTenant('CLT-0001', () => prisma.rfqBid.findFirst({ where: { rfqPk: rfq.pk, vendorId: vendor.vendorId } }));
+    expect(bid).toBeTruthy();
   });
 });

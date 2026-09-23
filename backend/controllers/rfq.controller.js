@@ -326,7 +326,11 @@ const submitBid = asyncHandler(async (req, res, next) => {
     return next(ApiError.badRequest('Bidding is closed for this RFQ'));
   }
 
-  if (new Date() > new Date(rfq.deadlineDate)) {
+  // An RFQ SAP raised directly carries no deadline on either read that could
+  // supply one (see the RFQ.deadlineDate comment in schema.prisma) — null
+  // means no cutoff is enforced, not that the (nonexistent) deadline has
+  // already passed.
+  if (rfq.deadlineDate && new Date() > new Date(rfq.deadlineDate)) {
     return next(ApiError.badRequest('RFQ submission deadline has passed'));
   }
 

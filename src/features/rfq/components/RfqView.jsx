@@ -20,7 +20,7 @@ import Modal from '@/components/ui/Modal';
 
 import FieldCard from '@/components/ui/FieldCard';
 import { rfqStatusVariant } from '@/lib/statusColors';
-import { mergeSapDocuments, countByType, commonPurchasingOrg } from '@/lib/sapDocuments';
+import { mergeSapDocuments, countByType, commonPurchasingOrg, DOCUMENT_TYPE } from '@/lib/sapDocuments';
 import { rfqService } from '../services/rfqService';
 
 const formatDate = (dateStr) => {
@@ -175,8 +175,14 @@ export default function RfqView({
   const [quoteErrors, setQuoteErrors] = useState({});
 
   // The merged SAP ledger holds quotations and purchase orders together, so
-  // the tab offers the same split (see lib/sapDocuments.js).
-  const [documentTypeFilter, setDocumentTypeFilter] = useState('all');
+  // the tab offers the same split (see lib/sapDocuments.js). Defaults to RFQs
+  // only — DOCUMENT_TYPE.QUOTATION is SAP's own name for the 6xxxxxxx range
+  // this system uses for RFQ/quotation documents, open or closed alike (SAP
+  // reports no status on either read, so there is nothing to filter further
+  // on) — "My Documents" is reached from inside RFQ management, so an RFQ is
+  // what a visitor is here for; "All documents" (including purchase orders)
+  // is one click away in the selector below, not removed.
+  const [documentTypeFilter, setDocumentTypeFilter] = useState(DOCUMENT_TYPE.QUOTATION);
 
   // "Update Price (ME47)" modal — pushes a net price for a SAP-native
   // quotation document. Line numbers/materials come from a portal RFQ the
@@ -577,7 +583,13 @@ export default function RfqView({
                               </>
                             )}
                           </span>
-                          <span className="text-[9px] font-mono text-text-tertiary block mt-1 whitespace-nowrap">Deadline: {formatDate(activeRfq.deadlineDate)}</span>
+                          {/* An RFQ SAP raised directly carries no deadline
+                              (schema.prisma's RFQ.deadlineDate comment) — said
+                              plainly, not as a bare "—" that reads like a
+                              loading gap. */}
+                          <span className="text-[9px] font-mono text-text-tertiary block mt-1 whitespace-nowrap">
+                            Deadline: {activeRfq.deadlineDate ? formatDate(activeRfq.deadlineDate) : 'No deadline set by buyer'}
+                          </span>
                         </div>
 
                         <div className="p-3 border border-border rounded-md bg-surface2/30">
@@ -682,9 +694,12 @@ export default function RfqView({
                 <div className="flex items-center gap-2 shrink-0">
                   <span className="label mb-0 whitespace-nowrap">Type</span>
                   <select className="h-9" value={documentTypeFilter} onChange={(e) => setDocumentTypeFilter(e.target.value)}>
+                    {/* DOCUMENT_TYPE.QUOTATION is SAP's own name for the
+                        RFQ/quotation range (lib/sapDocuments.js) — labelled
+                        "RFQs" here, which is this screen's own vocabulary. */}
+                    <option value={DOCUMENT_TYPE.QUOTATION}>RFQs</option>
+                    <option value={DOCUMENT_TYPE.PURCHASE_ORDER}>Purchase orders</option>
                     <option value="all">All documents</option>
-                    <option value="Quotation">Quotations</option>
-                    <option value="Purchase Order">Purchase orders</option>
                   </select>
                 </div>
               </div>
@@ -697,7 +712,7 @@ export default function RfqView({
                 <EmptyState
                   icon={FileText}
                   title="Nothing on file yet"
-                  description="Your buyer has no documents on file for your company yet. Quotations and purchase orders appear here once they do."
+                  description="Your buyer has no documents on file for your company yet. RFQs and purchase orders appear here once they do."
                 />
               ) : (() => {
                 const counts = countByType(documents);
@@ -709,7 +724,7 @@ export default function RfqView({
                 return (
                   <>
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-text-tertiary">
-                      <span><span className="font-bold text-text-secondary tabular-nums">{counts.quotations}</span> quotation(s)</span>
+                      <span><span className="font-bold text-text-secondary tabular-nums">{counts.quotations}</span> RFQ(s)</span>
                       <span><span className="font-bold text-text-secondary tabular-nums">{counts.purchaseOrders}</span> purchase order(s)</span>
                       {/* Shown once as context rather than repeated down a
                           column: it is the same value on every row. */}
@@ -741,15 +756,19 @@ export default function RfqView({
                                 <td className="font-mono font-bold text-text-primary select-all">{doc.documentNumber || '—'}</td>
                                 <td>
                                   <StatusBadge
-                                    label={doc.documentType}
-                                    variant={doc.documentType === 'Quotation' ? 'info' : 'pending'}
+                                    // The data value stays SAP's own name
+                                    // (DOCUMENT_TYPE.QUOTATION) — only the
+                                    // label shown here uses this screen's
+                                    // vocabulary.
+                                    label={doc.documentType === DOCUMENT_TYPE.QUOTATION ? 'RFQ' : doc.documentType}
+                                    variant={doc.documentType === DOCUMENT_TYPE.QUOTATION ? 'info' : 'pending'}
                                   />
                                 </td>
                                 <td className="font-mono text-text-tertiary tabular-nums whitespace-nowrap">{formatDate(doc.date)}</td>
                                 <td className="font-mono text-text-secondary">{doc.currency || '—'}</td>
                                 {!org && <td className="font-mono text-text-secondary">{doc.purchasingOrg || '—'}</td>}
                                 <td className="text-right">
-                                  {doc.documentType === 'Quotation' && (
+                                  {doc.documentType === DOCUMENT_TYPE.QUOTATION && (
                                     <Button
                                       type="button"
                                       variant="outline"
