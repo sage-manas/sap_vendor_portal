@@ -108,7 +108,13 @@ export const WORKSPACE_OVERVIEW = {
   },
   staff: { active: 1, pendingInvitations: 0 },
   thresholds: { supplierApprovalSlaHours: 48, invoiceReviewAmount: 100000 },
-  usage: {},
+  // usageAgainstLimits (backend/utils/usage.js) always returns all three —
+  // this used to be `{}`, which no real response is.
+  usage: {
+    vendors: { used: 0, limit: null, ratio: null, breached: false },
+    rfqsThisMonth: { used: 0, limit: null, ratio: null, breached: false },
+    storageMb: { used: 0, limit: null, ratio: null, breached: false },
+  },
 };
 
 export const WORKSPACE_SETTINGS = {

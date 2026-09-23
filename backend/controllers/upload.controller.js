@@ -2,6 +2,7 @@ const { prisma } = require('../db/prisma');
 const fs = require('fs');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
+const { assertCanCreate } = require('../utils/usage');
 
 const { requireVendorScope, vendorScope, isSupplier } = require('../utils/requestScope');
 
@@ -21,6 +22,18 @@ const uploadFile = asyncHandler(async (req, res, next) => {
     // Clean up local file first
     fs.unlinkSync(req.file.path);
     return next(ApiError.badRequest('Image file size exceeds 5MB limit'));
+  }
+
+  // The tenant's storage plan limit (issue #116). multer has already written
+  // the file to disk by the time a controller runs — the same reason the
+  // image-size check above cleans up on refusal — so a refusal here does the
+  // same, rather than leaving an orphaned file for a request nothing will
+  // ever create a Document row for.
+  try {
+    await assertCanCreate(req.client, 'storageMb', req.file.size / (1024 * 1024));
+  } catch (error) {
+    fs.unlinkSync(req.file.path);
+    return next(error);
   }
 
   const { linkedTo } = req.body;
