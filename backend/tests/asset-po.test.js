@@ -246,6 +246,11 @@ describe('POST /api/pos/asset', () => {
     const res = await create(token, { ...VALID, vendorId: vendor.vendorId });
 
     expect(res.status).toBeGreaterThanOrEqual(400);
+    // NotImplementedError is one of the small set of SAP error classes
+    // errorHandler shows as-is — a driver/method name, nothing about this
+    // request (issue #115) — confirmed end-to-end, not just at the unit
+    // level (see error-handler.test.js).
+    expect(res.body.error).toMatch(/not_implemented: the ecc_rfc driver does not implement/);
     const count = await runWithTenant('CLT-0001', () => prisma.purchaseOrder.count({ where: { vendorId: vendor.vendorId } }));
     expect(count).toBe(0);
   });

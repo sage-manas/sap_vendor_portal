@@ -37,6 +37,10 @@ class CircuitOpenError extends Error {
     this.code = 'sap_circuit_open';
     this.statusCode = 503;
     this.retryAfterMs = waitMs;
+    // A "try again shortly" signal about this tenant's own SAP connection —
+    // exactly what the caller needs to know, not an internal detail
+    // (issue #115).
+    this.isOperational = true;
   }
 }
 
