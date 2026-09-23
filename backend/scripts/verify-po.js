@@ -3,7 +3,6 @@
 // sub-resource (the 3-level-deep PurchaseOrderItem/InvoicePlan/
 // InvoicePlanLine structure), against the real dev Postgres.
 process.env.NODE_ENV = 'test'; // mock SAP driver runs goods-receipt instantly
-process.env.SAP_MOCK_MODE = 'true';
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret';
 
 const assert = require('assert');

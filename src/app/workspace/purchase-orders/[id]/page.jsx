@@ -10,10 +10,13 @@ import InvoicePlanPanel from '@/features/purchase-order/components/InvoicePlanPa
 
 // One purchase order, for the buying organisation's own staff. The items and
 // status are SAP's record, read only; the invoicing plan is the one thing this
-// screen lets a buyer/client_admin (po:manage) actually configure — the same
-// InvoicePlanPanel the supplier portal renders read-only for the vendor side of
-// the same order (see its header comment: one panel, two audiences, the split
-// enforced by `canManage` and mirrored by the API).
+// screen lets a buyer/client_admin (po:manage) actually configure, approve or
+// reject — the same InvoicePlanPanel the supplier portal renders for the
+// vendor side of the same order, where a supplier may read the schedule and
+// propose a change but never write SAP directly (see the panel's own header
+// comment: one component, two audiences, the split enforced by `canManage`/
+// `canPropose` and mirrored by the API). This page never passes `canPropose`
+// — a buyer never holds po:invoice-plan:propose, only po:manage.
 
 const money = (value, currency = 'INR') =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency, maximumFractionDigits: 2 })

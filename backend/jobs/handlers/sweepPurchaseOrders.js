@@ -98,6 +98,29 @@ async function upsertOrder({ clientId, vendor, order, localPos }) {
     unitPrice: item.unitPrice || 0,
     netValue: item.netAmount || 0,
     uom: item.uom || 'EA',
+    // Per line, not guessed from the order as a whole (issue #62) — a real
+    // PO can ship from more than one plant. `null`, honestly, when SAP
+    // didn't say — never a demo-value guess.
+    plant: item.plant || null,
+    // EKPO-KNTTP: 'A' asset, 'D' service, 'K' cost centre, null an ordinary
+    // material line. Recorded so an asset or service order SAP raised itself
+    // is recognisable as one — the asset fields are only ever set by the
+    // portal's own createAssetPo, so without this a discovered asset PO would
+    // be indistinguishable from a stock order.
+    accountAssignmentCategory: item.accountAssignmentCategory || null,
+    // FPLA-FPLNR. A number here means SAP bills this line on an invoicing
+    // plan's dates rather than against a goods receipt, which changes what the
+    // supplier should expect to invoice — so the line is recorded as planned
+    // rather than reading as an ordinary one until someone presses Sync.
+    //
+    // Deliberately just the number, `source: sap`, and no lines: the plan's
+    // dates and amounts live in zinv_milestone/plan and are a separate read
+    // (po.controller.js's syncInvoicePlan). Inventing dates here to fill the
+    // shape would be inventing a billing schedule. `syncedAt` stays null,
+    // which is the honest "we know this exists, we have not read it yet".
+    ...(item.invoicePlanNumber
+      ? { invoicePlan: { create: { clientId, enabled: true, planNumber: item.invoicePlanNumber, source: 'sap' } } }
+      : {}),
   }));
   const year = new Date().getFullYear();
   const id = await nextSequentialId('purchaseOrder', `PO-${year}-`, 4);
@@ -112,7 +135,12 @@ async function upsertOrder({ clientId, vendor, order, localPos }) {
       vendorId: vendor.vendorId,
       vendorPk: vendor.pk,
       buyerName: order.buyerName || 'SAP System Procurement',
-      plant: order.items?.[0]?.plant || '1000',
+      // The driver has already scoped `order` to a company code this tenant
+      // declared (issue #62 — see declaredCompanyCodes in
+      // sap/drivers/s4odata.driver.js), so this is always real when set.
+      // purchasingOrg/purchasingGroup/docType stay null: nothing in
+      // zpo_grn_vendor/Detail's response names them yet.
+      companyCode: order.companyCode || null,
       currency: order.currency || 'INR',
       // status starts at the schema default (Open) and is corrected below by
       // syncPoStatus, from whatever SAP already shows received on each line

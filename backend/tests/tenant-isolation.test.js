@@ -10,7 +10,7 @@ const buildTestApp = require('./testApp');
 
 const { prisma, rawPrisma } = require('../db/prisma');
 const { hashPassword } = require('../db/credentials');
-const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
+const { runWithTenant, withoutTenantScope, getTenantId } = require('../utils/tenantContext');
 const { seedClient, signTokenFor } = require('./helpers');
 
 const app = buildTestApp();
@@ -53,8 +53,10 @@ const MODEL_CASES = [
     } }),
     find: (t) => ({ vendorId: `VND-${t}` }),
     update: { companyName: 'Renamed by the wrong tenant' },
-    // Vendor is the one exception: vendorId/email/gstin are a login identity
-    // and stay globally unique (ADR-0002).
+    // Vendor is the one exception: vendorId/email are a login identity and
+    // stay globally unique (ADR-0002); gstin moved to per-tenant uniqueness
+    // (ADR-0039) but this case still gives each tenant a distinct gstin, so
+    // sharedBusinessId stays false here too.
     sharedBusinessId: false,
   },
   {
@@ -118,7 +120,12 @@ const MODEL_CASES = [
       await prisma.aSN.create({ data: { id: 'ASN-000001', poId: 'PO-2026-0001', vendorId: 'VND-1', shipDate: new Date(), estimatedDeliveryDate: soon() } });
       await prisma.gRN.create({ data: { id: 'GRN-000001', poId: 'PO-2026-0001', asnId: 'ASN-000001', vendorId: 'VND-1', postingDate: new Date() } });
       await prisma.invoice.create({ data: { id: 'INV-000001', grnId: 'GRN-000001', poId: 'PO-2026-0001', vendorId: 'VND-1', invoiceNumber: 'INV/1', invoiceDate: new Date(), subTotal: 100, taxAmount: 18, totalAmount: 118 } });
-      return prisma.payment.create({ data: { id: 'PMT-000001', invoiceId: 'INV-000001', poId: 'PO-2026-0001', vendorId: 'VND-1', netAmount: 118, paymentDate: new Date(), utrCode: 'UTR123' } });
+      return prisma.payment.create({
+        data: {
+          id: 'PMT-000001', vendorId: 'VND-1', netAmount: 118, paymentDate: new Date(), utrCode: 'UTR123',
+          items: { create: [{ clientId: getTenantId(), invoiceId: 'INV-000001', poId: 'PO-2026-0001', netAmount: 118 }] },
+        },
+      });
     },
     find: () => ({ id: 'PMT-000001' }),
     update: { bankName: 'Wrong Bank' },
@@ -236,7 +243,12 @@ describe('cross-tenant isolation over the API answers 404, not 403', () => {
       await prisma.aSN.create({ data: { id: 'ASN-000777', poId: 'PO-2026-0777', vendorId: 'VND-B', shipDate: new Date(), estimatedDeliveryDate: soon() } });
       await prisma.gRN.create({ data: { id: 'GRN-000777', poId: 'PO-2026-0777', asnId: 'ASN-000777', vendorId: 'VND-B', postingDate: new Date() } });
       await prisma.invoice.create({ data: { id: 'INV-000777', grnId: 'GRN-000777', poId: 'PO-2026-0777', vendorId: 'VND-B', invoiceNumber: 'B/1', invoiceDate: new Date(), subTotal: 10, taxAmount: 1.8, totalAmount: 11.8 } });
-      await prisma.payment.create({ data: { id: 'PMT-000777', invoiceId: 'INV-000777', poId: 'PO-2026-0777', vendorId: 'VND-B', netAmount: 11.8, paymentDate: new Date(), utrCode: 'UTRB' } });
+      await prisma.payment.create({
+        data: {
+          id: 'PMT-000777', vendorId: 'VND-B', netAmount: 11.8, paymentDate: new Date(), utrCode: 'UTRB',
+          items: { create: [{ clientId: B.clientId, invoiceId: 'INV-000777', poId: 'PO-2026-0777', netAmount: 11.8 }] },
+        },
+      });
     });
   });
 

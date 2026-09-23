@@ -57,6 +57,10 @@ export default function PlatformOverviewPage() {
     },
     { key: 'vendors', header: 'Suppliers', render: (row) => <Usage entry={row.usage.vendors} /> },
     { key: 'rfqs', header: 'RFQs this month', render: (row) => <Usage entry={row.usage.rfqsThisMonth} /> },
+    // Issue #116: limitStorageMb existed on Client and was editable here, but
+    // usage.storageMb never had anywhere to be seen until now — the same
+    // Usage component every other metered thing already renders with.
+    { key: 'storage', header: 'Storage (MB)', render: (row) => <Usage entry={row.usage.storageMb} /> },
     {
       key: 'users',
       header: 'Active users (30d)',

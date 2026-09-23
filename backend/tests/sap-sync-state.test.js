@@ -187,7 +187,14 @@ describe('the backfill migration', () => {
     .join('\n')
     .split(';')
     .map((s) => s.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    // The "payments" statement reads payments.sapMiroDoc, a column issue #63
+    // moved onto PaymentItem — a real, later migration outliving an earlier
+    // one's assumptions, not a defect in either. Nothing in this describe
+    // block asserts on Payment (see its own comment above), so this is
+    // excluded rather than patched: replaying it against today's schema
+    // would fail on a column this migration was never responsible for.
+    .filter((statement) => !/UPDATE\s+"payments"/i.test(statement));
 
   const runBackfill = () => backfillStatements
     .reduce((chain, statement) => chain.then(() => rawPrisma.$executeRawUnsafe(statement)), Promise.resolve());

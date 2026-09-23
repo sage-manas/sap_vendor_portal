@@ -1,4 +1,5 @@
 const { assertImplements } = require('../contract');
+const { toNumber: toQty } = require('../../utils/quantity');
 
 // The mock SAP system.
 //
@@ -42,6 +43,15 @@ const DEFAULT_BEHAVIOUR = {
 
 const digits = (n) => Math.floor(10 ** (n - 1) + Math.random() * 9 * 10 ** (n - 1));
 
+// Mirrors s4odata.driver.js's declaredCompanyCodes — unset (the mock's
+// default) means no scoping at all, so every existing demo/test keeps
+// seeing every order; a test exercising issue #62's filtering sets
+// config.companyCodes explicitly, same as a real tenant would.
+const declaredCompanyCodes = (config = {}) => {
+  if (Array.isArray(config.companyCodes)) return config.companyCodes.map(String).map((s) => s.trim()).filter(Boolean);
+  return String(config.companyCodes || '').split(',').map((s) => s.trim()).filter(Boolean);
+};
+
 const CATALOGUE = [
   { code: 'MAT-3849', desc: 'Steel Pipe 3" SCH40' },
   { code: 'MAT-9210', desc: 'Flange 3" ANSI 150#' },
@@ -77,9 +87,13 @@ const isoDay = (value) => (value ? new Date(value).toISOString().slice(0, 10) : 
 
 // A stable stand-in for the MIRO document an AP clerk would have posted.
 // Derived from the invoice id rather than random, so every poll of
-// vendorMiroDisplay reports the same number for the same invoice.
+// vendorMiroDisplay reports the same number for the same invoice. A
+// discovery entry (config.discoveries.invoice — see the Discovery section
+// below) has no portal id at all, since discovery is exactly the case where
+// there isn't one yet — falls back to its poId so it still gets a stable
+// number instead of every id-less entry colliding on the same one.
 const mockMiroDoc = (invoice) => {
-  const serial = String(invoice.id || '').replace(/\D/g, '').padStart(6, '0').slice(-6);
+  const serial = String(invoice.id || invoice.poId || '').replace(/\D/g, '').padStart(6, '0').slice(-6);
   return `51${serial}${String(new Date(invoice.invoiceDate || Date.now()).getFullYear()).slice(-2)}`;
 };
 
@@ -103,16 +117,18 @@ const createMockDriver = ({ config = {} } = {}) => {
   // definition the portal has no record to hand this driver for. Without
   // *some* independent state, the mock can never simulate that, and
   // discovery would be undemoable and untestable end to end.
-  // `config.discoveries.{po,payment,quotation}` is that state: a small,
-  // explicit, opt-in seed (set from the platform console's SAP screen or a
-  // test's transient config, same as `timings`/`behaviour`), layered on top
-  // of — never replacing — whatever the caller already knows about. Each
-  // entry is shaped like the caller's own input to the same method, minus a
-  // portal `id`, since discovery is exactly the case where there isn't one.
+  // `config.discoveries.{po,payment,quotation,invoice}` is that state: a
+  // small, explicit, opt-in seed (set from the platform console's SAP
+  // screen or a test's transient config, same as `timings`/`behaviour`),
+  // layered on top of — never replacing — whatever the caller already
+  // knows about. Each entry is shaped like the caller's own input to the
+  // same method, minus a portal `id`, since discovery is exactly the case
+  // where there isn't one.
   const discoveries = {
     po: (config.discoveries?.po || []).map((po) => ({ ...po, id: null })),
     payment: (config.discoveries?.payment || []).map((p) => ({ ...p, id: null })),
     quotation: config.discoveries?.quotation || [],
+    invoice: (config.discoveries?.invoice || []).map((inv) => ({ ...inv, id: null })),
     // An RFQ SAP raised directly (ME41) — the vendorRfqDisplay/vendorRfqDetail
     // case sweepQuotations.js exists to discover. Each entry is the whole
     // answer both methods need: `{ sapRfqNumber, date, currency,
@@ -238,50 +254,67 @@ const createMockDriver = ({ config = {} } = {}) => {
     // way to produce. Seeded entries are PO-shaped like the caller's own
     // `pos`, minus a portal `id` — `mockSapPoNumber` falls through to their
     // explicit `sapPoNumber` exactly as it would for a real one.
-    vendorPoGrnDisplay: async ({ pos = [] }) => ({
-      data: {
-        orders: [...pos, ...discoveries.po].map((po) => ({
-          poNumber: mockSapPoNumber(po),
-          // Which of the caller's own PurchaseOrder rows this is — the mock can
-          // say so honestly because it built this row from that same `po`. The
-          // real driver queries SAP directly by vendor code (see its own
-          // vendorPoGrnDisplay) and has no such correlation, so it always
-          // answers `poId: null` here; a caller that wants to persist the SAP
-          // number it just discovered back onto its own record checks this
-          // rather than assuming array order lines up between the two sides.
-          poId: po.id,
-          // ISO date string, matching the real driver's normalized shape
-          // (see sapDotDateToIso in s4odata.driver.js) — callers that sort or
-          // compare poDate as a string must not care which driver answered.
-          poDate: po.createdDate ? new Date(po.createdDate).toISOString().slice(0, 10) : null,
-          buyerName: po.buyerName,
-          shipToCity: null,
-          shipToState: null,
-          companyCode: behaviour.companyCode,
-          currency: po.currency,
-          netAmount: po.items.reduce((sum, item) => sum + item.netValue, 0),
-          grossAmount: po.items.reduce((sum, item) => sum + item.netValue, 0),
-          items: po.items.map((item) => ({
-            itemNumber: String(item.line).padStart(5, '0'),
-            materialCode: item.materialCode,
-            description: item.description,
-            orderedQuantity: item.quantity,
-            receivedQuantity: item.grnQuantity,
-            invoicedQuantity: item.grnQuantity,
-            uom: item.uom,
-            unitPrice: item.unitPrice,
-            netAmount: item.netValue,
-            grossAmount: item.netValue,
-            grStatus: item.grnQuantity >= item.quantity ? 'Closed' : null,
-            plant: po.plant,
-            grns: [],
-            // The simulator has no service-procurement POs, so this is always
-            // empty — it exists so both drivers return the same item shape.
-            serviceEntries: [],
+    // Issue #62: `companyCode` used to be a single simulator-wide value
+    // (`behaviour.companyCode`) no matter which order was asked about, which
+    // made it impossible to demo or test the one thing that bug was about —
+    // a vendor whose orders span more than one company code. A caller's own
+    // `po.companyCode` (or a discovery seed's) wins when set; the behaviour
+    // default is just what a plain demo PO gets when nobody's said otherwise.
+    // Optional company-code scoping mirrors the real driver's
+    // declaredCompanyCodes (s4odata.driver.js): set for a test that wants to
+    // exercise filtering, left unset for every existing demo/test that
+    // doesn't care.
+    vendorPoGrnDisplay: async ({ pos = [] }) => {
+      const allowed = declaredCompanyCodes(config);
+      const inScope = (po) => !allowed.length || allowed.includes(String(po.companyCode || behaviour.companyCode));
+
+      return {
+        data: {
+          orders: [...pos, ...discoveries.po].filter(inScope).map((po) => ({
+            poNumber: mockSapPoNumber(po),
+            // Which of the caller's own PurchaseOrder rows this is — the mock can
+            // say so honestly because it built this row from that same `po`. The
+            // real driver queries SAP directly by vendor code (see its own
+            // vendorPoGrnDisplay) and has no such correlation, so it always
+            // answers `poId: null` here; a caller that wants to persist the SAP
+            // number it just discovered back onto its own record checks this
+            // rather than assuming array order lines up between the two sides.
+            poId: po.id,
+            // ISO date string, matching the real driver's normalized shape
+            // (see sapDotDateToIso in s4odata.driver.js) — callers that sort or
+            // compare poDate as a string must not care which driver answered.
+            poDate: po.createdDate ? new Date(po.createdDate).toISOString().slice(0, 10) : null,
+            buyerName: po.buyerName,
+            shipToCity: null,
+            shipToState: null,
+            companyCode: po.companyCode || behaviour.companyCode,
+            currency: po.currency,
+            netAmount: po.items.reduce((sum, item) => sum + item.netValue, 0),
+            grossAmount: po.items.reduce((sum, item) => sum + item.netValue, 0),
+            items: po.items.map((item) => ({
+              itemNumber: String(item.line).padStart(5, '0'),
+              materialCode: item.materialCode,
+              description: item.description,
+              orderedQuantity: item.quantity,
+              receivedQuantity: item.grnQuantity,
+              invoicedQuantity: item.grnQuantity,
+              uom: item.uom,
+              unitPrice: item.unitPrice,
+              netAmount: item.netValue,
+              grossAmount: item.netValue,
+              grStatus: item.grnQuantity >= item.quantity ? 'Closed' : null,
+              // Per line, not guessed from the order as a whole (issue #62) —
+              // a real PO can ship from more than one plant.
+              plant: item.plant || behaviour.plant,
+              grns: [],
+              // The simulator has no service-procurement POs, so this is always
+              // empty — it exists so both drivers return the same item shape.
+              serviceEntries: [],
+            })),
           })),
-        })),
-      },
-    }),
+        },
+      };
+    },
 
     // --- Invoicing plans (FPLA/FPLT) ------------------------------------
     //
@@ -323,6 +356,60 @@ const createMockDriver = ({ config = {} } = {}) => {
               })),
             };
           }),
+      },
+    }),
+
+    // The one document the portal creates in SAP (§5.6, ADR-0042). The
+    // simulator's job here is to answer with a purchase order number the way
+    // SAP would — derived, not random, so two reads of the same order agree,
+    // and in the 45xxxxxxx range real orders use. It invents nothing else: the
+    // asset number is echoed back exactly as the caller sent it, because the
+    // simulator has no asset master either and pretending otherwise would hide
+    // the very gap that makes this operator-entered in the first place.
+    poAssetCreate: async ({ vendor, order, items }) => {
+      const sapPoNumber = `45${String(digits(8))}`;
+      return {
+        data: { sapPoNumber, message: `Asset PO ${sapPoNumber} created successfully`, items: (items || []).length },
+        log: {
+          vendorId: vendor.vendorId,
+          payload: {
+            sapPoNumber,
+            companyCode: order.companyCode,
+            purchasingOrg: order.purchasingOrg,
+            vendor: vendor.sapVendorCode,
+            items: (items || []).map((item) => ({
+              description: item.description,
+              quantity: toQty(item.quantity),
+              unitPrice: item.unitPrice,
+              assetNumber: item.assetNumber,
+              assetSubNumber: item.assetSubNumber,
+            })),
+          },
+          documentRef: sapPoNumber,
+        },
+      };
+    },
+
+    // The simulator's answer to "which plan does SAP hold on each line". Like
+    // poInvoicePlanDisplay above it reads back what the portal configured
+    // rather than inventing a store — so it can never surface a plan the portal
+    // does not already know about, which is precisely the case the real
+    // driver's zpo_grn/Detail read exists to cover. Nothing to be done about
+    // that here without the simulator growing records of its own.
+    // Answers for every line, matching the real driver: `planNumber` is null on
+    // an unplanned line rather than the line being absent, and the account
+    // assignment category is echoed back from the line the caller passed in —
+    // the simulator holds no purchasing master of its own to read it from.
+    poInvoicePlanNumbers: async ({ po }) => ({
+      data: {
+        poNumber: mockSapPoNumber(po || {}),
+        lines: (po?.items || []).map((item) => ({
+          line: item.line,
+          planNumber: item.invoicePlan?.enabled
+            ? (item.invoicePlan.planNumber || mockPlanNumber(po, item))
+            : null,
+          accountAssignmentCategory: item.accountAssignmentCategory || null,
+        })),
       },
     }),
 
@@ -521,7 +608,7 @@ const createMockDriver = ({ config = {} } = {}) => {
     // would never converge.
     vendorMiroDisplay: async ({ vendor, invoices = [] }) => ({
       data: {
-        documents: invoices.map((invoice) => ({
+        documents: [...invoices, ...discoveries.invoice].map((invoice) => ({
           miroDoc: invoice.sapMiroDoc || mockMiroDoc(invoice),
           fiscalYear: String(new Date(invoice.invoiceDate).getFullYear()),
           docType: 'RD',
@@ -531,7 +618,11 @@ const createMockDriver = ({ config = {} } = {}) => {
           companyCode: behaviour.companyCode,
           currency: invoice.currency,
           grossAmount: invoice.totalAmount,
-          taxableAmount: invoice.taxAmount,
+          // SAP's TAXABLE_AMOUNT is the pre-tax base (this driver's own
+          // s4odata sibling reads it the same way) — the portal's subTotal,
+          // not taxAmount. sweepInvoices.js (issue #72's follow-up) is the
+          // first caller that actually reads this field back off a document.
+          taxableAmount: invoice.subTotal,
           taxCode: invoice.taxCode,
           paymentTerm: '',
           items: (invoice.items || []).map((item) => ({
@@ -620,7 +711,10 @@ const createMockDriver = ({ config = {} } = {}) => {
           postingDate,
           receivedBy: 'SAP Warehouse Staff',
           items: asn.items.map((item) => {
-            const received = item.shippedQuantity;
+            // asn is passed in raw (unlike po, which the caller already ran
+            // through formatPo) — shippedQuantity is Decimal-typed (issue
+            // #65), so this converts before using it in arithmetic.
+            const received = toQty(item.shippedQuantity);
             const accepted = Math.round(received * behaviour.grnAcceptanceRate);
             const rejected = received - accepted;
             return {
@@ -657,21 +751,32 @@ const createMockDriver = ({ config = {} } = {}) => {
 
     // --- Invoice and payment ----------------------------------------------
 
-    // Same one-shot shape as awaitGoodsReceipt above.
+    // Same one-shot shape as awaitGoodsReceipt above. sapPaymentDoc/runId/
+    // utrCode are deterministic — a pure function of the vendor and the
+    // calendar day — rather than random (issue #63): an F110 run pays a
+    // vendor's several open invoices together, one clearing document for
+    // all of them, and jobs/handlers/awaitPaymentRun.js's find-or-create
+    // only consolidates invoices whose watch jobs report the *same*
+    // sapPaymentDoc. A fresh random one per call could never simulate that;
+    // "one run per vendor per day" is the simplest rule that lets it happen
+    // without new config, and is realistic enough for a demo besides.
     awaitPaymentRun: async ({ invoice, vendor, vendorId, startedAt }, handler) => {
       const startedAtMs = startedAt ? new Date(startedAt).getTime() : 0;
       if (Date.now() - startedAtMs < timings.paymentRunMs) return false;
 
       const gross = invoice.totalAmount;
       const tdsDeducted = Math.round(gross * behaviour.tdsRate * 100) / 100;
+      const paymentDate = new Date();
+      const runDay = paymentDate.toISOString().slice(0, 10).replace(/-/g, '');
+      const vendorCode = vendor?.sapVendorCode || vendorId || invoice.vendorId || 'UNKNOWN';
 
       await handler({
         data: {
-          paymentId: `PMT-${digits(6)}`,
-          sapPaymentDoc: `PAY-53${digits(8)}`,
-          runId: `F110-${Date.now().toString().slice(-6)}`,
-          utrCode: `UTR${Date.now()}${digits(3)}`,
-          paymentDate: new Date(),
+          paymentId: `PMT-${runDay}-${vendorCode}`,
+          sapPaymentDoc: `PAY-53${runDay}-${vendorCode}`,
+          runId: `F110-${runDay}-${vendorCode}`,
+          utrCode: `UTR${runDay}${vendorCode}`,
+          paymentDate,
           paymentMethod: behaviour.paymentMethod,
           bankName: behaviour.bankName,
           grossAmount: gross,

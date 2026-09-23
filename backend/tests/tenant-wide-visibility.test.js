@@ -35,8 +35,9 @@ const seedTradeFor = (vendorId, suffix) => asTenant(async () => {
   });
   await prisma.payment.create({
     data: {
-      id: `PMT-${suffix}`, invoiceId: `INV-${suffix}`, poId: `PO-2026-${suffix}`, vendorId,
+      id: `PMT-${suffix}`, vendorId,
       netAmount: 118, grossAmount: 118, tdsDeducted: 0, paymentDate: new Date(), utrCode: `UTR-${suffix}`,
+      items: { create: [{ clientId: 'CLT-0001', invoiceId: `INV-${suffix}`, poId: `PO-2026-${suffix}`, netAmount: 118, grossAmount: 118, tdsDeducted: 0 }] },
     },
   });
 });

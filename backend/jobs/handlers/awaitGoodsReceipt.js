@@ -1,6 +1,7 @@
 const { Prisma } = require('@prisma/client');
 const { prisma } = require('../../db/prisma');
 const { PO_INCLUDE, formatPo, syncPoStatus } = require('../../db/poHelpers');
+const { toNumber: toQty } = require('../../utils/quantity');
 const { EVENTS } = require('../../utils/socketEmitter');
 const { notifyVendor } = require('../notify');
 const { markSynced } = require('../syncState');
@@ -72,9 +73,12 @@ module.exports = async ({ job, adapter }) => {
           for (const gItem of receipt.items) {
             const poItem = latestPo.items.find((pItem) => pItem.line === gItem.line);
             if (poItem) {
+              // poItem.grnQuantity is Decimal-typed (issue #65) — `+` on a
+              // Decimal and a plain number is string concatenation, not
+              // addition (utils/money.js's header comment).
               await tx.purchaseOrderItem.update({
                 where: { pk: poItem.pk },
-                data: { grnQuantity: poItem.grnQuantity + gItem.acceptedQuantity },
+                data: { grnQuantity: toQty(poItem.grnQuantity) + toQty(gItem.acceptedQuantity) },
               });
             }
           }

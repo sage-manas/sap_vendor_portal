@@ -31,6 +31,15 @@ const { VENDOR_STATUS } = require('../config/statuses');
 const { transaction } = require('../config/sapTransactions');
 const { AUDIT_ACTIONS } = require('../config/auditActions');
 const { fiscalPeriodOf } = require('../utils/fiscalPeriod');
+const { deriveGst } = require('../services/gst.service');
+
+// Buyer (Client) and supplier (Vendor) are both Maharashtra in this demo
+// (see seedClient/seedPeople) — real per-line GST (issue #66), not the
+// hardcoded 18% this file used to compute inline, run through the same
+// service a live submission path would.
+const BUYER_STATE = 'Maharashtra';
+const SUPPLIER_STATE = 'Maharashtra';
+const gstFor = (items) => deriveGst({ items, supplierState: SUPPLIER_STATE, buyerState: BUYER_STATE });
 
 const log = (...args) => console.log('[seed-demo]', ...args);
 const flag = (name) => process.argv.includes(`--${name}`);
@@ -73,7 +82,6 @@ const sapMiroDoc = (invoiceId, invoiceDate) =>
 const ACCEPTANCE = 0.95;
 const TDS_RATE = 0.01;
 const REJECTION_REASON = 'Surface inspection defect / Dimensional variance';
-const GST = 0.18;
 
 // The mock catalogue, so the demo talks about the same materials SAP does.
 const MAT = {
@@ -145,6 +153,12 @@ const seedClient = async () => {
     plan: 'growth',
     sapEnvironment: 'sandbox',
     settings: { thresholds: { invoiceReviewAmount: REVIEW_AMOUNT } },
+    // The buyer's own GST registration (issue #66) — needed to derive
+    // placeOfSupply and tell intra-state from inter-state at all. Maharashtra
+    // (27), same state as the demo supplier below, so the demo invoices
+    // exercise the CGST+SGST path — the common case for a domestic buyer.
+    gstin: '27AAACN1234M1ZP',
+    state: 'Maharashtra',
   };
   const existing = await prisma.client.findFirst({ where: { clientId } });
   // wipe() clears the tenant's business data but not the Client row itself —
@@ -175,6 +189,7 @@ const seedPeople = async () => {
       phone: '+91 98204 41127',
       address: 'Plot D-14, MIDC Industrial Area, Andheri East',
       city: 'Mumbai',
+      state: 'Maharashtra',                // matches GSTIN prefix 27 — see services/gst.service.js
       country: 'IN',
       region: '13',                       // Maharashtra, per the SAP region catalogue
       postalCode: '400093',
@@ -557,7 +572,7 @@ const seedRfqs = async (vendor) => {
 // ---------------------------------------------------------------------------
 
 const line = (lineNo, mat, quantity, unitPrice, grnQuantity = 0) =>
-  ({ line: lineNo, ...mat, quantity, unitPrice, grnQuantity, uom: 'EA' });
+  ({ line: lineNo, ...mat, quantity, unitPrice, grnQuantity, uom: 'EA', plant: '1000' });
 
 const po = ({ id, status, createdDate, items, confirmedInSap = true, ...rest }) => ({
   clientId,
@@ -567,7 +582,11 @@ const po = ({ id, status, createdDate, items, confirmedInSap = true, ...rest }) 
   sapPoNumber: confirmedInSap ? sapPoNumber(id) : null,
   vendorId: VENDOR_ID,
   buyerName: 'SAP System Procurement',
-  plant: '1000',
+  // Plant moved to the line item above (issue #62); these three stay on the
+  // header, matching the RFQ demo data's purchasingGroup convention above.
+  companyCode: '1000',
+  purchasingOrg: '1000',
+  purchasingGroup: '101',
   paymentTerms: 'NET 30 Days',
   currency: 'INR',
   incoterms: 'FOB Mumbai',
@@ -651,7 +670,9 @@ const seedInvoicingPlan = async (vendor) => {
       vendorId: VENDOR_ID,
       vendorPk: vendor.pk,
       buyerName: 'SAP System Procurement',
-      plant: '1000',
+      companyCode: '1000',
+      purchasingOrg: '1000',
+      purchasingGroup: '101',
       paymentTerms: 'NET 30 Days',
       currency: 'INR',
       deliveryAddress: 'Plant 1000 — Chakan Works, Pune 410501',
@@ -662,7 +683,7 @@ const seedInvoicingPlan = async (vendor) => {
         create: [{
           clientId, line: 10, materialCode: 'SRV-1188',
           description: 'Annual Maintenance Contract — CNC Line 4 installation',
-          quantity: 1, grnQuantity: 0, unitPrice: 600000, netValue: 600000, uom: 'EA',
+          quantity: 1, grnQuantity: 0, unitPrice: 600000, netValue: 600000, uom: 'EA', plant: '1000',
           invoicePlan: {
             create: {
               clientId,
@@ -715,21 +736,21 @@ const seedInvoicingPlan = async (vendor) => {
 
   // A plan invoice's shape: quantity 1, unitPrice/amount = the plan line's
   // amount, invoicePlanRef naming the line it bills, no grnId.
+  const planGst = gstFor([{
+    line: 10, materialCode: 'SRV-1188', description: 'Quarterly charge 2026-06-30',
+    quantity: 1, unitPrice: 150000, amount: 150000, hsnCode: '998719', gstRate: 18,
+  }]);
   const planInvoice = await prisma.invoice.create({
     data: {
       clientId, id: planInvoiceId, grnId: null, poId, vendorId: VENDOR_ID,
       invoiceNumber: 'MC/2026-27/0102', invoiceDate: planInvoiceDate,
       sapMiroDoc: planMiro, status: 'Cleared',
-      subTotal: 150000, taxAmount: 27000, totalAmount: 177000,
+      subTotal: planGst.subTotal, taxAmount: planGst.taxAmount, totalAmount: planGst.totalAmount,
       taxCode: 'G1', currency: 'INR', matchWarning: null,
+      placeOfSupply: planGst.placeOfSupply, reverseCharge: planGst.reverseCharge,
       invoicePlanRef: { line: 10, planLineNumber: 10, planType: 'Periodic', settlementDate: '2026-06-30' },
       clearedAt: planClearedAt,
-      items: {
-        create: [{
-          clientId, line: 10, materialCode: 'SRV-1188', description: 'Quarterly charge 2026-06-30',
-          quantity: 1, unitPrice: 150000, amount: 150000,
-        }],
-      },
+      items: { create: planGst.items.map((item) => ({ clientId, ...item })) },
     },
   });
 
@@ -737,13 +758,18 @@ const seedInvoicingPlan = async (vendor) => {
   const planPaymentId = 'PMT-410552';
   await prisma.payment.create({
     data: {
-      clientId, id: planPaymentId, invoiceId: planInvoice.id, poId, vendorId: VENDOR_ID,
-      invoiceRef: planInvoice.id, invoiceNumber: planInvoice.invoiceNumber, sapMiroDoc: planMiro,
+      clientId, id: planPaymentId, vendorId: VENDOR_ID,
       grossAmount: 177000, tdsDeducted: tds, netAmount: money(177000 - tds),
       paymentDate: planClearedAt, utrCode: 'UTR2026071800552104', paymentMethod: 'NEFT',
       sapPaymentDoc: 'PAY-5341021009', bankName: 'HDFC Bank Ltd', runId: 'F110-071826',
       ...fiscalPeriodOf(planClearedAt),
       tdsSection: '194C', deducteePan: vendor.pan, deductorTan: 'TAN-SAP1000', totalTds: tds,
+      items: {
+        create: [{
+          clientId, invoiceId: planInvoice.id, poId, invoiceNumber: planInvoice.invoiceNumber, sapMiroDoc: planMiro,
+          grossAmount: 177000, tdsDeducted: tds, netAmount: money(177000 - tds),
+        }],
+      },
     },
   });
 
@@ -826,6 +852,11 @@ const seedDeliveries = async (pos) => {
 // Invoices and the F110 payment run.
 // ---------------------------------------------------------------------------
 
+// 7307 — HSN for tube/pipe fittings, of a piece with this demo's steel-pipe
+// and fastener catalogue (MAT.pipe/flange/bolt/gasket) closely enough for
+// sample data; the point is that every line carries a real HSN and rate
+// (issue #66), not that this one code is definitive for every material.
+const DEMO_HSN = '7307';
 const invoiceItemsFrom = (order, grn, priceOverride = {}) =>
   grn.items.map((g) => {
     const poItem = order.items.find((i) => i.line === g.line);
@@ -833,16 +864,15 @@ const invoiceItemsFrom = (order, grn, priceOverride = {}) =>
     return {
       clientId, line: g.line, materialCode: g.materialCode, description: g.description,
       quantity: g.acceptedQuantity, unitPrice, amount: money(g.acceptedQuantity * unitPrice),
+      hsnCode: DEMO_HSN, gstRate: 18,
     };
   });
 
 const seedInvoicesAndPayments = async (vendor, pos, grns) => {
   // 1. PO-2026-0001 — billed on the accepted quantity, posted by AP, cleared
   //    by F110. This is the only path that writes sapMiroDoc.
-  const clearedItems = invoiceItemsFrom(pos['PO-2026-0001'], grns['PO-2026-0001']);
-  const clearedSub = money(clearedItems.reduce((sum, i) => sum + i.amount, 0));
-  const clearedTax = money(clearedSub * GST);
-  const clearedTotal = money(clearedSub + clearedTax);
+  const clearedGst = gstFor(invoiceItemsFrom(pos['PO-2026-0001'], grns['PO-2026-0001']));
+  const clearedTotal = clearedGst.totalAmount;
   const clearedId = 'INV-482913';
   const clearedDate = day('2026-07-08');
   const miro = sapMiroDoc(clearedId, clearedDate);
@@ -852,10 +882,11 @@ const seedInvoicesAndPayments = async (vendor, pos, grns) => {
       clientId, id: clearedId, grnId: grns['PO-2026-0001'].id, poId: 'PO-2026-0001', vendorId: VENDOR_ID,
       invoiceNumber: 'MC/2026-27/0117', invoiceDate: clearedDate,
       sapMiroDoc: miro, status: 'Cleared',
-      subTotal: clearedSub, taxAmount: clearedTax, totalAmount: clearedTotal,
+      subTotal: clearedGst.subTotal, taxAmount: clearedGst.taxAmount, totalAmount: clearedTotal,
       taxCode: 'G1', currency: 'INR', matchWarning: null,
+      placeOfSupply: clearedGst.placeOfSupply, reverseCharge: clearedGst.reverseCharge,
       clearedAt: day('2026-07-24'),
-      items: { create: clearedItems },
+      items: { create: clearedGst.items },
     },
   });
 
@@ -863,31 +894,35 @@ const seedInvoicesAndPayments = async (vendor, pos, grns) => {
   const tds = money(clearedTotal * TDS_RATE);
   await prisma.payment.create({
     data: {
-      clientId, id: 'PMT-310884', invoiceId: cleared.id, poId: 'PO-2026-0001', vendorId: VENDOR_ID,
-      invoiceRef: cleared.id, invoiceNumber: cleared.invoiceNumber, sapMiroDoc: miro,
+      clientId, id: 'PMT-310884', vendorId: VENDOR_ID,
       grossAmount: clearedTotal, tdsDeducted: tds, netAmount: money(clearedTotal - tds),
       paymentDate, utrCode: 'UTR2026072400418823', paymentMethod: 'NEFT',
       sapPaymentDoc: 'PAY-5341009827', bankName: 'HDFC Bank Ltd', runId: 'F110-072426',
       ...fiscalPeriodOf(paymentDate),
       tdsSection: '194C', deducteePan: vendor.pan, deductorTan: 'TAN-SAP1000', totalTds: tds,
+      items: {
+        create: [{
+          clientId, invoiceId: cleared.id, poId: 'PO-2026-0001', invoiceNumber: cleared.invoiceNumber, sapMiroDoc: miro,
+          grossAmount: clearedTotal, tdsDeducted: tds, netAmount: money(clearedTotal - tds),
+        }],
+      },
     },
   });
 
   // 2. PO-2026-0002 — billed above the PO price, so the three-way match flags
   //    it. It sits at Match Warning with no MIRO document: AP has not posted it.
   const warnPrice = 43.5;
-  const warnItems = invoiceItemsFrom(pos['PO-2026-0002'], grns['PO-2026-0002'], { 10: warnPrice });
-  const warnSub = money(warnItems.reduce((sum, i) => sum + i.amount, 0));
-  const warnTax = money(warnSub * GST);
+  const warnGst = gstFor(invoiceItemsFrom(pos['PO-2026-0002'], grns['PO-2026-0002'], { 10: warnPrice }));
   await prisma.invoice.create({
     data: {
       clientId, id: 'INV-517402', grnId: grns['PO-2026-0002'].id, poId: 'PO-2026-0002', vendorId: VENDOR_ID,
       invoiceNumber: 'MC/2026-27/0148', invoiceDate: day('2026-08-09'),
       sapMiroDoc: null, status: 'Match Warning',
-      subTotal: warnSub, taxAmount: warnTax, totalAmount: money(warnSub + warnTax),
+      subTotal: warnGst.subTotal, taxAmount: warnGst.taxAmount, totalAmount: warnGst.totalAmount,
       taxCode: 'G1', currency: 'INR',
+      placeOfSupply: warnGst.placeOfSupply, reverseCharge: warnGst.reverseCharge,
       matchWarning: `Line 10: Price variance detected (billed ${warnPrice} vs PO 42). `,
-      items: { create: warnItems },
+      items: { create: warnGst.items },
     },
   });
 

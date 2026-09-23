@@ -52,3 +52,6 @@ next-env.d.ts
 # Scratch scripts. The ad-hoc probe/test_* scripts that used to sit in
 # backend/ were deleted; this keeps the next one from being committed.
 *.tmp.js
+
+# Playwright MCP session artifacts (snapshots/console logs from agent-driven runs)
+.playwright-mcp/

@@ -33,6 +33,13 @@ const P = {
   PO_CREATE: 'po:create',
   PO_MANAGE: 'po:manage',
   PO_ACKNOWLEDGE: 'po:acknowledge',
+  // A supplier proposing a change to their own invoicing plan — never a write
+  // to SAP on its own. PO_MANAGE (the buying organisation) is what approves
+  // or rejects it and is the only permission that reaches SAP through this
+  // family of routes; see controllers/po.controller.js's
+  // proposeInvoicePlanChange for why the two are kept apart rather than
+  // folded into PO_MANAGE.
+  PO_INVOICE_PLAN_PROPOSE: 'po:invoice-plan:propose',
   ASN_READ: 'asn:read',
   ASN_CREATE: 'asn:create',
   GRN_READ: 'grn:read',
@@ -147,6 +154,7 @@ const VENDOR = [
   P.RFQ_BID,
   P.PO_READ,
   P.PO_ACKNOWLEDGE,
+  P.PO_INVOICE_PLAN_PROPOSE,
   P.ASN_READ,
   P.ASN_CREATE,
   P.GRN_READ,

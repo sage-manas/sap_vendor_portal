@@ -26,14 +26,18 @@ const generateVendorId = async () => {
 };
 
 /**
- * Which of these identities already belongs to an account, anywhere on the
- * platform — 'vendorId' | 'email' | 'gstin' | null. Login resolves an account
- * before a tenant is known, so this check is deliberately cross-tenant.
+ * Which of these identities already belongs to an account — 'vendorId' |
+ * 'email' | 'gstin' | null. vendorId and email are login identities, resolved
+ * before a tenant is known, so those two checks are deliberately cross-tenant
+ * (ADR-0002). gstin is supplier master data, not a login identity — the same
+ * real-world GSTIN legitimately appears once per tenant (issue #67,
+ * ADR-0039), so that check only spans the tenant the account is being created
+ * in and is skipped entirely when no clientId is given.
  * Checked in this order so the caller can report the specific field that
  * collided, rather than a generic "one of these" — a supplier retrying with a
  * fresh GSTIN has no way to tell that only the email actually conflicted.
  */
-const identityConflict = async ({ vendorId, email, gstin }) => {
+const identityConflict = async ({ vendorId, email, gstin, clientId }) => {
   const normEmail = email ? String(email).toLowerCase() : null;
   const normGstin = gstin ? String(gstin).toUpperCase() : null;
 
@@ -42,7 +46,7 @@ const identityConflict = async ({ vendorId, email, gstin }) => {
     await exists('vendor', { email: normEmail }) ||
     await exists('user', { email: normEmail })
   )) return 'email';
-  if (normGstin && await exists('vendor', { gstin: normGstin })) return 'gstin';
+  if (normGstin && clientId && await exists('vendor', { clientId, gstin: normGstin })) return 'gstin';
 
   return null;
 };

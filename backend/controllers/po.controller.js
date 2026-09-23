@@ -2,7 +2,11 @@ const { prisma } = require('../db/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { getSapAdapterForClient } = require('../sap');
-const { EVENTS, emitToVendor } = require('../utils/socketEmitter');
+const { EVENTS, emitToVendor, emitToProcurement } = require('../utils/socketEmitter');
+const { recordAudit } = require('../utils/audit');
+const { AUDIT_ACTIONS } = require('../config/auditActions');
+const { nextSequentialId } = require('../utils/nextSequentialId');
+const { lineNetValue } = require('../utils/lineValue');
 const { TtlCache } = require('../utils/ttlCache');
 
 const { requireVendorScope, withVendorScope, scopedWhere } = require('../utils/requestScope');
@@ -16,6 +20,7 @@ const {
 const { PO_INCLUDE, formatPlan, formatPo, persistInvoicePlan, disableInvoicePlan, syncPoStatus } = require('../db/poHelpers');
 const { createWithUniqueId } = require('../utils/createWithUniqueId');
 const { toNumber } = require('../utils/money');
+const { toNumber: toQty } = require('../utils/quantity');
 const { enqueue } = require('../jobs/queue');
 const { markPending } = require('../jobs/syncState');
 
@@ -210,7 +215,7 @@ const submitASN = asyncHandler(async (req, res, next) => {
       throw ApiError.badRequest(`Shipped quantity for line ${asnItem.line} must be greater than 0`);
     }
 
-    const remainingQty = poItem.quantity - poItem.grnQuantity;
+    const remainingQty = toQty(poItem.quantity) - toQty(poItem.grnQuantity);
     if (shippedQty > remainingQty) {
       throw ApiError.badRequest(`Shipped quantity (${shippedQty}) exceeds remaining unreceived quantity (${remainingQty}) for line ${asnItem.line}`);
     }
@@ -300,6 +305,166 @@ const getASNs = asyncHandler(async (req, res, next) => {
   res.json(asns);
 });
 
+// --- Asset purchase orders (the one document the portal creates in SAP) ----
+//
+// See ADR-0042 and sap/contract.js's note on poAssetCreate for why this is a
+// deliberate, narrow exception to "the portal creates no purchase orders in
+// SAP" rather than a reversal of it. Two things about the implementation are
+// load-bearing:
+//
+// 1. **SAP first, then persist.** The order is created in SAP, and only the
+//    number SAP returns is written locally. There is no local-first path and
+//    no fallback: if SAP refuses, nothing is saved. The alternative — recording
+//    the order and reconciling later — is exactly the "order the portal thinks
+//    exists but SAP has never heard of" state §5.6 spent a phase removing.
+//
+// 2. **The asset number is the operator's, not ours.** The portal holds no
+//    asset master, so nothing here can tell a valid ANLN1 from a typo that
+//    happens to be twelve digits. It is validated for *shape* only and passed
+//    through verbatim; the audit log records who submitted it, because that is
+//    the only accountability available.
+const createAssetPo = asyncHandler(async (req, res, next) => {
+  const body = req.body;
+
+  // The vendor has to exist here, be approved, and carry an SAP vendor code.
+  // SAP will reject an unknown LIFNR anyway, but failing here means the
+  // supplier's own name is in the error rather than an SAP message quoting a
+  // code the operator never typed.
+  const vendor = await prisma.vendor.findFirst({ where: { vendorId: body.vendorId } });
+  if (!vendor) {
+    return next(ApiError.notFound(`Vendor ${body.vendorId} not found`));
+  }
+  if (vendor.status !== 'Approved') {
+    return next(ApiError.badRequest(`${vendor.companyName} is ${vendor.status}, not Approved — an asset purchase order can only be raised against an approved supplier`));
+  }
+  if (!vendor.sapVendorCode) {
+    return next(ApiError.badRequest(`${vendor.companyName} has no SAP vendor master yet — approve the supplier so XK01 runs before raising an order against them`));
+  }
+
+  const order = {
+    companyCode: body.companyCode,
+    purchasingOrg: body.purchasingOrg,
+    purchasingGroup: body.purchasingGroup,
+    docType: body.docType,
+    paymentTerms: body.paymentTerms,
+    currency: body.currency,
+    docDate: body.docDate || new Date().toISOString(),
+  };
+
+  // netValue divides by priceUnit (PEINH) — SAP's NETPR is the price for that
+  // many units, not for one. This used to be `quantity * unitPrice`, which
+  // overstated any line with a price unit other than 1 by exactly that factor
+  // (issue #108). The arithmetic is shared with the form that previews it.
+  const items = body.items.map((item, index) => ({
+    ...item,
+    line: (index + 1) * 10,
+    netValue: lineNetValue(item),
+  }));
+
+  // SAP first. A driver that cannot do this (the ECC skeleton) throws
+  // not_implemented and nothing is written, which is the correct outcome —
+  // better no order than a local one claiming an SAP document that was never
+  // created.
+  const sap = await getSapAdapterForClient(req.clientId);
+  const result = await sap.poAssetCreate({ vendor, order, items });
+
+  // nextSequentialId hands out numbers from an atomic per-tenant counter, not a
+  // scan of existing rows, so this needs no createWithUniqueId retry — same as
+  // awardRfq (rfq.controller.js), which allocates PO ids the same way.
+  const poId = await nextSequentialId('purchaseOrder', `PO-${new Date().getFullYear()}-`, 4);
+  const po = await prisma.purchaseOrder.create({
+      data: {
+        id: poId,
+        // The real number SAP issued — never generated here. This is the whole
+        // difference between this method and the poProvision it is allowed to
+        // exist alongside.
+        sapPoNumber: result.sapPoNumber,
+        sapDocNumber: result.sapPoNumber,
+        // Not 'pending': unlike an awarded order waiting to be correlated
+        // against SAP's ledger, this order IS SAP's, from the moment it was
+        // created. sweepPurchaseOrders skips a synced order it rediscovers
+        // (it matches on sapPoNumber), so this also stops the sweep creating
+        // a duplicate local record for it later.
+        sapSyncState: 'synced',
+        sapSyncedAt: new Date(),
+        vendorId: vendor.vendorId,
+        vendorPk: vendor.pk,
+        // req.account was never set by anything — protect() attaches req.user
+        // (tenant staff) / req.vendor (suppliers) and req.auth (email, role,
+        // plane). Optional chaining let this fail silently: every asset PO
+        // recorded a null buyer (issue #112). po:manage is never held by a
+        // supplier, so req.user is always the caller here; req.auth.email is
+        // the fallback the original name || email intended.
+        buyerName: req.user?.name || req.auth?.email || null,
+        companyCode: order.companyCode,
+        purchasingOrg: order.purchasingOrg,
+        purchasingGroup: order.purchasingGroup,
+        docType: order.docType || 'NB',
+        paymentTerms: order.paymentTerms || null,
+        currency: order.currency,
+        deliveryAddress: body.deliveryAddress || null,
+        status: 'Open',
+        items: {
+          create: items.map((item) => ({
+            // Tenant-stamped explicitly: a nested create does not re-enter the
+            // tenant extension (§5.5).
+            clientId: req.clientId,
+            line: item.line,
+            // An asset line is text-only — SAP took SHORT_TEXT and no MATNR.
+            // '' rather than null keeps it identical to what
+            // zpo_grn_vendor/Detail returns for a text line, and to what
+            // sweepPurchaseOrders already stores for one.
+            materialCode: '',
+            description: item.description,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            netValue: item.netValue,
+            uom: item.uom,
+            plant: item.plant,
+            storageLocation: item.storageLocation || null,
+            materialGroup: item.materialGroup || null,
+            taxCode: item.taxCode || null,
+            assetNumber: item.assetNumber,
+            assetSubNumber: item.assetSubNumber,
+            // What this order *is*, in SAP's terms. zasset_po/create posts with
+            // account assignment A by definition, so the category is known here
+            // without reading it back — and recording it now means an asset PO
+            // is identifiable the same way whether the portal raised it or the
+            // sweep discovered it (jobs/handlers/sweepPurchaseOrders.js).
+            accountAssignmentCategory: 'A',
+            // Stored, not just forwarded to SAP: without it netValue cannot be
+            // re-derived or reconciled against SAP's own copy (issue #108).
+            priceUnit: item.priceUnit,
+          })),
+        },
+      },
+      include: { items: { orderBy: { line: 'asc' } } },
+  });
+
+  const io = req.app.get('io');
+  emitToProcurement(io, req.clientId, EVENTS.PO_NEW, { id: po.id, sapPoNumber: po.sapPoNumber, vendorId: po.vendorId });
+  emitToVendor(io, req.clientId, po.vendorId, EVENTS.PO_NEW, { id: po.id, sapPoNumber: po.sapPoNumber });
+
+  await recordAudit({
+    req,
+    action: AUDIT_ACTIONS.PO_ASSET_CREATE,
+    target: { type: 'PurchaseOrder', id: po.id, label: po.sapPoNumber },
+    meta: {
+      sapPoNumber: po.sapPoNumber,
+      vendorId: po.vendorId,
+      companyCode: po.companyCode,
+      // Recorded because nothing else can verify it — see this section's header.
+      assets: items.map((item) => ({ line: item.line, assetNumber: item.assetNumber, assetSubNumber: item.assetSubNumber })),
+      totalValue: items.reduce((sum, item) => sum + item.netValue, 0),
+    },
+  });
+
+  res.status(201).json({
+    message: `Asset purchase order ${result.sapPoNumber} created in SAP`,
+    po: formatPo(po),
+  });
+});
+
 // --- Invoicing plans -------------------------------------------------------
 //
 // A PO line item with an invoicing plan is not invoiced against goods receipts
@@ -328,7 +493,7 @@ const planItemView = (item, asOf) => {
     line: item.line,
     materialCode: item.materialCode,
     description: item.description,
-    quantity: item.quantity,
+    quantity: toQty(item.quantity),
     unitPrice: toNumber(item.unitPrice),
     netValue: toNumber(item.netValue),
     uom: item.uom,
@@ -343,11 +508,37 @@ const findPlanItem = (po, line) => {
   return item;
 };
 
+// The one sequence that actually commits a plan: tell SAP, then persist —
+// shared by a buyer's direct edit (configureInvoicePlan) and an approved
+// supplier proposal (approveInvoicePlanChange), so the two paths cannot drift
+// apart on what "saving a plan" means. Order matters: an order whose plan was
+// recorded here but never reached SAP is the one state nobody can reconcile
+// afterwards, so the SAP call happens first and a driver that cannot make it
+// (the ECC skeleton) throws rather than the write silently diverging.
+const applyInvoicePlan = async ({ req, po, item, plan }) => {
+  const sap = await getSapAdapterForClient(req.clientId);
+  const result = await sap.poInvoicePlanUpdate({ po: formatPo(po), item: { ...item, invoicePlan: plan }, plan });
+  if (result?.planNumber) plan.planNumber = result.planNumber;
+
+  const savedPlan = await persistInvoicePlan(item, plan);
+
+  const io = req.app.get('io');
+  if (result?.transaction) {
+    emitToVendor(io, req.clientId, po.vendorId, EVENTS.LOG_NEW, { type: result.transaction.type, name: result.transaction.code });
+  }
+
+  return savedPlan;
+};
+
 // @desc    Every invoicing plan on this purchase order, with what is billable now
 // @route   GET /api/pos/:id/invoice-plan
 // @access  Private (po:read)
 const getInvoicePlan = asyncHandler(async (req, res, next) => {
-  const po = await prisma.purchaseOrder.findFirst({ where: { id: req.params.id }, include: PO_INCLUDE });
+  // po:read is also what a supplier holds, and nothing else here was checking
+  // whose order this is — scopedWhere is a no-op for tenant staff (no
+  // scopeVendorId) and confines a supplier caller to their own PO, the same
+  // guarantee acknowledgePO/submitASN already give this resource family.
+  const po = await prisma.purchaseOrder.findFirst({ where: scopedWhere(req, { id: req.params.id }), include: PO_INCLUDE });
   if (!po) {
     return next(ApiError.notFound('Purchase Order not found'));
   }
@@ -393,20 +584,7 @@ const configureInvoicePlan = asyncHandler(async (req, res, next) => {
     throw error;
   }
 
-  // Tell SAP before saving: an order whose plan we recorded but never pushed is
-  // the one state nobody can reconcile afterwards. A driver that cannot do it
-  // (the ECC skeleton) throws not_implemented and the write is refused rather
-  // than silently diverging.
-  const sap = await getSapAdapterForClient(req.clientId);
-  const result = await sap.poInvoicePlanUpdate({ po: formatPo(po), item: { ...item, invoicePlan: plan }, plan });
-  if (result?.planNumber) plan.planNumber = result.planNumber;
-
-  const savedPlan = await persistInvoicePlan(item, plan);
-
-  const io = req.app.get('io');
-  if (result?.transaction) {
-    emitToVendor(io, req.clientId, po.vendorId, EVENTS.LOG_NEW, { type: result.transaction.type, name: result.transaction.code });
-  }
+  const savedPlan = await applyInvoicePlan({ req, po, item, plan });
 
   res.json({
     message: `${plan.type} invoicing plan saved for line ${item.line} — ${plan.lines.length} invoicing ${plan.lines.length === 1 ? 'date' : 'dates'}`,
@@ -450,7 +628,34 @@ const syncInvoicePlan = asyncHandler(async (req, res, next) => {
   }
 
   const sap = await getSapAdapterForClient(req.clientId);
-  const { plans = [] } = await sap.poInvoicePlanDisplay({ po: formatPo(po) });
+  const formattedPo = formatPo(po);
+
+  // poInvoicePlanDisplay reads one FPLA plan number at a time and can only ask
+  // about lines that already carry one, so on its own a sync could never find a
+  // plan the portal had not written itself — a plan configured directly in
+  // ME22N stayed invisible no matter how many times a buyer pressed Sync. Ask
+  // the order which plans SAP holds first, and the display read has something to
+  // ask about.
+  //
+  // Degrading quietly is deliberate: a driver without this read (the ECC
+  // skeleton throws not_implemented) still syncs exactly as well as it did
+  // before, which is to say for plans the portal already knows.
+  try {
+    const { lines = [] } = await sap.poInvoicePlanNumbers({ po: formattedPo });
+    for (const { line, planNumber } of lines) {
+      // This read now answers for every line, not only planned ones (it also
+      // carries the account assignment category), so an unplanned line has to
+      // be skipped here rather than by the driver.
+      if (!planNumber) continue;
+      const item = (formattedPo.items || []).find((candidate) => Number(candidate.line) === Number(line));
+      if (!item || item.invoicePlan?.planNumber) continue;
+      item.invoicePlan = { ...(item.invoicePlan || {}), enabled: true, planNumber };
+    }
+  } catch (error) {
+    req.log?.warn?.({ err: error, poId: po.id }, 'Invoicing plan number discovery unavailable; syncing known plans only');
+  }
+
+  const { plans = [] } = await sap.poInvoicePlanDisplay({ po: formattedPo });
 
   const adopted = [];
   const adoptedItems = [];
@@ -553,6 +758,154 @@ const setInvoicePlanLineBlock = asyncHandler(async (req, res, next) => {
   });
 });
 
+// --- A supplier's proposed change to a plan already on their own PO --------
+//
+// Everything above this line writes SAP the moment a buyer submits it — that
+// is what po:manage means. A supplier holds po:invoice-plan:propose instead,
+// which reaches only these three routes and never sap.poInvoicePlanUpdate
+// directly: what a supplier submits here is stored as InvoicePlan.pendingChange
+// and only takes effect once approveInvoicePlanChange (po:manage) applies it.
+
+// @desc    Propose a change to the invoicing plan on one of the caller's own
+//          PO line items — stored for the buyer to approve, never applied here
+// @route   PUT /api/pos/:id/items/:line/invoice-plan/propose
+// @access  Private (po:invoice-plan:propose — a supplier, on their own PO)
+const proposeInvoicePlanChange = asyncHandler(async (req, res, next) => {
+  const vendorId = requireVendorScope(req);
+  const po = await prisma.purchaseOrder.findFirst({ where: scopedWhere(req, { id: req.params.id }), include: PO_INCLUDE });
+  if (!po) {
+    return next(ApiError.notFound('Purchase Order not found'));
+  }
+
+  const item = findPlanItem(po, req.params.line);
+  if (!item.invoicePlan?.enabled) {
+    return next(ApiError.badRequest(`Line ${item.line} has no invoicing plan for you to propose a change to`));
+  }
+
+  const existingPlan = formatPlan(item.invoicePlan);
+
+  // Validated now, against today's plan, so a malformed proposal is refused
+  // with a sentence the supplier can act on rather than being stored and
+  // failing silently at approval. The built plan itself is discarded —
+  // req.body is what gets stored, and is rebuilt fresh (against whatever the
+  // plan looks like by then) when a buyer approves it. See applyInvoicePlan's
+  // header and the InvoicePlan.pendingChange comment in schema.prisma.
+  try {
+    buildPlan(req.body, { item, currency: po.currency || 'INR', existingPlan });
+  } catch (error) {
+    if (error instanceof InvoicePlanError) return next(ApiError.badRequest(error.message));
+    throw error;
+  }
+
+  const pendingChange = { input: req.body, requestedAt: new Date().toISOString(), requestedBy: vendorId };
+  const updatedPlan = await prisma.invoicePlan.update({
+    where: { pk: item.invoicePlan.pk },
+    data: { pendingChange },
+    include: { lines: true },
+  });
+
+  await recordAudit({
+    action: AUDIT_ACTIONS.PO_INVOICE_PLAN_CHANGE_REQUESTED,
+    req,
+    target: { type: 'PurchaseOrder', id: po.id, label: po.sapPoNumber || po.id },
+    meta: { line: item.line, proposed: req.body },
+  });
+
+  const io = req.app.get('io');
+  emitToProcurement(io, req.clientId, EVENTS.LOG_NEW, {
+    type: 'invoice_plan_change_requested', name: `${po.id} line ${item.line}`,
+  });
+
+  res.json({
+    message: `Proposed change sent for line ${item.line} — your buyer must approve it before it reaches SAP`,
+    item: planItemView({ ...item, invoicePlan: updatedPlan }, new Date()),
+  });
+});
+
+// @desc    Approve a supplier's proposed invoicing-plan change and apply it —
+//          the only place a supplier's proposal reaches SAP
+// @route   PUT /api/pos/:id/items/:line/invoice-plan/propose/approve
+// @access  Private (po:manage)
+const approveInvoicePlanChange = asyncHandler(async (req, res, next) => {
+  const po = await prisma.purchaseOrder.findFirst({ where: { id: req.params.id }, include: PO_INCLUDE });
+  if (!po) {
+    return next(ApiError.notFound('Purchase Order not found'));
+  }
+
+  const item = findPlanItem(po, req.params.line);
+  const pending = item.invoicePlan?.pendingChange;
+  if (!pending) {
+    return next(ApiError.badRequest(`Line ${item.line} has no proposed invoicing-plan change awaiting approval`));
+  }
+
+  const existingPlan = formatPlan(item.invoicePlan);
+
+  // Rebuilt now, against the plan as it stands today — not the snapshot
+  // buildPlan validated at proposal time. Anything invoiced since the
+  // proposal was made is carried forward exactly as a buyer's own edit would;
+  // a proposal that no longer reconciles (the item's value changed, say) is
+  // refused rather than silently applied wrong.
+  let plan;
+  try {
+    plan = buildPlan(pending.input, { item, currency: po.currency || 'INR', existingPlan });
+  } catch (error) {
+    if (error instanceof InvoicePlanError) {
+      return next(ApiError.badRequest(`This proposal no longer applies cleanly: ${error.message}. Ask the supplier to resubmit it.`));
+    }
+    throw error;
+  }
+
+  const savedPlan = await applyInvoicePlan({ req, po, item, plan });
+
+  await recordAudit({
+    action: AUDIT_ACTIONS.PO_INVOICE_PLAN_CHANGE_APPROVED,
+    req,
+    target: { type: 'PurchaseOrder', id: po.id, label: po.sapPoNumber || po.id },
+    meta: { line: item.line, proposedBy: pending.requestedBy, applied: pending.input },
+  });
+
+  res.json({
+    message: `Proposed change for line ${item.line} approved and saved to SAP`,
+    item: planItemView({ ...item, invoicePlan: savedPlan }, new Date()),
+  });
+});
+
+// @desc    Reject a supplier's proposed invoicing-plan change — the live plan
+//          is left exactly as it was
+// @route   PUT /api/pos/:id/items/:line/invoice-plan/propose/reject
+// @access  Private (po:manage)
+const rejectInvoicePlanChange = asyncHandler(async (req, res, next) => {
+  const { reason } = req.body;
+  const po = await prisma.purchaseOrder.findFirst({ where: { id: req.params.id }, include: PO_INCLUDE });
+  if (!po) {
+    return next(ApiError.notFound('Purchase Order not found'));
+  }
+
+  const item = findPlanItem(po, req.params.line);
+  const pending = item.invoicePlan?.pendingChange;
+  if (!pending) {
+    return next(ApiError.badRequest(`Line ${item.line} has no proposed invoicing-plan change awaiting approval`));
+  }
+
+  const updatedPlan = await prisma.invoicePlan.update({
+    where: { pk: item.invoicePlan.pk },
+    data: { pendingChange: null },
+    include: { lines: true },
+  });
+
+  await recordAudit({
+    action: AUDIT_ACTIONS.PO_INVOICE_PLAN_CHANGE_REJECTED,
+    req,
+    target: { type: 'PurchaseOrder', id: po.id, label: po.sapPoNumber || po.id },
+    meta: { line: item.line, proposedBy: pending.requestedBy, proposed: pending.input, reason },
+  });
+
+  res.json({
+    message: `Proposed change for line ${item.line} rejected`,
+    item: planItemView({ ...item, invoicePlan: updatedPlan }, new Date()),
+  });
+});
+
 module.exports = {
   getPOs,
   getPOById,
@@ -561,9 +914,13 @@ module.exports = {
   getASNForPO,
   getASNs,
   getSapPoStatus,
+  createAssetPo,
   getInvoicePlan,
   configureInvoicePlan,
   removeInvoicePlan,
   setInvoicePlanLineBlock,
-  syncInvoicePlan
+  syncInvoicePlan,
+  proposeInvoicePlanChange,
+  approveInvoicePlanChange,
+  rejectInvoicePlanChange,
 };

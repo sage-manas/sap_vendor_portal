@@ -127,7 +127,10 @@ const configureSap = asyncHandler(async (req, res) => {
 
   const definition = driverDefinition(driver);
 
-  const errors = definition.validateConfig(config);
+  // Issue #79: a production connection with no credentials means the
+  // driver's own Z endpoints answer with no authentication at all — the
+  // console must refuse to save one, not just warn.
+  const errors = definition.validateConfig(config, { environment, secrets });
   if (Object.keys(errors).length) {
     throw ApiError.badRequest('The connection details are incomplete', { errors });
   }

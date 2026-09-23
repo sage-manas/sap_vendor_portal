@@ -15,7 +15,7 @@ const { recordAudit } = require('../utils/audit');
 const { AUDIT_ACTIONS } = require('../config/auditActions');
 const { settingValue } = require('../config/tenantSettings');
 const { toNumber } = require('../utils/money');
-const { settingsFromClient } = require('../sap/mappings/vendor-create.map');
+const { settingsFromClient, missingVendorCreateFields } = require('../sap/mappings/vendor-create.map');
 const { VENDOR_STATUS, VENDOR_STATUSES, VENDOR_AWAITING_DECISION } = require('../config/statuses');
 const { generateVendorId, identityConflict, unguessablePassword } = require('../utils/vendorIdentity');
 
@@ -221,8 +221,9 @@ const createProfile = asyncHandler(async (req, res, next) => {
 
   await assertCanCreate(client, 'vendors');
 
-  // Login identities are global, so this collision check spans all tenants.
-  const conflict = await identityConflict({ vendorId, email, gstin });
+  // vendorId/email are global login identities; gstin is checked within this
+  // workspace only (issue #67, ADR-0039).
+  const conflict = await identityConflict({ vendorId, email, gstin, clientId: client.clientId });
   if (conflict) {
     return next(ApiError.conflict(IDENTITY_CONFLICT_MESSAGE[conflict], { reason: conflict }));
   }
@@ -259,7 +260,7 @@ const createVendor = asyncHandler(async (req, res, next) => {
   const mappedBody = mapIncomingBody(req.body);
   const { companyName, gstin, pan, email } = mappedBody;
 
-  const conflict = await identityConflict({ email, gstin });
+  const conflict = await identityConflict({ email, gstin, clientId: req.client.clientId });
   if (conflict) {
     return next(ApiError.conflict(IDENTITY_CONFLICT_MESSAGE[conflict], { reason: conflict }));
   }
@@ -390,6 +391,25 @@ const submitRegistration = asyncHandler(async (req, res, next) => {
     return next(ApiError.conflict(
       'This registration has already been approved and created in SAP.',
       { reason: 'already_approved' },
+    ));
+  }
+
+  // Everything VENDOR_CR needs a value for has to be here before this can be
+  // submitted. Approval is where the vendor master is created, and SAP rejects
+  // an incomplete payload with a bare "Vendor Creation Failed" naming no field
+  // — so without this check the gap surfaces as a 502 on the admin's approve
+  // click, about a form the admin cannot fix. The list is derived from the
+  // VENDOR_CR field map, not restated here.
+  const missing = missingVendorCreateFields(vendor);
+  if (missing.length) {
+    return next(ApiError.badRequest(
+      'Your registration is missing details needed before it can be approved.',
+      {
+        reason: 'incomplete_profile',
+        // Same field → message shape middleware/validate.js returns for a zod
+        // failure, so the registration form renders this identically.
+        errors: Object.fromEntries(missing.map((field) => [field, 'This is required before you can submit'])),
+      },
     ));
   }
 

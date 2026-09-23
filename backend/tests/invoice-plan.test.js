@@ -23,7 +23,6 @@ const seedPO = (overrides = {}) =>
       sapPoNumber: overrides.sapPoNumber || '4500090001',
       vendorId: overrides.vendorId,
       buyerName: 'Test Buyer',
-      plant: '1000',
       currency: 'INR',
       status: overrides.status || 'Open',
       createdDate: new Date('2026-01-10'),
@@ -230,5 +229,175 @@ describe('invoicing plan endpoints', () => {
 
     expect(removed.status).toBe(400);
     expect(removed.body.error).toMatch(/already been invoiced/);
+  });
+});
+
+describe('a supplier proposing a change to their own invoicing plan', () => {
+  const configure = (token, poId, line, body) =>
+    request(app).put(`/api/pos/${poId}/items/${line}/invoice-plan`).set('Authorization', `Bearer ${token}`).send(body);
+  const propose = (token, poId, line, body) =>
+    request(app).put(`/api/pos/${poId}/items/${line}/invoice-plan/propose`).set('Authorization', `Bearer ${token}`).send(body);
+  const approve = (token, poId, line) =>
+    request(app).put(`/api/pos/${poId}/items/${line}/invoice-plan/propose/approve`).set('Authorization', `Bearer ${token}`).send();
+  const reject = (token, poId, line, reason) =>
+    request(app).put(`/api/pos/${poId}/items/${line}/invoice-plan/propose/reject`).set('Authorization', `Bearer ${token}`).send({ reason });
+
+  const partialBody = {
+    type: 'Partial',
+    milestones: [
+      { settlementDate: '2020-01-01', percentage: 40, description: 'On order' },
+      { settlementDate: '2099-01-01', percentage: 60, description: 'On commissioning' },
+    ],
+  };
+
+  const setUp = async (n) => {
+    const { token, vendor } = await registerVendor(app, { vendorId: `vendor_propose_${n}`, gstin: `27AAAAA20${n}0A1Z1` }, { onboarded: true });
+    const { token: adminToken } = await createAdminUser({ email: `plan-propose-admin-${n}@example.com` });
+    await seedPO({ id: `PO-PROPOSE-${n}`, vendorId: vendor.vendorId });
+    await configure(adminToken, `PO-PROPOSE-${n}`, 10, partialBody);
+    return { token, adminToken, vendor };
+  };
+
+  it('lets a supplier propose a change without it reaching SAP, then a buyer approve it', async () => {
+    const { token, adminToken } = await setUp(1);
+
+    const revised = {
+      type: 'Partial',
+      milestones: [
+        { settlementDate: '2020-06-01', percentage: 50, description: 'On order' },
+        { settlementDate: '2099-06-01', percentage: 50, description: 'On commissioning' },
+      ],
+    };
+
+    const proposed = await propose(token, 'PO-PROPOSE-1', 10, revised);
+    expect(proposed.status).toBe(200);
+    expect(proposed.body.item.plan.pendingChange).toBeTruthy();
+    expect(proposed.body.item.plan.pendingChange.requestedBy).toBe('vendor_propose_1');
+    // Not applied: the live schedule is unchanged, still the buyer's original.
+    expect(proposed.body.item.plan.lines.map((l) => l.percentage)).toEqual([40, 60]);
+
+    const approved = await approve(adminToken, 'PO-PROPOSE-1', 10);
+    expect(approved.status).toBe(200);
+    expect(approved.body.item.plan.lines.map((l) => l.percentage)).toEqual([50, 50]);
+    expect(approved.body.item.plan.pendingChange).toBeNull();
+  });
+
+  it('leaves the live plan untouched when a buyer rejects the proposal', async () => {
+    const { token, adminToken } = await setUp(2);
+    await propose(token, 'PO-PROPOSE-2', 10, {
+      type: 'Partial',
+      milestones: [{ settlementDate: '2020-01-01', percentage: 100, description: 'Everything up front' }],
+    });
+
+    const rejected = await reject(adminToken, 'PO-PROPOSE-2', 10, 'Not agreed — keep the milestone schedule');
+    expect(rejected.status).toBe(200);
+    expect(rejected.body.item.plan.pendingChange).toBeNull();
+    expect(rejected.body.item.plan.lines.map((l) => l.percentage)).toEqual([40, 60]);
+
+    // Nothing left pending to approve after rejection.
+    const reapprove = await approve(adminToken, 'PO-PROPOSE-2', 10);
+    expect(reapprove.status).toBe(400);
+  });
+
+  it('rejects a rejection with no reason', async () => {
+    const { token, adminToken } = await setUp(3);
+    await propose(token, 'PO-PROPOSE-3', 10, partialBody);
+
+    const res = await request(app)
+      .put('/api/pos/PO-PROPOSE-3/items/10/invoice-plan/propose/reject')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({});
+    expect(res.status).toBe(400);
+  });
+
+  it('refuses a proposal that does not reconcile to the line value', async () => {
+    const { token } = await setUp(4);
+    const res = await propose(token, 'PO-PROPOSE-4', 10, {
+      type: 'Partial',
+      milestones: [{ settlementDate: '2020-01-01', percentage: 40 }],
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/must add up to the full line value/);
+  });
+
+  it('refuses a proposal on a line with no invoicing plan to change', async () => {
+    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_propose_5', gstin: '27AAAAA2050A1Z1' }, { onboarded: true });
+    await seedPO({ id: 'PO-PROPOSE-5', vendorId: vendor.vendorId });
+
+    const res = await propose(token, 'PO-PROPOSE-5', 10, partialBody);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/no invoicing plan/);
+  });
+
+  it("does not let a supplier propose a change on another supplier's order", async () => {
+    const { vendor: owner } = await registerVendor(app, { vendorId: 'vendor_propose_owner_6', gstin: '27AAAAA2061A1Z1', email: 'owner-6@example.com' }, { onboarded: true });
+    const { token: adminToken } = await createAdminUser({ email: 'plan-propose-admin-6@example.com' });
+    await seedPO({ id: 'PO-PROPOSE-6', vendorId: owner.vendorId });
+    await configure(adminToken, 'PO-PROPOSE-6', 10, partialBody);
+
+    const { token: strangerToken } = await registerVendor(app, { vendorId: 'vendor_propose_stranger_6', gstin: '27AAAAA2062A1Z1', email: 'stranger-6@example.com' }, { onboarded: true });
+
+    const res = await propose(strangerToken, 'PO-PROPOSE-6', 10, partialBody);
+    expect(res.status).toBe(404);
+  });
+
+  it('does not let a supplier approve or reject their own proposal', async () => {
+    const { token } = await setUp(7);
+    await propose(token, 'PO-PROPOSE-7', 10, partialBody);
+
+    expect((await approve(token, 'PO-PROPOSE-7', 10)).status).toBe(403);
+    expect((await reject(token, 'PO-PROPOSE-7', 10, 'no')).status).toBe(403);
+  });
+
+  it("a buyer's own edit discards a supplier's pending proposal rather than leaving it stranded", async () => {
+    const { token, adminToken } = await setUp(8);
+    await propose(token, 'PO-PROPOSE-8', 10, {
+      type: 'Partial',
+      milestones: [{ settlementDate: '2020-01-01', percentage: 100, description: 'Supplier’s proposal' }],
+    });
+
+    const reconfigured = await configure(adminToken, 'PO-PROPOSE-8', 10, {
+      type: 'Partial',
+      milestones: [{ settlementDate: '2021-01-01', percentage: 100, description: 'Buyer decided differently' }],
+    });
+    expect(reconfigured.status).toBe(200);
+    expect(reconfigured.body.item.plan.pendingChange).toBeNull();
+  });
+
+  it('reconciles a proposal against invoicing that happened after it was proposed, not a stale snapshot', async () => {
+    const { token, adminToken } = await setUp(9);
+    await propose(token, 'PO-PROPOSE-9', 10, {
+      type: 'Partial',
+      milestones: [
+        { settlementDate: '2020-06-01', percentage: 50, description: 'On order' },
+        { settlementDate: '2099-06-01', percentage: 50, description: 'On commissioning' },
+      ],
+    });
+
+    // The first milestone of the ORIGINAL plan gets billed between proposal
+    // and approval — exactly the race applyInvoicePlan's rebuild exists for.
+    const rawPo = await runWithTenant('CLT-0001', () => prisma.purchaseOrder.findFirst({ where: { id: 'PO-PROPOSE-9' }, include: PO_INCLUDE }));
+    const rawItem = rawPo.items.find((i) => i.line === 10);
+    const planLine = rawItem.invoicePlan.lines.find((l) => l.lineNumber === 10);
+    const invoice = await runWithTenant('CLT-0001', () => prisma.invoice.create({
+      data: {
+        id: 'INV-PLAN-RACE-9', poId: rawPo.id, vendorId: rawPo.vendorId,
+        invoiceNumber: 'V/2026/9', invoiceDate: new Date('2026-02-01'),
+        subTotal: 20000, taxAmount: 3600, totalAmount: 23600,
+        invoicePlanRef: { line: 10, planLineNumber: 10, planType: 'Partial', settlementDate: planLine.settlementDate },
+      },
+    }));
+    await runWithTenant('CLT-0001', () => prisma.invoicePlanLine.update({
+      where: { pk: planLine.pk },
+      data: { status: 'Invoiced', invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber, invoicedAt: new Date() },
+    }));
+
+    const approved = await approve(adminToken, 'PO-PROPOSE-9', 10);
+    expect(approved.status).toBe(200);
+    // buildPlan's own carry-forward rule: a billed date keeps its amount and
+    // invoice reference regardless of what the proposal said about it.
+    const billedLine = approved.body.item.plan.lines.find((l) => l.invoiceId === invoice.id);
+    expect(billedLine).toBeTruthy();
+    expect(billedLine.status).toBe('Invoiced');
   });
 });

@@ -107,18 +107,34 @@ export default function PaymentTrackingView({ state }) {
     ? (selectedPayment.amount !== undefined ? selectedPayment.amount : (selectedPayment.netAmount || 0))
     : 0;
 
-  // The invoice this payment settled, or null. It used to synthesise one when
-  // no match was found — inventing a SAP MIRO number as "510560" + the last
-  // four digits of the payment id, plus a back-computed 18% tax split. A
-  // number shaped exactly like SAP's own is the worst kind of placeholder, so
-  // an unmatched payment now simply has no invoice and the fields render as
-  // dashes.
-  const getInvoiceForPayment = (payment) => {
-    if (!payment) return null;
-    return (state?.invoices || []).find(
-      (i) => i.id === payment.invoiceId || i.invoiceNumber === payment.invoiceId,
-    ) || null;
+  // Every invoice this payment settled — a remittance can cover more than
+  // one (an F110 run pays several invoices under one clearing document, see
+  // issue #63), so `payment.items` is a list, not a single invoiceId. It
+  // used to synthesise a match when none was found — inventing a SAP MIRO
+  // number as "510560" + the last four digits of the payment id, plus a
+  // back-computed 18% tax split. A number shaped exactly like SAP's own is
+  // the worst kind of placeholder, so an unsettled item now simply has no
+  // invoice and the fields render as dashes.
+  const getInvoicesForPayment = (payment) => {
+    if (!payment) return [];
+    const items = payment.items?.length ? payment.items : [{ invoiceId: payment.invoiceId, invoiceNumber: payment.invoiceNumber, sapMiroDoc: payment.sapMiroDoc }];
+    return items.map((item) => (state?.invoices || []).find(
+      (i) => i.id === item.invoiceId || i.invoiceNumber === item.invoiceId || i.invoiceNumber === item.invoiceNumber,
+    ) || item);
   };
+  // Kept for the single-payment detail panel below, which only ever looks at
+  // one invoice at a time.
+  const getInvoiceForPayment = (payment) => getInvoicesForPayment(payment)[0] || null;
+  // Comma-joined invoice numbers for a table cell or CSV column — the common
+  // case (one invoice) reads exactly as it always did.
+  const invoiceLabelFor = (payment) => getInvoicesForPayment(payment)
+    .map((inv) => inv?.invoiceNumber || inv?.invoiceId)
+    .filter(Boolean)
+    .join(', ') || null;
+  const miroDocLabelFor = (payment) => getInvoicesForPayment(payment)
+    .map((inv) => inv?.sapMiroDoc)
+    .filter(Boolean)
+    .join(', ') || null;
   // Amounts come off the payment SAP reported. Only the gross falls back, and
   // only arithmetically — net plus the TDS actually deducted, never a guessed
   // rate applied to a number nobody supplied.
@@ -159,9 +175,8 @@ export default function PaymentTrackingView({ state }) {
 
   // Filter payments based on query, date range, and method
   const filteredPayments = cleanPayments.filter(payment => {
-    const invoiceData = getInvoiceForPayment(payment);
-    const invoiceNo = (invoiceData?.invoiceNumber || payment.invoiceId || '').toLowerCase();
-    const sapDoc = (invoiceData?.sapMiroDoc || '').toLowerCase();
+    const invoiceNo = (invoiceLabelFor(payment) || '').toLowerCase();
+    const sapDoc = (miroDocLabelFor(payment) || '').toLowerCase();
     const utr = (payment.utrCode || '').toLowerCase();
     const query = searchQuery.toLowerCase();
     const clearingDateFormatted = formatDate(payment.paymentDate).toLowerCase();
@@ -237,13 +252,14 @@ export default function PaymentTrackingView({ state }) {
   const handleExportLedger = () => {
     const headers = ['Invoice Number', 'Buyer Reference', 'Payment Date', 'Gross Amount', 'TDS Deducted', 'Net Disbursed', 'UTR Reference', 'Method'];
     const rows = filteredPayments.map(payment => {
-      const invData = getInvoiceForPayment(payment);
       const payAmt = payment.amount !== undefined ? payment.amount : (payment.netAmount || 0);
       const tdsAmt = Number(payment.tdsDeducted) || 0; // never a guessed rate
       const grossAmt = payment.grossAmount !== undefined ? payment.grossAmount : payAmt + tdsAmt;
+      // Sums per remittance (issue #63) — these are the whole payment's
+      // totals, and the invoice column lists every invoice it covers.
       return [
-        invData?.invoiceNumber || payment.invoiceId || '',
-        invData?.sapMiroDoc || '',
+        invoiceLabelFor(payment) || '',
+        miroDocLabelFor(payment) || '',
         formatDate(payment.paymentDate),
         grossAmt,
         tdsAmt,
@@ -268,35 +284,44 @@ export default function PaymentTrackingView({ state }) {
     window.URL.revokeObjectURL(url);
   };
 
-  // No dedicated dispute/query backend endpoint exists yet, so route the inquiry through
-  // the same chat endpoint the (now-removed) Communications tab used to send —
-  // it still reaches a buyer officer, there's just no thread view for it in the portal.
-  const handleRaiseInquiry = async (payment) => {
-    const invData = getInvoiceForPayment(payment);
-    const message = `Raising a query regarding settlement UTR: ${payment.utrCode || payment.id}, Invoice: ${invData?.invoiceNumber || payment.invoiceId || 'N/A'}. Please review and advise.`;
+  // These two used to POST to /api/chats and tell the supplier a buyer officer
+  // would respond. Nothing in this application renders a ChatMessage on either
+  // plane, and `POST /api/chats` is structurally supplier-only — `sender` is
+  // hardcoded to 'Vendor' and the controller requires a vendor scope — so no
+  // member of the buyer's staff could have replied even if a thread view
+  // existed. The message went to a table nobody reads (issue #109).
+  //
+  // Rather than delete the affordance, it now does the part the portal can
+  // honestly do: assemble the reference the supplier needs to quote and put it
+  // on the clipboard. Routing it is the supplier's own email or phone call,
+  // and the copy says so instead of promising a reply.
+  const copyForBuyer = async (text, what) => {
     try {
-      await portal.dashboardHook.sendChatMessage(message);
-      portal.addToast('success', 'Your inquiry has been sent to your buyer. A buyer officer will respond shortly.');
+      await navigator.clipboard.writeText(text);
+      portal.addToast('success', `${what} copied. The portal cannot message your buyer — send this to their accounts team.`);
     } catch (err) {
-      portal.addToast('error', 'Failed to send inquiry. Please try again.');
+      // Clipboard is unavailable over plain HTTP and in some browsers. Showing
+      // the reference is still better than silently doing nothing.
+      portal.addToast('info', `${what}: ${text}`);
     }
   };
 
+  const handleRaiseInquiry = (payment) =>
+    copyForBuyer(
+      `Query regarding settlement UTR ${payment.utrCode || payment.id}, invoice ${invoiceLabelFor(payment) || 'N/A'}. Please review and advise.`,
+      'Query reference',
+    );
+
   // Form 16A is issued by the buyer from TRACES after filing its quarterly
   // return — the portal cannot generate one, and the registry below is a
-  // deduction ledger rather than a filing record. So the request goes through
-  // the same chat endpoint to Finance instead of faking a download.
-  const handleRequestForm16A = async (row) => {
-    const message = `Requesting Form 16A TDS certificate — ${row.quarterLabel}, FY ${row.fiscalYearLabel}`
-      + `${row.deducteePan ? `, PAN: ${row.deducteePan}` : ''}`
-      + `, TDS deducted ₹${Number(row.taxWithheld).toLocaleString('en-IN')} across ${row.paymentCount} payment(s).`;
-    try {
-      await portal.dashboardHook.sendChatMessage(message);
-      portal.addToast('info', 'Form 16A certificates are issued by Finance and are not available for direct download yet. Your request has been sent to your buyer.');
-    } catch (err) {
-      portal.addToast('error', 'Failed to send certificate request. Please try again.');
-    }
-  };
+  // deduction ledger rather than a filing record.
+  const handleRequestForm16A = (row) =>
+    copyForBuyer(
+      `Form 16A request — ${row.quarterLabel}, FY ${row.fiscalYearLabel}`
+      + `${row.deducteePan ? `, PAN ${row.deducteePan}` : ''}`
+      + `, TDS deducted ₹${Number(row.taxWithheld).toLocaleString('en-IN')} across ${row.paymentCount} payment(s).`,
+      'Certificate request',
+    );
 
   if (isLoading) {
     return (
@@ -445,20 +470,22 @@ export default function PaymentTrackingView({ state }) {
                   </thead>
                   <tbody>
                     {filteredPayments.map((payment, idx) => {
-                      const invData = getInvoiceForPayment(payment);
                       const payAmt = payment.amount !== undefined ? payment.amount : (payment.netAmount || 0);
                       const tdsAmt = Number(payment.tdsDeducted) || 0; // never a guessed rate
+                      // Sums per remittance (issue #63) — one row is one
+                      // Payment, and these are its totals across every
+                      // invoice it settled, matching what the bank shows.
                       const grossAmt = payment.grossAmount !== undefined ? payment.grossAmount : payAmt + tdsAmt;
 
                       return (
                         <tr key={payment.id || idx}>
                           <td className="whitespace-nowrap">
                             <span className="text-primary font-bold hover:underline cursor-pointer select-all whitespace-nowrap">
-                              {invData?.invoiceNumber || payment.invoiceId}
+                              {invoiceLabelFor(payment) || '—'}
                             </span>
                           </td>
                           <td className="font-mono font-semibold text-text-primary whitespace-nowrap">
-                            {invData?.sapMiroDoc || '—'}
+                            {miroDocLabelFor(payment) || '—'}
                           </td>
                           <td className="font-medium font-mono text-text-secondary whitespace-nowrap tabular-nums">
                             {formatDate(payment.paymentDate)}
@@ -500,7 +527,7 @@ export default function PaymentTrackingView({ state }) {
                                 variant="outline"
                                 size="xs"
                                 onClick={() => handleRaiseInquiry(payment)}
-                                title="Raise query / dispute"
+                                title="Copy a query reference to send to your buyer's accounts team"
                               >
                                 Query
                               </Button>
@@ -695,9 +722,9 @@ export default function PaymentTrackingView({ state }) {
                             variant="default"
                             size="xs"
                             onClick={() => handleRequestForm16A(row)}
-                            title="Request the Form 16A certificate from Finance"
+                            title="Copy a Form 16A request to send to your buyer's finance team"
                           >
-                            Request Certificate
+                            Copy Request
                           </Button>
                         </td>
                       </tr>

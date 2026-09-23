@@ -23,6 +23,25 @@ const makeAsn = async (clientId, overrides = {}) => runWithTenant(clientId, asyn
   });
 });
 
+const makeInvoice = async (clientId, overrides = {}) => runWithTenant(clientId, async () => {
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const po = await prisma.purchaseOrder.create({
+    data: { id: `PO-RQ-${suffix}`, vendorId: 'vendor_rq', status: 'Invoiced' },
+  });
+  return prisma.invoice.create({
+    data: {
+      id: `INV-RQ-${suffix}`, poId: po.id, vendorId: 'vendor_rq', invoiceNumber: `V-${suffix}`,
+      invoiceDate: new Date(), subTotal: 100, taxAmount: 18, totalAmount: 118,
+      // grnId and invoicePlanRef are mutually exclusive but exactly one is
+      // required (a CHECK constraint) — this test has no need for a full
+      // ASN→GRN chain, so it's the invoicing-plan shape, same as
+      // tds-summary.test.js.
+      invoicePlanRef: { line: 10, planLineNumber: 1, planType: 'Periodic', settlementDate: new Date().toISOString() },
+      ...overrides,
+    },
+  });
+});
+
 describe('GET /platform/reconciliation', () => {
   it('lists a failed row and an orphaned row, but not a synced or local one', async () => {
     const { token } = await createOperatorSession();
@@ -77,6 +96,29 @@ describe('GET /platform/reconciliation', () => {
   it('requires platform:health:read', async () => {
     const res = await request(app).get('/api/platform/reconciliation');
     expect(res.status).toBe(401);
+  });
+
+  // Issue #64: an ambiguous SAP match (a periodic invoicing plan's
+  // same-amount siblings, most commonly) parks an invoice in
+  // needs_manual_match. A retry alone never resolves it, so — unlike a
+  // merely-slow `pending` row — it must show up immediately, not after
+  // waiting out the SLA window, and with both candidate documents named.
+  it('lists a needs_manual_match invoice immediately, with both candidates named', async () => {
+    const { token } = await createOperatorSession();
+
+    const freshInvoice = await makeInvoice('CLT-0001', {
+      sapSyncState: 'needs_manual_match',
+      sapSyncError: 'Ambiguous match: 2 SAP documents fit PO 4500012345 / amount 50000 (5100000001, 5100000002) — needs manual resolution.',
+    });
+
+    const res = await request(app).get('/api/platform/reconciliation?type=Invoice').set(bearer(token));
+
+    expect(res.status).toBe(200);
+    const row = res.body.rows.find((r) => r.id === freshInvoice.id);
+    expect(row).toBeTruthy();
+    expect(row.sapSyncState).toBe('needs_manual_match');
+    expect(row.sapSyncError).toContain('5100000001');
+    expect(row.sapSyncError).toContain('5100000002');
   });
 });
 

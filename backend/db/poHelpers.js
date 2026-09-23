@@ -1,5 +1,6 @@
 const { prisma } = require('./prisma');
 const { toNumber } = require('../utils/money');
+const { toNumber: toQty } = require('../utils/quantity');
 const { statusRank, derivePoStatus } = require('../services/poStatus.service');
 
 // Shared between po.controller.js and invoice.controller.js: both need a
@@ -56,14 +57,21 @@ const formatPlan = (plan) => (!plan ? { enabled: false } : {
   lines: (plan.lines || []).map(formatPlanLine),
   source: plan.source,
   syncedAt: plan.syncedAt,
+  // A supplier's proposed change awaiting approval, or null. Raw — it is
+  // {input, requestedAt, requestedBy} (see the InvoicePlan.pendingChange
+  // comment in schema.prisma), not itself a plan, so it is passed through
+  // rather than run through the numeric conversions above.
+  pendingChange: plan.pendingChange || null,
 });
 
 const formatPoItem = (item) => {
-  const { pk, clientId, poPk, invoicePlan, unitPrice, netValue, ...rest } = item;
+  const { pk, clientId, poPk, invoicePlan, unitPrice, netValue, quantity, grnQuantity, ...rest } = item;
   return {
     ...rest,
     unitPrice: toNumber(unitPrice),
     netValue: toNumber(netValue),
+    quantity: toQty(quantity),
+    grnQuantity: toQty(grnQuantity),
     invoicePlan: formatPlan(invoicePlan),
   };
 };
@@ -103,6 +111,13 @@ const persistInvoicePlan = async (item, plan) => {
     reference: plan.reference || null,
     source: plan.source || 'portal',
     syncedAt: plan.syncedAt || null,
+    // Any successful write to this plan — the buying organisation's own edit,
+    // an adopted SAP sync, or an approved supplier proposal — supersedes
+    // whatever was pending. A caller that just applied a proposal has already
+    // cleared it explicitly on the row it read; this is what catches every
+    // other path (configureInvoicePlan, syncInvoicePlan) so a stale proposal
+    // can never survive a plan it no longer describes.
+    pendingChange: null,
   };
 
   const planRow = item.invoicePlan
@@ -169,7 +184,10 @@ const syncPoStatus = async (client, poPk) => {
   for (const invoice of invoices) {
     for (const item of invoice.items) {
       if (item.line == null) continue;
-      invoicedQtyByLine.set(item.line, (invoicedQtyByLine.get(item.line) || 0) + item.quantity);
+      // item.quantity is Decimal-typed (issue #65) — `+` on two Decimal
+      // instances (or a number and a Decimal) is string concatenation, not
+      // addition; see utils/money.js's header comment.
+      invoicedQtyByLine.set(item.line, (invoicedQtyByLine.get(item.line) || 0) + toQty(item.quantity));
     }
   }
 

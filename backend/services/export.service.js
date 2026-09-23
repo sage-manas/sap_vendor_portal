@@ -8,6 +8,7 @@
 // test on its own.
 
 const { toNumber } = require('../utils/money');
+const { toNumber: toQty } = require('../utils/quantity');
 
 // Reshapes the PO Prisma returned (with `items` and `vendor` included) plus
 // its originating RFQ into the flat, presentation-ready shape every format
@@ -23,10 +24,14 @@ const buildExportPayload = ({ rfq, po }) => ({
   vendorName: po.vendor?.companyName || '',
   vendorGstin: po.vendor?.gstin || '',
   vendorSapCode: po.vendor?.sapVendorCode || '',
-  plant: po.plant || '',
-  companyCode: rfq.companyCode || '1000',
-  purchasingOrg: rfq.purchasingOrg || '1000',
-  purchasingGroup: rfq.purchasingGroup || '',
+  // Real values the PO itself carries (issue #62), not the RFQ's — a PO's
+  // own companyCode/purchasingOrg/purchasingGroup is what awardRfq copied
+  // from the RFQ at award time (or what SAP reported, for a discovered
+  // order), and no longer falls back to the SAP IDES demo value '1000' when
+  // unset.
+  companyCode: po.companyCode || '',
+  purchasingOrg: po.purchasingOrg || '',
+  purchasingGroup: po.purchasingGroup || '',
   currency: po.currency || 'INR',
   paymentTerms: po.paymentTerms || '',
   incoterms: po.incoterms || '',
@@ -37,10 +42,14 @@ const buildExportPayload = ({ rfq, po }) => ({
     line: item.line,
     materialCode: item.materialCode,
     description: item.description || '',
-    quantity: item.quantity,
+    // Decimal-typed (issue #65) — po.items is a raw Prisma read here, not
+    // run through formatPo.
+    quantity: toQty(item.quantity),
     uom: item.uom || 'EA',
     unitPrice: toNumber(item.unitPrice),
     netValue: toNumber(item.netValue),
+    // Per line, not the order as a whole (issue #62).
+    plant: item.plant || '',
   })),
 });
 
@@ -55,13 +64,14 @@ const HEADER_COLUMNS = [
   ['vendorId', 'Vendor Code'],
   ['vendorName', 'Vendor Name'],
   ['vendorGstin', 'Vendor GSTIN'],
-  ['plant', 'Plant'],
   ['companyCode', 'Company Code'],
   ['purchasingOrg', 'Purchasing Org'],
   ['currency', 'Currency'],
   ['paymentTerms', 'Payment Terms'],
 ];
 
+// Plant is per line, not per order (issue #62) — a real PO can ship from
+// more than one, so it belongs with the line items, not the header above.
 const ITEM_COLUMNS = [
   ['line', 'Line'],
   ['materialCode', 'Material Code'],
@@ -70,6 +80,7 @@ const ITEM_COLUMNS = [
   ['uom', 'UoM'],
   ['unitPrice', 'Unit Price'],
   ['netValue', 'Net Value'],
+  ['plant', 'Plant'],
 ];
 
 // One row per line item, PO header fields repeated on every row — the
@@ -135,14 +146,18 @@ const buildIdoc = (payload) => {
   const lines = [
     idocField('EDI_DC40', 'TABNAM', 'MANDT', 'DOCNUM', 'IDOCTYP', 'MESTYP', 'SNDPRN', 'RCVPRN', 'CREDAT', 'CRETIM'),
     idocField('', 'EDI_DC40', '100', '', 'ORDERS05', 'ORDERS', 'VENDORCONNECT', payload.companyCode, now.toISOString().slice(0, 10).replace(/-/g, ''), stamp.slice(8)),
-    idocField('E1EDK01', 'BELNR', 'BSART', 'WAERS', 'ZTERM', 'EKORG', 'EKGRP', 'WERKS'),
-    idocField('', payload.poId, 'NB', payload.currency, payload.paymentTerms, payload.purchasingOrg, payload.purchasingGroup, payload.plant),
+    // WERKS (plant) is deliberately not here — it moved to the item segment
+    // below (issue #62): a real PO can ship from more than one plant, and a
+    // single header value would silently pick one line's plant for the
+    // whole order.
+    idocField('E1EDK01', 'BELNR', 'BSART', 'WAERS', 'ZTERM', 'EKORG', 'EKGRP'),
+    idocField('', payload.poId, 'NB', payload.currency, payload.paymentTerms, payload.purchasingOrg, payload.purchasingGroup),
     idocField('E1EDKA1', 'PARVW', 'LIFNR', 'NAME1'),
     idocField('', 'LF', payload.vendorSapCode || payload.vendorId, payload.vendorName),
   ];
   for (const item of payload.items) {
-    lines.push(idocField('E1EDP01', 'POSEX', 'MATNR', 'MENGE', 'MENEE', 'NETPR', 'NETWR', 'KTEXT'));
-    lines.push(idocField('', String(item.line).padStart(5, '0'), item.materialCode, item.quantity, item.uom, item.unitPrice, item.netValue, item.description));
+    lines.push(idocField('E1EDP01', 'POSEX', 'MATNR', 'MENGE', 'MENEE', 'NETPR', 'NETWR', 'KTEXT', 'WERKS'));
+    lines.push(idocField('', String(item.line).padStart(5, '0'), item.materialCode, item.quantity, item.uom, item.unitPrice, item.netValue, item.description, item.plant));
   }
   return lines.join('\n');
 };

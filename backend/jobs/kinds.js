@@ -40,6 +40,20 @@ const SAP_JOB_KINDS = {
     defaultMaxAttempts: 5,
     recurring: true,
   },
+  // Invoice creation was removed from the portal (a9fe9ac) — the portal
+  // never posts to SAP on a supplier's behalf, so a supplier's "invoice" was
+  // only ever a local record waiting to be matched against what AP posts.
+  // This sweep is what replaces it: an Invoice row now comes into existence
+  // only by SAP already holding a MIRO document for it, discovered here —
+  // the same "SAP originated it, not the portal" shape as
+  // sweepPurchaseOrders below, one document type later in the chain.
+  sweepInvoices: {
+    label: 'Sweep invoices',
+    feed: 'invoice',
+    defaultIntervalMs: 60_000,
+    defaultMaxAttempts: 5,
+    recurring: true,
+  },
   sweepPayments: {
     label: 'Sweep payments',
     feed: 'payment',

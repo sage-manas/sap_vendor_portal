@@ -17,6 +17,7 @@ import KPICard from '@/components/ui/KPICard';
 import Modal from '@/components/ui/Modal';
 import { poStatusVariant } from '@/lib/statusColors';
 import { describeSyncState } from '@/lib/syncState';
+import { poKind, lineKind, kindTone, lineHasInvoicePlan, hasInvoicePlan as poHasInvoicePlan, invoicePlanNumbers } from '@/features/purchase-order/poKind';
 import { useWhoami } from '@/lib/whoami';
 import InvoicePlanPanel from './InvoicePlanPanel';
 
@@ -184,6 +185,61 @@ export default function PurchaseOrdersView({
   const sapPoNumbers = new Set((sapPoOrders || []).map(o => o.poNumber).filter(Boolean));
   const isConfirmedInSap = (po) => Boolean(po.sapPoNumber) && sapPoNumbers.has(po.sapPoNumber);
 
+  // One list, not two. An order SAP raised directly (ME21N) becomes a real
+  // PurchaseOrder row when jobs/handlers/sweepPurchaseOrders.js next runs;
+  // between SAP creating it and that sweep, it exists only in SAP's own
+  // ledger. That window is what the separate "All SAP Orders" tab used to
+  // expose, at the cost of making a supplier look in two places to answer
+  // "what have I been ordered?". These rows are merged into the same table
+  // instead, carrying `sapOnly` so the row can be honest about the fact that
+  // nothing here is tracking it yet.
+  //
+  // Field names and the status rule below are the sweep's own
+  // (sweepPurchaseOrders.js's item mapping, services/poStatus.service.js's
+  // derivePoStatus) so a row does not change shape or status under the
+  // supplier at the moment it is finally recorded.
+  const trackedSapNumbers = new Set(cleanPOs.map(po => po.sapPoNumber).filter(Boolean));
+  const sapOnlyPOs = (Array.isArray(sapPoOrders) ? sapPoOrders : [])
+    .filter(order => order.poNumber && !trackedSapNumbers.has(order.poNumber))
+    .map(order => {
+      const items = (order.items || []).filter(Boolean).map(item => ({
+        line: Number(item.itemNumber) || 0,
+        materialCode: item.materialCode || '',
+        description: item.description || '',
+        quantity: item.orderedQuantity || 0,
+        grnQuantity: item.receivedQuantity || 0,
+        unitPrice: item.unitPrice || 0,
+        netValue: item.netAmount || 0,
+        uom: item.uom || 'EA',
+        plant: item.plant || null,
+        // What kind of line SAP says this is, and whether it is invoiced
+        // against a plan — see poKind.js. Both travel on the ledger read, so
+        // an unrecorded order is classified the same way a recorded one is.
+        accountAssignmentCategory: item.accountAssignmentCategory || null,
+        invoicePlanNumber: item.invoicePlanNumber || null,
+      }));
+      // derivePoStatus's delivered/dispatched/open arm only. Invoiced and Paid
+      // are deliberately not inferred from SAP's INVOICED_QUANTITY: those two
+      // mean the *portal* holds a matching invoice, and for an order it has
+      // never seen it holds none.
+      const delivered = items.length > 0 && items.every(i => Number(i.grnQuantity) >= Number(i.quantity));
+      const inFlight = items.some(i => Number(i.grnQuantity) > 0);
+      return {
+        id: order.poNumber,
+        sapPoNumber: order.poNumber,
+        sapOnly: true,
+        createdDate: order.poDate || null,
+        buyerName: order.buyerName || '—',
+        plant: items.find(i => i.plant)?.plant || '—',
+        currency: order.currency || 'INR',
+        status: delivered ? 'Delivered' : inFlight ? 'Dispatched' : 'Open',
+        items,
+        raw: order,
+      };
+    });
+
+  const allPOs = [...cleanPOs, ...sapOnlyPOs];
+
   // Navigation states:
   // poSubTab tracks the main top menu: 'list' (Orders Monitor), 'grn' (Goods Receipts), 'invoice' (Invoice Ready)
   const [poSubTab, setPoSubTab] = useState('list');
@@ -191,15 +247,16 @@ export default function PurchaseOrdersView({
   const [currentView, setCurrentView] = useState('list');
   const [activePoState, setActivePo] = useState(null);
   const [activeGrnState, setActiveGrn] = useState(null);
-  const activePo = activePoState ? (cleanPOs.find(p => p.id === activePoState.id) || activePoState) : null;
+  // allPOs, not cleanPOs: an order SAP holds that the portal has not recorded
+  // yet opens the same detail page as any other, so it has to be findable here
+  // too or the page would fall back to a stale snapshot of it.
+  const activePo = activePoState ? (allPOs.find(p => p.id === activePoState.id) || activePoState) : null;
+  // Read-only: every write on this page (acknowledge, ASN, invoicing plan,
+  // chat) addresses a PurchaseOrder row by id, and there is no such row for
+  // this order until jobs/handlers/sweepPurchaseOrders.js records it.
+  const activePoIsSapOnly = Boolean(activePo?.sapOnly);
   const activeGrn = activeGrnState ? (cleanGrns.find(g => g.id === activeGrnState.id) || activeGrnState) : null;
   const [localSubmissionTimes, setLocalSubmissionTimes] = useState({});
-  // Toggles the Orders Monitor table between the portal's own tracked POs
-  // and every PO SAP itself holds against this vendor code (zpo_grn_vendor/
-  // Detail, same read that badges "Confirmed"/"Not confirmed yet" above —
-  // this view is the full ledger that read pulls from, not a cross-check).
-  const [isSapView, setIsSapView] = useState(false);
-  const [sapPoDetail, setSapPoDetail] = useState(null);
   const [activeLineIdx, setActiveLineIdx] = useState(0);
   const [asnLineIdx, setAsnLineIdx] = useState(0);
   const [grnLineIdx, setGrnLineIdx] = useState(0);
@@ -259,14 +316,24 @@ export default function PurchaseOrdersView({
   // tab on every order, because they are the ones who switch planning ON.
   const { permissions } = useWhoami();
   const canManagePlans = (permissions || []).includes('po:manage');
-  const hasInvoicePlan = (activePo?.items || []).some(item => item?.invoicePlan?.enabled);
+  const canProposePlan = (permissions || []).includes('po:invoice-plan:propose');
+  // An order read straight from SAP carries its plan as a bare INV_PLANNO;
+  // one the portal holds carries a plan record. poKind.js knows both spellings
+  // so this tab appears for either. (A plan SAP already holds is not
+  // manageable from here, only visible — see the panel's own canManage.)
+  const hasInvoicePlan = poHasInvoicePlan(activePo);
   const showInvoicePlanTab = hasInvoicePlan || canManagePlans;
 
   // A tab that disappears must not leave the panel selected — moving from a
   // planned order to an unplanned one would otherwise render a blank detail
   // body. Derived rather than corrected in an effect, so there is no render
   // where the selection and what is on screen disagree.
-  const activeDetailTab = detailTab === 'invoice_plan' && !showInvoicePlanTab ? 'po_detail' : detailTab;
+  // Same reasoning for an order the portal has not recorded: it offers the
+  // order-details tab only, so a selection carried over from another order
+  // must not survive onto it.
+  const activeDetailTab = activePoIsSapOnly
+    ? 'po_detail'
+    : (detailTab === 'invoice_plan' && !showInvoicePlanTab ? 'po_detail' : detailTab);
 
   // Countdown timer for the delivery-confirmation simulation
   const [countdown, setCountdown] = useState({});
@@ -407,10 +474,10 @@ export default function PurchaseOrdersView({
 
   // Filter and sort the PO list
   const getFilteredPOs = () => {
-    return cleanPOs
+    return allPOs
       .filter(po => {
-        const matchesSearch = po.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (po.items || []).some(item => item && (item.description.toLowerCase().includes(searchQuery.toLowerCase()) || item.materialCode.toLowerCase().includes(searchQuery.toLowerCase())));
+        const matchesSearch = String(po.id || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (po.items || []).some(item => item && (String(item.description || '').toLowerCase().includes(searchQuery.toLowerCase()) || String(item.materialCode || '').toLowerCase().includes(searchQuery.toLowerCase())));
 
         const mappedStatus = po.status;
         const matchesStatus = statusFilter === 'all' ||
@@ -618,117 +685,51 @@ export default function PurchaseOrdersView({
         {currentView === 'list' && poSubTab === 'list' && (
           <div className="space-y-6">
 
-            {/* PORTAL / SAP LEDGER TOGGLE */}
-            <div className="inline-flex items-center gap-1 p-1 bg-surface2 border border-border rounded-md">
-              <button
-                type="button"
-                onClick={() => setIsSapView(false)}
-                className={`px-3 py-1.5 text-xs font-bold rounded transition-colors duration-150 cursor-pointer ${!isSapView ? 'bg-surface text-text-primary shadow-xs border border-border' : 'text-text-tertiary hover:text-text-secondary'}`}
-              >
-                Portal Orders ({cleanPOs.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsSapView(true)}
-                className={`px-3 py-1.5 text-xs font-bold rounded transition-colors duration-150 cursor-pointer ${isSapView ? 'bg-surface text-text-primary shadow-xs border border-border' : 'text-text-tertiary hover:text-text-secondary'}`}
-              >
-                All SAP Orders {Array.isArray(sapPoOrders) ? `(${sapPoOrders.length})` : ''}
-              </button>
-            </div>
+            {/* The SAP ledger read (zpo_grn_vendor/Detail) supplies both the
+                not-yet-recorded rows merged into the table below and the
+                per-row Confirmed badge. When it has not answered, say so once
+                here rather than leaving a quietly short list. */}
+            {sapPoStatus === 'error' ? (
+              <div className="card flex items-center gap-3 py-3 px-4">
+                <AlertCircle className="size-4 text-amber-500 shrink-0" />
+                <p className="text-xs text-text-secondary flex-1">
+                  Could not reach your buyer&rsquo;s records, so any order they raised that this
+                  portal has not recorded yet is missing from this list. Everything already
+                  tracked here is unaffected.
+                </p>
+                {retrySapStatus && (
+                  <Button size="xs" variant="secondary" onClick={retrySapStatus}>Try again</Button>
+                )}
+              </div>
+            ) : (sapPoStatus === 'loading' || !Array.isArray(sapPoOrders)) ? (
+              <div className="card flex items-center gap-2 text-xs text-text-tertiary py-3 px-4">
+                <Loader2 className="size-3.5 animate-spin" /> Checking your buyer&rsquo;s records for orders not yet listed here&hellip;
+              </div>
+            ) : null}
 
-            {isSapView ? (
-              /* Every PO SAP itself holds against this vendor code
-                 (zpo_grn_vendor/Detail) — the full ledger, not filtered to
-                 what the portal happens to be tracking. */
-              sapPoStatus === 'error' ? (
-                <div className="card flex flex-col items-center gap-3 py-10 text-center">
-                  <AlertCircle className="size-5 text-amber-500" />
-                  <div className="space-y-1">
-                    <p className="text-sm font-bold text-text-primary">Could not reach your buyer&rsquo;s records</p>
-                    <p className="text-xs text-text-secondary max-w-sm">
-                      This is a problem with the check, not with your orders — nothing here has changed.
-                      Your own order list above is unaffected.
-                    </p>
-                  </div>
-                  {retrySapStatus && (
-                    <Button size="sm" variant="secondary" onClick={retrySapStatus}>Try again</Button>
-                  )}
-                </div>
-              ) : sapPoStatus === 'loading' || !Array.isArray(sapPoOrders) ? (
-                <div className="card flex items-center gap-2 text-xs text-text-tertiary py-10 justify-center">
-                  <Loader2 className="size-3.5 animate-spin" /> Loading your buyer&rsquo;s records for your company...
-                </div>
-              ) : sapPoOrders.length === 0 ? (
-                <div className="card">
-                  <EmptyState
-                    icon={ShoppingBag}
-                    title="Nothing on file yet"
-                    description="Your buyer has no purchase orders on file for your company yet."
-                  />
-                </div>
-              ) : (
-                <div className="card overflow-hidden">
-                  <div className="overflow-x-auto custom-scrollbar border border-border">
-                    <table className="w-full text-left border-collapse table-sticky">
-                      <thead>
-                        <tr>
-                          <th>PO Number</th>
-                          <th>PO Date</th>
-                          <th>Buyer</th>
-                          <th>Ship To</th>
-                          <th className="text-center">Items</th>
-                          <th className="text-right">Net Amount</th>
-                          <th className="text-center">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sapPoOrders.map((po, index) => (
-                          <tr key={`${po.poNumber || 'unnumbered'}-${index}`}>
-                            <td className="font-mono font-bold text-text-primary select-all">{po.poNumber || '—'}</td>
-                            <td className="font-mono whitespace-nowrap tabular-nums">{formatDate(po.poDate)}</td>
-                            <td className="font-semibold text-text-primary">{po.buyerName || '—'}</td>
-                            <td className="font-medium">{[po.shipToCity, po.shipToState].filter(Boolean).join(', ') || '—'}</td>
-                            <td className="text-center font-mono font-bold tabular-nums">{(po.items || []).length}</td>
-                            <td className="text-right font-mono font-bold text-text-primary whitespace-nowrap tabular-nums">
-                              {po.currency || 'INR'} {(po.netAmount || 0).toLocaleString()}
-                            </td>
-                            <td className="text-center">
-                              <Button size="xs" variant="secondary" onClick={() => setSapPoDetail(po)}>
-                                View Items
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )
-            ) : (
-              <>
             {/* KPI Cards Row */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <KPICard
                 label="Total orders"
-                value={<span className="tabular-nums">{cleanPOs.length}</span>}
+                value={<span className="tabular-nums">{allPOs.length}</span>}
                 sub="From your buyer’s system"
                 icon={ShoppingBag}
               />
               <KPICard
                 label="Orders awaiting acknowledgement"
-                value={<span className="tabular-nums">{cleanPOs.filter(p => p.status === 'Open').length}</span>}
+                value={<span className="tabular-nums">{allPOs.filter(p => p.status === 'Open').length}</span>}
                 sub="Requires attention"
                 icon={Clock}
               />
               <KPICard
                 label="Shipments to send"
-                value={<span className="tabular-nums">{cleanPOs.filter(p => p.status === 'Acknowledged').length}</span>}
+                value={<span className="tabular-nums">{allPOs.filter(p => p.status === 'Acknowledged').length}</span>}
                 sub="Ready for shipment"
                 icon={Truck}
               />
               <KPICard
                 label="Completed Orders"
-                value={<span className="tabular-nums">{cleanPOs.filter(p => p.status === 'Delivered' || p.status === 'Invoiced' || p.status === 'Paid').length}</span>}
+                value={<span className="tabular-nums">{allPOs.filter(p => p.status === 'Delivered' || p.status === 'Invoiced' || p.status === 'Paid').length}</span>}
                 sub="Stores receipted & post"
                 icon={CheckCircle2}
               />
@@ -841,6 +842,7 @@ export default function PurchaseOrdersView({
                         <th className="cursor-pointer" onClick={() => handleSort('createdDate')}>
                           PO Date {sortField === 'createdDate' && (sortOrder === 'asc' ? '▲' : '▼')}
                         </th>
+                        <th className="w-28">Type</th>
                         <th>Buyer Group</th>
                         <th>Plant</th>
                         <th className="text-center cursor-pointer" onClick={() => handleSort('itemsCount')}>
@@ -871,8 +873,37 @@ export default function PurchaseOrdersView({
                           >
                             <td className="font-mono font-bold text-text-primary group-hover:underline whitespace-nowrap">
                               {po.id}
+                              {po.sapOnly && (
+                                <span
+                                  className="ml-2 font-sans text-[10px] font-bold text-text-tertiary"
+                                  title="Your buyer has raised this in SAP. It is not recorded in this portal yet, so there is nothing here to acknowledge or ship against."
+                                >
+                                  not recorded here yet
+                                </span>
+                              )}
                             </td>
                             <td className="font-mono whitespace-nowrap tabular-nums">{formatDate(po.createdDate)}</td>
+                            <td>
+                              {(() => {
+                                const kind = poKind(po);
+                                return (
+                                  <span className="inline-flex items-center gap-1">
+                                    <span
+                                      className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider ${kindTone(kind)}`}
+                                      title={kind.hint}
+                                    >
+                                      {kind.label}
+                                    </span>
+                                    {poHasInvoicePlan(po) && (
+                                      <CalendarClock
+                                        className="size-3 text-teal-500"
+                                        title="Invoiced against an invoicing plan, not on goods receipt"
+                                      />
+                                    )}
+                                  </span>
+                                );
+                              })()}
+                            </td>
                             <td className="font-semibold text-text-primary">{buyerName}</td>
                             <td className="font-medium">{plantName}</td>
                             <td className="text-center font-mono font-bold tabular-nums">{(po.items || []).length}</td>
@@ -932,7 +963,12 @@ export default function PurchaseOrdersView({
                                   View PO
                                 </Button>
 
-                                {po.status === 'Acknowledged' && (
+                                {/* Shipment and chat both act on a
+                                    PurchaseOrder row, which an order SAP holds
+                                    but this portal has not recorded yet does
+                                    not have. The detail page above opens for
+                                    it either way, read-only. */}
+                                {!po.sapOnly && po.status === 'Acknowledged' && (
                                   <Button
                                     size="xs"
                                     variant="outline"
@@ -942,13 +978,15 @@ export default function PurchaseOrdersView({
                                   </Button>
                                 )}
 
-                                <button
-                                  onClick={(e) => handleOpenDrawer(e, po)}
-                                  className="p-1 text-text-tertiary hover:text-text-primary hover:bg-surface2 rounded-md transition-colors duration-150"
-                                  title="Chat / Raise Issue"
-                                >
-                                  <MessageSquare className="size-4" />
-                                </button>
+                                {!po.sapOnly && (
+                                  <button
+                                    onClick={(e) => handleOpenDrawer(e, po)}
+                                    className="p-1 text-text-tertiary hover:text-text-primary hover:bg-surface2 rounded-md transition-colors duration-150"
+                                    title="Chat / Raise Issue"
+                                  >
+                                    <MessageSquare className="size-4" />
+                                  </button>
+                                )}
                               </div>
                             </td>
                           </tr>
@@ -994,8 +1032,6 @@ export default function PurchaseOrdersView({
                   </div>
                 )}
               </div>
-            )}
-              </>
             )}
           </div>
         )}
@@ -1097,25 +1133,68 @@ export default function PurchaseOrdersView({
                   <span>Purchase Order: {activePo.id}</span>
                   {renderStatusChip(activePo.status)}
                 </h2>
+                {/* What kind of order this is, and whether it is invoiced to a
+                    plan — two independent facts (poKind.js), so two badges
+                    rather than one combined label. Asset and service orders
+                    behave differently enough on the supplier's side (no stock
+                    receipt for a service line; capex approval for an asset
+                    one) that reading the header should answer "what am I
+                    looking at" without opening a line. */}
+                {(() => {
+                  const kind = poKind(activePo);
+                  const planNumbers = invoicePlanNumbers(activePo);
+                  return (
+                    <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${kindTone(kind)}`}
+                        title={kind.hint}
+                      >
+                        {kind.orderLabel}
+                      </span>
+                      {poHasInvoicePlan(activePo) && (
+                        <span
+                          className="inline-flex items-center gap-1 rounded-full border border-teal-400/40 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-teal-500"
+                          title={planNumbers.length
+                            ? `Invoiced against SAP invoicing plan ${planNumbers.join(', ')} — billed on the plan's dates, not on goods receipt.`
+                            : 'Invoiced against an invoicing plan — billed on the plan’s dates, not on goods receipt.'}
+                        >
+                          <Receipt className="size-3" />
+                          Invoicing plan{planNumbers.length ? ` ${planNumbers.join(', ')}` : ''}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="flex items-center gap-2">
                 {/* Business vs technical view toggle removed */}
 
-                <Button
-                  onClick={(e) => handleOpenDrawer(e, activePo)}
-                  variant="outline"
-                >
-                  <MessageSquare className="size-4" />
-                  <span>Chat</span>
-                </Button>
-                {activePo.status === 'Open' && (
-                  <Button
-                    onClick={() => acknowledgePO(activePo.id)}
-                    variant="default"
+                {activePoIsSapOnly ? (
+                  <span
+                    className="inline-flex items-center gap-1.5 text-[11px] font-bold text-text-tertiary"
+                    title="Your buyer raised this in SAP. It is not recorded in this portal yet, so there is nothing here to acknowledge, ship against or discuss."
                   >
-                    Acknowledge Purchase Order
-                  </Button>
+                    <ShieldAlert className="size-3.5" /> Read-only — not recorded in this portal yet
+                  </span>
+                ) : (
+                  <>
+                    <Button
+                      onClick={(e) => handleOpenDrawer(e, activePo)}
+                      variant="outline"
+                    >
+                      <MessageSquare className="size-4" />
+                      <span>Chat</span>
+                    </Button>
+                    {activePo.status === 'Open' && (
+                      <Button
+                        onClick={() => acknowledgePO(activePo.id)}
+                        variant="default"
+                      >
+                        Acknowledge Purchase Order
+                      </Button>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -1171,12 +1250,18 @@ export default function PurchaseOrdersView({
 
             {/* TAB HEADERS */}
             <div className="flex items-center gap-6 border-b border-border">
-              {[
-                { id: 'po_detail', label: '1. Order details' },
-                { id: 'create_asn', label: '2. Send shipment' },
-                { id: 'grn_status', label: '3. Delivery status' },
-                ...(showInvoicePlanTab ? [{ id: 'invoice_plan', label: 'Invoicing plan' }] : [])
-              ].map(t => (
+              {(activePoIsSapOnly
+                // Shipment, delivery status and invoicing plan all act on a
+                // PurchaseOrder row this order does not have yet; offering the
+                // tabs would be offering steps that cannot be taken.
+                ? [{ id: 'po_detail', label: 'Order details' }]
+                : [
+                  { id: 'po_detail', label: '1. Order details' },
+                  { id: 'create_asn', label: '2. Send shipment' },
+                  { id: 'grn_status', label: '3. Delivery status' },
+                  ...(showInvoicePlanTab ? [{ id: 'invoice_plan', label: 'Invoicing plan' }] : [])
+                ]
+              ).map(t => (
                 <button
                   key={t.id}
                   onClick={() => {
@@ -1289,6 +1374,10 @@ export default function PurchaseOrdersView({
                             <thead>
                               <tr>
                                 <th className="w-16">Line</th>
+                                {/* SAP allows one order to mix categories, so
+                                    the kind belongs on the line, not only in
+                                    the header badge. */}
+                                <th className="w-24">Type</th>
                                 <th className="w-36">Item code</th>
                                 <th className="min-w-[200px]">Description</th>
                                 <th className="w-28 text-right">Ordered Qty</th>
@@ -1305,11 +1394,35 @@ export default function PurchaseOrdersView({
                                   <tr key={item.line || idx}>
                                     <td className="font-semibold font-mono">{item.line}</td>
                                     <td>
-                                      <span className="text-blue-600 font-bold hover:underline cursor-pointer">{item.materialCode}</span>
+                                      {(() => {
+                                        const kind = lineKind(item);
+                                        return (
+                                          <span
+                                            className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider ${kindTone(kind)}`}
+                                            title={kind.hint}
+                                          >
+                                            {kind.label}
+                                          </span>
+                                        );
+                                      })()}
+                                    </td>
+                                    <td>
+                                      {/* An asset or service line is text-only
+                                          in SAP — no MATNR — so the column is
+                                          legitimately blank on one. */}
+                                      <span className="text-blue-600 font-bold hover:underline cursor-pointer">{item.materialCode || '—'}</span>
                                     </td>
                                     <td className="text-text-primary font-medium">
                                       {item.description}
-                                      {item.invoicePlan?.enabled && (
+                                      {item.assetNumber && (
+                                        <span
+                                          className="ml-2 font-mono text-[10px] font-bold text-violet-500"
+                                          title="The fixed asset in SAP this capex posts to (ANLN1/ANLN2)"
+                                        >
+                                          asset {item.assetNumber}{item.assetSubNumber ? `-${item.assetSubNumber}` : ''}
+                                        </span>
+                                      )}
+                                      {lineHasInvoicePlan(item) && (
                                         <button
                                           type="button"
                                           onClick={() => setDetailTab('invoice_plan')}
@@ -1317,14 +1430,27 @@ export default function PurchaseOrdersView({
                                           className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border border-blue-200 bg-blue-50 text-blue-700 text-[9px] font-extrabold uppercase tracking-wider cursor-pointer hover:bg-blue-100 transition-colors duration-150"
                                         >
                                           <CalendarClock className="size-2.5" />
-                                          {item.invoicePlan.type} plan
+                                          {/* The portal's own plan knows its
+                                              type; a plan read from SAP is only
+                                              a number until its dates are
+                                              fetched. */}
+                                          {item.invoicePlan?.type ? `${item.invoicePlan.type} plan` : `plan ${item.invoicePlanNumber}`}
                                         </button>
                                       )}
                                     </td>
                                     <td className="font-bold text-text-primary text-right font-mono tabular-nums">{item.quantity}</td>
                                     <td className="font-medium">{item.uom || 'EA'}</td>
                                     <td className="font-bold text-text-primary text-right font-mono tabular-nums">₹ {Number(item.unitPrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                    <td className="font-medium">G1 (18%)</td>
+                                    {/* Issue #113: this used to be the literal "G1 (18%)" for every
+                                        line regardless of the line's real tax code. taxCode is SAP's
+                                        raw MWSKZ (config/gstCodes.js's G1..G6 registry is for the RFQ
+                                        bid → invoice GST path, not this field — an asset line's code
+                                        like 'V0' isn't in it, so this renders the code itself rather
+                                        than guessing a rate for it) and is null on every line except an
+                                        asset PO's own (ADR-0042); awardRfq never carries a bid's tax
+                                        code onto the PO line it creates, so null is the honest, common
+                                        case here, not a display gap. */}
+                                    <td className="font-medium font-mono">{item.taxCode || '—'}</td>
                                     <td className="font-medium font-mono tabular-nums">{formatDate(item.deliveryDate || activePo.createdDate)}</td>
                                     <td className="font-bold text-text-primary text-right font-mono tabular-nums">₹ {Number(item.netValue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                   </tr>
@@ -1629,7 +1755,7 @@ export default function PurchaseOrdersView({
               {/* TAB 3: Delivery status */}
               {activeDetailTab === 'invoice_plan' && (
                 <div className="p-4">
-                  <InvoicePlanPanel po={activePo} canManage={canManagePlans} />
+                  <InvoicePlanPanel po={activePo} canManage={canManagePlans} canPropose={canProposePlan} />
                 </div>
               )}
 
@@ -1961,72 +2087,6 @@ export default function PurchaseOrdersView({
           </div>
         )}
 
-      {/* SAP PO LINE ITEM DETAIL — items + nested GRNs for one row of the
-          "All SAP Orders" ledger above (zpo_grn_vendor/Detail). */}
-      <Modal
-        open={!!sapPoDetail}
-        onClose={() => setSapPoDetail(null)}
-        title={`PO ${sapPoDetail?.poNumber || ''} — line items`}
-        className="max-w-3xl"
-        footer={<Button type="button" variant="outline" onClick={() => setSapPoDetail(null)}>Close</Button>}
-      >
-        {sapPoDetail && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-              <div>
-                <span className="text-[9px] text-text-tertiary block font-bold uppercase">PO Date</span>
-                <span className="font-bold text-text-primary font-mono">{formatDate(sapPoDetail.poDate)}</span>
-              </div>
-              <div>
-                <span className="text-[9px] text-text-tertiary block font-bold uppercase">Buyer</span>
-                <span className="font-bold text-text-primary">{sapPoDetail.buyerName || '—'}</span>
-              </div>
-              <div>
-                <span className="text-[9px] text-text-tertiary block font-bold uppercase">Company Code</span>
-                <span className="font-bold text-text-primary font-mono">{sapPoDetail.companyCode || '—'}</span>
-              </div>
-              <div>
-                <span className="text-[9px] text-text-tertiary block font-bold uppercase">Net Amount</span>
-                <span className="font-bold text-text-primary font-mono">{sapPoDetail.currency || 'INR'} {(sapPoDetail.netAmount || 0).toLocaleString()}</span>
-              </div>
-            </div>
-
-            <div className="border border-border rounded-md overflow-x-auto custom-scrollbar max-h-[360px] overflow-y-auto">
-              <table className="w-full text-left border-collapse">
-                <thead className="sticky top-0 z-10 bg-surface2">
-                  <tr>
-                    <th>Item</th>
-                    <th>Material</th>
-                    <th className="text-right">Ordered</th>
-                    <th className="text-right">Received</th>
-                    <th className="text-right">Invoiced</th>
-                    <th className="text-right">Unit Price</th>
-                    <th className="text-right">Net Amount</th>
-                    <th>GR Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(sapPoDetail.items || []).map((item, idx) => (
-                    <tr key={`${item.itemNumber || idx}`}>
-                      <td className="font-mono font-bold text-text-tertiary">{item.itemNumber}</td>
-                      <td>
-                        <div className="font-mono font-bold text-text-primary whitespace-nowrap">{item.materialCode}</div>
-                        <div className="text-[10px] text-text-tertiary truncate max-w-[180px]">{item.description}</div>
-                      </td>
-                      <td className="text-right font-mono tabular-nums">{item.orderedQuantity ?? '—'} {item.uom}</td>
-                      <td className="text-right font-mono tabular-nums">{item.receivedQuantity ?? '—'}</td>
-                      <td className="text-right font-mono tabular-nums">{item.invoicedQuantity ?? '—'}</td>
-                      <td className="text-right font-mono tabular-nums">{(item.unitPrice ?? 0).toLocaleString()}</td>
-                      <td className="text-right font-mono tabular-nums">{(item.netAmount ?? 0).toLocaleString()}</td>
-                      <td className="text-[10px] font-semibold text-text-secondary whitespace-nowrap">{item.grStatus || '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-      </Modal>
 
       </div>
     </ErrorBoundary>

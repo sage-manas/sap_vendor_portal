@@ -11,6 +11,9 @@ export const validateField = (field, value) => {
     case 'companyName':
       if (!value || !value.trim()) return 'Legal Entity Name is required';
       return '';
+    case 'tradeName':
+      if (!value || !value.trim()) return 'Trade / Brand Name is required';
+      return '';
     case 'businessType':
       if (!value) return 'Business Type is required';
       return '';
@@ -54,6 +57,26 @@ export const validateField = (field, value) => {
       return '';
     case 'tdsSection':
       if (!value) return 'TDS Section mapping is required';
+      return '';
+    // Trade & payment terms. These feed VENDOR_CR directly
+    // (backend/sap/mappings/vendor-create.map.js), and SAP rejects the whole
+    // payload — naming no field — if one is blank, so they are caught here
+    // rather than on the buyer's approve click. Shipping terms 2 is the one
+    // that actually bit: SAP wants Incoterms part 2 once part 1 is set.
+    case 'paymentTerms':
+      if (!value) return 'Payment Terms is required';
+      return '';
+    case 'paymentMethod':
+      if (!value) return 'Payment Method is required';
+      return '';
+    case 'currency':
+      if (!value) return 'Currency is required';
+      return '';
+    case 'incoterms1':
+      if (!value || !value.trim()) return 'Shipping Terms 1 is required';
+      return '';
+    case 'incoterms2':
+      if (!value || !value.trim()) return 'Shipping Terms 2 is required';
       return '';
     case 'accountName':
       if (!value || !value.trim()) return 'Account Holder Name is required';

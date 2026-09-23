@@ -8,12 +8,14 @@ const { EVENTS, emitToVendor } = require('../utils/socketEmitter');
 const { requireVendorScope, vendorScope, isSupplier } = require('../utils/requestScope');
 const { assertCanCreate } = require('../utils/usage');
 const { toNumber } = require('../utils/money');
+const { toNumber: toQty } = require('../utils/quantity');
 const { formatPo } = require('../db/poHelpers');
 const { nextSequentialId } = require('../utils/nextSequentialId');
 const { buildExportPayload, EXPORT_FORMATS } = require('../services/export.service');
 const {
   DEFAULT_VENDOR_RATING, DEFAULT_LEAD_TIME_DAYS,
 } = require('../config/scoring');
+const { gstRateToCode } = require('../config/gstCodes');
 
 // The full nested shape a controller/frontend expects an RFQ in, matching
 // what the Mongoose document used to serialize as. `items`/`invitedVendors`
@@ -62,10 +64,11 @@ const formatBid = (bid) => ({
   submittedAt: bid.submittedAt,
 });
 
-// targetPrice is likewise Decimal-typed.
-const formatRfqItem = ({ pk, clientId, rfqPk, targetPrice, ...item }) => ({
+// targetPrice is Decimal-typed; quantity is too (issue #65).
+const formatRfqItem = ({ pk, clientId, rfqPk, targetPrice, quantity, ...item }) => ({
   ...item,
   targetPrice: toNumber(targetPrice),
+  quantity: toQty(quantity),
 });
 
 const formatRfq = (rfq) => ({
@@ -75,15 +78,6 @@ const formatRfq = (rfq) => ({
   bids: (rfq.bids || []).map(formatBid),
 });
 
-// Helper for tax codes
-const gstToTaxCode = (gstRate) => {
-  const cleanRate = String(gstRate).replace(/[^0-9]/g, '');
-  if (cleanRate === '5') return 'G3';
-  if (cleanRate === '12') return 'G2';
-  if (cleanRate === '18') return 'G1';
-  if (cleanRate === '28') return 'G4';
-  return 'G1'; // default
-};
 
 // @desc    Get RFQs (invited or all)
 // @route   GET /api/rfqs
@@ -351,7 +345,7 @@ const submitBid = asyncHandler(async (req, res, next) => {
     }
   }
 
-  const taxCode = gstToTaxCode(gstRate);
+  const taxCode = gstRateToCode(gstRate);
 
   const bidFields = {
     vendorId,
@@ -463,8 +457,8 @@ const getEvaluationMatrix = asyncHandler(async (req, res, next) => {
     const prices = new Map(bid.unitPrices.map((u) => [String(u.lineNumber), u.price]));
     let totalCost = 0;
     rfq.items.forEach((item) => {
-      const price = prices.get(String(item.line)) || 0;
-      totalCost += price * item.quantity;
+      const price = toNumber(prices.get(String(item.line))) || 0;
+      totalCost += price * toQty(item.quantity);
     });
     // Add freight
     totalCost += Number(bid.freight || 0);
@@ -573,8 +567,11 @@ const awardBid = asyncHandler(async (req, res, next) => {
       quantity: item.quantity,
       grnQuantity: 0,
       unitPrice,
-      netValue: unitPrice * item.quantity,
+      netValue: unitPrice * toQty(item.quantity),
       uom: item.uom || 'EA',
+      // Real per-line data the RFQ already carried, not a guess (issue #62)
+      // — a multi-line PO can ship from more than one plant.
+      plant: item.plant || null,
     };
   });
 
@@ -638,7 +635,12 @@ const awardBid = asyncHandler(async (req, res, next) => {
         vendorId,
         vendorPk: vendor ? vendor.pk : winningBid.vendorPk,
         buyerName: 'SAP System Procurement',
-        plant: rfq.items[0]?.plant || '1000',
+        // Carried from the RFQ that was actually awarded, not guessed (issue
+        // #62) — plant moved to the line item (poItemsData above) since a
+        // multi-line order can ship from more than one.
+        companyCode: rfq.companyCode || null,
+        purchasingOrg: rfq.purchasingOrg || null,
+        purchasingGroup: rfq.purchasingGroup || null,
         paymentTerms: rfq.paymentTerms || 'NET 30 Days',
         currency: rfq.currency || 'INR',
         deliveryAddress: rfq.deliveryLocation || 'Plant 1000 Address',

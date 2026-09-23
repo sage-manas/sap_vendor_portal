@@ -15,9 +15,13 @@ import { poService } from '../services/poService';
 //
 // One panel serves two audiences, because they are looking at the same schedule
 // for opposite reasons. The buying organisation (`canManage`, i.e. po:manage)
-// configures the plan, withholds a date, or re-reads what SAP holds. The
-// supplier reads the schedule and raises an invoice against whichever date has
-// come due. Neither ever sees the other's controls, and the API enforces the
+// configures the plan, withholds a date, or re-reads what SAP holds — and is
+// the only side that ever writes SAP. The supplier (`canPropose`, i.e.
+// po:invoice-plan:propose) reads the schedule, raises an invoice against
+// whichever date has come due, and may propose a change to the schedule
+// itself — which is stored, not applied, until the buyer approves it (a
+// PlanCard's `pendingChange` banner is where both sides see that state).
+// Neither audience sees the other's write controls, and the API enforces the
 // same split independently.
 
 const PLAN_TYPES = [
@@ -80,7 +84,14 @@ function Stat({ label, value, hint, accent = '' }) {
 
 // --- The configure dialog ---------------------------------------------------
 
-function ConfigureDialog({ po, item, existingPlan, onClose, onSaved }) {
+// `mode`: 'manage' (the buying organisation configuring the live plan — the
+// default, unchanged) or 'propose' (a supplier proposing a change to it — the
+// same form, since the shape SAP needs is identical either way, but the
+// submit calls proposeInvoicePlanChange instead of saveInvoicePlan and never
+// touches the live schedule directly). `existingPlan` is always the current
+// LIVE plan in both modes — a proposal is drafted from what is actually in
+// effect, never from another pending proposal.
+function ConfigureDialog({ po, item, existingPlan, mode = 'manage', onClose, onSaved }) {
   const isPeriodic = (existingPlan?.type || 'Periodic') === 'Periodic';
   const [type, setType] = useState(existingPlan?.type || 'Periodic');
   const [saving, setSaving] = useState(false);
@@ -141,12 +152,15 @@ function ConfigureDialog({ po, item, existingPlan, onClose, onSaved }) {
           ...(reference ? { reference } : {}),
         };
 
-      const result = await poService.saveInvoicePlan(po.id, item.line, body);
+      const result = mode === 'propose'
+        ? await poService.proposeInvoicePlanChange(po.id, item.line, body)
+        : await poService.saveInvoicePlan(po.id, item.line, body);
       onSaved(result);
     } catch (err) {
-      // The API's messages are written to be read by a buyer — "the instalments
-      // total 90.00 but the line item is 100.00" — so they are shown as-is
-      // rather than replaced with a generic failure.
+      // The API's messages are written to be read by whoever is looking at
+      // this form — "the instalments total 90.00 but the line item is
+      // 100.00" — so they are shown as-is rather than replaced with a
+      // generic failure.
       setError(err?.message || 'The invoicing plan could not be saved');
       setSaving(false);
     }
@@ -159,7 +173,7 @@ function ConfigureDialog({ po, item, existingPlan, onClose, onSaved }) {
     <Modal
       open
       onClose={onClose}
-      title={`Invoicing plan — line ${item.line}`}
+      title={mode === 'propose' ? `Propose a change — line ${item.line}` : `Invoicing plan — line ${item.line}`}
       className="max-w-3xl"
     >
       <div className="space-y-5 p-5 overflow-y-auto">
@@ -169,6 +183,15 @@ function ConfigureDialog({ po, item, existingPlan, onClose, onSaved }) {
             Line value {money(netValue, po.currency)} · {item.quantity} {item.uom || 'EA'}
           </div>
         </div>
+
+        {mode === 'propose' && (
+          <div className="flex items-start gap-2 px-3.5 py-3 rounded-lg bg-blue-50 border border-blue-200">
+            <CalendarClock className="size-4 text-blue-600 flex-shrink-0 mt-0.5" />
+            <p className="text-xs font-medium text-blue-700">
+              This is a proposal, not a change to the live schedule. Your buyer sees exactly what you submit here and must approve it before anything reaches SAP — nothing below is billable until then.
+            </p>
+          </div>
+        )}
 
         {/* Plan type — the one choice everything else follows from, so it is a
             pair of explained cards rather than a dropdown. */}
@@ -289,7 +312,61 @@ function ConfigureDialog({ po, item, existingPlan, onClose, onSaved }) {
         <div className="flex items-center justify-end gap-2 pt-1">
           <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button onClick={save} disabled={saving}>
-            {saving ? <><Loader2 className="size-4 mr-2 animate-spin" /> Saving to SAP…</> : 'Save invoicing plan'}
+            {saving
+              ? <><Loader2 className="size-4 mr-2 animate-spin" /> {mode === 'propose' ? 'Sending…' : 'Saving to SAP…'}</>
+              : (mode === 'propose' ? 'Send proposal to buyer' : 'Save invoicing plan')}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// --- Reject a proposal, with a reason ---------------------------------------
+
+function RejectProposalDialog({ po, entry, onClose, onRejected }) {
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const submit = async () => {
+    if (!reason.trim()) {
+      setError('A reason is required — the supplier only sees this, not the rest of your workspace');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      const result = await poService.rejectInvoicePlanChange(po.id, entry.line, reason.trim());
+      onRejected(result);
+    } catch (err) {
+      setError(err?.message || 'The proposal could not be rejected');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal open onClose={onClose} title={`Reject proposed change — line ${entry.line}`} className="max-w-lg">
+      <div className="space-y-4 p-5">
+        <p className="text-xs text-text-secondary">
+          The live invoicing plan is left exactly as it is. Your reason is shown to the supplier so they know what to change if they resubmit.
+        </p>
+        <textarea
+          className="w-full px-3 py-2 text-xs font-medium bg-base border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition-all duration-150 min-h-24"
+          placeholder="Why this proposal is being rejected…"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+        />
+        {error && (
+          <div className="flex items-start gap-2 px-3.5 py-3 rounded-lg bg-red-50 border border-red-200">
+            <AlertTriangle className="size-4 text-red-600 flex-shrink-0 mt-0.5" />
+            <p className="text-xs font-medium text-red-700">{error}</p>
+          </div>
+        )}
+        <div className="flex items-center justify-end gap-2 pt-1">
+          <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button variant="destructive" onClick={submit} disabled={saving}>
+            {saving ? <><Loader2 className="size-4 mr-2 animate-spin" /> Rejecting…</> : 'Reject proposal'}
           </Button>
         </div>
       </div>
@@ -299,11 +376,15 @@ function ConfigureDialog({ po, item, existingPlan, onClose, onSaved }) {
 
 // --- One line item's plan ---------------------------------------------------
 
-function PlanCard({ po, entry, canManage, busy, onConfigure, onRemove, onToggleBlock }) {
+function PlanCard({
+  po, entry, canManage, canPropose, busy,
+  onConfigure, onRemove, onToggleBlock, onPropose, onApproveProposal, onRejectProposal,
+}) {
   const { plan, summary } = entry;
   const currency = plan.currency || po.currency || 'INR';
   const PlanIcon = plan.type === 'Periodic' ? Repeat : SplitSquareHorizontal;
   const progress = summary?.totalValue ? (summary.invoicedValue / summary.totalValue) * 100 : 0;
+  const pending = plan.pendingChange;
 
   return (
     <div className="card overflow-hidden">
@@ -334,7 +415,55 @@ function PlanCard({ po, entry, canManage, busy, onConfigure, onRemove, onToggleB
             </Button>
           </div>
         )}
+
+        {canPropose && !canManage && (
+          <div className="flex-shrink-0">
+            <Button variant="outline" size="sm" onClick={() => onPropose(entry)} disabled={busy}>
+              <Settings2 className="size-3.5 mr-1.5" /> {pending ? 'Update your proposal' : 'Propose a change'}
+            </Button>
+          </div>
+        )}
       </div>
+
+      {/* A supplier's proposed change, awaiting the buyer's decision. Neither
+          audience acts on the live schedule below until this is resolved —
+          the buyer approves or rejects it here; the supplier just sees that
+          it is pending, since a re-propose already overwrites it. */}
+      {pending && (
+        <div className="px-5 py-3.5 border-b border-border bg-amber-50/60">
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-[10px] font-extrabold text-amber-700 uppercase tracking-widest">
+                <CalendarClock className="size-3" /> Proposed change awaiting approval
+              </div>
+              <p className="text-[11px] text-amber-800 mt-1">
+                {canManage
+                  ? `Proposed by ${pending.requestedBy} on ${prettyDay(pending.requestedAt)}. The schedule below is still what SAP holds — nothing changes until you approve or reject it.`
+                  : `Sent ${prettyDay(pending.requestedAt)}. Your buyer has not decided yet — the schedule below is still what is actually billable.`}
+              </p>
+              <ul className="mt-2 space-y-0.5">
+                {(pending.input.type === 'Periodic'
+                  ? [`Periodic · ${pending.input.frequency} · ${day(pending.input.startDate)} to ${day(pending.input.endDate)}${pending.input.periodicAmount ? ` · ${money(pending.input.periodicAmount, currency)}/period` : ''}`]
+                  : (pending.input.milestones || []).map((m, i) =>
+                    `${m.description || `Instalment ${i + 1}`} · ${day(m.settlementDate)} · ${m.percentage}%`)
+                ).map((line, i) => (
+                  <li key={i} className="text-[11px] font-mono text-amber-900">{line}</li>
+                ))}
+              </ul>
+            </div>
+            {canManage && (
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <Button variant="ghost" size="sm" disabled={busy} onClick={() => onRejectProposal(entry)}>
+                  Reject
+                </Button>
+                <Button size="sm" disabled={busy} onClick={() => onApproveProposal(entry)}>
+                  <Check className="size-3.5 mr-1.5" /> Approve & save to SAP
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0 divide-border border-b border-border">
         <Stat label="Plan total" value={money(summary?.totalValue, currency)} hint={`${summary?.totalLines || 0} invoicing dates`} />
@@ -417,12 +546,13 @@ function PlanCard({ po, entry, canManage, busy, onConfigure, onRemove, onToggleB
 
 // --- The panel --------------------------------------------------------------
 
-export default function InvoicePlanPanel({ po, canManage = false }) {
+export default function InvoicePlanPanel({ po, canManage = false, canPropose = false }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
-  const [configuring, setConfiguring] = useState(null); // { line, item, plan }
+  const [configuring, setConfiguring] = useState(null); // { item, plan, mode }
+  const [rejecting, setRejecting] = useState(null); // entry
 
   // A counter rather than a callback the effect calls: every write below asks
   // for a reload by bumping it, and the effect itself only ever starts the
@@ -481,7 +611,9 @@ export default function InvoicePlanPanel({ po, canManage = false }) {
           <p className="text-[11px] text-text-secondary mt-1">
             {canManage
               ? 'Line items billed on a schedule rather than against a goods receipt. Periodic plans recur; partial plans split the line across milestones.'
-              : 'These line items are billed on a schedule agreed with your buyer, not against a delivery. Raise an invoice on each date as it comes due.'}
+              : canPropose
+                ? 'These line items are billed on a schedule agreed with your buyer, not against a delivery. Raise an invoice on each date as it comes due, or propose a change if the schedule needs to move.'
+                : 'These line items are billed on a schedule agreed with your buyer, not against a delivery. Raise an invoice on each date as it comes due.'}
           </p>
         </div>
         {canManage && (
@@ -521,11 +653,16 @@ export default function InvoicePlanPanel({ po, canManage = false }) {
             po={po}
             entry={entry}
             canManage={canManage}
+            canPropose={canPropose}
             busy={busy}
-            onConfigure={(target) => setConfiguring({ item: target, plan: target.plan })}
+            onConfigure={(target) => setConfiguring({ item: target, plan: target.plan, mode: 'manage' })}
             onRemove={(target) => run(() => poService.removeInvoicePlan(po.id, target.line))}
             onToggleBlock={(target, line, blocked) =>
               run(() => poService.setInvoicePlanLineBlock(po.id, target.line, line.lineNumber, blocked))}
+            onPropose={(target) => setConfiguring({ item: target, plan: target.plan, mode: 'propose' })}
+            onApproveProposal={(target) =>
+              run(() => poService.approveInvoicePlanChange(po.id, target.line), 'Proposed change approved and saved to SAP')}
+            onRejectProposal={(target) => setRejecting(target)}
           />
         ))
       )}
@@ -563,9 +700,23 @@ export default function InvoicePlanPanel({ po, canManage = false }) {
           po={po}
           item={configuring.item}
           existingPlan={configuring.plan}
+          mode={configuring.mode}
           onClose={() => setConfiguring(null)}
           onSaved={(result) => {
             setConfiguring(null);
+            setNotice({ tone: 'success', text: result?.message });
+            reload();
+          }}
+        />
+      )}
+
+      {rejecting && (
+        <RejectProposalDialog
+          po={po}
+          entry={rejecting}
+          onClose={() => setRejecting(null)}
+          onRejected={(result) => {
+            setRejecting(null);
             setNotice({ tone: 'success', text: result?.message });
             reload();
           }}

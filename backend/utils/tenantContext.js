@@ -41,6 +41,11 @@ class MissingTenantContextError extends Error {
     );
     this.name = 'MissingTenantContextError';
     this.statusCode = 500;
+    // No isOperational: this message is written for whoever reads the stack
+    // trace, not for an API caller — it names internal functions and how to
+    // call them. If this reaches a real request it is already a bug;
+    // middleware/errorHandler.js shows a generic message instead
+    // (issue #115).
   }
 }
 

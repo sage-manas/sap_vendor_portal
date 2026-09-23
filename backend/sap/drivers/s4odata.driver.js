@@ -3,6 +3,7 @@ const logger = require('../../utils/logger');
 const { buildVendorCreatePayload } = require('../mappings/vendor-create.map');
 const { matchInvoiceDocument } = require('../mappings/invoice-match');
 const { decodeFromSap } = require('../mappings/fields');
+const { requireProductionCredentials } = require('./requireProductionCredentials');
 
 // S/4HANA via the OData APIs (API_BUSINESS_PARTNER, API_PURCHASEORDER_PROCESS_SRV,
 // API_INBOUND_DELIVERY_SRV, API_MATERIAL_DOCUMENT_SRV, API_SUPPLIERINVOICE_PROCESS_SRV, …).
@@ -54,6 +55,14 @@ const baseHeaders = (config, secrets) => {
   if (config.sapClient) headers['sap-client'] = String(config.sapClient);
   return headers;
 };
+
+// zpayment_api/payment writes an unset DATS field as a bare `00000000`
+// ("POSTING_DATE":00000000 on every not-yet-cleared document, confirmed live)
+// — a number with leading zeros, which is not JSON, so JSON.parse rejects the
+// whole response. Strips the leading zeros from bare numeric *values* only (a
+// key's closing quote, a colon, then digits), leaving string contents alone,
+// so the unset date reads as 0 — which every caller already treats as null.
+const parseSapJson = (text) => JSON.parse(text.replace(/((?<!\\)"\s*:\s*-?)0+(?=\d)/g, '$1'));
 
 const abortableFetch = async (url, options, timeoutMs) => {
   const controller = new AbortController();
@@ -219,6 +228,22 @@ const sapDotDateToIso = (value) => {
 // sheets, no row with both.
 const isGoodsReceipt = (gr) => Boolean(String(gr.GR_NUMBER || '').trim());
 
+// Issue #62: a supplier can trade with several company codes in the same SAP
+// client, and zpo_grn_vendor/Detail has no company-code filter of its own —
+// it answers everything on the vendor code (LIFNR) alone. A tenant declares
+// which company codes belong to it via config.companyCodes (comma-separated;
+// falls back to the single required config.companyCode when unset, so a
+// single-entity tenant only has to say it once). No default beyond that: a
+// connection with neither set has declared nothing, and validateConfig below
+// refuses to save one, so this only ever sees an empty list on a config that
+// was never meant to reach a live tenant (a test's transient config, say).
+const declaredCompanyCodes = (config = {}) => {
+  if (Array.isArray(config.companyCodes)) return config.companyCodes.map(String).map((s) => s.trim()).filter(Boolean);
+  const csv = String(config.companyCodes || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (csv.length) return csv;
+  return config.companyCode ? [String(config.companyCode)] : [];
+};
+
 // zpo_grn_vendor/Detail carries no MJAHR (or equivalent) field — confirmed
 // against the live sandbox, see the evidence in this driver's awaitGoodsReceipt
 // comment. Some Z reports do expose a raw MJAHR/GR_YEAR under those names, so
@@ -249,11 +274,58 @@ const isoToSapDay = (value) => {
   return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10).replace(/-/g, '');
 };
 
+// ...except zinv_plan/update, which wants MM/DD/YYYY. This asymmetry is real
+// and confirmed: zinv_milestone/plan *returns* "20260901" while zinv_plan/update
+// *accepts* "09/16/2026", in the same feature, for the same FPLT date. Sending
+// YYYYMMDD to the update is the obvious mistake to make here, so the two
+// directions get two visibly different helpers rather than one with a flag.
+const isoToSapSlashDay = (value) => {
+  if (!value) return '';
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const iso = date.toISOString().slice(0, 10);
+  return `${iso.slice(5, 7)}/${iso.slice(8, 10)}/${iso.slice(0, 4)}`;
+};
+
+// SAP's decimal-ish string fields on this endpoint ("25000.00", "25.00") — the
+// portal holds these as numbers (or Prisma Decimals already converted by
+// formatPlan), and the update rejects a bare integer where it wants two places.
+const sapAmount = (value) => (value === null || value === undefined ? '' : Number(value).toFixed(2));
+
+// The two confirmed bulk-write Z endpoints — zinv_plan/update and
+// zasset_po/create — share one response envelope:
+//
+//   { TYPE: 'S'|'E', MESSAGE: '…', RESULTS: [ { TYPE, MESSAGE, … } ] }
+//
+// Both halves matter. TYPE is the envelope's verdict on the request as a whole;
+// RESULTS carries a per-document outcome, and a bulk handler that accepts the
+// request but rejects this document reports S at the top and E underneath.
+// Checking only the envelope would record that as a clean write — the exact
+// failure mode the quotation-price update's own STATUS check exists to stop.
+//
+// `matches` picks this call's own row out of RESULTS (the endpoints key it
+// differently — zinv_plan/update by PO, zasset_po/create not at all when it is
+// creating the document and does not yet have a number to key on), and a row
+// that cannot be identified is not treated as someone else's success: when no
+// row matches, every row must be S.
+const bulkWriteFailure = (json, matches) => {
+  const results = Array.isArray(json.RESULTS) ? json.RESULTS : [];
+  const isError = (row) => String(row?.TYPE || '').toUpperCase() !== 'S';
+
+  if (String(json.TYPE || '').toUpperCase() !== 'S') {
+    return { failed: true, message: json.MESSAGE || results.find(isError)?.MESSAGE, results };
+  }
+
+  const ours = matches ? results.filter(matches) : [];
+  const offending = (ours.length ? ours : results).find(isError);
+  return offending
+    ? { failed: true, message: offending.MESSAGE || json.MESSAGE, results }
+    : { failed: false, results };
+};
+
 const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
   const odata = createODataClient({ config });
   const svc = services(config);
-  const companyCode = config.companyCode || '1000';
-  const plant = config.plant || '1000';
   // Polling cadence and timeout for awaitGoodsReceipt/awaitPaymentRun used to
   // live here (pollIntervalMs, goodsReceiptTimeoutMs, paymentRunTimeoutMs) —
   // moved to jobs/kinds.js's defaultIntervalMs/defaultMaxAttempts, since
@@ -298,6 +370,254 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
   const paymentTermsCache = { rows: null, fetchedAt: 0 };
   const paymentMethodCache = { rows: null, fetchedAt: 0 };
 
+  // Issue #69: vendorPoGrnDisplay/vendorMiroDisplay answer for one vendor's
+  // *entire* history — 22-84s and roughly half a megabyte for 173 orders —
+  // and awaitGoodsReceipt/awaitPaymentRun used to call it once per ASN/
+  // invoice, per job attempt. Twenty open shipments across fifty vendors on a
+  // one-minute cadence is ~1,000 of these calls an hour against an endpoint
+  // that can take a minute and a half to answer. This caches by vendor code
+  // for a short window — long enough that every open ASN/invoice for the
+  // same vendor, plus this tick's own discovery sweep, share one call instead
+  // of one each; short enough that a real goods receipt still surfaces
+  // within about a cadence's length of SAP posting it. Not catalogueTtlMs
+  // (an hour): unlike a payment-terms list, this data is expected to change
+  // during a live order's lifecycle.
+  //
+  // Keyed on vendor code alone, not the request body — the Z endpoint takes
+  // nothing else (see vendorPoGrnDisplay's own comment) — and the cached
+  // value is the in-flight *promise*, not just its resolved result, so
+  // concurrent callers racing for the same vendor (this tick's several
+  // watches, or a watch and a sweep) share one HTTP request rather than each
+  // opening their own. A rejected call is evicted immediately: a transient
+  // failure must not be remembered as "still no answer" for the rest of the
+  // window.
+  const vendorResponseCacheMs = Number(config.vendorResponseCacheMs) || 20_000;
+  const poGrnCache = new Map(); // sapVendorCode -> { promise, expiresAt }
+  const miroCache = new Map();
+
+  const withVendorCache = (cache, vendor, fetcher) => {
+    const key = vendor?.sapVendorCode;
+    if (!key) return fetcher();
+
+    const hit = cache.get(key);
+    if (hit && Date.now() < hit.expiresAt) return hit.promise;
+
+    const promise = fetcher().catch((error) => {
+      cache.delete(key);
+      throw error;
+    });
+    cache.set(key, { promise, expiresAt: Date.now() + vendorResponseCacheMs });
+    return promise;
+  };
+
+  // The actual MIRO-display HTTP call and parsing — extracted so
+  // vendorMiroDisplay can share it through withVendorCache above, unchanged
+  // otherwise.
+  const fetchMiroDisplay = async (vendor) => {
+    if (!vendor?.sapVendorCode) return { data: { documents: [] } };
+
+    const base = String(config.baseUrl || '').replace(/\/$/, '');
+    const path = config.miroDisplayPath || '/zmiro_display/MIRO';
+    const url = `${base}${path}${config.sapClient ? `?sap-client=${encodeURIComponent(config.sapClient)}` : ''}`;
+    const headers = baseHeaders(config, secrets);
+
+    const response = await getWithBody(url, {
+      headers,
+      body: { vendor: vendor.sapVendorCode },
+      timeoutMs: Number(config.timeoutMs) || 10000,
+    });
+
+    let parsed;
+    try { parsed = response.text ? JSON.parse(response.text) : []; } catch { parsed = null; }
+
+    // Confirmed against the live sandbox: a vendor with zero MIRO documents
+    // doesn't come back as an empty array — it comes back as HTTP 500 with a
+    // single object of blank fields (INV_DOC_NO: ""). That's this endpoint's
+    // way of saying "nothing found", not a real failure, so it's treated as
+    // an empty result rather than thrown. Anything else non-2xx or
+    // non-array/non-blank-object is a genuine failure.
+    const isEmptySentinel = parsed && !Array.isArray(parsed) && !parsed.INV_DOC_NO;
+    const rows = isEmptySentinel ? [] : parsed;
+
+    if (!isEmptySentinel && (response.status < 200 || response.status >= 300 || !Array.isArray(rows))) {
+      const error = new Error(`SAP MIRO display GET ${path} failed: ${response.status} ${response.statusText}`);
+      error.status = response.status;
+      throw error;
+    }
+
+    return {
+      data: {
+        documents: rows.map((row) => ({
+          miroDoc: row.INV_DOC_NO,
+          fiscalYear: row.FISCAL_YEAR,
+          docType: row.DOC_TYPE,
+          docDate: row.DOC_DATE,
+          postingDate: row.POST_DATE,
+          poNumber: row.REFERENCE,
+          companyCode: row.COM_CODE,
+          currency: row.CURRENCY,
+          grossAmount: Number(row.GROSS_AMOUNT),
+          taxableAmount: Number(row.TAXABLE_AMOUNT),
+          taxCode: row.TAX_CODE,
+          paymentTerm: row.PAYMENT_TERM,
+          items: (row.ITEM || []).map((item) => ({
+            poNumber: item.PO_NO,
+            poItem: item.PO_ITEM,
+            materialCode: item.MATERIAL,
+            amount: Number(item.AMOUNT),
+            quantity: Number(item.QUANTITY),
+            uom: item.UNIT,
+            totalValue: Number(item.TOT_VALUE),
+          })),
+        })),
+      },
+    };
+  };
+
+  // The actual PO/GRN-display HTTP call, filtering and mapping — extracted
+  // so vendorPoGrnDisplay can share it through withVendorCache above,
+  // unchanged otherwise.
+  const fetchPoGrnDisplay = async (vendor) => {
+    if (!vendor?.sapVendorCode) return { data: { orders: [] } };
+
+    const base = String(config.baseUrl || '').replace(/\/$/, '');
+    const path = config.poGrnPath || '/zpo_grn_vendor/Detail';
+    const url = `${base}${path}${config.sapClient ? `?sap-client=${encodeURIComponent(config.sapClient)}` : ''}`;
+
+    // This payload nests line items and GRNs per PO and has come back in
+    // 15s+ against the live sandbox even for a handful of orders — the
+    // shared config.timeoutMs (10s default, tuned for the lighter reads
+    // above) is too short for it, so it gets its own, longer default.
+    const response = await getWithBody(url, {
+      headers: baseHeaders(config, secrets),
+      body: { vendor: vendor.sapVendorCode },
+      timeoutMs: Number(config.poGrnTimeoutMs) || 120000,
+    });
+
+    let rows;
+    try { rows = response.text ? JSON.parse(response.text) : []; } catch { rows = null; }
+
+    if (response.status < 200 || response.status >= 300 || !Array.isArray(rows)) {
+      const error = new Error(`SAP PO/GRN display GET ${path} failed: ${response.status} ${response.statusText}`);
+      error.status = response.status;
+      throw error;
+    }
+
+    // zpo_grn_vendor/Detail has no company-code parameter of its own (see
+    // the note on declaredCompanyCodes above) — filtering happens here,
+    // after the fact, rather than trusting the endpoint to have scoped the
+    // rows itself. An order outside the tenant's declared company codes is
+    // dropped before it ever reaches a caller that might persist it (see
+    // jobs/handlers/sweepPurchaseOrders.js).
+    const allowed = declaredCompanyCodes(config);
+    const inScope = (po) => !allowed.length || allowed.includes(String(po.COM_CODE || ''));
+
+    return {
+      data: {
+        orders: rows.filter(inScope).map((po) => {
+          const items = (po.PO_LINE_ITEMS || []).map((item) => ({
+            itemNumber: item.ITEM_NUMBER,
+            materialCode: item.MATERIAL_CODE,
+            description: item.DESCRIPTION,
+            orderedQuantity: Number(item.ORDERED_QUANTITY),
+            receivedQuantity: Number(item.RECEIVED_QUANTITY),
+            invoicedQuantity: Number(item.INVOICED_QUANTITY),
+            // decodeFromSap('MEINS', ...) is a display decode (falls back to
+            // the raw SAP code rather than throwing on an unmapped unit) —
+            // this is a read, and failing a whole PO/GRN listing over one
+            // unfamiliar unit code would be worse than showing it verbatim.
+            // What it must never do is silently become a *different* real
+            // unit — see the fixed default a few lines below in
+            // awaitGoodsReceipt for the bug this replaced.
+            uom: decodeFromSap('MEINS', item.UOM),
+            unitPrice: Number(item.UNIT_PRICE),
+            netAmount: Number(item.NET_AMOUNT),
+            grossAmount: Number(item.GROSS_AMOUNT),
+            grStatus: item.GR_EXPECTED || null,
+            plant: item.PLANT,
+
+            // FPLA-FPLNR. Blank means the line has no invoicing plan, which is
+            // the ordinary case and not a missing field, so blank stays null
+            // rather than becoming "". Added to this endpoint alongside
+            // ACC_ASSIGNMNT_CAT (both were once only on the single-order
+            // sibling zpo_grn/Detail), which is what lets the sweep learn a
+            // plan SAP owns without a second call per order.
+            invoicePlanNumber: String(item.INV_PLANNO || '').trim() || null,
+
+            // EKPO-KNTTP: 'A' asset, 'D' service, 'K' cost centre, blank an
+            // ordinary material line. Added to this endpoint after
+            // ACC_ASSIGNMNT_CAT was already available on zpo_grn/Detail, so
+            // unlike INV_PLANNO above this one is real here — which is what
+            // lets the sweep classify an order from the ledger read alone,
+            // without a second call per order.
+            accountAssignmentCategory: String(item.ACC_ASSIGNMNT_CAT || '').trim().toUpperCase() || null,
+
+            grns: (item.GRN || []).filter(isGoodsReceipt).map((gr) => ({
+              grNumber: gr.GR_NUMBER,
+              // A GR document covers several PO lines, so GR_NUMBER repeats
+              // across items (159 of 410 rows in the sandbox). The item
+              // number is what makes a receipt row unique.
+              grItemNumber: gr.GR_ITEM_NUMBER,
+              grDate: sapDayToIso(gr.GR_DATE),
+              // MJAHR (the material document's fiscal year — GR_NUMBER
+              // alone is not unique once SAP recycles a number range) is
+              // nowhere in this payload; see awaitGoodsReceipt below for
+              // where the year this becomes actually comes from.
+              grYear: grFiscalYear(gr),
+              quantity: Number(gr.GR_QUANTITY),
+              uom: gr.UOM,
+              unitPrice: Number(gr.UNIT_PRICE),
+              netAmount: Number(gr.NET_AMOUNT),
+              location: gr.LOCATION || null,
+            })),
+
+            // Service lines (TYPE ZSER) are confirmed by service entry sheet,
+            // not by a goods movement, so SAP returns them in the same GRN
+            // array with every receipt field blank and the SSES_* fields
+            // filled instead. Left in `grns` they render as empty receipts
+            // with no number, date or quantity, so they are split out here.
+            serviceEntries: (item.GRN || []).filter((gr) => !isGoodsReceipt(gr)).map((gr) => ({
+              entrySheetNumber: gr.SSES_NO,
+              fiscalYear: gr.SSES_YEAR,
+              netAmount: Number(gr.SNET_AMOUNT || gr.NET_AMOUNT),
+              accountCategory: gr.SACC_CAT || null,
+              itemCategory: gr.SITEM_CAT || null,
+            })),
+          }));
+
+          // The header NET_AMOUNT/GROSS_AMOUNT this endpoint returns cannot
+          // be used. Against the live sandbox NET_AMOUNT is "0.00" for 115 of
+          // 173 orders, and GROSS_AMOUNT is non-decreasing across every one
+          // of the 172 row transitions — it is a running total that the ABAP
+          // handler never resets per PO, not this order's gross. Both are
+          // summed from the line items instead, which do reconcile.
+          const sumOf = (field) => items.reduce((total, item) => total + (item[field] || 0), 0);
+
+          return {
+            poNumber: po.PO_NUMBER,
+            // SAP's own report has no field naming the portal's PurchaseOrder
+            // — it is keyed only on the vendor code, not on anything we sent
+            // it (see this method's opening comment) — so there is no
+            // correlation to offer here. `null`, honestly, rather than
+            // guessing one order matches another by amount or date; see
+            // mock.driver.js's vendorPoGrnDisplay for the one driver that can
+            // answer this field for real.
+            poId: null,
+            poDate: sapDotDateToIso(po.PO_DATE),
+            buyerName: po.BUYER_NAME,
+            shipToCity: po.SHIP_TO_CITY,
+            shipToState: po.SHIP_TO_STATE,
+            companyCode: po.COM_CODE,
+            currency: po.CURRENCY || null,
+            netAmount: sumOf('netAmount'),
+            grossAmount: sumOf('grossAmount'),
+            items,
+          };
+        }),
+      },
+    };
+  };
+
   const driver = {
     ...notImplementedDriver('s4_odata'),
     name: 's4_odata',
@@ -307,7 +627,11 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
     testConnection: async () => {
       const started = Date.now();
       const base = String(config.baseUrl || '').replace(/\/$/, '');
-      const url = `${base}${config.pingPath || '/sap/opu/odata/sap/API_BUSINESS_PARTNER/$metadata'}`;
+      // Pinged against a Z endpoint this driver actually depends on. The old
+      // default, API_BUSINESS_PARTNER/$metadata, answers 401 on this system
+      // (its OData gateway needs a technical user nobody has), so the check
+      // reported "refused" while every endpoint the portal uses was fine.
+      const url = `${base}${config.pingPath || config.regionCodePath || '/ZREGION_CODE/REGION'}`;
 
       const headers = { Accept: 'application/xml' };
       if (secrets.username && secrets.password) headers.Authorization = authHeader(secrets);
@@ -423,68 +747,12 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
     // What SAP itself has posted (MIRO) against this vendor's Business
     // Partner code — a custom Z REST POST (same family as VENDOR_CR and the
     // catalogue reads above: sap-client as a query param, no OData session
-    // dance), not a per-tenant catalogue, so it is never cached. A vendor
-    // with no sapVendorCode yet has nothing in SAP to look up.
-    vendorMiroDisplay: async ({ vendor }) => {
-      if (!vendor?.sapVendorCode) return { data: { documents: [] } };
-
-      const base = String(config.baseUrl || '').replace(/\/$/, '');
-      const path = config.miroDisplayPath || '/zmiro_display/MIRO';
-      const url = `${base}${path}${config.sapClient ? `?sap-client=${encodeURIComponent(config.sapClient)}` : ''}`;
-      const headers = baseHeaders(config, secrets);
-
-      const response = await getWithBody(url, {
-        headers,
-        body: { vendor: vendor.sapVendorCode },
-        timeoutMs: Number(config.timeoutMs) || 10000,
-      });
-
-      let parsed;
-      try { parsed = response.text ? JSON.parse(response.text) : []; } catch { parsed = null; }
-
-      // Confirmed against the live sandbox: a vendor with zero MIRO documents
-      // doesn't come back as an empty array — it comes back as HTTP 500 with a
-      // single object of blank fields (INV_DOC_NO: ""). That's this endpoint's
-      // way of saying "nothing found", not a real failure, so it's treated as
-      // an empty result rather than thrown. Anything else non-2xx or
-      // non-array/non-blank-object is a genuine failure.
-      const isEmptySentinel = parsed && !Array.isArray(parsed) && !parsed.INV_DOC_NO;
-      const rows = isEmptySentinel ? [] : parsed;
-
-      if (!isEmptySentinel && (response.status < 200 || response.status >= 300 || !Array.isArray(rows))) {
-        const error = new Error(`SAP MIRO display GET ${path} failed: ${response.status} ${response.statusText}`);
-        error.status = response.status;
-        throw error;
-      }
-
-      return {
-        data: {
-          documents: rows.map((row) => ({
-            miroDoc: row.INV_DOC_NO,
-            fiscalYear: row.FISCAL_YEAR,
-            docType: row.DOC_TYPE,
-            docDate: row.DOC_DATE,
-            postingDate: row.POST_DATE,
-            poNumber: row.REFERENCE,
-            companyCode: row.COM_CODE,
-            currency: row.CURRENCY,
-            grossAmount: Number(row.GROSS_AMOUNT),
-            taxableAmount: Number(row.TAXABLE_AMOUNT),
-            taxCode: row.TAX_CODE,
-            paymentTerm: row.PAYMENT_TERM,
-            items: (row.ITEM || []).map((item) => ({
-              poNumber: item.PO_NO,
-              poItem: item.PO_ITEM,
-              materialCode: item.MATERIAL,
-              amount: Number(item.AMOUNT),
-              quantity: Number(item.QUANTITY),
-              uom: item.UNIT,
-              totalValue: Number(item.TOT_VALUE),
-            })),
-          })),
-        },
-      };
-    },
+    // dance). Not a slow-changing catalogue, so not fetchCatalogue's hour-long
+    // cache — but shared per vendor for vendorResponseCacheMs (issue #69),
+    // since awaitPaymentRun re-reads this on every attempt for every open
+    // invoice. A vendor with no sapVendorCode yet has nothing in SAP to look
+    // up.
+    vendorMiroDisplay: ({ vendor }) => withVendorCache(miroCache, vendor, () => fetchMiroDisplay(vendor)),
 
     // Clearing/payment detail for one MIRO document — a plain GET with
     // belnr/gjahr as query params (confirmed against the live sandbox, unlike
@@ -504,7 +772,7 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
 
       const text = await response.text();
       let row = {};
-      try { row = text ? JSON.parse(text) : {}; } catch { row = null; }
+      try { row = text ? parseSapJson(text) : {}; } catch { row = null; }
 
       if (!response.ok || !row) {
         const error = new Error(`SAP payment detail GET ${path} failed: ${response.status} ${response.statusText}`);
@@ -594,7 +862,9 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
           invoiceDocNo: doc.miroDoc,
           fiscalYear: doc.fiscalYear,
         });
-        if (!detail.found) return null;
+        // The sandbox now answers an uncleared document 200 with STATUS
+        // 'OPEN' rather than the 404 it used to — still not a payment.
+        if (!detail.found || detail.status !== 'CLEARED') return null;
 
         return {
           miroDoc: doc.miroDoc,
@@ -850,121 +1120,17 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
     // GET+body is 200), so this reuses the getWithBody workaround. Unlike
     // the MIRO display, this is keyed directly on the vendor code — no
     // GSTIN-correlation guess needed.
-    vendorPoGrnDisplay: async ({ vendor }) => {
-      if (!vendor?.sapVendorCode) return { data: { orders: [] } };
-
-      const base = String(config.baseUrl || '').replace(/\/$/, '');
-      const path = config.poGrnPath || '/zpo_grn_vendor/Detail';
-      const url = `${base}${path}${config.sapClient ? `?sap-client=${encodeURIComponent(config.sapClient)}` : ''}`;
-
-      // This payload nests line items and GRNs per PO and has come back in
-      // 15s+ against the live sandbox even for a handful of orders — the
-      // shared config.timeoutMs (10s default, tuned for the lighter reads
-      // above) is too short for it, so it gets its own, longer default.
-      const response = await getWithBody(url, {
-        headers: baseHeaders(config, secrets),
-        body: { vendor: vendor.sapVendorCode },
-        timeoutMs: Number(config.poGrnTimeoutMs) || 120000,
-      });
-
-      let rows;
-      try { rows = response.text ? JSON.parse(response.text) : []; } catch { rows = null; }
-
-      if (response.status < 200 || response.status >= 300 || !Array.isArray(rows)) {
-        const error = new Error(`SAP PO/GRN display GET ${path} failed: ${response.status} ${response.statusText}`);
-        error.status = response.status;
-        throw error;
-      }
-
-      return {
-        data: {
-          orders: rows.map((po) => {
-            const items = (po.PO_LINE_ITEMS || []).map((item) => ({
-              itemNumber: item.ITEM_NUMBER,
-              materialCode: item.MATERIAL_CODE,
-              description: item.DESCRIPTION,
-              orderedQuantity: Number(item.ORDERED_QUANTITY),
-              receivedQuantity: Number(item.RECEIVED_QUANTITY),
-              invoicedQuantity: Number(item.INVOICED_QUANTITY),
-              // decodeFromSap('MEINS', ...) is a display decode (falls back to
-              // the raw SAP code rather than throwing on an unmapped unit) —
-              // this is a read, and failing a whole PO/GRN listing over one
-              // unfamiliar unit code would be worse than showing it verbatim.
-              // What it must never do is silently become a *different* real
-              // unit — see the fixed default a few lines below in
-              // awaitGoodsReceipt for the bug this replaced.
-              uom: decodeFromSap('MEINS', item.UOM),
-              unitPrice: Number(item.UNIT_PRICE),
-              netAmount: Number(item.NET_AMOUNT),
-              grossAmount: Number(item.GROSS_AMOUNT),
-              grStatus: item.GR_EXPECTED || null,
-              plant: item.PLANT,
-
-              grns: (item.GRN || []).filter(isGoodsReceipt).map((gr) => ({
-                grNumber: gr.GR_NUMBER,
-                // A GR document covers several PO lines, so GR_NUMBER repeats
-                // across items (159 of 410 rows in the sandbox). The item
-                // number is what makes a receipt row unique.
-                grItemNumber: gr.GR_ITEM_NUMBER,
-                grDate: sapDayToIso(gr.GR_DATE),
-                // MJAHR (the material document's fiscal year — GR_NUMBER
-                // alone is not unique once SAP recycles a number range) is
-                // nowhere in this payload; see awaitGoodsReceipt below for
-                // where the year this becomes actually comes from.
-                grYear: grFiscalYear(gr),
-                quantity: Number(gr.GR_QUANTITY),
-                uom: gr.UOM,
-                unitPrice: Number(gr.UNIT_PRICE),
-                netAmount: Number(gr.NET_AMOUNT),
-                location: gr.LOCATION || null,
-              })),
-
-              // Service lines (TYPE ZSER) are confirmed by service entry sheet,
-              // not by a goods movement, so SAP returns them in the same GRN
-              // array with every receipt field blank and the SSES_* fields
-              // filled instead. Left in `grns` they render as empty receipts
-              // with no number, date or quantity, so they are split out here.
-              serviceEntries: (item.GRN || []).filter((gr) => !isGoodsReceipt(gr)).map((gr) => ({
-                entrySheetNumber: gr.SSES_NO,
-                fiscalYear: gr.SSES_YEAR,
-                netAmount: Number(gr.SNET_AMOUNT || gr.NET_AMOUNT),
-                accountCategory: gr.SACC_CAT || null,
-                itemCategory: gr.SITEM_CAT || null,
-              })),
-            }));
-
-            // The header NET_AMOUNT/GROSS_AMOUNT this endpoint returns cannot
-            // be used. Against the live sandbox NET_AMOUNT is "0.00" for 115 of
-            // 173 orders, and GROSS_AMOUNT is non-decreasing across every one
-            // of the 172 row transitions — it is a running total that the ABAP
-            // handler never resets per PO, not this order's gross. Both are
-            // summed from the line items instead, which do reconcile.
-            const sumOf = (field) => items.reduce((total, item) => total + (item[field] || 0), 0);
-
-            return {
-              poNumber: po.PO_NUMBER,
-              // SAP's own report has no field naming the portal's PurchaseOrder
-              // — it is keyed only on the vendor code, not on anything we sent
-              // it (see this method's opening comment) — so there is no
-              // correlation to offer here. `null`, honestly, rather than
-              // guessing one order matches another by amount or date; see
-              // mock.driver.js's vendorPoGrnDisplay for the one driver that can
-              // answer this field for real.
-              poId: null,
-              poDate: sapDotDateToIso(po.PO_DATE),
-              buyerName: po.BUYER_NAME,
-              shipToCity: po.SHIP_TO_CITY,
-              shipToState: po.SHIP_TO_STATE,
-              companyCode: po.COM_CODE,
-              currency: po.CURRENCY || null,
-              netAmount: sumOf('netAmount'),
-              grossAmount: sumOf('grossAmount'),
-              items,
-            };
-          }),
-        },
-      };
-    },
+    //
+    // Shared per vendor for vendorResponseCacheMs (issue #69): this is the
+    // endpoint the issue is about — 22-84s and ~0.5MB for 173 orders, with
+    // no date/document filter available (the body carries only the vendor
+    // code; the Z endpoint accepts nothing else) — so a vendor with twenty
+    // open ASNs, each running its own awaitGoodsReceipt watch, now costs one
+    // call per cadence instead of twenty, and a same-tick discovery sweep
+    // for the same vendor (jobs/handlers/sweepPurchaseOrders.js, which calls
+    // this indirectly through the wrapped adapter) shares that same call
+    // rather than opening a second one.
+    vendorPoGrnDisplay: ({ vendor }) => withVendorCache(poGrnCache, vendor, () => fetchPoGrnDisplay(vendor)),
 
     // --- Invoicing plans (FPLA/FPLT) ------------------------------------
     //
@@ -1083,29 +1249,166 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
       return { data: { poNumber: po?.sapPoNumber || null, plans } };
     },
 
+    // Which invoicing plan (FPLA-FPLNR) SAP holds against each line of ONE
+    // purchase order.
+    //
+    // CONFIRMED against the live sandbox —
+    //   GET /zpo_grn/Detail?sap-client=800  { "PO": "4500022789" }
+    // the single-order sibling of zpo_grn_vendor/Detail: same field names, one
+    // object instead of an array, keyed on the PO number instead of the vendor
+    // code, and — the reason this method exists — its PO_LINE_ITEMS carry
+    // INV_PLANNO.
+    //
+    // This closes the gap poInvoicePlanDisplay documents below. That endpoint
+    // answers one plan *number* at a time and cannot be asked "what plans does
+    // this order have", so until now a plan SAP owned but the portal had never
+    // written was undiscoverable: the portal only knew a plan number if it had
+    // assigned one itself. INV_PLANNO is SAP volunteering it, so:
+    //
+    //   - syncInvoicePlan can adopt a plan configured directly in ME22N, and
+    //   - poInvoicePlanUpdate can learn the number SAP assigned to a plan it
+    //     just pushed, which the update response does not report.
+    //
+    // A blank INV_PLANNO means the line has no invoicing plan — the ordinary
+    // case for most order lines, not an error and not a missing field.
+    poInvoicePlanNumbers: async ({ po }) => {
+      if (!po?.sapPoNumber) return { data: { poNumber: null, lines: [] } };
+
+      const base = String(config.baseUrl || '').replace(/\/$/, '');
+      const path = config.poDetailPath || '/zpo_grn/Detail';
+      const url = `${base}${path}${config.sapClient ? `?sap-client=${encodeURIComponent(config.sapClient)}` : ''}`;
+
+      const response = await getWithBody(url, {
+        headers: baseHeaders(config, secrets),
+        body: { PO: String(po.sapPoNumber) },
+        // One order, not a vendor's whole history — this does not need the
+        // minutes-long ceiling poGrnTimeoutMs exists for.
+        timeoutMs: Number(config.timeoutMs) || 10000,
+      });
+
+      let json;
+      try { json = response.text ? JSON.parse(response.text) : null; } catch { json = null; }
+
+      if (response.status < 200 || response.status >= 300 || !json || !Array.isArray(json.PO_LINE_ITEMS)) {
+        const error = new Error(`SAP PO detail GET ${path} failed for order ${po.sapPoNumber}: ${response.status} ${response.statusText}`);
+        error.status = response.status;
+        throw error;
+      }
+
+      return {
+        data: {
+          poNumber: json.PO_NUMBER || po.sapPoNumber,
+          // Every line, not only the planned ones. The filter used to drop a
+          // line with a blank INV_PLANNO, which was right while a plan number
+          // was the only thing this read was for — but ACC_ASSIGNMNT_CAT is
+          // most interesting exactly where there is no plan, and a line whose
+          // category is 'A' with no invoicing plan is an ordinary asset order.
+          // Callers that only want plans filter on planNumber themselves.
+          lines: json.PO_LINE_ITEMS
+            .map((item) => ({
+              // "00010" is SAP's item number; the portal's own line numbers are
+              // 10, 20, ... — the same value, differently spelled.
+              line: Number(item.ITEM_NUMBER),
+              planNumber: String(item.INV_PLANNO || '').trim() || null,
+              // EKPO-KNTTP: 'A' asset, 'D' service, blank an ordinary material
+              // line. This endpoint is the only one that reports it — see
+              // vendorPoGrnDisplay above, whose response omits it entirely.
+              accountAssignmentCategory: String(item.ACC_ASSIGNMNT_CAT || '').trim().toUpperCase() || null,
+            }))
+            .filter((row) => Number.isInteger(row.line)),
+        },
+      };
+    },
+
+    // CONFIRMED against the live sandbox —
+    //   POST /zinv_plan/update?sap-client=800  { "DATA": [ … ] }
+    // This replaced an unverified guess at a `/zpo_invplan/PLAN_UPD` endpoint
+    // taking a nested {header, dates[]} document. The real contract differs in
+    // every respect that matters, so it is worth being explicit:
+    //
+    //   - **It is flat.** There is no header. Every FPLT date is its own row in
+    //     one `DATA` array and repeats the PO number, the item, and the plan's
+    //     header-level customizing (CATEGORY, INV_PLAN_TYPE) on each row.
+    //   - **Dates are MM/DD/YYYY**, not the YYYYMMDD zinv_milestone/plan reads
+    //     back. See isoToSapSlashDay.
+    //   - **Success is TYPE, not STATUS**, and the endpoint is a bulk one: the
+    //     top-level TYPE is an envelope verdict and RESULTS carries a per-PO
+    //     outcome. Both are checked — a partial failure that reports S at the
+    //     top and E for the order would otherwise be recorded as a clean push.
+    //   - **It does not report the plan number it assigned.** The response is
+    //     TYPE/MESSAGE/RESULTS and nothing else, so the FPLA number is read back
+    //     afterwards through poInvoicePlanNumbers rather than invented here.
+    //
+    // START_DATE, SETT_DATE_FROM and BILL_DATE were all the same value on every
+    // row of the captured payload, which is consistent with zinv_milestone/plan
+    // collapsing AFDAT and FKDAT into one INV_DATE on the way back out. The
+    // portal models one date per instalment, so it sends one date three times
+    // rather than pretending to a distinction neither endpoint exposes.
+    //
+    // The customizing keys (CATEGORY 'B', INV_PLAN_TYPE 'M2', DATE_CATG 'T1',
+    // DATE_DESC '0003', BILL_RULE '1') are tenant configuration, not constants —
+    // they are IMG values that differ per SAP client. The observed sandbox
+    // values are the defaults, and each is a config field so a tenant whose
+    // customizing differs is a connection edit rather than a code change.
     poInvoicePlanUpdate: async ({ po, item, plan }) => {
+      const lines = plan.lines || [];
+      if (!lines.length) {
+        throw new Error(`Invoicing plan for ${po.sapPoNumber || po.id} line ${item.line} has no dates to send`);
+      }
+      if (!po.sapPoNumber) {
+        // An order the portal awarded but SAP has not been correlated with yet
+        // has no number to push against (see §5.6's note on sapPoNumber). Better
+        // to refuse than to POST a null PO_NUMBER and read S back for a no-op.
+        throw new Error(`Purchase order ${po.id} has no SAP order number yet — its invoicing plan cannot be pushed until SAP's own order is matched`);
+      }
+
+      // Only the partial/milestone plan type has been observed live. A periodic
+      // plan uses a different INV_PLAN_TYPE in SAP's customizing and guessing
+      // one would push a periodic schedule into SAP as something else, so it is
+      // refused with the name of the setting that fixes it.
+      const planType = plan.type === 'Periodic' ? config.invoicePlanTypePeriodic : (config.invoicePlanTypePartial || 'M2');
+      if (!planType) {
+        throw new Error("This SAP connection has no invoicing plan type configured for periodic plans — set 'invoicePlanTypePeriodic' to the SAP invoicing-plan type (FPLA-FPLNR customizing) your client uses for periodic plans");
+      }
+
+      const poItem = String(item.line).padStart(5, '0');
+      const currency = plan.currency || po.currency || 'INR';
+      // '99' is this sandbox's spelling of "no block" on the read side (see
+      // poInvoicePlanDisplay), so it is what an unblocked date sends back.
+      // The code for a genuinely blocked date has NOT been confirmed against a
+      // blocked row — '01' is SAP's standard FAKSP block, and it is a config
+      // field so FI can correct it without a deploy.
+      const unblocked = config.invoicePlanUnblockedCode || '99';
+      const blockCode = config.invoicePlanBlockCode || '01';
+
       const payload = {
-        po_number: po.sapPoNumber,
-        item: String(item.line).padStart(5, '0'),
-        plan_type: plan.type === 'Periodic' ? 'PERIODIC' : 'PARTIAL',
-        // SAP wants its own YYYYMMDD, not the ISO strings the portal stores.
-        start_date: isoToSapDay(plan.startDate),
-        end_date: isoToSapDay(plan.endDate),
-        frequency: plan.frequency || '',
-        invoicing_rule: plan.invoicingRule === 'Advance' ? 'A' : 'R',
-        periodic_amount: plan.periodicAmount !== undefined && plan.periodicAmount !== null ? String(plan.periodicAmount) : '',
-        currency: plan.currency || po.currency || 'INR',
-        dates: (plan.lines || []).map((line) => ({
-          date_item: String(line.lineNumber),
-          settlement_date: isoToSapDay(line.settlementDate),
-          percentage: String(line.percentage || 0),
-          amount: String(line.amount),
-          description: line.description || '',
-        })),
+        DATA: lines.map((line) => {
+          const date = isoToSapSlashDay(line.settlementDate);
+          return {
+            PO_NUMBER: String(po.sapPoNumber),
+            PO_ITEM: poItem,
+            IV_PLAN_ITEM: String(line.lineNumber).padStart(6, '0'),
+            CATEGORY: config.invoicePlanCategory || 'B',
+            INV_PLAN_TYPE: planType,
+            START_DATE: date,
+            DATE_CATG: config.invoicePlanDateCategory || 'T1',
+            DATE_DESC: config.invoicePlanDateDescription || '0003',
+            SETT_DATE_FROM: date,
+            BILL_RULE: String(config.invoicePlanBillingRule || '1'),
+            INVOICE_PERCENTAGE: sapAmount(line.percentage || 0),
+            CURRENCY: currency,
+            BILL_VALUE: sapAmount(line.amount),
+            BILLING_BLOCK: line.blocked ? blockCode : unblocked,
+            // FKSAF is SAP's own billing status — it reports one, it does not
+            // take one. Sent empty exactly as the captured payload does.
+            BILLING_STATUS: '',
+            BILL_DATE: date,
+          };
+        }),
       };
 
       const base = String(config.baseUrl || '').replace(/\/$/, '');
-      const path = config.invoicePlanUpdatePath || '/zpo_invplan/PLAN_UPD';
+      const path = config.invoicePlanUpdatePath || '/zinv_plan/update';
       const url = `${base}${path}${config.sapClient ? `?sap-client=${encodeURIComponent(config.sapClient)}` : ''}`;
       const headers = { ...baseHeaders(config, secrets), 'Content-Type': 'application/json' };
 
@@ -1119,18 +1422,42 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
       let json = {};
       try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text }; }
 
-      if (!response.ok || json.STATUS !== 'S') {
-        const message = json.MESSAGE || json.raw || `${response.status} ${response.statusText}`;
-        const error = new Error(`SAP ZPO_INVPLAN_UPDATE POST ${path} failed: ${message}`);
+      // The per-order verdict, not just the envelope's — see bulkWriteFailure.
+      const { failed, message: failure, results } = bulkWriteFailure(
+        json,
+        (row) => String(row.PO || '') === String(po.sapPoNumber),
+      );
+
+      if (!response.ok || failed) {
+        const message = failure || json.raw || `${response.status} ${response.statusText}`;
+        const error = new Error(`SAP invoicing plan update POST ${path} failed for ${po.sapPoNumber} line ${item.line}: ${message}`);
         error.status = response.status;
         throw error;
       }
 
+      // The update does not say which FPLA number it created or amended, so ask
+      // the order. A failure here is deliberately not fatal: the plan IS in SAP
+      // at this point, and losing the push over a follow-up read would leave the
+      // portal believing a plan it successfully sent was rejected. The number
+      // stays null and the next sync picks it up.
+      let planNumber = plan.planNumber || null;
+      try {
+        const { data } = await driver.poInvoicePlanNumbers({ po });
+        const discovered = (data.lines || []).find((row) => Number(row.line) === Number(item.line));
+        if (discovered?.planNumber) planNumber = discovered.planNumber;
+      } catch {
+        // intentionally swallowed — see above
+      }
+
       return {
-        data: { planNumber: json.PLAN_NUMBER || plan.planNumber || null, line: item.line, dates: payload.dates.length },
+        data: { planNumber, line: item.line, dates: payload.DATA.length },
         log: {
           vendorId: po.vendorId,
-          payload: { request: payload, response: { STATUS: json.STATUS, MESSAGE: json.MESSAGE, PLAN_NUMBER: json.PLAN_NUMBER } },
+          payload: {
+            request: payload,
+            response: { TYPE: json.TYPE, MESSAGE: json.MESSAGE, RESULTS: results },
+            planNumber,
+          },
           status: 'SUCCESS',
           documentRef: `${po.sapPoNumber || po.id}/${item.line}`,
         },
@@ -1175,6 +1502,133 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
       return {
         data: {},
         log: { vendorId: po.vendorId, payload: { poId: po.id, sapPoNumber: po.sapPoNumber, acknowledgedAt: po.acknowledgedAt }, documentRef: po.id },
+      };
+    },
+
+    // Create an asset purchase order (account assignment category A) in SAP.
+    //
+    // CONFIRMED against the live sandbox —
+    //   POST /zasset_po/create?sap-client=800
+    // returning { TYPE, MESSAGE, PO_NUMBER: '4500022807', RESULTS: [...] }.
+    //
+    // **This is the portal's first and only document creation in SAP, and it is
+    // a deliberate, narrow exception to a rule that otherwise still stands**
+    // (§5.6, ADR-0042). The rule exists because `poProvision` used to *invent*
+    // a PO number — `'4500' + six random digits`, indistinguishable from a real
+    // one — and hand it to a supplier. This is the opposite: SAP creates the
+    // document and tells us its real number, which is exactly the fabrication
+    // the ban was written against. What has NOT changed: the portal still does
+    // not post MIRO, does not post goods receipts, and does not create ordinary
+    // material POs. ME21N for a material order remains SAP's own; the export
+    // bridge (rfq.controller.js's exportAwardedPo) is still how an awarded
+    // material order reaches a buyer's MM team.
+    //
+    // Dates are MM/DD/YYYY, the same spelling zinv_plan/update uses and the
+    // opposite of what every *read* on this driver returns — see
+    // isoToSapSlashDay.
+    //
+    // The asset number (ANLN1) and sub-number (ANLN2) are passed through
+    // verbatim from the caller. This driver does not default, pad or invent
+    // either: the portal holds no asset master, so a wrong number here posts
+    // capex against the wrong fixed asset and no code in this repo can tell.
+    // controllers/po.controller.js requires them explicitly for the same reason.
+    poAssetCreate: async ({ vendor, order, items } = {}) => {
+      // Checked here, before anything is sent, rather than relying on the
+      // controller's validator alone. This is the one call on this driver that
+      // creates a document, and the conformance runner invokes every contract
+      // method with `FIXTURES[method] || {}` — so an empty-args call has to
+      // fail with a sentence that says why, and crucially has to fail *before*
+      // the POST, instead of TypeError-ing halfway through building a payload
+      // or, worse, sending a half-built one.
+      if (!vendor?.sapVendorCode) throw new Error('poAssetCreate: vendor.sapVendorCode is required — SAP cannot raise an order against a supplier it has no master record for');
+      if (!order?.companyCode || !order?.purchasingOrg || !order?.purchasingGroup) {
+        throw new Error('poAssetCreate: order.companyCode, order.purchasingOrg and order.purchasingGroup are all required — an asset PO has no organisational scope to fall back on');
+      }
+      if (!items?.length) throw new Error('poAssetCreate: at least one line item is required');
+      for (const item of items) {
+        if (!item.assetNumber) throw new Error('poAssetCreate: every line needs an assetNumber (ANLN1) — this driver will not default one, because a wrong asset number posts capex to the wrong fixed asset and nothing in this portal can detect it');
+      }
+
+      const base = String(config.baseUrl || '').replace(/\/$/, '');
+      const path = config.assetPoCreatePath || '/zasset_po/create';
+      const url = `${base}${path}${config.sapClient ? `?sap-client=${encodeURIComponent(config.sapClient)}` : ''}`;
+      const headers = { ...baseHeaders(config, secrets), 'Content-Type': 'application/json' };
+
+      const payload = {
+        COMPANY_CODE: order.companyCode,
+        PURCH_ORG: order.purchasingOrg,
+        PURCH_GROUP: order.purchasingGroup,
+        VENDOR: vendor.sapVendorCode,
+        DOC_TYPE: order.docType || config.assetPoDocType || 'NB',
+        PAYMENT_TERMS: order.paymentTerms || '',
+        CURRENCY: order.currency || 'INR',
+        DOC_DATE: isoToSapSlashDay(order.docDate || new Date()),
+        ITEMS: items.map((item) => ({
+          SHORT_TEXT: item.description,
+          PLANT: item.plant,
+          STORAGE_LOC: item.storageLocation || '',
+          MATL_GROUP: item.materialGroup || '',
+          // MENGE is Decimal(13,3) in this portal and SAP writes it with three
+          // places; sapAmount's two would silently truncate a 0.125 quantity.
+          QUANTITY: Number(item.quantity).toFixed(3),
+          // Deliberately NOT encodeForSap('MEINS', …). That registry maps to
+          // ISO codes (PCE, KGM, MTR) and *throws* on an unmapped unit — and
+          // this sandbox does not speak ISO: the captured payload sends "EA"
+          // and zpo_grn/Detail returns "LE", both SAP internal unit codes that
+          // the registry has no entry for. The portal already stores "EA" as
+          // its own default, so these agree; routing it through MEINS would
+          // turn every asset PO into a SapFieldError for no gain.
+          UNIT: String(item.uom || 'EA').trim().toUpperCase(),
+          NET_PRICE: sapAmount(item.unitPrice),
+          PRICE_UNIT: String(item.priceUnit || 1),
+          TAX_CODE: item.taxCode || '',
+          ASSET_NUMBER: item.assetNumber,
+          ASSET_SUBNUM: item.assetSubNumber,
+        })),
+      };
+
+      const response = await abortableFetch(
+        url,
+        { method: 'POST', headers, body: JSON.stringify(payload) },
+        Number(config.timeoutMs) || 10000,
+      );
+
+      const text = await response.text();
+      let json = {};
+      try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text }; }
+
+      // No `matches` predicate: the document does not exist until this call
+      // succeeds, so there is no number to pick this call's RESULTS row out by
+      // — every row has to be S. See bulkWriteFailure.
+      const { failed, message: failure, results } = bulkWriteFailure(json);
+
+      if (!response.ok || failed) {
+        const message = failure || json.raw || `${response.status} ${response.statusText}`;
+        const error = new Error(`SAP asset PO create POST ${path} failed: ${message}`);
+        error.status = response.status;
+        throw error;
+      }
+
+      // A response that reports success without a document number is a failure,
+      // not a success with a blank field. The whole point of this call is to
+      // come back with SAP's own number — accepting one without it would
+      // recreate exactly the "order with no SAP number" state §5.6 describes,
+      // except now with a local record claiming SAP has it.
+      const poNumber = String(json.PO_NUMBER || '').trim();
+      if (!poNumber) {
+        const error = new Error(`SAP asset PO create POST ${path} reported success but returned no PO_NUMBER: ${json.MESSAGE || text}`);
+        error.status = response.status;
+        throw error;
+      }
+
+      return {
+        data: { sapPoNumber: poNumber, message: json.MESSAGE || null, items: payload.ITEMS.length },
+        log: {
+          vendorId: vendor.vendorId,
+          payload: { request: payload, response: { TYPE: json.TYPE, MESSAGE: json.MESSAGE, PO_NUMBER: poNumber, RESULTS: results } },
+          status: 'SUCCESS',
+          documentRef: poNumber,
+        },
       };
     },
 
@@ -1312,8 +1766,13 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
       }
 
       const { documents } = (await driver.vendorMiroDisplay({ vendor })).data;
+      // Issue #64: matchInvoiceDocument throws AmbiguousInvoiceMatchError
+      // rather than returning null when a periodic invoicing plan's
+      // same-amount siblings can't be told apart by date either — left to
+      // propagate uncaught here, since jobs/handlers/awaitPaymentRun.js is
+      // what owns deciding this invoice needs a human, not this driver.
       const found = matchInvoiceDocument(
-        { sapPoNumber: invoice.sapPoNumber, totalAmount: invoice.totalAmount },
+        { sapPoNumber: invoice.sapPoNumber, totalAmount: invoice.totalAmount, invoiceDate: invoice.invoiceDate },
         documents,
       );
       if (!found) return false; // AP has not posted it yet
@@ -1354,27 +1813,42 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
   return assertImplements(driver, 's4_odata');
 };
 
-const validateConfig = (config = {}) => {
+const SECRET_FIELDS = [
+  { name: 'username', label: 'Technical user' },
+  { name: 'password', label: 'Password' },
+];
+
+// `environment`/`secrets` are optional so every existing call site
+// (controllers/platformSap.controller.js's "test connection" on a
+// not-yet-saved sandbox config, this driver's own tests) that only cares
+// about the shape of `config` keeps working unchanged — the production-
+// credentials rule only engages when a caller actually says which
+// environment this is for.
+const validateConfig = (config = {}, { environment, secrets = {} } = {}) => {
   const errors = {};
   if (!config.baseUrl) errors.baseUrl = 'A gateway base URL is required';
   else if (!/^https?:\/\//i.test(config.baseUrl)) errors.baseUrl = 'Must be an http(s) URL';
   if (!config.sapClient) errors.sapClient = 'An SAP client number is required (e.g. 100)';
+  // Issue #62: this used to default silently to '1000' (the SAP IDES demo
+  // company code), so a tenant that never configured it ran on a value
+  // nobody chose. It is also the company-code filter's own fallback when
+  // companyCodes isn't set (declaredCompanyCodes above) — required here
+  // means that filter can never see an empty list on a live connection.
+  if (!config.companyCode) errors.companyCode = 'A company code is required';
+  requireProductionCredentials(errors, { environment, secrets, secretFields: SECRET_FIELDS });
   return errors;
 };
 
 module.exports = {
   createS4ODataDriver,
   validateConfig,
-  secretFields: [
-    { name: 'username', label: 'Technical user' },
-    { name: 'password', label: 'Password' },
-  ],
+  secretFields: SECRET_FIELDS,
   configFields: [
     { name: 'baseUrl', label: 'Gateway base URL', type: 'text', placeholder: 'https://my-s4.example.com' },
     { name: 'sapClient', label: 'SAP client', type: 'text', placeholder: '100' },
     { name: 'timeoutMs', label: 'Request timeout (ms)', type: 'number', default: 10000 },
-    { name: 'companyCode', label: 'Company code', type: 'text', default: '1000' },
-    { name: 'plant', label: 'Plant', type: 'text', default: '1000' },
+    { name: 'companyCode', label: 'Company code (required)', type: 'text', placeholder: '1000' },
+    { name: 'companyCodes', label: 'All company codes this tenant covers, comma-separated (optional — defaults to just Company code)', type: 'text', placeholder: '1000, 2000' },
     { name: 'supplierAccountGroup', label: 'Supplier account group', type: 'text', default: 'LIEF' },
     { name: 'bpGrouping', label: 'Business Partner grouping', type: 'text', default: 'BP03' },
     { name: 'vendorCrPath', label: 'VENDOR_CR endpoint path (custom Z REST, not OData — unverified)', type: 'text', default: '/zvendor_create/VENDOR_CR' },
@@ -1388,9 +1862,22 @@ module.exports = {
     { name: 'quotationDisplayPath', label: 'Quotation display path (custom Z REST, ME48) — returns all purchasing documents for the vendor, not only quotations', type: 'text', default: '/ZCL_ME48/vendor' },
     { name: 'quotationUpdatePricePath', label: 'Quotation net price update path (custom Z REST, ME47)', type: 'text', default: '/ZQUOT_NETPR/QUOT_UPDPR' },
     { name: 'poGrnPath', label: 'PO/GRN detail path (custom Z REST)', type: 'text', default: '/zpo_grn_vendor/Detail' },
-    { name: 'poDetailPath', label: 'Single order/RFQ detail path (custom Z REST — confirmed live for both PO and RFQ document numbers)', type: 'text', default: '/zpo_grn/Detail' },
+    { name: 'poDetailPath', label: 'Single order/RFQ detail path (custom Z REST — the source of each PO line\'s INV_PLANNO, and confirmed live for RFQ document numbers too)', type: 'text', default: '/zpo_grn/Detail' },
+    { name: 'assetPoCreatePath', label: 'Asset purchase order create path (custom Z REST, ME21N with account assignment A — the one document the portal creates in SAP)', type: 'text', default: '/zasset_po/create' },
+    { name: 'assetPoDocType', label: 'Purchasing document type (BSART) for an asset PO', type: 'text', default: 'NB' },
     { name: 'invoicePlanPath', label: 'Invoicing plan display path (custom Z REST, FPLA/FPLT — confirmed live)', type: 'text', default: '/zinv_milestone/plan' },
-    { name: 'invoicePlanUpdatePath', label: 'Invoicing plan update path (custom Z REST, ME22N — unverified)', type: 'text', default: '/zpo_invplan/PLAN_UPD' },
+    { name: 'invoicePlanUpdatePath', label: 'Invoicing plan update path (custom Z REST, FPLA/FPLT — confirmed live)', type: 'text', default: '/zinv_plan/update' },
+    // Invoicing-plan customizing (IMG values, per SAP client — see
+    // poInvoicePlanUpdate). The defaults are the values observed on the
+    // sandbox; a tenant whose customizing differs edits them here.
+    { name: 'invoicePlanCategory', label: 'Invoicing plan category (FPLA CATEGORY)', type: 'text', default: 'B' },
+    { name: 'invoicePlanTypePartial', label: 'Invoicing plan type for partial/milestone plans (INV_PLAN_TYPE)', type: 'text', default: 'M2' },
+    { name: 'invoicePlanTypePeriodic', label: 'Invoicing plan type for periodic plans (INV_PLAN_TYPE) — no default: periodic plans have not been run against a live system, and pushing one under the partial type would misfile it', type: 'text' },
+    { name: 'invoicePlanDateCategory', label: 'Invoicing plan date category (DATE_CATG)', type: 'text', default: 'T1' },
+    { name: 'invoicePlanDateDescription', label: 'Invoicing plan date description key (DATE_DESC)', type: 'text', default: '0003' },
+    { name: 'invoicePlanBillingRule', label: 'Invoicing plan billing rule (BILL_RULE)', type: 'text', default: '1' },
+    { name: 'invoicePlanUnblockedCode', label: 'Billing block code meaning "not blocked" (FAKSP) — this sandbox uses 99, not blank', type: 'text', default: '99' },
+    { name: 'invoicePlanBlockCode', label: 'Billing block code to send for a blocked date (FAKSP) — unverified, no blocked row has been observed live', type: 'text', default: '01' },
     { name: 'poGrnTimeoutMs', label: 'PO/GRN detail request timeout (ms) — this endpoint is very slow (22–84s observed for 173 orders)', type: 'number', default: 120000 },
     { name: 'fields.poAcknowledgeField', label: 'PO field to set on supplier acknowledgement (extension field, optional)', type: 'text' },
   ],

@@ -39,7 +39,12 @@ export default function ChangePasswordPage() {
 
     setBusy(true);
     try {
-      await apiClient.post('/auth/change-password', { currentPassword, newPassword });
+      const { token } = await apiClient.post('/auth/change-password', { currentPassword, newPassword });
+      // The backend just invalidated every token issued before this moment
+      // (issue #74's passwordChangedAt check) — including the one this very
+      // request was authenticated with. Store the fresh one it returns so
+      // this session continues instead of the next request 401ing.
+      if (token) localStorage.setItem('jwt_token', token);
       // The cached session still says the password is temporary; drop it so the
       // next read reflects the change rather than bouncing straight back here.
       forgetWhoami();

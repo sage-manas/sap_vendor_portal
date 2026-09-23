@@ -185,6 +185,16 @@ model Client {
   brandingLogo  String?
   brandingColor String?
 
+  // The buyer's own GST registration (issue #66) — real columns, not a
+  // tenantSettings.js key, matching how Vendor's own gstin/state are real
+  // columns rather than settings: this is the tenant's legal identity, not
+  // a per-tenant preference. Nullable because nothing sets them yet (no
+  // onboarding screen collects them) — a null state means place-of-supply
+  // cannot be derived for this tenant's invoices, which
+  // services/gst.service.js treats as "unknown," never as same-state.
+  gstin String?
+  state String?
+
   // Deliberately undeclared shape (ADR-0023) — config/tenantSettings.js is the
   // registry of valid keys, not this schema. Stays JSONB.
   featureFlags Json @default("{}")
@@ -233,7 +243,11 @@ model Vendor {
   tradeName         String?
   businessType      String?
   incorporationDate String?
-  gstin             String  @unique
+  // Unique per tenant, not globally — a supplier trades with more than one
+  // buyer under the same real-world GSTIN (issue #67, ADR-0039). vendorId and
+  // email stay global login identities (ADR-0002); gstin is master data, not
+  // an identity the login path resolves on, so it moved.
+  gstin             String
   gstType           String?
   pan               String
   cin               String?
@@ -309,6 +323,7 @@ model Vendor {
   rfqBids        RfqBid[]
 
   @@unique([clientId, sapVendorCode])
+  @@unique([clientId, gstin])
   @@index([clientId, status])
   @@index([clientId, vendorId])
   @@map("vendors")
@@ -385,7 +400,10 @@ model RfqItem {
   line         Int
   materialCode String
   description  String?
-  quantity     Float
+  // Decimal(13,3), matching SAP's MENGE (issue #65) — see utils/quantity.js
+  // for why a Float quantity is the wrong type here, same reasoning as the
+  // Decimal money columns throughout this schema.
+  quantity     Decimal   @db.Decimal(13, 3)
   uom          String    @default("EA")
   targetPrice  Decimal?  @db.Decimal(14, 2)
   plant        String    @default("1000")
@@ -430,10 +448,10 @@ model RfqBid {
 // Json map) because bids are the kind of thing invoice-plan-style reporting
 // will want to join on by line number.
 model RfqBidUnitPrice {
-  pk         String @id @default(uuid()) @db.Uuid
+  pk         String  @id @default(uuid()) @db.Uuid
   clientId   String
-  bidPk      String @db.Uuid
-  bid        RfqBid @relation(fields: [bidPk], references: [pk], onDelete: Cascade)
+  bidPk      String  @db.Uuid
+  bid        RfqBid  @relation(fields: [bidPk], references: [pk], onDelete: Cascade)
   lineNumber Int
   price      Decimal @db.Decimal(14, 2)
 
@@ -480,8 +498,22 @@ model PurchaseOrder {
   vendorPk    String? @db.Uuid
   vendor      Vendor? @relation(fields: [vendorPk], references: [pk])
 
-  buyerName       String?
-  plant           String?
+  buyerName String?
+
+  // Organisational scope (issue #62). None of these default to a demo value
+  // ('1000' or otherwise) — a value here means either the awarding RFQ
+  // carried a real one, or SAP's own ledger reported it for a discovered
+  // order (sweepPurchaseOrders.js). `plant` is deliberately NOT here: a PO
+  // can span several plants across its lines, so it lives on
+  // PurchaseOrderItem instead — see the note there. `docType` (SAP's BSART,
+  // e.g. 'NB') stays null for now: the Z endpoint this portal reads for a
+  // discovered order (zpo_grn_vendor/Detail) does not return it, and a
+  // portal-awarded order has no SAP document yet to have a type.
+  companyCode     String?
+  purchasingOrg   String?
+  purchasingGroup String?
+  docType         String?
+
   paymentTerms    String?
   currency        String    @default("INR")
   incoterms       String?
@@ -514,7 +546,7 @@ model PurchaseOrder {
   asns         ASN[]
   grns         GRN[]
   invoices     Invoice[]
-  payments     Payment[]
+  paymentItems PaymentItem[]
   chatMessages ChatMessage[]
 
   @@unique([clientId, id])
@@ -533,11 +565,62 @@ model PurchaseOrderItem {
   line         Int
   materialCode String
   description  String?
-  quantity     Float
-  grnQuantity  Float   @default(0)
+  // Decimal(13,3), matching SAP's MENGE (issue #65) — see utils/quantity.js.
+  // grnQuantity accumulates across however many partial receipts a line
+  // gets; a Float residue (0.1 + 0.2 + 0.7 != 1.0) is exactly what made
+  // `grnQuantity >= quantity` false on a line that was actually fully
+  // received.
+  quantity     Decimal @db.Decimal(13, 3)
+  grnQuantity  Decimal @default(0) @db.Decimal(13, 3)
   unitPrice    Decimal @db.Decimal(14, 2)
   netValue     Decimal @db.Decimal(14, 2)
   uom          String  @default("EA")
+  // Moved here from the PO header (issue #62): a multi-line order can ship
+  // from more than one plant, and the header field used to be silently
+  // guessed from `items[0]` — both at award (rfq.controller.js) and at
+  // discovery (sweepPurchaseOrders.js). No default: null means genuinely
+  // unknown, not "1000".
+  plant        String?
+
+  // Asset procurement (account assignment category A) — set only on a line of
+  // an order the portal raised in SAP through zasset_po/create. Everything
+  // here is SAP's own vocabulary for a purchasing line, deliberately nullable:
+  // a line awarded from an RFQ or discovered through zpo_grn_vendor/Detail has
+  // none of it, and null means "this is not an asset line", never "unknown".
+  //
+  // `assetNumber` (ANLN1) and `assetSubNumber` (ANLN2) identify the fixed asset
+  // the capex posts to. **The portal cannot validate them.** It holds no asset
+  // master — they come from AS03 in SAP and are recorded here exactly as the
+  // operator typed them, which is why controllers/po.controller.js's
+  // createAssetPo refuses to guess a default for either.
+  //
+  // materialCode stays a required empty string on these lines rather than
+  // becoming nullable: an asset line is text-only (SHORT_TEXT, no MATNR), and
+  // '' is already what zpo_grn_vendor/Detail returns for a text line and what
+  // sweepPurchaseOrders already stores for one.
+  // EKPO-KNTTP. What kind of purchasing line this is, in SAP's own terms:
+  // 'A' asset, 'D' service, null an ordinary stock/material line. Distinct
+  // from the asset fields below, which only a portal-raised asset PO carries —
+  // this is read back from SAP (zpo_grn/Detail's ACC_ASSIGNMNT_CAT) for *any*
+  // line, including one SAP raised itself, so an asset or service order
+  // discovered by the sweep is recognisable as one without the portal having
+  // been the thing that created it.
+  accountAssignmentCategory String?
+
+  assetNumber      String?
+  assetSubNumber   String?
+  materialGroup    String? // MATKL
+  storageLocation  String? // LGORT
+  taxCode          String? // MWSKZ
+
+  // PEINH — the number of units `unitPrice` is quoted for. SAP's NETPR is the
+  // price for PEINH units, not for one, so a line's net value is
+  // `quantity / priceUnit * unitPrice` (utils/lineValue.js). Stored rather
+  // than sent-and-forgotten: without it a line's value cannot be re-derived or
+  // reconciled against SAP, which is how a 100x overstatement went unnoticed
+  // (issue #108). Defaults to 1 — the overwhelmingly common case, and what
+  // every row written before this column existed implicitly meant.
+  priceUnit        Int     @default(1)
 
   invoicePlan InvoicePlan?
 
@@ -561,11 +644,24 @@ model InvoicePlan {
   endDate        DateTime?
   frequency      String?
   invoicingRule  InvoicingRule @default(Arrears)
-  periodicAmount Decimal? @db.Decimal(14, 2)
+  periodicAmount Decimal?      @db.Decimal(14, 2)
   currency       String        @default("INR")
   reference      String?
   source         PlanSource    @default(portal)
   syncedAt       DateTime?
+
+  // A supplier-proposed change to this plan, awaiting the buying
+  // organisation's approval — never applied on its own (controllers/
+  // po.controller.js's proposeInvoicePlanChange only ever validates and
+  // stores it; approveInvoicePlanChange is the one place it reaches SAP).
+  // `{ input, requestedAt, requestedBy }` — `input` is the same shape
+  // configureInvoicePlan's body is (validators/invoicePlan.validator.js's
+  // invoicePlanSchema), kept raw rather than pre-built into a full plan so
+  // approval reconciles it against whatever has been invoiced by then, not
+  // against a stale snapshot from when it was proposed. Cleared by
+  // persistInvoicePlan on any successful write to this plan — a buyer's own
+  // edit or an approved proposal both supersede whatever was pending.
+  pendingChange Json?
 
   lines InvoicePlanLine[]
 
@@ -654,7 +750,8 @@ model AsnItem {
   line            Int?
   materialCode    String
   description     String?
-  shippedQuantity Float
+  // Decimal(13,3), matching SAP's MENGE (issue #65) — see utils/quantity.js.
+  shippedQuantity Decimal @db.Decimal(13, 3)
   uom             String  @default("EA")
 
   @@map("asn_items")
@@ -723,9 +820,10 @@ model GrnItem {
   line             Int?
   materialCode     String
   description      String?
-  receivedQuantity Float
-  acceptedQuantity Float
-  rejectedQuantity Float   @default(0)
+  // Decimal(13,3), matching SAP's MENGE (issue #65) — see utils/quantity.js.
+  receivedQuantity Decimal @db.Decimal(13, 3)
+  acceptedQuantity Decimal @db.Decimal(13, 3)
+  rejectedQuantity Decimal @default(0) @db.Decimal(13, 3)
   rejectionReason  String?
   uom              String  @default("EA")
 
@@ -757,11 +855,27 @@ model Invoice {
   sapMiroDoc    String?
   status        String   @default("Submitted")
   subTotal      Decimal  @db.Decimal(14, 2)
+  // Issue #66: derived, not an input — the sum of every InvoiceItem's own
+  // cgstAmount+sgstAmount+igstAmount+cessAmount (services/gst.service.js's
+  // deriveInvoiceTax). taxCode stays as a display-only legacy field (which
+  // SAP tax code this invoice is filed under); it no longer drives any rate
+  // computation — that lives per line, on InvoiceItem.gstRate.
   taxAmount     Decimal  @db.Decimal(14, 2)
   totalAmount   Decimal  @db.Decimal(14, 2)
   taxCode       String   @default("G1")
   currency      String   @default("INR")
   matchWarning  String?
+
+  // GST header fields (issue #66). placeOfSupply is the recipient's
+  // registered state (Client.state — this invoice's buyer) at the time the
+  // invoice's tax was derived; stored rather than re-read live from Client
+  // because a tenant's own registration can change after an old invoice was
+  // already filed, and a historical invoice must keep showing what applied
+  // when it was raised. Null on an invoice whose tax was never (re)computed
+  // through deriveGst — most invoices discovered from SAP today, since
+  // nothing there reports it either.
+  placeOfSupply String?
+  reverseCharge Boolean @default(false)
 
   // The invoicing-plan date this invoice bills, when it came from a plan
   // rather than a delivery. Small, always read/written whole — stays Json.
@@ -782,8 +896,8 @@ model Invoice {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  items    InvoiceItem[]
-  payments Payment[]
+  items        InvoiceItem[]
+  paymentItems PaymentItem[]
 
   @@unique([clientId, id])
   @@index([clientId, vendorId])
@@ -801,9 +915,26 @@ model InvoiceItem {
   line         Int?
   materialCode String
   description  String?
-  quantity     Float
+  // Decimal(13,3), matching SAP's MENGE (issue #65) — see utils/quantity.js.
+  quantity     Decimal @db.Decimal(13, 3)
   unitPrice    Decimal @db.Decimal(14, 2)
+  // The line's own taxable value (quantity x unitPrice, pre-tax) —
+  // services/gst.service.js reads this as the base its CGST/SGST/IGST are a
+  // percentage of; nothing new needed for "taxable value" itself.
   amount       Decimal @db.Decimal(14, 2)
+
+  // Per-line GST (issue #66) — HSN/SAC classify what the line actually is,
+  // which is what a real GST return is filed by; a single invoice-level
+  // taxCode could never carry that. gstRate is null (not 0) when the line's
+  // rate has never been derived, so a genuinely nil-rated/exempt line (rate
+  // 0, real GST fields cgst/sgst/igst all correctly 0) stays distinguishable
+  // from "we don't know" — see services/gst.service.js.
+  hsnCode    String?
+  gstRate    Decimal? @db.Decimal(5, 2)
+  cgstAmount Decimal  @default(0) @db.Decimal(14, 2)
+  sgstAmount Decimal  @default(0) @db.Decimal(14, 2)
+  igstAmount Decimal  @default(0) @db.Decimal(14, 2)
+  cessAmount Decimal  @default(0) @db.Decimal(14, 2)
 
   @@map("invoice_items")
 }
@@ -812,26 +943,32 @@ model InvoiceItem {
 // Payment (F110 run)
 // ---------------------------------------------------------------------------
 
+// Issue #63: an F110 run settles many open items (invoices, potentially
+// across several POs) in one payment document, with one clearing document
+// and one UTR — the old shape (`invoiceId String` directly on Payment)
+// could only ever represent one invoice per payment, so a consolidated run
+// either got split into fabricated payments or silently lost invoices. This
+// is now a header (the remittance itself — clearing doc, UTR, date, method)
+// over a child table of settled items, each its own invoice/amount. The
+// reverse case (one invoice settled across two runs) is representable too:
+// nothing here stops the same invoiceId appearing in two different
+// Payments' items, and an invoice's outstanding balance is computed from
+// the sum of all of them (see db/paymentHelpers.js), not stored redundantly.
 model Payment {
   pk       String @id @default(uuid()) @db.Uuid
   clientId String
   id       String
 
-  invoiceId String
-  invoice   Invoice       @relation(fields: [clientId, invoiceId], references: [clientId, id])
-  poId      String
-  po        PurchaseOrder @relation(fields: [clientId, poId], references: [clientId, id])
-
   vendorId      String
-  invoiceRef    String?
-  invoiceNumber String?
-  sapMiroDoc    String?
-  grossAmount   Decimal?      @db.Decimal(14, 2)
-  tdsDeducted   Decimal       @default(0) @db.Decimal(14, 2)
-  netAmount     Decimal       @db.Decimal(14, 2)
   paymentDate   DateTime
   utrCode       String
   paymentMethod PaymentMethod @default(NEFT)
+  // The F110 clearing document is the real natural key for "this is the same
+  // remittance" — jobs/handlers/awaitPaymentRun.js and sweepPayments.js both
+  // find-or-create a Payment by (clientId, sapPaymentDoc) before adding an
+  // item, so N invoices settled under one clearing document converge on one
+  // Payment row no matter which order their independent watch jobs discover
+  // them in.
   sapPaymentDoc String?
   bankName      String?
   runId         String? // F110 Run ID
@@ -841,6 +978,15 @@ model Payment {
   tdsSection  String?
   deducteePan String?
   deductorTan String?
+
+  // Aggregate totals across every settled item — denormalised so the list
+  // read path (and every screen built when this was 1:1 with Invoice) don't
+  // have to sum items on every render. Recomputed by the one place that
+  // writes items whenever an item is added; for the common single-invoice
+  // remittance this is numerically identical to the old per-invoice amount.
+  grossAmount Decimal? @db.Decimal(14, 2)
+  tdsDeducted Decimal  @default(0) @db.Decimal(14, 2)
+  netAmount   Decimal  @db.Decimal(14, 2)
   totalTds    Decimal? @db.Decimal(14, 2)
 
   // Dual identity / sync state — see the note on RFQ above. A Payment, like a
@@ -854,11 +1000,42 @@ model Payment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  items PaymentItem[]
+
   @@unique([clientId, id])
+  @@unique([clientId, sapPaymentDoc])
   @@index([clientId, vendorId])
-  @@index([clientId, invoiceId])
   @@index([clientId, sapSyncState])
   @@map("payments")
+}
+
+// One settled invoice within a Payment (F110 clearing document). Everything
+// that used to live on Payment itself when it was 1:1 with Invoice.
+model PaymentItem {
+  pk        String  @id @default(uuid()) @db.Uuid
+  clientId  String
+  paymentPk String  @db.Uuid
+  payment   Payment @relation(fields: [paymentPk], references: [pk], onDelete: Cascade)
+
+  invoiceId     String
+  invoice       Invoice       @relation(fields: [clientId, invoiceId], references: [clientId, id])
+  poId          String
+  po            PurchaseOrder @relation(fields: [clientId, poId], references: [clientId, id])
+  invoiceNumber String?
+  sapMiroDoc    String?
+
+  grossAmount Decimal? @db.Decimal(14, 2)
+  tdsDeducted Decimal  @default(0) @db.Decimal(14, 2)
+  netAmount   Decimal  @db.Decimal(14, 2)
+
+  // One clearing document settling the same invoice twice would be SAP
+  // double-paying it, not a second legitimate item — but the *reverse* case
+  // this redesign exists for (one invoice settled across two separate runs)
+  // is still representable: that's two PaymentItem rows under two different
+  // Payment (paymentPk) parents, which this constraint does not touch.
+  @@unique([paymentPk, invoiceId])
+  @@index([clientId, invoiceId])
+  @@map("payment_items")
 }
 
 // ---------------------------------------------------------------------------
@@ -1148,10 +1325,10 @@ model SapJob {
   dedupeKey String @unique // stable identity, e.g. "awaitGoodsReceipt:CLT-0001:ASN-000412"
   args      Json // ids only, never hydrated documents
 
-  status      String    @default("pending") // pending|running|succeeded|failed|abandoned|cancelled
-  runAt       DateTime  @default(now())
-  attempts    Int       @default(0)
-  maxAttempts Int       @default(240)
+  status      String   @default("pending") // pending|running|succeeded|failed|abandoned|cancelled
+  runAt       DateTime @default(now())
+  attempts    Int      @default(0)
+  maxAttempts Int      @default(240)
 
   lockedBy    String?
   lockedAt    DateTime?
@@ -1193,9 +1370,9 @@ model SapSchedule {
 // ---------------------------------------------------------------------------
 
 model SapSyncCursor {
-  clientId    String
-  feed        String // 'po' | 'grn' | 'payment' | 'quotation' — jobs/sweeps.js FEEDS
-  vendorCode  String // LIFNR — the SAP vendor code a sweep polls by
+  clientId   String
+  feed       String // 'po' | 'grn' | 'payment' | 'quotation' — jobs/sweeps.js FEEDS
+  vendorCode String // LIFNR — the SAP vendor code a sweep polls by
 
   watermark   DateTime?
   // sha256 of the normalised (sorted keys, volatile fields stripped) last

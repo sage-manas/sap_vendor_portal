@@ -1,13 +1,26 @@
 import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 
 // Seeds the demo tenant and makes the mock SAP answer instantly.
 //
 // The job worker is NOT started here — it runs inside the API process (see
-// e2e/api-server.cjs for why).
+// e2e/api-server.mjs for why).
 
 export default async function globalSetup() {
   const root = path.resolve(import.meta.dirname, '..');
+
+  // playwright.config.mjs already resolves and guards DATABASE_URL, and this
+  // runs after it — but the guard is repeated here because this module is
+  // importable on its own, and when it is, nothing upstream has set anything.
+  // Run standalone it would otherwise inherit backend/.env: the development
+  // database, with its real SapConnection (issue #107).
+  const require = createRequire(import.meta.url);
+  require('dotenv').config({ path: path.join(root, 'backend', '.env') });
+  const { resolveTestDatabaseUrl, assertSafeToWipe } = require(
+    path.join(root, 'backend', 'config', 'testDatabase.js'),
+  );
+  process.env.DATABASE_URL = assertSafeToWipe(resolveTestDatabaseUrl(), 'The Playwright global setup');
 
   // Idempotent: seed-demo skips a tenant it has already built (pass --reset to
   // rebuild). The specs create their own tenders rather than relying on the
@@ -48,7 +61,19 @@ async function zeroTheMockSapDelays(root) {
     select: { sapEnvironment: true },
   });
   const environment = client?.sapEnvironment || 'sandbox';
-  const config = { timings: { goodsReceiptMs: 0, paymentRunMs: 0 } };
+
+  const timings = { goodsReceiptMs: 0, paymentRunMs: 0 };
+
+  // Merge, never replace. Prisma writes a Json column wholesale, so passing a
+  // bare `{ timings }` here used to drop every other key the connection held —
+  // gateway base URL, SAP client, and every Z-endpoint path — leaving a row
+  // that still had its encrypted credentials and no idea where to send them
+  // (issue #107). Only `timings` is this function's business.
+  const existing = await rawPrisma.sapConnection.findUnique({
+    where: { clientId_environment: { clientId, environment } },
+    select: { config: true },
+  });
+  const config = { ...(existing?.config ?? {}), timings };
 
   await rawPrisma.sapConnection.upsert({
     where: { clientId_environment: { clientId, environment } },

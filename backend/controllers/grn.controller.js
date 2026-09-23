@@ -2,6 +2,20 @@ const { prisma } = require('../db/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { withVendorScope, scopedWhere } = require('../utils/requestScope');
+const { toNumber } = require('../utils/quantity');
+
+// receivedQuantity/acceptedQuantity/rejectedQuantity are Decimal-typed
+// columns (issue #65) — converted here, since this is the one place every
+// GRN reaches the API through. Left unconverted, `sum + item.acceptedQuantity`
+// below would silently concatenate strings instead of adding (see
+// utils/money.js's header comment), and the raw items array would reach
+// res.json() with each quantity serialized as a string, not a number.
+const formatGrnItem = (item) => ({
+  ...item,
+  receivedQuantity: toNumber(item.receivedQuantity),
+  acceptedQuantity: toNumber(item.acceptedQuantity),
+  rejectedQuantity: toNumber(item.rejectedQuantity),
+});
 
 // `totalAccepted`/`rejectionRate` were Mongoose virtuals (models/GRN.js),
 // computed from `items` and serialized automatically via `toJSON`. Replicated
@@ -9,11 +23,12 @@ const { withVendorScope, scopedWhere } = require('../utils/requestScope');
 // plan's decision to keep these as an app-layer read rather than a stored or
 // generated column.
 const withVirtuals = (grn) => {
-  const totalAccepted = grn.items.reduce((sum, item) => sum + item.acceptedQuantity, 0);
-  const totalReceived = grn.items.reduce((sum, item) => sum + item.receivedQuantity, 0);
-  const totalRejected = grn.items.reduce((sum, item) => sum + item.rejectedQuantity, 0);
+  const items = (grn.items || []).map(formatGrnItem);
+  const totalAccepted = items.reduce((sum, item) => sum + item.acceptedQuantity, 0);
+  const totalReceived = items.reduce((sum, item) => sum + item.receivedQuantity, 0);
+  const totalRejected = items.reduce((sum, item) => sum + item.rejectedQuantity, 0);
   const rejectionRate = totalReceived === 0 ? 0 : (totalRejected / totalReceived) * 100;
-  return { ...grn, totalAccepted, rejectionRate };
+  return { ...grn, items, totalAccepted, rejectionRate };
 };
 
 // @desc    Get GRNs

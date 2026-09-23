@@ -5,6 +5,239 @@ Each entry: the call, why, and what it costs.
 
 ---
 
+## ADR-0042 — Asset PO creation is a narrow, confirmed exception to "the portal creates no purchase orders in SAP"
+
+**SAP integration · 2026-09-17 · Accepted**
+
+**Context.** `docs/04-sap-runtime-engineering-plan.md` §B3 listed portal-side PO creation
+under **Things to refuse**: *"you removed `POST /pos/simulate` for good reason. Do not
+reintroduce it."* A confirmed live endpoint then arrived — `POST /zasset_po/create`, which
+raises an **asset** purchase order (account assignment category A) and answers with
+`{ TYPE, MESSAGE, PO_NUMBER: '4500022807', RESULTS: [...] }`.
+
+Taking it at face value would contradict a written decision. Refusing it on the letter of
+that decision would be equally wrong, because the decision's *reason* does not apply.
+
+**Decision.** Allow it, scoped to asset POs only, and amend the refuse-list rather than
+quietly working around it.
+
+The removed `poProvision` was a **fabricator**: it invented `'4500' + six random digits`, a
+number indistinguishable from a real SAP order number, and showed it to suppliers. That is
+what the rule was written against. A call where SAP creates the document and reports its own
+number is the cure for that failure, not a repetition of it — the driver throws if a success
+response arrives without a `PO_NUMBER`, precisely so the fabrication cannot creep back in.
+
+Capex is also the one procurement path where read-only leaves the portal *wrong*: an asset PO
+has no RFQ, no award and no supplier bid behind it, so unlike a material order there is no
+SAP-side ledger for a discovery sweep to correlate against later.
+
+Implementation, in the order that matters:
+
+- **SAP first, then persist.** `createAssetPo` calls SAP and writes locally only on success,
+  storing the number SAP returned with `sapSyncState: 'synced'`. There is no local-first path
+  and no fallback. A driver that cannot do it (the ECC skeleton) throws and nothing is saved.
+- **`sapSyncState: 'synced'`, not `'pending'`.** The order *is* SAP's from creation, and this
+  is also what stops `sweepPurchaseOrders` creating a duplicate local record when it later
+  rediscovers the order (it matches on `sapPoNumber` and returns early on synced).
+- **The asset number is operator-entered and unverifiable.** The portal holds no asset master.
+  `assetNumber`/`assetSubNumber` are validated for *shape* only (ANLN1/ANLN2, digits) and
+  passed through verbatim; the driver refuses to default either. The audit entry
+  (`po.asset_created`) records who chose them, because that is the only accountability
+  available — a well-formed wrong number posts capex to the wrong fixed asset and nothing in
+  this system can detect it. The UI says so in as many words.
+- **Behind `po:manage`**, which no supplier role holds: a supplier must never originate an
+  order against themselves.
+- **Not conformance-testable.** The contract marks it `createsDocument: true` and the
+  conformance runner reports it `skipped` with a reason. Running it would consume a real
+  purchase order number and leave an orphan capex order on every run. `skipped` is a third
+  status added for this: `passed` would be a lie and `failed` would put a red mark against a
+  working driver, in the one report an operator reads to decide whether a sandbox is wired up.
+
+**Consequences.** The portal can raise capex orders end to end, and they enter the normal
+ASN → GRN → invoice → payment chain with a real `sapPoNumber` from the start — which
+portal-awarded material orders still do not (§5.6). Costs:
+
+1. **A genuinely irreversible action now exists in the UI.** No draft, no undo; reversing is an
+   ME22N/ME23N job on SAP's side. Mitigated by a warning on the form, not by a confirmation
+   dialog — the decision was that an accurate description beats a modal people click through.
+2. **The asset-number gap is real and unclosed.** Closing it needs an asset-master read
+   (AS03-equivalent) that does not exist yet; with one, this becomes a picker and the
+   validator can stop guessing. Worth asking ABAP for.
+3. **The precedent is narrow by construction.** A general `zpo_create` does *not* inherit this
+   exception — the export bridge already covers material orders, so that case would have to be
+   argued on its own merits.
+4. `zasset_po/create` is a fourteenth unauthenticated Z endpoint, and the **third write** —
+   see ADR-0040, still open.
+
+---
+
+## ADR-0041 — The invoicing plan write is the confirmed contract, and plan numbers are discovered rather than assumed
+
+**SAP integration · 2026-09-17 · Accepted**
+
+**Context.** Milestone invoicing was built end to end — schema (`InvoicePlan`/`InvoicePlanLine`),
+arithmetic (`services/invoicePlan.service.js`), API, and the buyer-facing panel — against a
+*read* endpoint confirmed live (`zinv_milestone/plan`) and a *write* endpoint that was a
+guess. `s4odata.driver.js` posted a nested `{header, dates[]}` document to
+`/zpo_invplan/PLAN_UPD`, a path that does not exist, so `configureInvoicePlan` threw for
+every tenant on the `s4_odata` driver; only the mock made the feature appear to work. Two
+further contracts have now been captured from the sandbox: the real update
+(`POST /zinv_plan/update`) and a single-order detail read (`GET /zpo_grn/Detail`).
+
+**Decision.** Three changes, each pinned by a live-payload test in
+`tests/sap-read-contracts.test.js`:
+
+- **`poInvoicePlanUpdate` speaks the real contract.** It is flat and bulk — every FPLT date
+  is its own row in one `DATA` array, repeating the PO number, item and header customizing —
+  success is `TYPE`, not `STATUS`, and the **dates are `MM/DD/YYYY` while the read endpoint
+  returns `YYYYMMDD`**. That asymmetry sits inside one feature, so the two directions get two
+  visibly different helpers (`isoToSapDay` / `isoToSapSlashDay`) rather than one with a flag.
+  Because the endpoint is bulk, the per-PO `RESULTS` row is checked as well as the envelope:
+  a response that reports `S` overall while rejecting this order would otherwise be recorded
+  as a clean push.
+- **Plan numbers are discovered, via a new `poInvoicePlanNumbers`.** `zinv_milestone/plan` is
+  keyed on the FPLA plan number and has no "list the plans on this order" form, so the portal
+  could only read back a plan whose number it had assigned itself — a plan configured directly
+  in ME22N was invisible to Sync no matter how often a buyer pressed it, and the update
+  response reports no plan number at all. `zpo_grn/Detail` carries `INV_PLANNO` per line item,
+  which is the only read where SAP volunteers one. `syncInvoicePlan` now asks it first, and
+  `poInvoicePlanUpdate` reads the assigned number back through it after a successful push.
+- **The plan's customizing is tenant config, not constants.** `CATEGORY`, `INV_PLAN_TYPE`,
+  `DATE_CATG`, `DATE_DESC`, `BILL_RULE` and the two block codes are IMG values that differ
+  per SAP client. The observed sandbox values are the defaults; each is a connection field.
+
+**Consequences.** Milestone invoicing works against a real SAP for the first time, and a plan
+SAP owns is now adoptable. Three costs, taken deliberately:
+
+1. **A periodic plan is refused until the tenant names its SAP plan type.** Only the
+   partial/milestone type (`M2`) has been observed live. Pushing a periodic schedule under
+   `M2` would file it in SAP as something it is not, so `invoicePlanTypePeriodic` has no
+   default and the error names the setting. This is a visible refusal rather than a silent
+   misfiling, consistent with §5.6's "no simulation fallback" rule.
+2. **The blocked-date block code is still unverified.** No blocked row has been seen live.
+   `'01'` (SAP's standard FAKSP block) is the default and a config field, flagged inline, so
+   FI can correct it without a deploy. The unblocked code is `'99'` — this sandbox's own
+   spelling of "not blocked", already established by the read side.
+3. **A failed read-back does not fail the push.** Once the POST succeeds the plan *is* in SAP;
+   losing that over the follow-up discovery read would tell a buyer that a plan SAP accepted
+   was rejected. The plan number stays null and the next sync picks it up.
+
+Still unaddressed: `zpo_grn/Detail` is an eleventh custom Z service on the same
+unauthenticated footing as the rest — see ADR-0040.
+
+---
+
+## ADR-0040 — The Z-endpoint authentication gap is disclosed and gated, not silently fixed
+
+**Risk acknowledgment · 2026-09-16 · Accepted**
+
+**Context.** Every read this integration performs, and its one vendor-master write, go
+through eleven custom Z REST services on the sandbox, documented in `s4odata.driver.js` as
+reachable with no authentication: the standard OData gateway needs a technical user this
+tenant's `SapConnection` has no credentials for, so `authHeader()` returns `undefined` and the
+request still succeeds (#79). This is a real exposure on the customer's system and a
+portability problem (a second customer will not have these eleven services) — and neither
+half is something a code change in this repo can fix on its own. Only the customer's Basis
+team can enable authentication on services that live in their landscape.
+
+**Decision.** Split what is actually addressable now from what depends on someone outside
+this repo acting on it:
+
+- **Written up, not sent.** `docs/abap-requests/z-endpoint-authentication-disclosure.md`
+  lists all eleven endpoints and exactly what each exposes, for the customer's Basis/security
+  team. It is explicitly marked as drafted rather than delivered — this repo has no channel
+  to that team, and claiming a disclosure happened when it hasn't would be worse than not
+  writing it at all.
+- **Gated, not just documented, in code.** `sap/drivers/requireProductionCredentials.js`
+  (shared by `s4odata.driver.js` and `eccrfc.driver.js`'s `validateConfig`) refuses to save a
+  `production`-environment `SapConnection` with any of that driver's declared credentials
+  missing. `configureSap` (`controllers/platformSap.controller.js`) now passes
+  `{ environment, secrets }` through to `validateConfig` so this can be enforced at the one
+  place a connection is written, not left to an operator's judgement. This does not prove the
+  Z endpoints actually *enforce* authentication once credentials exist — only that the console
+  can no longer promote a tenant to production while carrying an admittedly-unauthenticated
+  configuration.
+- **Standard-vs-custom scoped, not built.**
+  `docs/abap-requests/standard-vs-custom-endpoint-matrix.md` sorts the eleven into
+  plausible-standard-replacement / likely-needs-custom / unknown, based on what
+  `s4odata.driver.js` already declares (`API_BUSINESS_PARTNER`,
+  `API_PURCHASEORDER_PROCESS_SRV`, `API_SUPPLIERINVOICE_PROCESS_SRV` — declared, unused) and
+  the driver's own prior conclusions about sourcing (RFQ/quotation flows are explicitly
+  Ariba/Business-Network territory, not core S/4). Every verdict is stated as unverified —
+  consistent with ADR-0036/ADR-0037's rule against manufacturing confidence a live system
+  hasn't actually confirmed.
+
+**What this explicitly does not claim.** Not done, and not claimed as done: the disclosure
+has not been sent or acknowledged; authentication has not been enabled on the Z endpoints;
+the portal has not been tested against authenticated versions of them (there is no sandbox to
+test against); no standard-API replacement has been built or verified. All four are the
+acceptance criteria issue #79 lists that a code change in this repository cannot itself
+satisfy — they need a person to send the disclosure, a Basis team to act on it, and a
+sandbox — real or design-partner — to test and build against afterward.
+
+**Consequences.** A tenant can no longer be silently promoted to a production SAP connection
+with no credentials configured; that promotion now fails loudly with a clear reason instead
+of succeeding on an unauthenticated pipe. The underlying exposure on the sandbox itself is
+unchanged by this PR — it is the customer's system to lock down, and the disclosure document
+exists so that conversation starts with complete information instead of "some endpoints are
+open."
+
+---
+
+## ADR-0039 — Vendor.gstin moves to per-tenant uniqueness; vendorId and email stay global
+
+**Bug fix · 2026-09-19 · Accepted**
+
+**Context.** ADR-0002 made `Vendor.vendorId`, `Vendor.email` and `Vendor.gstin` all globally
+unique, on the reasoning that login happens before any tenant is known and all three were
+being treated as login identities. That conflated two different things `Vendor` carries: the
+account a supplier logs into, and the master data a buyer holds about them. `gstin` is the
+second — it is never looked up on the login path (`login()` in `auth.controller.js` resolves
+on `vendorId`/`email` only) — and a global unique index on it meant a real supplier who trades
+with two buyer tenants could only ever onboard with the first one; the second registration
+failed on `vendors_gstin_key` (#67). ADR-0002 flagged this exact limitation and named its own
+trigger: "revisit in Phase 6 when registration becomes subdomain-aware." That phase has
+shipped — `resolveRealmForRequest`/`resolveClientForRequest` (`utils/resolveClient.js`) already
+resolve a tenant by subdomain, with header/slug fallbacks for local development, and `login()`
+already refuses a cross-tenant match once a real subdomain is present.
+
+**Decision.** `Vendor.gstin` becomes `@@unique([clientId, gstin])`. `vendorId` and `email` are
+unchanged — they stay globally unique — because they are the two fields the pre-tenancy login
+lookup (`withoutTenantScope` in `login()`) actually queries on, and de-duplicating a login
+lookup across tenants with a non-unique key means guessing which of several matching accounts
+the caller meant, which subdomain resolution only partially covers today (the non-subdomain
+fallback path still exists for local development and is explicitly documented as "a guess").
+`utils/vendorIdentity.js`'s `identityConflict()` — the one place that checks all three fields
+before a `Vendor` row is created, called from both self-registration
+(`auth.controller.js#register`) and the two tenant-side creation paths
+(`vendor.controller.js#createProfile`/`createVendor`) — now takes a `clientId` and scopes only
+its `gstin` check to it; the `vendorId`/`email` checks are untouched and remain cross-tenant.
+
+This is Option A from the issue: the smaller fix, keeping one `Vendor` row per (tenant,
+supplier) and one login per buyer relationship. Option B — a global supplier *identity*
+separate from N tenant-scoped *vendor master-data records*, letting one login serve every
+buyer relationship a supplier has — is the more complete answer to the same login-side
+duplication ADR-0002 already accepted as a known cost (one company still cannot register with
+the same *email* to two tenants; that limitation is unchanged by this ADR). It is not built
+here: it touches the login/token/session model (`utils/authToken.js`'s `signToken`, everywhere
+a request handler assumes `req.vendorId` names exactly one tenant-scoped row), not just a
+unique index, and no current tenant has asked for one login across buyers — the reported
+defect is the GSTIN collision, not the email one. Recorded here so it isn't rediscovered from
+scratch: **the identity/master-data split is the right design once a supplier's shared login
+across tenants is an actual requirement, not just a theoretical one** — the same trigger
+ADR-0002 named, now more precisely aimed at `email` specifically rather than at
+`vendorId`/`email`/`gstin` together.
+
+**Consequences.** The same GSTIN can be onboarded by any number of tenants — each gets its own
+`Vendor` row, its own status/approval lifecycle, its own login. Tenant isolation is unaffected:
+each row still carries its own `clientId` and every existing tenant-scoping mechanism
+(`db/tenantExtension.js`) applies to it exactly as it did before. The known remaining gap —
+one company, two buyers, wants one login instead of two — is unchanged from ADR-0002 and is
+now the specific, narrower thing to revisit before it starts costing a real onboarding, rather
+than the three-field problem originally described.
+
+---
+
 ## ADR-0038 — A document-by-id lookup is scoped through one helper, enforced at review
 
 **Security remediation · 2026-09-15 · Accepted**

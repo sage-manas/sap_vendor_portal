@@ -1,4 +1,5 @@
 const { notImplementedDriver, assertImplements } = require('../contract');
+const { requireProductionCredentials } = require('./requireProductionCredentials');
 
 // ECC via classic RFC/BAPI.
 //
@@ -37,21 +38,26 @@ const createEccRfcDriver = ({ config = {} } = {}) => {
   return assertImplements(driver, 'ecc_rfc');
 };
 
-const validateConfig = (config = {}) => {
+const SECRET_FIELDS = [
+  { name: 'username', label: 'RFC user' },
+  { name: 'password', label: 'Password' },
+];
+
+// See s4odata.driver.js's validateConfig for why `environment`/`secrets` are
+// optional params rather than required ones.
+const validateConfig = (config = {}, { environment, secrets = {} } = {}) => {
   const errors = {};
   if (!config.ashost) errors.ashost = 'An application server host is required';
   if (!config.sysnr) errors.sysnr = 'A system number is required (e.g. 00)';
   if (!config.sapClient) errors.sapClient = 'An SAP client number is required (e.g. 100)';
+  requireProductionCredentials(errors, { environment, secrets, secretFields: SECRET_FIELDS });
   return errors;
 };
 
 module.exports = {
   createEccRfcDriver,
   validateConfig,
-  secretFields: [
-    { name: 'username', label: 'RFC user' },
-    { name: 'password', label: 'Password' },
-  ],
+  secretFields: SECRET_FIELDS,
   configFields: [
     { name: 'ashost', label: 'Application server host', type: 'text' },
     { name: 'sysnr', label: 'System number', type: 'text', placeholder: '00' },

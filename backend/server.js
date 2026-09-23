@@ -46,32 +46,17 @@ const io = new Server(server, {
   }
 });
 
-const jwt = require('jsonwebtoken');
 const { vendorRoom, procurementRoom } = require('./utils/socketEmitter');
+const { authenticateSocket, recheckSocket, recheckAllSockets } = require('./sockets/socketAuth');
 
 // Pre-auth Socket.io connection middleware. A socket's tenant comes from its
 // JWT and from nowhere else — it is what every room it may join is keyed on.
-io.use((socket, next) => {
-  const token = socket.handshake.auth.token;
-
-  if (!token) {
-    return next(new Error('Authentication error: token required'));
-  }
-
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
-    if (!decoded.clientId) {
-      return next(new Error('Authentication error: token carries no tenant'));
-    }
-    socket.clientId = decoded.clientId;
-    socket.clerkUserId = decoded.vendorId; // suppliers only; staff tokens carry none
-    socket.roleScope = decoded.roleScope;
-    socket.role = decoded.role;
-    return next();
-  } catch (err) {
-    return next(new Error('Authentication error: Invalid token'));
-  }
-});
+// Reloads the account and runs it through the same checks the HTTP `protect`
+// middleware does (issue #74) — the old version only verified the JWT
+// signature and trusted its claims, so a suspended or demoted account, or one
+// whose password had just been changed specifically to end this session,
+// could still open a socket.
+io.use(authenticateSocket);
 
 io.on('connection', (socket) => {
   logger.info(`🔌 Client connected to Socket.io: ${socket.id} (client: ${socket.clientId}, vendorId: ${socket.clerkUserId})`);
@@ -82,17 +67,33 @@ io.on('connection', (socket) => {
     logger.info(`🏢 Socket ${socket.id} joined room: ${room}`);
   }
 
-  socket.on('join_procurement_room', () => {
+  socket.on('join_procurement_room', async () => {
+    // Re-checked here too, not just at connect (issue #74's suggested fix):
+    // a room grant is a fresh privilege, and the periodic sweep below could
+    // be seconds away from catching a revocation that happened in between.
+    if (!(await recheckSocket(socket))) return;
     // Always this socket's own tenant — the client cannot name the room.
     const room = procurementRoom(socket.clientId);
     socket.join(room);
     logger.info(`🏢 Socket ${socket.id} joined room: ${room}`);
   });
-  
+
   socket.on('disconnect', () => {
     logger.info(`🔌 Client disconnected from Socket.io: ${socket.id}`);
   });
 });
+
+// The handshake alone only proves a session was valid the moment it opened —
+// nothing about an open socket re-runs that check on its own afterwards.
+// This is the other half (issue #74): every connected socket, reloaded and
+// re-validated on the same cadence as Socket.io's own ping/pong heartbeat, so
+// a password change or suspension disconnects a live session within one
+// heartbeat instead of waiting out the token's 30-day expiry.
+const SOCKET_RECHECK_INTERVAL_MS = Number(process.env.SOCKET_RECHECK_INTERVAL_MS) || (io.engine.opts.pingInterval || 25000);
+const recheckTimer = setInterval(() => {
+  recheckAllSockets(io).catch((error) => logger.error(`[sockets] periodic recheck errored: ${error.message}`));
+}, SOCKET_RECHECK_INTERVAL_MS);
+recheckTimer.unref();
 
 app.set('io', io);
 app.set('trust proxy', trustProxy());
@@ -157,6 +158,11 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   // x-vendor-id is gone (ADR-0010): the JWT is the only identity the API accepts.
   allowedHeaders: ['Content-Type', 'Authorization', 'x-client-slug'],
+  // Without this, only the CORS-safelisted response headers are readable from
+  // JavaScript — Content-Disposition isn't one of them. getBlob() (api-client.js)
+  // read null from every download and fell back to naming the file 'export',
+  // with no extension (issue #110).
+  exposedHeaders: ['Content-Disposition'],
 }));
 
 // The job worker process (jobs/worker.js) has no Socket.io server of its

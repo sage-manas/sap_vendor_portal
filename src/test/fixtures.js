@@ -62,7 +62,6 @@ export const EMPTY_SUPPLIER_API = {
   // GET /asns answers a bare array, not { asns, pagination } like the others.
   'GET /asns': [],
   'GET /grns': emptyList('grns'),
-  'GET /chats': { messages: [] },
   'GET /logs': [],
   'GET /vendors/performance': {
     onTimeDeliveryRate: 0, qualityScore: 0, totalOrders: 0, totalValue: 0, history: [],
@@ -109,7 +108,13 @@ export const WORKSPACE_OVERVIEW = {
   },
   staff: { active: 1, pendingInvitations: 0 },
   thresholds: { supplierApprovalSlaHours: 48, invoiceReviewAmount: 100000 },
-  usage: {},
+  // usageAgainstLimits (backend/utils/usage.js) always returns all three —
+  // this used to be `{}`, which no real response is.
+  usage: {
+    vendors: { used: 0, limit: null, ratio: null, breached: false },
+    rfqsThisMonth: { used: 0, limit: null, ratio: null, breached: false },
+    storageMb: { used: 0, limit: null, ratio: null, breached: false },
+  },
 };
 
 export const WORKSPACE_SETTINGS = {

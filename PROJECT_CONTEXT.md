@@ -2,7 +2,7 @@
 
 > **Purpose of this file.** A single, self-contained reference that gives any developer or AI agent the *complete* mental model of this project — architecture, data model, every module, every API endpoint, the SAP-simulation design, conventions, and known gotchas — **without needing the codebase open**. Read this top to bottom and you can navigate, extend, or debug the system.
 >
-> **Last synced with code:** 2026-09-12 (QA remediation: sealed-tender fixes, `trust proxy`, CORS gating, the document-counter allocator, and the frontend test harness + Playwright suite — see §10). If code and this file disagree, the code wins — but please update this file.
+> **Last synced with code:** 2026-09-17 (asset PO creation — ADR-0042, §5.6 — and the invoicing-plan write contract with plan-number discovery — ADR-0041). Before that: 2026-09-12 (QA remediation: sealed-tender fixes, `trust proxy`, CORS gating, the document-counter allocator, and the frontend test harness + Playwright suite — see §10). If code and this file disagree, the code wins — but please update this file.
 >
 > ⚠️ **This app is now multi-tenant** (SaaS Phase 1 complete). Every tenant-scoped query
 > runs inside a bound tenant context or it *throws*. Read §5.5 before writing any backend
@@ -86,7 +86,7 @@ sap_vendor_portal/
 
 ## 3. How to Run
 
-**Backend** (`cd backend`): copy `.env.example` → `.env`, set `DATABASE_URL` (`docker compose up -d postgres` at repo root starts a matching local instance), run `npx prisma migrate deploy` (or `migrate dev` for a fresh schema change), then `npm install` → `npm run dev` (nodemon, port **5000**) or `npm start`. **Also start the job worker in a second terminal: `npm run dev:jobs` (or `npm run jobs`).** Goods receipts, payment runs and SAP sweeps are completed by `jobs/worker.js`, not the API — without it a shipped order never gets a GRN and an invoice is never paid. (The worker used to exit silently after its first tick when run on its own; `run({ standalone: true })` keeps its timer referenced.) Tests: `npm test` (needs migrations already applied against `DATABASE_URL`).
+**Backend** (`cd backend`): copy `.env.example` → `.env`, set `DATABASE_URL` (`docker compose up -d postgres` at repo root starts a matching local instance), run `npx prisma migrate deploy` (or `migrate dev` for a fresh schema change), then `npm install` → `npm run dev` (nodemon, port **5000**) or `npm start`. **Also start the job worker in a second terminal: `npm run dev:jobs` (or `npm run jobs`).** Goods receipts, payment runs and SAP sweeps are completed by `jobs/worker.js`, not the API — without it a shipped order never gets a GRN and an invoice is never paid. (The worker used to exit silently after its first tick when run on its own; `run({ standalone: true })` keeps its timer referenced.) Tests: `npm test` — it runs against a **separate** database (`TEST_DATABASE_URL`, or `DATABASE_URL`'s name plus `_test`) and refuses to touch the development one, because it deletes every row; `pretest` creates and migrates it for you.
 
 **Frontend** (repo root): `npm install` → `npm run dev` (Next dev, port **3000**). Build: `npm run build`. Tests: `npm test` (Vitest). Lint: `npm run lint`.
 
@@ -113,7 +113,8 @@ Frontend talks to backend via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
 | `MAIL_DEBUG_BODY` | `true` prints email bodies to the log. Development only — bodies carry reset tokens and temporary passwords. |
 | `PLATFORM_ADMIN_EMAIL` / `_NAME` / `_PASSWORD` | optional inputs to `scripts/seed-platform-admin.js` (CLI flags take precedence). |
 | `DEFAULT_CLIENT_SLUG` | tenant an unauthenticated request registers into when no subdomain/`x-client-slug` says otherwise. Defaults to `legacy` (= `CLT-0001`). |
-| `SAP_MOCK_MODE` | `true` (always mock; real RFC not implemented) |
+| `TEST_DATABASE_URL` | Where the Jest and Playwright suites run. Both **refuse** to run against `DATABASE_URL` (issue #107): they delete every row and rewrite tenant SAP configuration. Unset, it is `DATABASE_URL`'s database name plus a `_test` suffix; `npm run test:db:setup` in `backend/` creates and migrates it. Derivation and the guard live in `backend/config/testDatabase.js`. |
+| ~~`SAP_MOCK_MODE`~~ | **Removed.** It selected nothing — the driver is per tenant, from the `SapConnection` row (§5.6) — but `/api/health` reported it as if it did, so a deployment talking to a real SAP could answer "Mock Mode". |
 | `GSTIN_PAN_VERIFY_MOCK_MODE` + `_API_URL` / `_API_KEY` | KYC verification mock vs live (see `services/verification.service.js`) |
 | `LOG_LEVEL` | winston level |
 | `TRUST_PROXY_HOPS` | reverse-proxy hops in front of the API; unset means `loopback` (the shipped nginx on the same host). See `config/trustProxy.js` — never `true`, which would let a client spoof `X-Forwarded-For`. |
@@ -229,13 +230,22 @@ The contract is now read-mostly. Removed by design: `invoiceCreate`,
 `deliveryCreate`, `poProvision`/`poProvisioned`, `poInboundSync`, and the five
 sourcing writes (`rfqCreate`, `rfqCancel`, `rfqReissue`, `rfqSubmitBid`,
 `infoRecordCreate`). What remains that writes: `vendorCreate` (the vendor master,
-on approval), `poAcknowledge` (a supplier confirming an order SAP already
-owns), `quotationUpdatePrice` (ME47 net price on a document SAP holds) and
+on approval), `poAssetCreate` (the one document the portal *creates* in SAP —
+an asset PO, ADR-0042), `poAcknowledge` (a supplier confirming an order SAP
+already owns), `quotationUpdatePrice` (ME47 net price on a document SAP holds) and
 `poInvoicePlanUpdate` (the invoicing plan on an order SAP holds — a buyer's
 change to a document SAP owns, same category as the acknowledgement, and paired
-with the read-only `poInvoicePlanDisplay`; **neither has been run against a live
-system**, so its paths and field names in `s4odata.driver.js` are provisional
-config, flagged inline). Why:
+with two read-only methods, `poInvoicePlanDisplay` and `poInvoicePlanNumbers`).
+All three are now confirmed against the live sandbox (ADR-0041); what remains
+provisional inside the update is narrower and flagged inline — the SAP
+customizing values it sends are connection config with the observed sandbox
+values as defaults, the *periodic* plan type has no default and is refused until
+a tenant names it, and the block code for a blocked date is unverified. Why the
+portal writes this at all: the invoicing plan is the buyer's own instruction
+about when an order bills, and it is the one thing on a PO the portal lets a
+buyer change. Note the trap: **`zinv_plan/update` takes `MM/DD/YYYY` while
+`zinv_milestone/plan` returns `YYYYMMDD`** — two helpers, deliberately. Why the
+rest is read-only:
 
 - **MIRO is AP's transaction, not a supplier's.** Invoice verification is a
   three-way match performed against the buyer's own books; a portal that posts it
@@ -259,7 +269,7 @@ config, flagged inline). Why:
   only the mock made them appear to work. RFQs, bids and awards now live entirely
   in this application, and what SAP holds is read back through `vendorRfqDisplay`
   and `vendorQuotationDisplay`.
-- **The portal creates no purchase orders in SAP.** `POST /pos/simulate` (the
+- **The portal creates no *material* purchase orders in SAP.** `POST /pos/simulate` (the
   "Simulate SAP PO (ME21N)" button) and its `poProvision`/`poProvisioned` pair are
   gone. Awarding an RFQ still creates the local `PurchaseOrder` the ASN → GRN →
   invoice chain hangs off, but `sapPoNumber` is now **null**: it used to be
@@ -269,6 +279,20 @@ config, flagged inline). Why:
   `awaitPaymentRun` both key on `sapPoNumber`, so a portal-awarded order sits
   waiting until SAP's order is correlated — honest, but it means the end-to-end
   chain only completes for orders SAP actually knows about.
+- **…with exactly one exception: asset POs** (ADR-0042). `poAssetCreate` →
+  `POST /zasset_po/create` (confirmed live) raises an **asset** purchase order —
+  account assignment category A — and SAP answers with the real document number.
+  `POST /api/pos/asset` (behind `po:manage`) calls SAP *first* and persists only
+  on success, storing SAP's number with `sapSyncState: 'synced'`; nothing is
+  written if SAP refuses. This is not a relapse into `poProvision`: that method's
+  sin was *fabricating* a number, and this one refuses a success response that
+  arrives without a `PO_NUMBER`. Capex is also the one path where read-only leaves
+  the portal wrong — an asset PO has no RFQ, award or bid behind it, so there is no
+  SAP ledger for a sweep to correlate it against later. **The asset number
+  (ANLN1) is operator-entered and cannot be validated** — the portal holds no asset
+  master — so it is shape-checked only and the audit trail (`po.asset_created`)
+  records who chose it. Marked `createsDocument: true` in the contract, which makes
+  the conformance runner report it `skipped` rather than run it.
 - **There is no simulation fallback in `s4_odata`.** It used to fall back to the mock
   when the OData gateway had no credentials, which handed a misconfigured tenant an
   invented MIRO number and, seconds later, a fabricated payment — a made-up UTR and
@@ -330,6 +354,10 @@ not globally**: two tenants may both hold `RFQ-2026-001`. The exception is `Vend
 ### Client — the tenant. **Not** tenant-scoped; only the platform plane owns it
 - `clientId` (`CLT-0001`, unique), `companyName`, `slug` (subdomain, unique), `status`
   (`Trial|Active|Suspended|Terminated`), `plan`, `branding{logo,primaryColor}`,
+  `gstin`/`state` (issue #66 — the buyer's own GST registration, real columns rather
+  than a `tenantSettings.js` key since this is legal identity, not preference; nullable,
+  nothing sets them through the API yet — needed to derive an invoice's `placeOfSupply`
+  and tell intra- from inter-state supply),
   `featureFlags{}`, `settings{}` (thresholds + notification policy; shape declared by
   `config/tenantSettings.js`, never here — ADR-0023),
   `limits{vendors,rfqsPerMonth,storageMb}`, `createdBy`,
@@ -355,14 +383,15 @@ several places (a holdover from the abandoned Clerk-auth plan, §4).
 - Hooks: pre-save bcrypt hash; `comparePassword()` method.
 
 ### RFQ — transaction; bids and items are **child tables**, not embedded documents
+- Every line-item `quantity` field in this section — `RfqItem`, `PurchaseOrderItem` (`quantity`/`grnQuantity`), `AsnItem.shippedQuantity`, `GrnItem` (`receivedQuantity`/`acceptedQuantity`/`rejectedQuantity`), `InvoiceItem.quantity` — is `Decimal(13,3)`, matching SAP's own MENGE (issue #65), not `Float`. A Float quantity that accumulates across partial receipts drifts (0.1+0.2+0.7 as Float is 0.9999999999999999, not 1), which is exactly what made a fully-received line's `grnQuantity >= quantity` false; read via `utils/quantity.js`'s `toNumber()` (a re-export of `utils/money.js`'s, since the conversion is identical), same discipline as the money columns. `RfqBid.moq` stays `Float` — a display-only threshold, never summed or compared against another quantity.
 - `id` `RFQ-YYYY-NNN` (unique, sequential), `description`, `status` (`Draft`|`Bidding Open`|`Submitted`|`Under Review`|`Awarded`|`Closed`, default `Bidding Open`), `deadlineDate`, `rfqType` (`AN`|`AB`), `paymentTerms`, `purchasingOrg`/`companyCode` (`1000`), `currency` (`INR`), `deliveryLocation`; plus `awardedVendorId/Name/awardedAt/convertedPoId`.
 - `RfqItem[]` (`rfqPk` FK, cascade delete): `line, materialCode, description, quantity, uom(EA), targetPrice, plant(1000), deliveryDate`.
 - `RfqBid[]` (`rfqPk` FK): `vendorId` (legacy external id string) + optional `vendorPk` FK to `Vendor`, `vendorName, gstRate, taxCode(G1..G4), freight, deliveryLeadTimeDays, vendorRating, technicalScore(80), validityDate, moq, remarks, submittedAt`. Its own children: `RfqBidUnitPrice[]` (`lineNumber, price` — replaces the old Mongoose `Map<lineNo,price>` with a joinable row per line) and `RfqBidDocument[]` (`documentId, originalName, url`).
 - `RfqInvitedVendor[]` (`rfqPk` FK): `vendorExtId, name, status, rating`.
 
 ### PurchaseOrder
-- `id` `PO-YYYY-NNNN`, `sapPoNumber` (`4500######`), `vendorId` + optional `vendorPk` FK, `buyerName`, `plant`, `paymentTerms`, `currency`, `incoterms`, `deliveryAddress`, `status` (`Open`|`Acknowledged`|`Dispatched`|`Delivered`|`Invoiced`|`Paid`), `acknowledgedAt`, `fromRfqId`.
-- `PurchaseOrderItem[]` (`poPk` FK, cascade delete): `line, materialCode, description, quantity, grnQuantity, unitPrice, netValue, uom`, and a 1:1 optional `InvoicePlan`.
+- `id` `PO-YYYY-NNNN`, `sapPoNumber` (`4500######`), `vendorId` + optional `vendorPk` FK, `buyerName`, `companyCode, purchasingOrg, purchasingGroup, docType` (organisational scope, issue #62 — none default to a demo value; a value here means a real one was either carried from the awarding RFQ or reported by SAP for a discovered order), `paymentTerms`, `currency`, `incoterms`, `deliveryAddress`, `status` (`Open`|`Acknowledged`|`Dispatched`|`Delivered`|`Invoiced`|`Paid`), `acknowledgedAt`, `fromRfqId`.
+- `PurchaseOrderItem[]` (`poPk` FK, cascade delete): `line, materialCode, description, quantity, grnQuantity, unitPrice, netValue, uom, plant` (plant lives here, not on the header — issue #62: a multi-line order can ship from more than one plant), and a 1:1 optional `InvoicePlan`. Plus five nullable **asset-procurement** columns set only on a line the portal raised through `POST /api/pos/asset` (ADR-0042): `assetNumber` (ANLN1), `assetSubNumber` (ANLN2), `materialGroup` (MATKL), `storageLocation` (LGORT), `taxCode` (MWSKZ). Null means "not an asset line", never "unknown". An asset line is text-only — SAP takes `SHORT_TEXT` and no MATNR — so its `materialCode` is `''`, matching what `zpo_grn_vendor/Detail` returns for a text line rather than making the column nullable.
 - `InvoicePlan` (one row per item, `itemPk` unique FK) — SAP's invoicing plan (FPLA header + FPLT dates), **off unless `enabled`**: `enabled, planNumber (FPLA-FPLNR), type` (`Periodic`|`Partial`)`, startDate, endDate, frequency` (`Weekly`|`Monthly`|`Quarterly`|`Half-Yearly`|`Yearly`)`, invoicingRule` (`Advance`|`Arrears`, FPLA-FAKKO)`, periodicAmount, currency, reference, source` (`portal`|`sap`)`, syncedAt`, and `InvoicePlanLine[]` — the FPLT dates: `lineNumber (FPLTR), description, settlementDate (AFDAT), billingDate (FKDAT), percentage (FPROZ), amount (FAKWR), status` (`Open`|`Invoiced`|`Blocked`|`Cancelled`, from FKSAF)`, blocked (FAKSP), invoiceId, invoiceNumber, invoicedAt, sapMiroDoc`.
 - **A line with an invoicing plan is not invoiced against goods receipts.** Periodic bills the same amount each period; partial splits the line value across milestone dates that must reconcile to it exactly. The arithmetic lives in `services/invoicePlan.service.js` (pure — periodic dates are anchored to the plan start date, not stepped, so a 31 Jan monthly plan is twelve dates and not thirteen; a partial split absorbs its rounding remainder into the last instalment). Re-planning a schedule carries every already-invoiced date forward untouched.
 
@@ -374,10 +403,14 @@ several places (a holdover from the abandoned Clerk-auth plan, §4).
 - `totalAccepted`/`rejectionRate` were Mongoose virtuals; now an app-layer compute-after-fetch helper over `GrnItem[]` (same formula), not a stored/generated column.
 
 ### Invoice
-- `id`, `grnId` (**optional, nullable FK** — a plan invoice has no goods receipt; mutually exclusive with `invoicePlanRef` via a CHECK constraint in the migration SQL, since Prisma has no native cross-field CHECK), `invoicePlanRef` (Json: `line, planLineNumber, planType, settlementDate` — set instead of `grnId` when the invoice bills an invoicing-plan date), `poId`, `vendorId`, `invoiceNumber`, `invoiceDate`, `sapMiroDoc`, `status` (`Submitted`|`Under Review`|`Match Warning`|`Approved`|`Posted in SAP`|`Cleared`), `subTotal`, `taxAmount`, `totalAmount`, `taxCode`(G1), `currency`, `matchWarning`, `postedAt`, `clearedAt`; `InvoiceItem[]` (`invoicePk` FK): `line, materialCode, description, quantity, unitPrice, amount`. Tax is computed at **18% GST**. Decimal columns (`Decimal(14,2)`) — read via `utils/money.js` `toNumber()`, never implicit coercion.
+- `id`, `grnId` (**optional, nullable FK** — a plan invoice has no goods receipt; mutually exclusive with `invoicePlanRef` via a CHECK constraint in the migration SQL, since Prisma has no native cross-field CHECK), `invoicePlanRef` (Json: `line, planLineNumber, planType, settlementDate` — set instead of `grnId` when the invoice bills an invoicing-plan date), `poId`, `vendorId`, `invoiceNumber`, `invoiceDate`, `sapMiroDoc`, `status` (`Submitted`|`Under Review`|`Match Warning`|`Approved`|`Posted in SAP`|`Cleared`), `subTotal`, `taxAmount` (issue #66: derived — the sum of every item's own cgst+sgst+igst+cess, never an input), `totalAmount`, `taxCode`(G1, display-only legacy field — no longer drives any rate computation), `placeOfSupply`/`reverseCharge` (issue #66), `currency`, `matchWarning`, `postedAt`, `clearedAt`; `PaymentItem[]` (`paymentItems`, issue #63) — every settlement this invoice has ever appeared in, across however many Payments; `db/invoiceHelpers.js`'s `formatInvoice` sums them into `amountPaid`/`outstandingAmount` when queried with that relation included (`controllers/invoice.controller.js`'s list/detail reads do; the shared `INVOICE_INCLUDE` used by the job runtime does not, to keep that per-tick fetch lean).
+- `InvoiceItem[]` (`invoicePk` FK): `line, materialCode, description, quantity, unitPrice, amount` (the line's own pre-tax taxable value), plus per-line GST (issue #66) — `hsnCode, gstRate, cgstAmount, sgstAmount, igstAmount, cessAmount`. `gstRate` stays `null` (not `0`) when never derived, distinguishing "unknown" from a genuinely nil-rated/exempt line. `services/gst.service.js`'s `deriveGst`/`splitLineTax` are the pure functions that compute this — intra-state (`Vendor.state` matches `Invoice.placeOfSupply`, sourced from `Client.state`) splits CGST+SGST evenly, inter-state charges the full rate as IGST, and neither ever assumes an 18% rate the way the old header-only model's callers did. `config/gstCodes.js` is the SAP tax-code (G1..G6) ↔ rate registry, replacing an inline four-branch function. `Client.gstin`/`Client.state` (the buyer's own registration) exist for this derivation but nothing yet has an onboarding/settings screen to set them — seed-demo.js and tests set them directly. Decimal columns — read via `utils/money.js`/`utils/quantity.js`'s `toNumber()`, never implicit coercion.
 
-### Payment — F110
-- `id`, `invoiceId`, `poId`, `vendorId`, `invoiceRef`, `invoiceNumber`, `sapMiroDoc`, `grossAmount`, `tdsDeducted`, `netAmount`, `paymentDate`, `utrCode`, `paymentMethod` (`NEFT`|`RTGS`|`IMPS`), `sapPaymentDoc`, `bankName`, `runId` (F110 run). TDS certificate fields: `fiscalYear, quarter, tdsSection, deducteePan, deductorTan, totalTds`.
+### Payment — F110 (issue #63: a header over PaymentItem, not 1:1 with Invoice)
+- A payment run settles several invoices — potentially across different POs — under one clearing document, one UTR. `Payment` is that clearing event: `id`, `vendorId`, `paymentDate`, `utrCode`, `paymentMethod` (`NEFT`|`RTGS`|`IMPS`), `sapPaymentDoc` (the F110 clearing document — `@@unique([clientId, sapPaymentDoc])`, the natural key `db/paymentHelpers.js`'s `recordPaymentItem` find-or-creates a header by, so every invoice settled under the same document converges on one row regardless of which of their independent watch jobs discovers it first), `bankName`, `runId`; TDS certificate fields `fiscalYear, quarter, tdsSection, deducteePan, deductorTan`; and `grossAmount, tdsDeducted, netAmount, totalTds` — denormalised **sums across every item**, recomputed by `recordPaymentItem` whenever one is added, not stored per invoice any more.
+- `PaymentItem[]` (`paymentPk` FK, cascade delete): one settled invoice — `invoiceId` (+FK), `poId` (+FK — a different item can belong to a different PO), `invoiceNumber`, `sapMiroDoc`, `grossAmount`, `tdsDeducted`, `netAmount`. `@@unique([paymentPk, invoiceId])` stops one clearing document double-settling the same invoice; it does **not** stop the reverse case (one invoice settled across two separate runs) — that's two items under two different Payments, which `formatInvoice`'s `amountPaid` sums across.
+- `jobs/handlers/awaitPaymentRun.js` (the per-invoice watch) and `jobs/handlers/sweepPayments.js` (the discovery backstop) are the only two writers, both through `recordPaymentItem`. `controllers/payment.controller.js`'s `POST /api/payments` (a manual/off-cycle record, no live UI caller) accepts either a real `items` array or the old flat single-invoice fields folded into one item.
+- Every SAP driver's `vendorPaymentDisplay`/`invoicePaymentDetail` still speak the pre-#63 flat per-invoice shape (one MIRO document's amounts, not a whole remittance's) — `db/paymentHelpers.js`'s `flattenPaymentItems` bridges a header+items Payment back into that shape for the two callers that read them (`payment.controller.js`'s `getSapPaymentStatus`, `sweepPayments.js`).
 
 ### ChatMessage — communications hub
 - `vendorId`, `sender` (`Vendor`|`Buyer`|`System`|`Finance`|`Quality`|`Warehouse`), `message`, `linkedPoId`, `linkedRfqId`, `timestamp`, `isRead`.
@@ -509,14 +542,14 @@ Each row in the *My SAP Documents* table whose type is `Quotation` (the 6xxxxxxx
 
 **Evaluation formula (ME48):** `weighted = price*0.40 + technical*0.30 + delivery*0.20 + rating*0.10`, where `priceScore = lowestTotalCost/vendorTotalCost*100`, `deliveryScore = shortestLeadTime/vendorLeadTime*100`, technical default 80. Every default in that formula — vendor rating, technical score, lead time — comes from `config/scoring.js`, so the two invitation paths cannot disagree about them again. **GST→tax code:** 5%→G3, 12%→G2, 18%→G1, 28%→G4.
 
-**POs** (`po.routes.js`, JWT): `GET /pos`, `GET /pos/sap-status` (SAP's own PO/GRN ledger), `GET /pos/:id`, `PUT /pos/:id/acknowledge`, `POST /pos/:id/asn` (`asnCreateSchema`; recorded locally, GRN discovered from SAP), `GET /pos/:id/asn`. `POST /pos/simulate` is **gone** — see §5.6. `PUT /pos/:id/status` is also **gone** (issue #60): `PurchaseOrder.status` is derived from line-item/document facts (`services/poStatus.service.js`, applied by `db/poHelpers.js`'s `syncPoStatus`) rather than settable directly.
+**POs** (`po.routes.js`, JWT): `GET /pos`, `GET /pos/sap-status` (SAP's own PO/GRN ledger), `GET /pos/:id`, `PUT /pos/:id/acknowledge`, `POST /pos/:id/asn` (`asnCreateSchema`; recorded locally, GRN discovered from SAP), `GET /pos/:id/asn`, and `POST /pos/asset` (`po:manage`, `assetPoSchema` — raises an **asset** PO in SAP and records it with the number SAP returns; the only endpoint here that creates an SAP document, ADR-0042). `POST /pos/simulate` is **gone** — see §5.6; `POST /pos/asset` is not its replacement, and does not create material orders. `PUT /pos/:id/status` is also **gone** (issue #60): `PurchaseOrder.status` is derived from line-item/document facts (`services/poStatus.service.js`, applied by `db/poHelpers.js`'s `syncPoStatus`) rather than settable directly.
 Invoicing plans: `GET /pos/:id/invoice-plan` (`po:read` — the plans on the order, each with a summary, plus a flat `billable[]` of what may be invoiced today), `PUT /pos/:id/items/:line/invoice-plan` (`po:manage`, `invoicePlanSchema` — configures or replaces a plan and pushes it to SAP before saving), `DELETE /pos/:id/items/:line/invoice-plan` (`po:manage`; refused once a date has been billed), `PUT /pos/:id/items/:line/invoice-plan/lines/:lineNumber/block` (`po:manage` — FPLT-FAKSP, withholds one date without touching the schedule), `POST /pos/:id/invoice-plan/sync` (`po:manage` — adopt what SAP holds). Suppliers hold `po:read` but never `po:manage`, so they read a plan and bill it; they do not set one.
 
 **ASNs** (`asn.routes.js`, JWT): `GET /asns`.
 
 **GRNs** (`grn.routes.js`, JWT): `GET /grns`, `GET /grns/:id`.
 
-**Invoices** (`invoice.routes.js`, JWT): `GET /invoices`, `POST /invoices` (`invoiceCreateSchema`; records the supplier's invoice — **nothing is posted to SAP**), `GET /invoices/:id`, `PUT /invoices/:id/status`, `POST /invoices/plan` (`planInvoiceSchema` — one invoice against one invoicing-plan date; the **plan** sets the amount, the supplier states only their invoice number, date and tax, and a date cannot be billed before its settlement date, twice, or while blocked. A plan invoice does not move the PO's status — a periodic plan has more instalments to come), `GET /invoices/sap-status` (reconciliation against SAP's own MIRO ledger). `POST /invoices/:id/miro` and the `invoice:post` permission are **gone** — see §5.6.
+**Invoices** (`invoice.routes.js`, JWT): `GET /invoices`, `GET /invoices/:id`, `PUT /invoices/:id/status`, `GET /invoices/sap-status` (reconciliation against SAP's own MIRO ledger). `POST /invoices` and `POST /invoices/plan` (portal-side invoice submission against a GRN or an invoicing-plan date) are **gone**: MIRO is invoice verification, AP's own transaction against their books, and the portal never posts to SAP on a supplier's behalf, so a local "submit" was only ever a record waiting to be matched against what AP posts — removed entirely, per product decision, along with the frontend submission form and the `invoice:submit` permission. `POST /invoices/:id/miro` and the `invoice:post` permission were already gone before that — see §5.6. An `Invoice` row now comes into existence only via SAP-side discovery: `jobs/handlers/sweepInvoices.js` reads a vendor's MIRO ledger (`vendorMiroDisplay`) the same way `sweepPurchaseOrders.js` reads the PO/GRN ledger, correlates each document to a PO the portal already knows, and claims the oldest not-yet-invoiced GRN against it — a conditional `updateMany` (`invoiceSubmitted: false` in the `WHERE`) inside the same transaction as the `Invoice` create, so a concurrent sweep tick racing for the same receipt loses cleanly rather than double-invoicing it. `jobs/handlers/sweepPayments.js` then settles it exactly as before.
 
 **Payments** (`payment.routes.js`, JWT): `GET /payments`, `POST /payments`, `GET /payments/sap-status` (SAP's own ledger for this vendor), `GET /payments/tds-summary` (TDS deducted per fiscal quarter — see below), `GET /payments/:id`, `PUT /payments/:id/status`.
 
@@ -528,11 +561,12 @@ payment in the wrong return period). It reports tax actually withheld, and leave
 reporting API. It is deliberately **not** a Form 16A: that is a statutory certificate the
 buyer issues from TRACES after filing its quarterly Form 26Q, and the portal cannot know
 whether that happened, so no row carries a filing status. The screen's "Request
-Certificate" action routes to Finance through the chat endpoint. Until Phase 8 this
+Certificate" action copies a request for the supplier to send to their buyer's
+finance team — the portal has no channel that reaches a person (issue #109). Until Phase 8 this
 registry was five **hardcoded** quarters with invented amounts and reference numbers,
 badged "Filed & Signed" against the supplier's real PAN.
 
-**Chats** (`chat.routes.js`, JWT): `GET /chats`, `POST /chats` (`chatMessageSchema`) — also used as the generic "reach a human" channel (payment disputes, Form 16A requests).
+**Chats** (`chat.routes.js`, JWT): `GET /chats`, `POST /chats` (`chatMessageSchema`). **Nothing in the application calls either one** (issue #109): there is no thread view on any plane, and `POST /chats` is structurally supplier-only — the controller requires a vendor scope and hardcodes `sender: 'Vendor'` — so no member of the buyer's staff could reply even if there were. The routes, the `ChatMessage` model, the `chat:read`/`chat:write` permissions and the `features.supplierChat` flag are kept as the foundation a real messaging feature would build on; the frontend no longer writes rows nobody can read.
 
 **Uploads** (`upload.routes.js`, JWT): `POST /uploads` (multer single `file`), `GET /uploads` (list), `GET /uploads/:id` (download), `DELETE /uploads/:id`.
 
@@ -587,7 +621,6 @@ This *is* a real multi-route App Router app. (Earlier `workflow/` docs described
 | `/pos` | `PurchaseOrdersView` | purchase-order |
 | `/invoices` | `InvoiceProcessingView` | billing |
 | `/payments` | `PaymentTrackingView` | payments |
-| `/chats` | `CommunicationsView` | dashboard |
 | `/performance` | `PerformanceView` | dashboard |
 | `/analytics` | `ReportsAnalyticsView` | dashboard |
 | `/admin` | — | **gone**: redirects to `/workspace` (Phase 5 promoted it, ADR-0024) |
@@ -610,9 +643,9 @@ Composes all feature hooks and exposes them plus cross-cutting handlers via `use
 - Instantiates: `useProfile`, `usePOs(profile)`, `usePayments`, `useInvoices(profile, …)`, `useRFQs(profile)`, `useDashboard(profile, clearSapLogs)`.
 - **Toasts + notifications:** `addToast(type, message)` pushes an auto-dismissing toast **and** appends to a capped (30) `notifications` history (for the Header bell). `<ToastNotification>` is mounted here app-wide.
 - **Auth gating:** redirects to `/sign-in` when no `jwt_token` (except on auth pages); multi-tab logout via `storage` event; `logout()` clears localStorage + redirects.
-- **Socket wiring:** on `profile.vendorId`, `initSocket(token, vendorId)` and subscribes to `po:new`, `grn:received`, `payment:cleared`, `chat:message`, `log:new` — each refreshes the relevant hook, fires a toast, and writes SAP logs.
+- **Socket wiring:** on `profile.vendorId`, `initSocket(token, vendorId)` and subscribes to `po:new`, `grn:received`, `payment:cleared`, `log:new` — each refreshes the relevant hook, fires a toast, and writes SAP logs.
 - **Cross-cutting action handlers** (async, toast success/error from real backend results): `handleCreateRFQ`, `handleBidSubmit`, `handleReissueRFQ`, `handleCancelRFQ`, `awardVendorBidWrapper`, `handleAsnSubmit`, `handleInvoiceSubmit`, `handleCompanySubmit`, `handleSendMessage`, `handleResetDatabase` (dev-only; only clears localStorage + reloads — never hit a real DB despite the label).
-- A legacy `state` object (`{profile, rfqs, pos, asns, grns, invoices, payments, chats, logs, performance}`) is assembled for component back-compat.
+- A legacy `state` object (`{profile, rfqs, pos, asns, grns, invoices, payments, logs, performance}`) is assembled for component back-compat.
 
 ### 8.4 Feature-sliced structure (`src/features/<domain>/`)
 Each domain follows **`components/` + `hooks/` + `services/`** (+ sometimes `constants.js`, `validation.js`):
@@ -623,8 +656,8 @@ Each domain follows **`components/` + `hooks/` + `services/`** (+ sometimes `con
 | `rfq/` | `RfqView` (create/bid/evaluate/award, largest component), `useRFQs`, `rfqService`, `constants.js` |
 | `purchase-order/` | `PurchaseOrdersView`, `usePOs`, `poService` |
 | `billing/` | `InvoiceProcessingView`, `InvoicesView`, `useInvoices`, `invoiceService` |
-| `payments/` | `PaymentTrackingView` (ledger CSV export, TDS registry, dispute→chat, Form-16A request→chat), `usePayments`, `paymentService` |
-| `dashboard/` | `DashboardView`, `CommunicationsView`, `PerformanceView`, `ReportsAnalyticsView`, `useDashboard`, `dashboardService`, `constants.js` (INITIAL_CHATS / INITIAL_PERFORMANCE seeds) |
+| `payments/` | `PaymentTrackingView` (ledger CSV export, TDS registry, dispute and Form-16A request → copied to clipboard for the supplier to send on), `usePayments`, `paymentService` |
+| `dashboard/` | `DashboardView`, `PerformanceView`, `ReportsAnalyticsView`, `useDashboard`, `dashboardService`, `constants.js` (INITIAL_PERFORMANCE seed) |
 
 **Convention:** `service` = thin `apiClient` wrappers per endpoint; `hook` = React state + calls the service, returns `{success, error, ...}` shaped results (errors propagate, not swallowed); `View` = presentation, reads from `usePortal()`/props.
 
@@ -682,7 +715,7 @@ The third plane: the client's own back office, for `client_admin` / `buyer` / `f
 ## 10. Testing
 
 **Backend** (`backend/`, Jest + Supertest against a real Postgres instance, `NODE_ENV=test`, `--forceExit`):
-`tests/setup.js` resets every table (`DELETE` with `session_replication_role = 'replica'` to skip FK-trigger ordering, falling back to `TRUNCATE ... CASCADE` if the DB role lacks the privilege) before and after each test — needs `npx prisma migrate deploy` already run against `DATABASE_URL`; `tests/testApp.js` (real routes + errorHandler, no sockets/CORS/rate-limit), `tests/helpers.js` (`registerVendor`, `createTenantUser`, `createPlatformUser`, `createOperatorSession` — an operator who has already cleared MFA — and `asTenant`). Suites include: `auth.test.js`, `auth-middleware.test.js`, `vendor.test.js`, `vendor-detail.test.js`, `vendor-create-map.test.js`, `rfq.test.js` (full lifecycle + scoring math + award), `rfq-sap-quotations.test.js`, `password-reset.test.js`, `identity.test.js`, **`route-role-matrix.test.js`** (walks the real router; a route with no permission fails CI), **`tenant-isolation.test.js`** (2 tenants × every model × read/update/delete/count, plus API-level 404s), **`tenant-wide-visibility.test.js`**, **`rbac-hardening.test.js`**, **`platform-console.test.js`** (tenant lifecycle, the end-to-end provisioning acceptance test, MFA gating, operator management, audit, health, plane separation), **`crypto-primitives.test.js`** (TOTP against the RFC 6238 vectors; AES-GCM round-trip and tamper rejection), **`sap-adapter.test.js`**, **`sap-conformance.test.js`**, **`sap-read-contracts.test.js`**, **`po-sap-status.test.js`**, **`decimal-money-fields.test.js`**, **`sequential-id-overflow.test.js`**, **`id-collision-retry.test.js`**, **`prisma-error-mapping.test.js`**, **`tds-summary.test.js`**, **`phase7-operations.test.js`**, **`invoice-plan.test.js`**, **`workspace.test.js`** (the tenant back office: overview scoping and SLA counting, the settings registry and its whole-or-nothing patch, feature flags closing `/api/chats` for one tenant and not another, self-registration closed but invitations still admitted, tenant-side supplier creation, decision emails, and the audit view's tenant scope and operator anonymisation), **`tenant-realm.test.js`** (subdomain resolution and its reserved labels, the header ignored in production, the public realm endpoint's 404s, registration and login addressed to one workspace), **`lifecycle-e2e.test.js`** (the phase-6 acceptance test: a full RFQ→bid→award→PO→ASN→GRN→invoice→payment cycle on the mock driver, with a second tenant running the same cycle and seeing none of it — 404 per document, empty lists, no cross-realm login; ADR-0029). 40 suites, 581 passing + 2 skipped.
+`tests/env.js` (Jest `setupFiles`, so it runs before `db/prisma.js` constructs the client) points `DATABASE_URL` at the test database and **throws** if the target's name does not end in `_test` — the suite cannot be pointed at development or production data (issue #107). `tests/setup.js` then resets every table (`DELETE` with `session_replication_role = 'replica'` to skip FK-trigger ordering, falling back to `TRUNCATE ... CASCADE` if the DB role lacks the privilege) before and after each test; `tests/testApp.js` (real routes + errorHandler, no sockets/CORS/rate-limit), `tests/helpers.js` (`registerVendor`, `createTenantUser`, `createPlatformUser`, `createOperatorSession` — an operator who has already cleared MFA — and `asTenant`). Suites include: `auth.test.js`, `auth-middleware.test.js`, `vendor.test.js`, `vendor-detail.test.js`, `vendor-create-map.test.js`, `rfq.test.js` (full lifecycle + scoring math + award), `rfq-sap-quotations.test.js`, `password-reset.test.js`, `identity.test.js`, **`route-role-matrix.test.js`** (walks the real router; a route with no permission fails CI), **`tenant-isolation.test.js`** (2 tenants × every model × read/update/delete/count, plus API-level 404s), **`tenant-wide-visibility.test.js`**, **`rbac-hardening.test.js`**, **`platform-console.test.js`** (tenant lifecycle, the end-to-end provisioning acceptance test, MFA gating, operator management, audit, health, plane separation), **`crypto-primitives.test.js`** (TOTP against the RFC 6238 vectors; AES-GCM round-trip and tamper rejection), **`sap-adapter.test.js`**, **`sap-conformance.test.js`**, **`sap-read-contracts.test.js`**, **`po-sap-status.test.js`**, **`decimal-money-fields.test.js`**, **`sequential-id-overflow.test.js`**, **`id-collision-retry.test.js`**, **`prisma-error-mapping.test.js`**, **`tds-summary.test.js`**, **`phase7-operations.test.js`**, **`invoice-plan.test.js`**, **`workspace.test.js`** (the tenant back office: overview scoping and SLA counting, the settings registry and its whole-or-nothing patch, feature flags closing `/api/chats` for one tenant and not another, self-registration closed but invitations still admitted, tenant-side supplier creation, decision emails, and the audit view's tenant scope and operator anonymisation), **`tenant-realm.test.js`** (subdomain resolution and its reserved labels, the header ignored in production, the public realm endpoint's 404s, registration and login addressed to one workspace), **`lifecycle-e2e.test.js`** (the phase-6 acceptance test: a full RFQ→bid→award→PO→ASN→GRN→invoice→payment cycle on the mock driver, with a second tenant running the same cycle and seeing none of it — 404 per document, empty lists, no cross-realm login; ADR-0029). 40 suites, 581 passing + 2 skipped.
 
 **Before adding a test, read the rule in `AGENTS.md`:** if you have to write through Prisma to build a state the API is supposed to produce, that is a finding about the API, not a test helper — and no test name may describe a defect approvingly. This repo's two worst defects both survived inside *passing* tests that did one or the other (ADR-0037). Seeding preconditions you are not exercising stays normal.
 
@@ -709,12 +742,13 @@ Each plane wraps the page in the provider stack its real layout gives it. `apiMo
 
 *Coverage:* every `src/app/**/page.jsx` has a render/heading/empty-state smoke test (`supplier-routes`, `workspace-routes`, `platform-routes`, `auth-routes`, `detail-routes`), and **`route-coverage.test.jsx` fails if a new route has none** — the same drift guard the nav registries use, applied to routes. Submit-path tests cover the bid form, ASN, invoice and registration (`bid-submission`, `asn-invoice-submission`, `registration-form`). Behaviour tests cover the platform MFA gate (`platform-gate`), the realtime listeners (`socket-events`) and the honest-SAP-state rule the product rests on (`honest-sap-state`). **End-to-end** (root, Playwright + Chromium, `e2e/*.spec.mjs`). A real browser against the real Next app, the real Express API and a real Postgres, with SAP on the mock driver. `npm run e2e`.
 
-`playwright.config.mjs` brings the stack up itself on ports of its own (5100 API, 3100 web, so a running `npm run dev` is neither disturbed nor mistaken for the server under test). Two pieces are easy to miss:
+`playwright.config.mjs` brings the stack up itself on ports of its own (5100 API, 3100 web, so a running `npm run dev` is neither disturbed nor mistaken for the server under test) **and on a database of its own** — it resolves `TEST_DATABASE_URL` through the same `backend/config/testDatabase.js` guard Jest uses, and passes it to both web servers. Three pieces are easy to miss:
 
 - **The job worker runs inside the API process** (`e2e/api-server.cjs`). A goods receipt is not posted by the API — `submitASN` enqueues an `awaitGoodsReceipt` job and the worker completes it, the way `deploy/ecosystem.config.js` runs `vendorconnect-api` and `vendorconnect-jobs` as two PM2 apps. Without it a purchase order never gets past "shipped", and it fails *silently*: the job sits at `attempts: 0`. It is not spawned from `globalSetup` because on Windows Playwright puts setup's children in a job object that closes when setup returns.
-- **`globalSetup` zeroes the mock SAP's delays** by writing a real `SapConnection` row for the tenant (`timings.goodsReceiptMs`/`paymentRunMs`). The 10s/12s defaults are right for a demo and poison for a test: the first poll finds nothing and re-polls on a 30s interval (`jobs/kinds.js`).
+- **`globalSetup` zeroes the mock SAP's delays** by writing a real `SapConnection` row for the tenant (`timings.goodsReceiptMs`/`paymentRunMs`). The 10s/12s defaults are right for a demo and poison for a test: the first poll finds nothing and re-polls on a 30s interval (`jobs/kinds.js`). It **merges** into the existing `config` rather than replacing it — Prisma writes a Json column wholesale, and the bare `{ timings }` it used to pass dropped every endpoint path the connection held (issue #107).
+- **There is no environment variable that selects the mock driver.** `globalSetup`'s `SapConnection` row is what does it. `SAP_MOCK_MODE` is gone; it never selected anything.
 
-Four specs. `demo-sweep.spec.mjs` loads every route as every demo role (supplier, admin, buyer, finance, and a super admin through real MFA) and fails on console errors, uncaught exceptions, 4xx/5xx API calls, leaked template text or a missing h1; screenshots land in `test-results/demo-sweep/`. `demo-flows.spec.mjs` drives the two demo stories entirely through the UI — a supplier signs up, completes all four registration steps with real uploads (third-party IFSC/PIN lookups blocked, so the manual-entry path is exercised) and is approved by the client admin in the workspace; and a supplier acknowledges, ships and invoices an order through the screens and sees the payment. To run any spec against an already-running `npm run dev` instead of a fresh build: `E2E_HOST=localhost E2E_WEB_PORT=3000 E2E_API_PORT=5000 npx playwright test` (Next's dev server refuses its bundles to a `127.0.0.1` origin). Note that the suite writes to the database in `backend/.env` — re-run `npm run seed:demo -- --reset` before a demo. The other two: `procure-to-pay.spec.mjs` walks all eight stages (RFQ → bid → award → PO → ASN → GRN → invoice → payment), checking the supplier's own screens along the way — every step driven through the API rather than the UI is marked with why. `competitive-tender.spec.mjs` is the regression net for the two defects issue #24 was written about: two invited suppliers each bid **through the browser** on one tender (#18), and an uninvited one is refused with a 404 that does not confirm the tender exists (#17).
+Four specs. `demo-sweep.spec.mjs` loads every route as every demo role (supplier, admin, buyer, finance, and a super admin through real MFA) and fails on console errors, uncaught exceptions, 4xx/5xx API calls, leaked template text or a missing h1; screenshots land in `test-results/demo-sweep/`. `demo-flows.spec.mjs` drives the two demo stories entirely through the UI — a supplier signs up, completes all four registration steps with real uploads (third-party IFSC/PIN lookups blocked, so the manual-entry path is exercised) and is approved by the client admin in the workspace; and a supplier acknowledges, ships and invoices an order through the screens and sees the payment. To run any spec against an already-running `npm run dev` instead of a fresh build: `E2E_HOST=localhost E2E_WEB_PORT=3000 E2E_API_PORT=5000 npx playwright test` (Next's dev server refuses its bundles to a `127.0.0.1` origin). The suite runs against the test database, never `backend/.env`'s, so a demo seeded in development survives an E2E run. The other two: `procure-to-pay.spec.mjs` walks all eight stages (RFQ → bid → award → PO → ASN → GRN → invoice → payment), checking the supplier's own screens along the way — every step driven through the API rather than the UI is marked with why. `competitive-tender.spec.mjs` is the regression net for the two defects issue #24 was written about: two invited suppliers each bid **through the browser** on one tender (#18), and an uninvited one is refused with a 404 that does not confirm the tender exists (#17).
 
 The seed is idempotent and the specs create their own tenders, so a warm database is fine — what they need from `seed-demo` is the accounts.
 

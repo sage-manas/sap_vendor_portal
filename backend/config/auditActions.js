@@ -51,6 +51,21 @@ const AUDIT_ACTIONS = {
   SAP_CONNECTION_TESTED: 'sap.connection_tested',
   SAP_CONNECTION_PROMOTED: 'sap.connection_promoted',
 
+  // Purchase orders (tenant plane). Only one action, because only one thing a
+  // user does to a purchase order originates a document in SAP rather than
+  // recording something SAP already decided (ADR-0042). The asset number it
+  // carries in `meta` is operator-entered and unverifiable by this application,
+  // so this entry is the only record of who chose it.
+  PO_ASSET_CREATE: 'po.asset_created',
+
+  // Invoicing plan changes a supplier proposes on their own PO line — mirrors
+  // vendor.bank_change_* above: a supplier's request never reaches SAP on its
+  // own, so the audit trail needs to say who proposed what as clearly as it
+  // says who decided it.
+  PO_INVOICE_PLAN_CHANGE_REQUESTED: 'po.invoice_plan_change_requested',
+  PO_INVOICE_PLAN_CHANGE_APPROVED: 'po.invoice_plan_change_approved',
+  PO_INVOICE_PLAN_CHANGE_REJECTED: 'po.invoice_plan_change_rejected',
+
   // SAP job runtime (Phase 1 of docs/04-sap-runtime-engineering-plan.md)
   JOB_RETRIED: 'job.retried',
 };

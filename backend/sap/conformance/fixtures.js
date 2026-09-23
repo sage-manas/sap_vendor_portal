@@ -116,7 +116,22 @@ const FIXTURES = {
 
   poAcknowledge: { po },
 
+  // poAssetCreate has NO fixture, deliberately. It is the one contract method
+  // that creates a document in SAP, and a conformance run is something an
+  // operator points at a customer's sandbox — often repeatedly. Giving it a
+  // fixture would consume a purchase order number from a real number range on
+  // every run and leave an orphan capex order behind each time, against an
+  // asset number this file would have had to invent.
+  //
+  // The runner calls every contract method with `FIXTURES[method] || {}`, so
+  // this still gets exercised: the driver's own argument guards reject the
+  // empty call before any HTTP request, and the method reports `failed` with
+  // the reason rather than silently passing. That is the honest outcome — this
+  // method genuinely cannot be conformance-tested without side effects, and a
+  // green tick that meant "we didn't try" would be worse than a red one.
+
   poInvoicePlanDisplay: { po },
+  poInvoicePlanNumbers: { po },
   poInvoicePlanUpdate: { po, item: po.items[0], plan: invoicePlan },
 
   awaitGoodsReceipt: { asn, po, vendorId: 'vendor_conformance' },

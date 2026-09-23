@@ -6,51 +6,6 @@
     "auditLog": "C:\\Users\\pc\\Desktop\\sap_vendor_portal\\backend\\logs\\.1e368a8204fa8ec40e5014d7f871115ecedc63c5-audit.json",
     "files": [
         {
-            "date": 1788242332053,
-            "name": "C:\\Users\\pc\\Desktop\\sap_vendor_portal\\backend\\logs\\combined-2026-09-01.log",
-            "hash": "3e4bf9e92c9509a4535d951ead1f27e9e225c7cd4e1261fa6aa07eec6df8ac91"
-        },
-        {
-            "date": 1788288753504,
-            "name": "C:\\Users\\pc\\Desktop\\sap_vendor_portal\\backend\\logs\\combined-2026-09-02.log",
-            "hash": "bbca1e9d26e480aaed1dfd1f088db905ac034abf6875798309f713258bd7b847"
-        },
-        {
-            "date": 1788410476930,
-            "name": "C:\\Users\\pc\\Desktop\\sap_vendor_portal\\backend\\logs\\combined-2026-09-03.log",
-            "hash": "dd453995569e0078043f39d12880d74eff8c3e1482aa2b6faf1799711683b426"
-        },
-        {
-            "date": 1788461860921,
-            "name": "C:\\Users\\pc\\Desktop\\sap_vendor_portal\\backend\\logs\\combined-2026-09-04.log",
-            "hash": "a0130d381a2ae3219eca0113fa256ae1986597e598a0076e89eec79cffa6e551"
-        },
-        {
-            "date": 1788620047857,
-            "name": "C:\\Users\\pc\\Desktop\\sap_vendor_portal\\backend\\logs\\combined-2026-09-05.log",
-            "hash": "d2a004094d943c707d277b7263b53d7ffa827c466f35a129e39ce60cf4b73269"
-        },
-        {
-            "date": 1788633028733,
-            "name": "C:\\Users\\pc\\Desktop\\sap_vendor_portal\\backend\\logs\\combined-2026-09-06.log",
-            "hash": "9d3df64e04cced912cd36e4845dd0f5bf30d0634eb2f5eab3f97dc9a4fc1ef7c"
-        },
-        {
-            "date": 1788719606633,
-            "name": "C:\\Users\\pc\\Desktop\\sap_vendor_portal\\backend\\logs\\combined-2026-09-07.log",
-            "hash": "e955dc5f774a70482b462aedf555c0c3777dda093abf737819bb7913c4a7e8dc"
-        },
-        {
-            "date": 1788848444388,
-            "name": "C:\\Users\\pc\\Desktop\\sap_vendor_portal\\backend\\logs\\combined-2026-09-08.log",
-            "hash": "15c5b165a51245e1d27c1d48e8ecdc60933fb99d3c7d0a340c3e6865b5f2229c"
-        },
-        {
-            "date": 1788892201113,
-            "name": "C:\\Users\\pc\\Desktop\\sap_vendor_portal\\backend\\logs\\combined-2026-09-09.log",
-            "hash": "68f7ab8d68d0b35ac818f3e556598d971b2853b7758b718c54a64cfcd906b043"
-        },
-        {
             "date": 1789287745105,
             "name": "C:\\Users\\pc\\Desktop\\sap_vendor_portal\\backend\\logs\\combined-2026-09-13.log",
             "hash": "d4aa30a3a6e75d92433376487be92f0ace8490ba60eea643a24728dd8cfc5838"
@@ -64,6 +19,41 @@
             "date": 1789449686544,
             "name": "C:\\Users\\pc\\Desktop\\sap_vendor_portal\\backend\\logs\\combined-2026-09-15.log",
             "hash": "0eed156b873201cc77b431f6edbf23e466b694785d75eddab8a16af9c9b9876c"
+        },
+        {
+            "date": 1789586465807,
+            "name": "C:\\Users\\pc\\Desktop\\sap_vendor_portal\\backend\\logs\\combined-2026-09-17.log",
+            "hash": "4ad487e821850415b76d42f8f4eb5474da9fc9fb8c13c00d927eba43f1c10951"
+        },
+        {
+            "date": 1789732838497,
+            "name": "C:\\Users\\pc\\Desktop\\sap_vendor_portal\\backend\\logs\\combined-2026-09-18.log",
+            "hash": "eff1b7912df68e0b72492f60f33306b7160e724af9d248860df743220a8dba07"
+        },
+        {
+            "date": 1789828619017,
+            "name": "C:\\Users\\pc\\Desktop\\sap_vendor_portal\\backend\\logs\\combined-2026-09-19.log",
+            "hash": "2f0da28e9e7d697ca424984c726989824621ed41bf0c55f07583a5cd183f1ec8"
+        },
+        {
+            "date": 1789843873294,
+            "name": "C:\\Users\\pc\\Desktop\\sap_vendor_portal\\backend\\logs\\combined-2026-09-20.log",
+            "hash": "7d88edeefa0f09ea6ac9e90a6be435ec046e9d70681fdf45108189dbb066f1ee"
+        },
+        {
+            "date": 1789932074987,
+            "name": "C:\\Users\\pc\\Desktop\\sap_vendor_portal\\backend\\logs\\combined-2026-09-21.log",
+            "hash": "8b81c89feecaf1826e1dde22c922104cc341eb88a21bdc732f8bdb0f7e80a919"
+        },
+        {
+            "date": 1790080918215,
+            "name": "C:\\Users\\pc\\Desktop\\sap_vendor_portal\\backend\\logs\\combined-2026-09-22.log",
+            "hash": "aa7a09908387e9962fec8847a8f8c005f1e38f41dfb2ec550539cffba3cde53c"
+        },
+        {
+            "date": 1790145804412,
+            "name": "C:\\Users\\pc\\Desktop\\sap_vendor_portal\\backend\\logs\\combined-2026-09-23.log",
+            "hash": "e66d3f2202a9acd7105e27492ad986a60ee42437daa6d4b5c186abad1fbca575"
         }
     ],
     "hashType": "sha256"

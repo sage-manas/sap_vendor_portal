@@ -64,8 +64,35 @@ const runConformanceSuite = async ({ adapter, clientId, timeoutMs = DEFAULT_TIME
 
   for (const method of methods) {
     const spec = SAP_METHODS[method];
-    const args = FIXTURES[method] || {};
     const started = Date.now();
+
+    // A method that CREATES a document in SAP cannot be conformance-tested.
+    // Running `poAssetCreate` would consume a purchase order number from a real
+    // number range and leave an orphan capex order behind on every run, against
+    // an asset number a fixture would have had to invent.
+    //
+    // Keyed on the contract's own `createsDocument` flag, not on whether a
+    // fixture exists: most read methods deliberately have no fixture because
+    // they need no arguments, and skipping those would quietly gut the suite.
+    //
+    // Reported as its own status rather than squeezed into passed/failed.
+    // `passed` would be a lie — nothing was exercised. `failed` would be worse:
+    // it puts a red mark against a driver that is working, and the one place
+    // this report gets read is someone deciding whether a sandbox is wired up
+    // correctly. `skipped` says what actually happened, and the reason travels
+    // with it so nobody has to come back here to find out why.
+    if (spec.createsDocument) {
+      results.push({
+        method,
+        transaction: spec.transaction,
+        status: 'skipped',
+        durationMs: 0,
+        error: `${method} creates a document in SAP and is not safe to exercise against a live system (see sap/contract.js)`,
+      });
+      continue;
+    }
+
+    const args = FIXTURES[method] || {};
 
     const call = () => (spec.deferred
       ? runDeferred(adapter, method, args, timeoutMs)

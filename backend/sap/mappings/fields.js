@@ -15,6 +15,9 @@ class SapFieldError extends Error {
     this.code = 'sap_field_invalid';
     this.statusCode = 422;
     this.field = field;
+    // Explains why the caller's own submitted value was rejected — the
+    // reason this is thrown at all (issue #115).
+    this.isOperational = true;
   }
 }
 

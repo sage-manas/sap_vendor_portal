@@ -59,9 +59,14 @@ jobs:
       # Explicit rather than relying on @prisma/client's postinstall, which npm
       # can skip on a cache hit.
       - run: npx prisma generate
-      # tests/setup.js resets the data between tests but never creates the
-      # schema — the tables have to exist before the first test runs.
-      - run: npx prisma migrate deploy
+      # The suite runs against a database of its own, never DATABASE_URL —
+      # tests/env.js redirects it and refuses a target whose name does not end
+      # in `_test` (issue #107). This creates and migrates that database; the
+      # tables have to exist before the first test runs.
+      #
+      # `npm test` would run it anyway via `pretest`; it is explicit here so a
+      # CI failure points at the database step rather than at the suite.
+      - run: npm run test:db:setup
       - run: npm test
 
   e2e:
@@ -102,7 +107,11 @@ jobs:
         working-directory: backend
       - run: npx prisma generate
         working-directory: backend
-      - run: npx prisma migrate deploy
+      # Same separate database as the backend job — the Playwright global
+      # setup seeds a tenant and rewrites its SapConnection, so it is held to
+      # the same rule (issue #107). This job never runs `npm test`, so nothing
+      # else would create it.
+      - run: npm run test:db:setup
         working-directory: backend
       # Chromium only: these specs assert business flow, not rendering
       # differences between engines.

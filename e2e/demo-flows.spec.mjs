@@ -62,6 +62,7 @@ test.describe('demo flows, through the UI', () => {
 
     // --- Step 1: company ----------------------------------------------------
     await page.goto('/registration');
+    await page.getByLabel('Trade / brand name').fill('Sahyadri Fasteners');
     await page.getByLabel('Business type').selectOption({ index: 1 });
     await page.getByLabel('Street / area').fill('Plot 14, MIDC Bhosari');
     await page.getByLabel('City').fill('Pune');
@@ -71,6 +72,15 @@ test.describe('demo flows, through the UI', () => {
     await page.getByRole('option', { name: /Maharashtra/ }).first().click();
     await page.getByLabel('PIN code').fill('411026');
     await page.getByLabel('Mobile / phone').fill('+91 98220 11223');
+    // Trade & payment terms — validateField now requires all five for
+    // VENDOR_CR (found alongside #108: SAP rejected the payload, naming no
+    // field, if any were blank). Payment terms/method populate from an SAP
+    // reference-data fetch, so selectOption waits out their `disabled` state.
+    await page.getByLabel('Payment terms').selectOption({ index: 1 });
+    await page.getByLabel('Payment method').selectOption({ index: 1 });
+    await page.getByLabel('Currency').selectOption({ index: 1 });
+    await page.getByLabel('Shipping terms 1').fill('FOB');
+    await page.getByLabel('Shipping terms 2').fill('Mumbai Port');
     await page.getByRole('button', { name: 'Save & Continue' }).click();
 
     // --- Step 2: tax ----------------------------------------------------------
@@ -140,6 +150,21 @@ test.describe('demo flows, through the UI', () => {
 
     // --- The dashboard tells the supplier there is an order to acknowledge ---
     await expect(page.getByText(new RegExp(`awaiting acknowledgement.*${po.id}`))).toBeVisible();
+
+    // --- The awarded PO downloads under the name the server chose --------------
+    // CORS has to expose Content-Disposition for the browser to read it at all
+    // (issue #110) — without it, apiClient.getBlob() falls back to an
+    // extensionless 'export', which is exactly what shipped undetected.
+    await page.goto('/rfqs');
+    await page.getByPlaceholder('Search RFQs...').fill(rfq.id);
+    await page.getByRole('button', { name: new RegExp(rfq.id) }).click();
+    const download = await Promise.all([
+      page.waitForEvent('download'),
+      // The button's text is styled with CSS `uppercase` (`text-transform`),
+      // which Chromium folds into the accessible name — match case-insensitively.
+      page.getByRole('button', { name: /^csv$/i }).click(),
+    ]).then(([d]) => d);
+    expect(download.suggestedFilename()).toBe(`${po.id}.csv`);
 
     // --- Acknowledge ----------------------------------------------------------
     await page.goto('/pos');

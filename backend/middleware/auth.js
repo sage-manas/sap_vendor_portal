@@ -41,10 +41,29 @@ const bearerToken = (req) => {
   return header.slice(7).trim() || null;
 };
 
-// Resolves the token's subject and checks the account is still allowed to act:
-// the role it holds today decides the plane, not the claim it was signed with.
-const resolveAccount = async (req) => {
-  const token = bearerToken(req);
+// Resolves a bare token's subject and checks the account is still allowed to
+// act — the one place both the HTTP `protect`/`protectPlatform` path and the
+// Socket.io handshake (sockets/socketAuth.js) validate a token, so the two
+// can never drift into checking different things (issue #74: the socket path
+// used to only verify the JWT signature and trust its claims, never reloading
+// the account at all).
+//
+// Three ways a previously-valid token stops being valid, all re-checked
+// against the account's *current* row, never the token's own claims:
+//   - the role it holds today decides the plane, not the claim it was signed
+//     with (a demoted account keeping its old permissions for up to 30 days
+//     otherwise);
+//   - a password change since the token was minted (issue #74) — the token
+//     carries no session/password version, so this compares its issue time
+//     against the account's own `passwordChangedAt` instead. `iat` is
+//     second-resolution and `passwordChangedAt` is millisecond-resolution,
+//     both stamped instants apart in the very same request when an account is
+//     first created (register() hashes the password, then signs the token
+//     in that same call) — flooring `passwordChangedAt` to the second before
+//     comparing keeps that same-second case from rejecting the token it was
+//     minted right alongside;
+//   - the account is not active (suspended, rejected).
+const resolveAccountFromToken = async (token) => {
   if (!token) {
     throw ApiError.unauthorized('Not authorized to access this route, token missing');
   }
@@ -66,10 +85,15 @@ const resolveAccount = async (req) => {
     throw ApiError.unauthorized('Not authorized, account not found');
   }
 
-  // A role change since the token was minted invalidates it: the alternative is
-  // a demoted account keeping its old permissions for up to 30 days.
   if (claims.role && claims.role !== account.role) {
     throw ApiError.unauthorized('Not authorized, session is stale — sign in again');
+  }
+
+  if (account.passwordChangedAt) {
+    const changedAtSeconds = Math.floor(account.passwordChangedAt.getTime() / 1000);
+    if (!claims.iat || claims.iat < changedAtSeconds) {
+      throw ApiError.unauthorized('Not authorized, session is stale — sign in again');
+    }
   }
 
   if (!canAuthenticate(account, claims.accountType)) {
@@ -78,6 +102,8 @@ const resolveAccount = async (req) => {
 
   return { account, claims, plane: planeOf(account.role) };
 };
+
+const resolveAccount = (req) => resolveAccountFromToken(bearerToken(req));
 
 // Attaches the principal every downstream guard and controller reads.
 const attachPrincipal = (req, account, plane) => {
@@ -225,4 +251,4 @@ const requirePlane = (...planes) => {
   return guard;
 };
 
-module.exports = { protect, protectPlatform, requireMfa, requirePermission, requirePlane };
+module.exports = { protect, protectPlatform, requireMfa, requirePermission, requirePlane, resolveAccountFromToken };
