@@ -13,6 +13,21 @@ const displayDate = (value) => {
     : date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
+// Issue #113: the column header used to assert every invoice was taxed at a
+// flat 18%, which #66's per-line GST redesign made false — a line's own
+// gstRate is nullable and independent of every other line's. This is the
+// invoice's real effective rate, derived from its own totals rather than
+// asserted, so it only ever reads as what actually happened to this
+// document: taxAmount / subTotal, blended across however many rates its
+// lines actually carried. subTotal is the pre-tax value, so a 0 or missing
+// one means there is nothing honest to divide by — shown as nothing, not 0%.
+const effectiveGstRate = (invoice) => {
+  const subTotal = Number(invoice?.subTotal);
+  const taxAmount = Number(invoice?.taxAmount);
+  if (!Number.isFinite(subTotal) || subTotal <= 0 || !Number.isFinite(taxAmount)) return null;
+  return (taxAmount / subTotal) * 100;
+};
+
 export default function InvoiceProcessingView({ state }) {
   const submittedInvoices = state.invoices;
   const sapMiroDocuments = state.sapMiroDocuments;
@@ -59,7 +74,7 @@ export default function InvoiceProcessingView({ state }) {
                   <th>Your invoice</th>
                   <th>Buyer&apos;s reference</th>
                   <th>Order</th>
-                  <th className="text-right">GST Invoice Value (18%)</th>
+                  <th className="text-right">GST Invoice Value</th>
                   <th className="text-center">Status</th>
                   <th className="text-center">Confirmed</th>
                   <th>Payment details</th>
@@ -86,8 +101,15 @@ export default function InvoiceProcessingView({ state }) {
                     <td className="font-mono font-bold text-text-secondary">
                       {inv.poId}
                     </td>
-                    <td className="text-right font-mono font-bold text-text-primary tabular-nums">
-                      ₹ {Number(inv.totalAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    <td className="text-right">
+                      <p className="font-mono font-bold text-text-primary tabular-nums">
+                        ₹ {Number(inv.totalAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                      {effectiveGstRate(inv) !== null && (
+                        <p className="text-[10px] text-text-tertiary font-mono mt-0.5">
+                          GST {effectiveGstRate(inv).toLocaleString('en-IN', { maximumFractionDigits: 1 })}%
+                        </p>
+                      )}
                     </td>
                     <td className="text-center">
                       <StatusBadge label={inv.status || 'Submitted'} variant={invoiceStatusVariant(inv.status)} />
