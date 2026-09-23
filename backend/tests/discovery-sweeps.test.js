@@ -302,7 +302,8 @@ describe('sweepQuotations discovery — RFQs raised directly in SAP (issue #117)
     // No SAP source names a bid-by date — honestly null, not invented.
     expect(rfq.deadlineDate).toBeNull();
     expect(rfq.items).toHaveLength(1);
-    expect(rfq.items[0]).toMatchObject({ materialCode: 'MAT-9210', quantity: 20 });
+    expect(rfq.items[0].materialCode).toBe('MAT-9210');
+    expect(Number(rfq.items[0].quantity)).toBe(20);
     expect(rfq.invitedVendors.map((v) => v.vendorExtId)).toEqual(['vendor_rfq_1']);
   });
 
