@@ -508,11 +508,37 @@ const findPlanItem = (po, line) => {
   return item;
 };
 
+// The one sequence that actually commits a plan: tell SAP, then persist —
+// shared by a buyer's direct edit (configureInvoicePlan) and an approved
+// supplier proposal (approveInvoicePlanChange), so the two paths cannot drift
+// apart on what "saving a plan" means. Order matters: an order whose plan was
+// recorded here but never reached SAP is the one state nobody can reconcile
+// afterwards, so the SAP call happens first and a driver that cannot make it
+// (the ECC skeleton) throws rather than the write silently diverging.
+const applyInvoicePlan = async ({ req, po, item, plan }) => {
+  const sap = await getSapAdapterForClient(req.clientId);
+  const result = await sap.poInvoicePlanUpdate({ po: formatPo(po), item: { ...item, invoicePlan: plan }, plan });
+  if (result?.planNumber) plan.planNumber = result.planNumber;
+
+  const savedPlan = await persistInvoicePlan(item, plan);
+
+  const io = req.app.get('io');
+  if (result?.transaction) {
+    emitToVendor(io, req.clientId, po.vendorId, EVENTS.LOG_NEW, { type: result.transaction.type, name: result.transaction.code });
+  }
+
+  return savedPlan;
+};
+
 // @desc    Every invoicing plan on this purchase order, with what is billable now
 // @route   GET /api/pos/:id/invoice-plan
 // @access  Private (po:read)
 const getInvoicePlan = asyncHandler(async (req, res, next) => {
-  const po = await prisma.purchaseOrder.findFirst({ where: { id: req.params.id }, include: PO_INCLUDE });
+  // po:read is also what a supplier holds, and nothing else here was checking
+  // whose order this is — scopedWhere is a no-op for tenant staff (no
+  // scopeVendorId) and confines a supplier caller to their own PO, the same
+  // guarantee acknowledgePO/submitASN already give this resource family.
+  const po = await prisma.purchaseOrder.findFirst({ where: scopedWhere(req, { id: req.params.id }), include: PO_INCLUDE });
   if (!po) {
     return next(ApiError.notFound('Purchase Order not found'));
   }
@@ -558,20 +584,7 @@ const configureInvoicePlan = asyncHandler(async (req, res, next) => {
     throw error;
   }
 
-  // Tell SAP before saving: an order whose plan we recorded but never pushed is
-  // the one state nobody can reconcile afterwards. A driver that cannot do it
-  // (the ECC skeleton) throws not_implemented and the write is refused rather
-  // than silently diverging.
-  const sap = await getSapAdapterForClient(req.clientId);
-  const result = await sap.poInvoicePlanUpdate({ po: formatPo(po), item: { ...item, invoicePlan: plan }, plan });
-  if (result?.planNumber) plan.planNumber = result.planNumber;
-
-  const savedPlan = await persistInvoicePlan(item, plan);
-
-  const io = req.app.get('io');
-  if (result?.transaction) {
-    emitToVendor(io, req.clientId, po.vendorId, EVENTS.LOG_NEW, { type: result.transaction.type, name: result.transaction.code });
-  }
+  const savedPlan = await applyInvoicePlan({ req, po, item, plan });
 
   res.json({
     message: `${plan.type} invoicing plan saved for line ${item.line} — ${plan.lines.length} invoicing ${plan.lines.length === 1 ? 'date' : 'dates'}`,
@@ -745,6 +758,154 @@ const setInvoicePlanLineBlock = asyncHandler(async (req, res, next) => {
   });
 });
 
+// --- A supplier's proposed change to a plan already on their own PO --------
+//
+// Everything above this line writes SAP the moment a buyer submits it — that
+// is what po:manage means. A supplier holds po:invoice-plan:propose instead,
+// which reaches only these three routes and never sap.poInvoicePlanUpdate
+// directly: what a supplier submits here is stored as InvoicePlan.pendingChange
+// and only takes effect once approveInvoicePlanChange (po:manage) applies it.
+
+// @desc    Propose a change to the invoicing plan on one of the caller's own
+//          PO line items — stored for the buyer to approve, never applied here
+// @route   PUT /api/pos/:id/items/:line/invoice-plan/propose
+// @access  Private (po:invoice-plan:propose — a supplier, on their own PO)
+const proposeInvoicePlanChange = asyncHandler(async (req, res, next) => {
+  const vendorId = requireVendorScope(req);
+  const po = await prisma.purchaseOrder.findFirst({ where: scopedWhere(req, { id: req.params.id }), include: PO_INCLUDE });
+  if (!po) {
+    return next(ApiError.notFound('Purchase Order not found'));
+  }
+
+  const item = findPlanItem(po, req.params.line);
+  if (!item.invoicePlan?.enabled) {
+    return next(ApiError.badRequest(`Line ${item.line} has no invoicing plan for you to propose a change to`));
+  }
+
+  const existingPlan = formatPlan(item.invoicePlan);
+
+  // Validated now, against today's plan, so a malformed proposal is refused
+  // with a sentence the supplier can act on rather than being stored and
+  // failing silently at approval. The built plan itself is discarded —
+  // req.body is what gets stored, and is rebuilt fresh (against whatever the
+  // plan looks like by then) when a buyer approves it. See applyInvoicePlan's
+  // header and the InvoicePlan.pendingChange comment in schema.prisma.
+  try {
+    buildPlan(req.body, { item, currency: po.currency || 'INR', existingPlan });
+  } catch (error) {
+    if (error instanceof InvoicePlanError) return next(ApiError.badRequest(error.message));
+    throw error;
+  }
+
+  const pendingChange = { input: req.body, requestedAt: new Date().toISOString(), requestedBy: vendorId };
+  const updatedPlan = await prisma.invoicePlan.update({
+    where: { pk: item.invoicePlan.pk },
+    data: { pendingChange },
+    include: { lines: true },
+  });
+
+  await recordAudit({
+    action: AUDIT_ACTIONS.PO_INVOICE_PLAN_CHANGE_REQUESTED,
+    req,
+    target: { type: 'PurchaseOrder', id: po.id, label: po.sapPoNumber || po.id },
+    meta: { line: item.line, proposed: req.body },
+  });
+
+  const io = req.app.get('io');
+  emitToProcurement(io, req.clientId, EVENTS.LOG_NEW, {
+    type: 'invoice_plan_change_requested', name: `${po.id} line ${item.line}`,
+  });
+
+  res.json({
+    message: `Proposed change sent for line ${item.line} — your buyer must approve it before it reaches SAP`,
+    item: planItemView({ ...item, invoicePlan: updatedPlan }, new Date()),
+  });
+});
+
+// @desc    Approve a supplier's proposed invoicing-plan change and apply it —
+//          the only place a supplier's proposal reaches SAP
+// @route   PUT /api/pos/:id/items/:line/invoice-plan/propose/approve
+// @access  Private (po:manage)
+const approveInvoicePlanChange = asyncHandler(async (req, res, next) => {
+  const po = await prisma.purchaseOrder.findFirst({ where: { id: req.params.id }, include: PO_INCLUDE });
+  if (!po) {
+    return next(ApiError.notFound('Purchase Order not found'));
+  }
+
+  const item = findPlanItem(po, req.params.line);
+  const pending = item.invoicePlan?.pendingChange;
+  if (!pending) {
+    return next(ApiError.badRequest(`Line ${item.line} has no proposed invoicing-plan change awaiting approval`));
+  }
+
+  const existingPlan = formatPlan(item.invoicePlan);
+
+  // Rebuilt now, against the plan as it stands today — not the snapshot
+  // buildPlan validated at proposal time. Anything invoiced since the
+  // proposal was made is carried forward exactly as a buyer's own edit would;
+  // a proposal that no longer reconciles (the item's value changed, say) is
+  // refused rather than silently applied wrong.
+  let plan;
+  try {
+    plan = buildPlan(pending.input, { item, currency: po.currency || 'INR', existingPlan });
+  } catch (error) {
+    if (error instanceof InvoicePlanError) {
+      return next(ApiError.badRequest(`This proposal no longer applies cleanly: ${error.message}. Ask the supplier to resubmit it.`));
+    }
+    throw error;
+  }
+
+  const savedPlan = await applyInvoicePlan({ req, po, item, plan });
+
+  await recordAudit({
+    action: AUDIT_ACTIONS.PO_INVOICE_PLAN_CHANGE_APPROVED,
+    req,
+    target: { type: 'PurchaseOrder', id: po.id, label: po.sapPoNumber || po.id },
+    meta: { line: item.line, proposedBy: pending.requestedBy, applied: pending.input },
+  });
+
+  res.json({
+    message: `Proposed change for line ${item.line} approved and saved to SAP`,
+    item: planItemView({ ...item, invoicePlan: savedPlan }, new Date()),
+  });
+});
+
+// @desc    Reject a supplier's proposed invoicing-plan change — the live plan
+//          is left exactly as it was
+// @route   PUT /api/pos/:id/items/:line/invoice-plan/propose/reject
+// @access  Private (po:manage)
+const rejectInvoicePlanChange = asyncHandler(async (req, res, next) => {
+  const { reason } = req.body;
+  const po = await prisma.purchaseOrder.findFirst({ where: { id: req.params.id }, include: PO_INCLUDE });
+  if (!po) {
+    return next(ApiError.notFound('Purchase Order not found'));
+  }
+
+  const item = findPlanItem(po, req.params.line);
+  const pending = item.invoicePlan?.pendingChange;
+  if (!pending) {
+    return next(ApiError.badRequest(`Line ${item.line} has no proposed invoicing-plan change awaiting approval`));
+  }
+
+  const updatedPlan = await prisma.invoicePlan.update({
+    where: { pk: item.invoicePlan.pk },
+    data: { pendingChange: null },
+    include: { lines: true },
+  });
+
+  await recordAudit({
+    action: AUDIT_ACTIONS.PO_INVOICE_PLAN_CHANGE_REJECTED,
+    req,
+    target: { type: 'PurchaseOrder', id: po.id, label: po.sapPoNumber || po.id },
+    meta: { line: item.line, proposedBy: pending.requestedBy, proposed: pending.input, reason },
+  });
+
+  res.json({
+    message: `Proposed change for line ${item.line} rejected`,
+    item: planItemView({ ...item, invoicePlan: updatedPlan }, new Date()),
+  });
+});
+
 module.exports = {
   getPOs,
   getPOById,
@@ -758,5 +919,8 @@ module.exports = {
   configureInvoicePlan,
   removeInvoicePlan,
   setInvoicePlanLineBlock,
-  syncInvoicePlan
+  syncInvoicePlan,
+  proposeInvoicePlanChange,
+  approveInvoicePlanChange,
+  rejectInvoicePlanChange,
 };

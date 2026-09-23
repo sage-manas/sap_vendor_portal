@@ -316,6 +316,7 @@ export default function PurchaseOrdersView({
   // tab on every order, because they are the ones who switch planning ON.
   const { permissions } = useWhoami();
   const canManagePlans = (permissions || []).includes('po:manage');
+  const canProposePlan = (permissions || []).includes('po:invoice-plan:propose');
   // An order read straight from SAP carries its plan as a bare INV_PLANNO;
   // one the portal holds carries a plan record. poKind.js knows both spellings
   // so this tab appears for either. (A plan SAP already holds is not
@@ -1754,7 +1755,7 @@ export default function PurchaseOrdersView({
               {/* TAB 3: Delivery status */}
               {activeDetailTab === 'invoice_plan' && (
                 <div className="p-4">
-                  <InvoicePlanPanel po={activePo} canManage={canManagePlans} />
+                  <InvoicePlanPanel po={activePo} canManage={canManagePlans} canPropose={canProposePlan} />
                 </div>
               )}
 

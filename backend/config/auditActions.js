@@ -58,6 +58,14 @@ const AUDIT_ACTIONS = {
   // so this entry is the only record of who chose it.
   PO_ASSET_CREATE: 'po.asset_created',
 
+  // Invoicing plan changes a supplier proposes on their own PO line — mirrors
+  // vendor.bank_change_* above: a supplier's request never reaches SAP on its
+  // own, so the audit trail needs to say who proposed what as clearly as it
+  // says who decided it.
+  PO_INVOICE_PLAN_CHANGE_REQUESTED: 'po.invoice_plan_change_requested',
+  PO_INVOICE_PLAN_CHANGE_APPROVED: 'po.invoice_plan_change_approved',
+  PO_INVOICE_PLAN_CHANGE_REJECTED: 'po.invoice_plan_change_rejected',
+
   // SAP job runtime (Phase 1 of docs/04-sap-runtime-engineering-plan.md)
   JOB_RETRIED: 'job.retried',
 };

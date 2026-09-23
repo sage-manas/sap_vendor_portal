@@ -56,4 +56,10 @@ const invoicePlanSchema = z.object({
 // FPLT-FAKSP, on its own: withholding one date is not a change to the schedule.
 const invoicePlanLineBlockSchema = z.object({ blocked: z.boolean() });
 
-module.exports = { invoicePlanSchema, invoicePlanLineBlockSchema };
+// Mirrors rejectVendorSchema (validators/vendor.validator.js) — a rejection a
+// supplier cannot act on is not much of an answer.
+const rejectInvoicePlanChangeSchema = z.object({
+  reason: z.string().min(1, { message: 'A reason is required' }),
+});
+
+module.exports = { invoicePlanSchema, invoicePlanLineBlockSchema, rejectInvoicePlanChangeSchema };
