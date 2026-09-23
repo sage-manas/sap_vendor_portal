@@ -641,6 +641,19 @@ model InvoicePlan {
   source         PlanSource    @default(portal)
   syncedAt       DateTime?
 
+  // A supplier-proposed change to this plan, awaiting the buying
+  // organisation's approval — never applied on its own (controllers/
+  // po.controller.js's proposeInvoicePlanChange only ever validates and
+  // stores it; approveInvoicePlanChange is the one place it reaches SAP).
+  // `{ input, requestedAt, requestedBy }` — `input` is the same shape
+  // configureInvoicePlan's body is (validators/invoicePlan.validator.js's
+  // invoicePlanSchema), kept raw rather than pre-built into a full plan so
+  // approval reconciles it against whatever has been invoiced by then, not
+  // against a stale snapshot from when it was proposed. Cleared by
+  // persistInvoicePlan on any successful write to this plan — a buyer's own
+  // edit or an approved proposal both supersede whatever was pending.
+  pendingChange Json?
+
   lines InvoicePlanLine[]
 
   @@map("invoice_plans")
