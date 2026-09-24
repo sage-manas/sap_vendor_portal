@@ -4,6 +4,7 @@ import React from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api-client';
 import { poService } from '@/features/purchase-order/services/poService';
+import { useWorkspaceSession } from '@/lib/workspace-session';
 import { PageHeader, Notice, Field, Loading, useResource } from '@/components/console/primitives';
 
 // Raise an asset purchase order (account assignment category A) in SAP.
@@ -58,6 +59,7 @@ const lineValue = (line) => {
 
 export default function NewAssetPoPage() {
   const router = useRouter();
+  const { can } = useWorkspaceSession();
 
   // Only approved suppliers can be named on an order, and only ones SAP has a
   // master record for — the backend enforces both, but offering an ineligible
@@ -121,6 +123,27 @@ export default function NewAssetPoPage() {
   };
 
   // Once SAP has the order there is nothing more to do here, and re-submitting
+  // Issue #117. Raising capex is the buying organisation's decision — a
+  // supplier must never reach this door, and neither should finance, who
+  // holds po:read but not po:manage. The list page already hides the button
+  // that links here, but a typed or bookmarked URL bypassed that; this form
+  // in particular is worth refusing outright rather than letting someone
+  // fill it in and learn only on submit that it was never theirs to send —
+  // the whole point of the warning banner below is that submitting is
+  // irreversible, and discovering a 403 after typing an asset number from
+  // AS03 is a worse way to learn "you can't do this" than seeing it first.
+  if (!can('po:manage')) {
+    return (
+      <>
+        <PageHeader title="New asset purchase order" />
+        <Notice tone="error">
+          Raising an asset purchase order is a decision for the buying organisation. Your role
+          does not hold that permission.
+        </Notice>
+      </>
+    );
+  }
+
   // the same form would create a second one — so the form is replaced outright
   // rather than left on screen with a success message above it.
   if (created) {
