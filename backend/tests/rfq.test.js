@@ -181,6 +181,25 @@ describe('POST /api/rfqs/:id/bid', () => {
     expect(stored.status).toBe('Bidding Open');
     expect(stored.bids[0].taxCode).toBe('G1'); // 18% → G1
     expect(stored.bids[0].unitPrices['10']).toBe(11.5);
+
+    // A portal-created RFQ carries no sapDocNumber (only one raised directly
+    // in SAP and picked up by sweepQuotations.js gets one) — nothing to push
+    // a price onto, so the SAP write is skipped rather than guessed at, and
+    // the bid itself still succeeds.
+    expect(res.body.sapSync).toEqual({ attempted: false });
+  });
+
+  it('also pushes the price to SAP\'s own quotation record when the RFQ has a real SAP document', async () => {
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload())).body;
+    // sweepQuotations.js is what sets sapDocNumber on discovery; seeded
+    // directly here as the precondition under test (an already-discovered
+    // SAP-native RFQ), not a path this test is exercising itself.
+    await asTenant(() => prisma.rFQ.updateMany({ where: { id: rfq.id }, data: { sapDocNumber: '6000000099', sapSyncState: 'synced' } }));
+
+    const res = await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bidPayload());
+
+    expect(res.status).toBe(200);
+    expect(res.body.sapSync).toMatchObject({ attempted: true, success: true });
   });
 
   it('lets a second invited vendor bid after the first — the RFQ stays open, not just for one bidder', async () => {

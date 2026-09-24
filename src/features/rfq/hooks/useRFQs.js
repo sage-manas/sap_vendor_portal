@@ -67,9 +67,13 @@ export function useRFQs(profile) {
         remarks,
         uploadedDocs
       };
-      await rfqService.submitBid(rfqId, bidData);
+      const res = await rfqService.submitBid(rfqId, bidData);
       await refreshRFQs();
-      return { success: true };
+      // sapSync (rfq.controller.js's submitBid) says whether the same prices
+      // also reached SAP's own quotation record — a supplier submitting a
+      // real quote has no other way to know that without opening My
+      // Documents and re-checking by hand.
+      return { success: true, sapSync: res?.sapSync };
     } catch (e) {
       console.error(e);
       return { success: false, error: e.message };

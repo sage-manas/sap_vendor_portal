@@ -16,6 +16,7 @@ const {
   DEFAULT_VENDOR_RATING, DEFAULT_LEAD_TIME_DAYS,
 } = require('../config/scoring');
 const { gstRateToCode } = require('../config/gstCodes');
+const logger = require('../utils/logger');
 
 // The full nested shape a controller/frontend expects an RFQ in, matching
 // what the Mongoose document used to serialize as. `items`/`invitedVendors`
@@ -392,7 +393,44 @@ const submitBid = asyncHandler(async (req, res, next) => {
   }
 
   const bidsCount = await prisma.rfqBid.count({ where: { rfqPk: rfq.pk } });
-  res.json({ message: 'Bid submitted successfully', bidsCount });
+
+  // Push the same prices straight to SAP's own quotation record (ME47,
+  // ZQUOT_NETPR/QUOT_UPDPR) — the write updateSapQuotationPrice below already
+  // does, now folded into submitting a quotation itself rather than needing
+  // a second, separate "Update Price" action for your buyer's system to see
+  // it too. Only possible for an RFQ SAP actually raised (sapDocNumber set by
+  // jobs/handlers/sweepQuotations.js) — a portal-only RFQ predating that (or
+  // one from a tenant not yet on the SAP-origin sourcing model) has no SAP
+  // document to push a price onto, so this is skipped rather than guessed.
+  //
+  // The portal bid above is already committed and is the system of record
+  // for evaluation/award — a slow or unreachable SAP must not cost a
+  // supplier their bid. So this is best-effort: failure is reported back in
+  // the response and logged, not thrown, and never rolls back the bid.
+  let sapSync = { attempted: false };
+  if (rfq.sapDocNumber) {
+    sapSync = { attempted: true, success: false };
+    try {
+      const sap = await getSapAdapterForClient(req.clientId);
+      const result = await sap.quotationUpdatePrice({
+        vendor,
+        sapRfqNumber: rfq.sapDocNumber,
+        items: Object.entries(unitPrices).map(([line, price]) => ({ item: line, netPrice: price })),
+      });
+
+      const io = req.app.get('io');
+      if (result.transaction) {
+        emitToVendor(io, req.clientId, vendorId, EVENTS.LOG_NEW, { type: result.transaction.type, name: result.transaction.code });
+      }
+
+      sapSync = { attempted: true, success: true, message: result.message || 'Quotation price updated in SAP' };
+    } catch (error) {
+      logger.warn(`[rfq] submitBid: SAP price push failed for ${rfq.id} (${rfq.sapDocNumber}): ${error.message}`);
+      sapSync = { attempted: true, success: false, message: error.message };
+    }
+  }
+
+  res.json({ message: 'Bid submitted successfully', bidsCount, sapSync });
 });
 
 // @desc    Push an updated net price for a SAP-native quotation document

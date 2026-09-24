@@ -240,7 +240,18 @@ export function PortalProvider({ children }) {
     const result = await rfqHook.submitBid(rfqId, prices, leadTime, remarks, gstRate, validityDate, freight, moq, docs);
     setSelectedRfqId(null);
     if (result.success) {
-      addToast('success', `Your quote for ${rfqId} has been submitted.`);
+      // sapSync.attempted is false for an RFQ with no SAP document to push
+      // to (a portal-only RFQ) — the quote submission is exactly as
+      // successful either way, so that case gets the plain message, not a
+      // warning about something that was never possible.
+      const { sapSync } = result;
+      if (sapSync?.attempted && !sapSync.success) {
+        addToast('warning', `Your quote for ${rfqId} has been submitted, but it could not be pushed to SAP: ${sapSync.message || 'unknown error'}.`);
+      } else if (sapSync?.attempted && sapSync.success) {
+        addToast('success', `Your quote for ${rfqId} has been submitted and pushed to SAP.`);
+      } else {
+        addToast('success', `Your quote for ${rfqId} has been submitted.`);
+      }
     } else {
       addToast('error', result.error || `Failed to submit quotation for ${rfqId}.`);
     }
