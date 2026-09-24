@@ -15,6 +15,7 @@ const {
 } = require('../controllers/rfq.controller');
 
 const validate = require('../middleware/validate');
+const validateQuery = require('../middleware/validateQuery');
 const { requirePermission } = require('../middleware/auth');
 const { PERMISSIONS } = require('../config/permissions');
 const {
@@ -23,8 +24,9 @@ const {
   reissueRfqSchema,
   quotationPriceUpdateSchema
 } = require('../validators/rfq.validator');
+const { paginationSchema } = require('../validators/pagination.validator');
 
-router.get('/', requirePermission(PERMISSIONS.RFQ_READ), getRFQs);
+router.get('/', requirePermission(PERMISSIONS.RFQ_READ), validateQuery(paginationSchema), getRFQs);
 router.post('/', requirePermission(PERMISSIONS.RFQ_CREATE), validate(rfqCreateSchema), createRFQ);
 // Must come before ':id' — 'sap-status' would otherwise be swallowed as an RFQ id.
 router.get('/sap-status', requirePermission(PERMISSIONS.RFQ_READ), getSapRfqStatus);

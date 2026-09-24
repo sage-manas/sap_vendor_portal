@@ -7,6 +7,8 @@ const healthController = require('../controllers/platformHealth.controller');
 const reconciliationController = require('../controllers/platformReconciliation.controller');
 const sapController = require('../controllers/platformSap.controller');
 const validate = require('../middleware/validate');
+const validateQuery = require('../middleware/validateQuery');
+const { paginationSchema } = require('../validators/pagination.validator');
 const { protectPlatform, requireMfa, requirePermission } = require('../middleware/auth');
 const { PERMISSIONS } = require('../config/permissions');
 const {
@@ -50,7 +52,7 @@ router.post('/auth/mfa/verify', protectPlatform, requirePermission(PERMISSIONS.S
 router.use(protectPlatform, requireMfa);
 
 // Tenants
-router.get('/tenants', requirePermission(PERMISSIONS.TENANT_READ), tenantController.listTenants);
+router.get('/tenants', requirePermission(PERMISSIONS.TENANT_READ), validateQuery(paginationSchema), tenantController.listTenants);
 router.post('/tenants', requirePermission(PERMISSIONS.TENANT_MANAGE), validate(createTenantSchema), tenantController.createTenant);
 router.get('/tenants/:clientId', requirePermission(PERMISSIONS.TENANT_READ), tenantController.getTenant);
 router.put('/tenants/:clientId', requirePermission(PERMISSIONS.TENANT_MANAGE), validate(updateTenantSchema), tenantController.updateTenant);
@@ -72,7 +74,7 @@ router.post('/operators/:id/mfa/reset', requirePermission(PERMISSIONS.OPERATOR_M
 // SAP configuration, per tenant, per environment. `sap:configure` rather than
 // `tenant:manage`: an sap_manager exists to run these screens and nothing else.
 router.get('/tenants/:clientId/sap', requirePermission(PERMISSIONS.SAP_CONFIGURE), sapController.getSapConfiguration);
-router.get('/tenants/:clientId/sap/audit', requirePermission(PERMISSIONS.SAP_CONFIGURE), sapController.listSapAudit);
+router.get('/tenants/:clientId/sap/audit', requirePermission(PERMISSIONS.SAP_CONFIGURE), validateQuery(paginationSchema), sapController.listSapAudit);
 router.put('/tenants/:clientId/sap/:environment', requirePermission(PERMISSIONS.SAP_CONFIGURE), validate(sapConnectionSchema), sapController.configureSap);
 router.post('/tenants/:clientId/sap/:environment/test', requirePermission(PERMISSIONS.SAP_CONFIGURE), sapController.testSapConnection);
 router.post('/tenants/:clientId/sap/promote', requirePermission(PERMISSIONS.SAP_CONFIGURE), validate(sapPromoteSchema), sapController.promoteSapEnvironment);
@@ -85,7 +87,7 @@ router.get('/audit/filters', requirePermission(PERMISSIONS.PLATFORM_AUDIT_READ),
 router.get('/health', requirePermission(PERMISSIONS.PLATFORM_HEALTH_READ), healthController.platformHealth);
 
 // SAP job runtime (docs/04-sap-runtime-engineering-plan.md Phase 1)
-router.get('/jobs', requirePermission(PERMISSIONS.PLATFORM_HEALTH_READ), healthController.listJobs);
+router.get('/jobs', requirePermission(PERMISSIONS.PLATFORM_HEALTH_READ), validateQuery(paginationSchema), healthController.listJobs);
 router.post('/jobs/:pk/retry', requirePermission(PERMISSIONS.TENANT_MANAGE), healthController.retryJob);
 
 // Dual identity / sync state — the reconciliation queue (Phase 3)

@@ -17,6 +17,8 @@ const {
 const { inviteVendor } = require('../controllers/invitation.controller');
 
 const validate = require('../middleware/validate');
+const validateQuery = require('../middleware/validateQuery');
+const { paginationSchema } = require('../validators/pagination.validator');
 const { protect, requirePermission } = require('../middleware/auth');
 const { tenantLimiter } = require('../middleware/rateLimiter');
 const { PERMISSIONS } = require('../config/permissions');
@@ -41,7 +43,7 @@ router.get('/performance', protect, tenantLimiter, requirePermission(PERMISSIONS
 // Supplier directory (tenant staff).
 router.post('/invitations', protect, tenantLimiter, requirePermission(PERMISSIONS.VENDOR_INVITE), validate(inviteVendorSchema), inviteVendor);
 router.post('/', protect, tenantLimiter, requirePermission(PERMISSIONS.VENDOR_CREATE), validate(vendorCreateSchema), createVendor);
-router.get('/', protect, tenantLimiter, requirePermission(PERMISSIONS.VENDOR_READ), listVendors);
+router.get('/', protect, tenantLimiter, requirePermission(PERMISSIONS.VENDOR_READ), validateQuery(paginationSchema), listVendors);
 router.put('/:id/approve', protect, tenantLimiter, requirePermission(PERMISSIONS.VENDOR_APPROVE), approveVendor);
 router.put('/:id/reject', protect, tenantLimiter, requirePermission(PERMISSIONS.VENDOR_APPROVE), validate(rejectVendorSchema), rejectVendor);
 // Same gate as onboarding approval — a bank-account change on an already
