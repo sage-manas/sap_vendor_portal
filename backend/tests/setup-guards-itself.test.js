@@ -14,10 +14,11 @@ const path = require('path');
 // child Node process, in a controlled environment, to prove exactly the two
 // paths that matter: env.js ran first (the normal case, must proceed), and
 // it did not (the incident's actual shape, must refuse before any query).
-// Both processes are handed the real development DATABASE_URL from .env, so
-// a regression here would show up as this test itself reaching for it — the
-// assertion is that the child process refuses before that connection is
-// ever opened, not merely that it exits non-zero for some other reason.
+// Both processes are handed a real, non-_test database name in the same
+// shape production/CI/local all actually use, so a regression here would
+// show up as this test itself reaching for it — the assertion is that the
+// child process refuses before that connection is ever opened, not merely
+// that it exits non-zero for some other reason.
 //
 // Not a unit test of a plain function (that's test-database-guard.test.js,
 // for config/testDatabase.js): this is the one place that specific defence
@@ -26,15 +27,23 @@ const path = require('path');
 // directly.
 
 const backendRoot = path.join(__dirname, '..');
-const devDatabaseUrl = require('dotenv').parse(
-  require('fs').readFileSync(path.join(backendRoot, '.env')),
-).DATABASE_URL;
+
+// The pre-redirect URL, reconstructed rather than read from backend/.env: by
+// the time this file loads, tests/env.js has already redirected
+// process.env.DATABASE_URL to a _test database, so stripping that suffix
+// back off reproduces exactly what a run without env.js would see. This used
+// to read backend/.env directly — which does not exist in CI (the workflow
+// sets DATABASE_URL as a plain environment variable, no file at all), so
+// that version passed locally and failed everywhere else. The guard throws
+// before any connection is attempted either way, so this only needs to be a
+// syntactically valid URL under a non-_test name, not one that is reachable.
+const unredirectedDatabaseUrl = process.env.DATABASE_URL.replace(/_test(?=\?|$)/, '');
 
 const run = (script) => {
   try {
     execFileSync(process.execPath, ['-e', script], {
       cwd: backendRoot,
-      env: { ...process.env, DATABASE_URL: devDatabaseUrl },
+      env: { ...process.env, DATABASE_URL: unredirectedDatabaseUrl },
       stdio: 'pipe',
     });
     return { threw: false };
