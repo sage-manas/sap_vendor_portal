@@ -193,10 +193,23 @@ export default function RfqView({
   const [priceUpdatePrices, setPriceUpdatePrices] = useState({});
   const [priceUpdateLoading, setPriceUpdateLoading] = useState(false);
 
+  // Every RFQ now carries the real sapDocNumber the discovery sweep matched
+  // it to (jobs/handlers/sweepQuotations.js) — so "which portal RFQ do these
+  // line items belong to" is no longer a question a human has to answer by
+  // picking from every RFQ in the workspace. It used to be: the dropdown
+  // below let ANY RFQ's items be priced under ANY SAP document's number,
+  // and nothing stopped the two from disagreeing — the exact bug that sent
+  // RFQ-2026-007's items to document 6000000072's number instead of its own
+  // 6000000074. Restricting the option list to a document-number match makes
+  // that mismatch structurally impossible rather than trusting the picker.
+  const priceUpdateCandidates = (doc) => state.rfqs.filter((r) => r.sapDocNumber === doc?.documentNumber);
+
   const openPriceUpdate = (doc) => {
     setPriceUpdateDoc(doc);
-    setPriceUpdateRfqId('');
+    const [onlyMatch] = priceUpdateCandidates(doc);
+    setPriceUpdateRfqId(onlyMatch ? onlyMatch.id : '');
     setPriceUpdatePrices({});
+    if (onlyMatch) handlePriceUpdateRfqChange(onlyMatch.id);
   };
 
   const closePriceUpdate = () => {
@@ -1159,27 +1172,49 @@ export default function RfqView({
         }
       >
         <div className="space-y-4">
-          <p className="text-[11px] text-text-tertiary">
-            Pick the request in RFQ Monitor &amp; History whose line items this SAP document corresponds to,
-            then enter the net price per line to send to your buyer&rsquo;s system.
-          </p>
-
-          <div className="space-y-1.5">
-            <label className="text-[11px] font-bold text-text-secondary uppercase tracking-wide" htmlFor="quote-linked-rfq">Linked RFQ</label>
-            <select id="quote-linked-rfq"
-              value={priceUpdateRfqId}
-              onChange={(e) => handlePriceUpdateRfqChange(e.target.value)}
-              className="w-full font-semibold"
-              disabled={priceUpdateLoading}
-            >
-              <option value="">-- Choose RFQ --</option>
-              {state.rfqs.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.id} - {r.description}
-                </option>
-              ))}
-            </select>
-          </div>
+          {(() => {
+            const candidates = priceUpdateCandidates(priceUpdateDoc);
+            if (!candidates.length) {
+              return (
+                <p className="text-[11px] text-rose-400">
+                  No RFQ in this workspace is matched to SAP document {priceUpdateDoc?.documentNumber} — there is
+                  nothing to price yet. This document may not have been discovered as a portal RFQ (or was
+                  discovered on an earlier sweep before an SAP correlation existed).
+                </p>
+              );
+            }
+            return (
+              <>
+                <p className="text-[11px] text-text-tertiary">
+                  Line items below are RFQ {candidates[0].id}&rsquo;s own — the one SAP has matched to this document
+                  ({priceUpdateDoc?.documentNumber}). Enter the net price per line to send to your buyer&rsquo;s system.
+                </p>
+                {/* Restricted to the matching RFQ(s) only — see priceUpdateCandidates
+                    above for why this can no longer be any RFQ in the workspace. A
+                    document with more than one match (shouldn't happen; sapDocNumber
+                    is meant to be unique per document) still lets a human pick, rather
+                    than silently guessing one. */}
+                {candidates.length > 1 && (
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-text-secondary uppercase tracking-wide" htmlFor="quote-linked-rfq">Linked RFQ</label>
+                    <select id="quote-linked-rfq"
+                      value={priceUpdateRfqId}
+                      onChange={(e) => handlePriceUpdateRfqChange(e.target.value)}
+                      className="w-full font-semibold"
+                      disabled={priceUpdateLoading}
+                    >
+                      <option value="">-- Choose RFQ --</option>
+                      {candidates.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.id} - {r.description}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </>
+            );
+          })()}
 
           {priceUpdateRfq && (
             <div className="border border-border rounded-md overflow-hidden">
