@@ -184,6 +184,14 @@ export default function RfqView({
   // is one click away in the selector below, not removed.
   const [documentTypeFilter, setDocumentTypeFilter] = useState(DOCUMENT_TYPE.QUOTATION);
 
+  // The sealed-tender rule (rfq.controller.js's rfqIncludeFor) already scopes
+  // GET /rfqs to return only this vendor's own bid, never a rival's — so
+  // "the bid in rfq.bids" and "this vendor's bid" are the same thing here,
+  // but the lookup is still explicit rather than assuming `bids` has exactly
+  // one entry, since a workspace/buyer view of the same RFQ shape carries
+  // every vendor's bid.
+  const ownBidFor = (rfq) => rfq?.bids?.find((b) => b.vendorId === state.profile.vendorId);
+
   // "Update Price (ME47)" modal — pushes a net price for a SAP-native
   // quotation document. Line numbers/materials come from a portal RFQ the
   // vendor picks (the ones they already see in RFQ Monitor & History), since
@@ -230,7 +238,7 @@ export default function RfqView({
     }
     // Pre-fill from this vendor's own bid on the RFQ, if one exists, else the
     // target reference price — either way the vendor edits before submitting.
-    const ownBid = rfq.bids?.find((b) => b.vendorId === state.profile.vendorId);
+    const ownBid = ownBidFor(rfq);
     const prices = {};
     rfq.items.forEach((item) => {
       const existing = ownBid?.unitPrices?.[item.line] ?? ownBid?.unitPrices?.get?.(String(item.line));
@@ -603,6 +611,20 @@ export default function RfqView({
                           <span className="text-[9px] font-mono text-text-tertiary block mt-1 whitespace-nowrap">
                             Deadline: {activeRfq.deadlineDate ? formatDate(activeRfq.deadlineDate) : 'No deadline set by buyer'}
                           </span>
+                          {/* Confirms a submission actually landed — before
+                              this, "Bid submitted successfully" was the only
+                              feedback a vendor ever saw; nothing afterward
+                              showed the price back to them anywhere. */}
+                          {(() => {
+                            const ownBid = ownBidFor(activeRfq);
+                            if (!ownBid) return null;
+                            return (
+                              <span className="text-[9px] font-mono text-text-secondary block mt-1 whitespace-nowrap">
+                                Your quote:{' '}
+                                {activeRfq.items.map((item) => `L${item.line} ₹${ownBid.unitPrices?.[item.line] ?? '—'}`).join(', ')}
+                              </span>
+                            );
+                          })()}
                         </div>
 
                         <div className="p-3 border border-border rounded-md bg-surface2/30">
@@ -870,10 +892,23 @@ export default function RfqView({
                           onChange={e => {
                             const selectedId = e.target.value;
                             const rfq = state.rfqs.find(r => r.id === selectedId);
+                            const line = rfq && rfq.items.length > 0 ? rfq.items[0].line : 10;
+                            // A quotation already submitted for this RFQ shows
+                            // its own numbers back rather than a blank form —
+                            // the gap that left an earlier submission with
+                            // nowhere to confirm it had gone in at all.
+                            const ownBid = ownBidFor(rfq);
                             setQuoteForm({
                               ...quoteForm,
                               rfqId: selectedId,
-                              selectedLine: rfq && rfq.items.length > 0 ? rfq.items[0].line : 10
+                              selectedLine: line,
+                              unitPrice: ownBid ? String(ownBid.unitPrices?.[line] ?? '') : '',
+                              gstRate: ownBid?.gstRate || quoteForm.gstRate,
+                              deliveryLeadTime: ownBid ? String(ownBid.deliveryLeadTimeDays ?? '') : quoteForm.deliveryLeadTime,
+                              freight: ownBid ? String(ownBid.freight ?? '0') : quoteForm.freight,
+                              validityDate: ownBid?.validityDate
+                                ? new Date(ownBid.validityDate).toISOString().split('T')[0]
+                                : quoteForm.validityDate,
                             });
                             if (quoteErrors.rfqId) setQuoteErrors(prev => ({ ...prev, rfqId: false }));
                           }}
@@ -908,7 +943,20 @@ export default function RfqView({
                               <button
                                 key={item.line}
                                 type="button"
-                                onClick={() => setQuoteForm({ ...quoteForm, selectedLine: item.line })}
+                                onClick={() => {
+                                  // Switching lines re-pulls that line's own
+                                  // already-quoted price, same reasoning as
+                                  // the RFQ selector above — a per-line form
+                                  // showing the previous line's price under a
+                                  // different line's label would be worse
+                                  // than showing nothing.
+                                  const ownBid = ownBidFor(selectedRfq);
+                                  setQuoteForm({
+                                    ...quoteForm,
+                                    selectedLine: item.line,
+                                    unitPrice: ownBid ? String(ownBid.unitPrices?.[item.line] ?? '') : '',
+                                  });
+                                }}
                                 className={`px-3 py-1 text-xs font-mono font-bold rounded-md border transition-colors duration-150 cursor-pointer ${
                                   Number(quoteForm.selectedLine) === item.line
                                     ? 'bg-primary text-white border-primary'
