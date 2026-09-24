@@ -512,9 +512,20 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
     const allowed = declaredCompanyCodes(config);
     const inScope = (po) => !allowed.length || allowed.includes(String(po.COM_CODE || ''));
 
+    // Confirmed live: this endpoint answers with a vendor's *entire*
+    // purchasing-document set, RFQs (the 6xxxxxxx range) included, despite
+    // being named — and behaving, for a real order — like a PO/GRN detail
+    // read. sweepPurchaseOrders.js has no other signal to tell one from a
+    // real order, so it created a bogus PurchaseOrder row for every RFQ it
+    // saw here (₹0 value, no GRNs — nothing about a real order). Same
+    // number-range rule src/lib/sapDocuments.js's documentTypeOf already
+    // uses on the frontend for the same reason: SAP names no document
+    // category in this response either.
+    const isPurchaseOrder = (po) => !String(po.PO_NUMBER || '').startsWith('6');
+
     return {
       data: {
-        orders: rows.filter(inScope).map((po) => {
+        orders: rows.filter(inScope).filter(isPurchaseOrder).map((po) => {
           const items = (po.PO_LINE_ITEMS || []).map((item) => ({
             itemNumber: item.ITEM_NUMBER,
             materialCode: item.MATERIAL_CODE,
