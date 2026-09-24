@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { poKind, lineKind, lineHasInvoicePlan, hasInvoicePlan, invoicePlanNumbers } from './poKind';
+import { poKind, lineKind, lineHasInvoicePlan, hasInvoicePlan, hasPendingInvoicePlanChange, invoicePlanNumbers } from './poKind';
 
 // SAP's account assignment category (EKPO-KNTTP) is the whole rule: 'A' asset,
 // 'D' service, blank an ordinary material line. Getting it wrong shows a
@@ -99,5 +99,27 @@ describe('invoicing plan', () => {
     ] };
     expect(invoicePlanNumbers(po)).toEqual(['0000001255', '0000001256']);
     expect(invoicePlanNumbers({ items: [line()] })).toEqual([]);
+  });
+
+  // A client_admin had no way to know a supplier had proposed a change
+  // without already knowing which order to open — this is the PO list's one
+  // signal that one is waiting.
+  it('flags an order carrying a supplier-proposed, unapproved plan change', () => {
+    const proposed = {
+      items: [line({
+        invoicePlan: {
+          enabled: true,
+          pendingChange: { input: { type: 'Partial', milestones: [] }, requestedAt: '2026-09-24T12:22:33.708Z', requestedBy: 'VND-20617' },
+        },
+      })],
+    };
+    expect(hasPendingInvoicePlanChange(proposed)).toBe(true);
+  });
+
+  it('does not flag a plan with nothing pending, or no plan at all', () => {
+    expect(hasPendingInvoicePlanChange({ items: [line({ invoicePlan: { enabled: true, pendingChange: null } })] })).toBe(false);
+    expect(hasPendingInvoicePlanChange({ items: [line()] })).toBe(false);
+    expect(hasPendingInvoicePlanChange({ items: [] })).toBe(false);
+    expect(hasPendingInvoicePlanChange(null)).toBe(false);
   });
 });

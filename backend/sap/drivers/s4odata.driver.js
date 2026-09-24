@@ -512,9 +512,20 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
     const allowed = declaredCompanyCodes(config);
     const inScope = (po) => !allowed.length || allowed.includes(String(po.COM_CODE || ''));
 
+    // Confirmed live: this endpoint answers with a vendor's *entire*
+    // purchasing-document set, RFQs (the 6xxxxxxx range) included, despite
+    // being named — and behaving, for a real order — like a PO/GRN detail
+    // read. sweepPurchaseOrders.js has no other signal to tell one from a
+    // real order, so it created a bogus PurchaseOrder row for every RFQ it
+    // saw here (₹0 value, no GRNs — nothing about a real order). Same
+    // number-range rule src/lib/sapDocuments.js's documentTypeOf already
+    // uses on the frontend for the same reason: SAP names no document
+    // category in this response either.
+    const isPurchaseOrder = (po) => !String(po.PO_NUMBER || '').startsWith('6');
+
     return {
       data: {
-        orders: rows.filter(inScope).map((po) => {
+        orders: rows.filter(inScope).filter(isPurchaseOrder).map((po) => {
           const items = (po.PO_LINE_ITEMS || []).map((item) => ({
             itemNumber: item.ITEM_NUMBER,
             materialCode: item.MATERIAL_CODE,
@@ -891,6 +902,18 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
     // with LIFNR as a query param — confirmed against the live sandbox. A
     // vendor with no RFQs comes back 404 with an empty data array, which is
     // "nothing yet", not a failure.
+    //
+    // Confirmed live 2026-09-24: this endpoint now embeds each RFQ's line
+    // items directly (quotationNumber/vendorCode/quotationDate/currency/
+    // purchasingOrg/items), replacing an earlier header-only shape
+    // (ebeln/lifnr/bedat/waers/ekorg, no items) — and, critically, its
+    // `quantity` is real (the requested quantity), unlike zpo_grn/Detail's
+    // ORDERED_QUANTITY, which reports 0 for an RFQ (that field means goods
+    // received against a PO, which an RFQ has none of). sweepQuotations.js
+    // now sources a newly-discovered RFQ's items from here first for exactly
+    // that reason, falling back to vendorRfqDetail only for a document that
+    // has already closed (fallen out of this list) before the portal ever
+    // saw it open.
     vendorRfqDisplay: async ({ vendor }) => {
       // Same guard as vendorQuotationDisplay, and for the same reason: these
       // two endpoints are the same handler on the SAP side (note the shared
@@ -921,16 +944,98 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
           documents: json.data
             // Belt and braces, as in vendorQuotationDisplay: never render
             // another supplier's documents in this vendor's portal.
-            .filter((row) => !row.lifnr || String(row.lifnr).trim() === lifnr)
+            .filter((row) => !row.vendorCode || String(row.vendorCode).trim() === lifnr)
             .map((row) => ({
-              sapRfqNumber: row.ebeln,
-              // bedat arrives as the number 20260520. Stringified so this
-              // field has one type across both drivers and both reads —
+              sapRfqNumber: row.quotationNumber,
+              // quotationDate arrives as the number 20260520. Stringified so
+              // this field has one type across both drivers and both reads —
               // callers sort and format it as a string.
-              date: row.bedat ? String(row.bedat) : null,
-              currency: row.waers || null,
-              purchasingOrg: row.ekorg || null,
+              date: row.quotationDate ? String(row.quotationDate) : null,
+              currency: row.currency || null,
+              purchasingOrg: row.purchasingOrg || null,
+              items: Array.isArray(row.items) ? row.items.map((item) => ({
+                line: Number(item.itemNumber),
+                materialCode: item.materialCode || null,
+                description: item.materialDesc || null,
+                quantity: Number(item.quantity) || 0,
+                uom: decodeFromSap('MEINS', item.unitOfMeasure),
+                // 0 is SAP's "no target price entered yet" here, same as
+                // ORDERED_QUANTITY's 0 meant "not yet quantified" before this
+                // endpoint carried a real quantity — stored as null rather
+                // than a price nobody quoted.
+                targetPrice: Number(item.netPrice) > 0 ? Number(item.netPrice) : null,
+                plant: item.plant || null,
+              })) : [],
             })),
+        },
+      };
+    },
+
+    // Line-item detail for ONE document — an order number or an RFQ number
+    // alike, confirmed live (see sweepQuotations.js for why an RFQ number is
+    // the caller here). Same GET-with-body family as zmiro_display/MIRO and
+    // zpo_grn_vendor/Detail (POST is 405, GET+body is 200), and the same
+    // response shape as that plural sibling's rows — this is genuinely the
+    // same endpoint, PO- or RFQ-keyed, not a lookalike.
+    //
+    // A vanished document (closed and purged, a typo'd number) answers 404
+    // with an empty PO_LINE_ITEMS on the live sandbox — read as "nothing to
+    // report", the same convention every other display read in this driver
+    // uses, not a failure worth throwing over.
+    vendorRfqDetail: async ({ rfqNumber }) => {
+      if (!rfqNumber) return { data: null };
+
+      const base = String(config.baseUrl || '').replace(/\/$/, '');
+      const path = config.poDetailPath || '/zpo_grn/Detail';
+      const url = `${base}${path}${config.sapClient ? `?sap-client=${encodeURIComponent(config.sapClient)}` : ''}`;
+
+      const response = await getWithBody(url, {
+        headers: baseHeaders(config, secrets),
+        body: { PO: rfqNumber },
+        timeoutMs: Number(config.timeoutMs) || 10000,
+      });
+
+      if (response.status === 404) return { data: null };
+
+      let json;
+      try { json = response.text ? JSON.parse(response.text) : null; } catch { json = null; }
+
+      if (response.status < 200 || response.status >= 300 || !json || !Array.isArray(json.PO_LINE_ITEMS)) {
+        const error = new Error(`SAP RFQ detail GET ${path} failed for ${rfqNumber}: ${response.status} ${response.statusText}`);
+        error.status = response.status;
+        throw error;
+      }
+
+      return {
+        data: {
+          rfqNumber: json.PO_NUMBER || rfqNumber,
+          date: sapDotDateToIso(json.PO_DATE),
+          buyerName: json.BUYER_NAME || null,
+          buyerGstin: json.BUYER_GSTIN || null,
+          shipToCity: json.SHIP_TO_CITY || null,
+          shipToState: json.SHIP_TO_STATE || null,
+          companyCode: json.COM_CODE || null,
+          currency: json.CURRENCY || null,
+          items: json.PO_LINE_ITEMS.map((item) => ({
+            // "00010" is SAP's spelling of line 10 — same convention as
+            // vendorPoGrnDisplay's items.
+            line: Number(item.ITEM_NUMBER),
+            // EKPO-PSTYP's document-type twin at header level, confirmed
+            // live as "AN" on every RFQ line the sandbox holds — matches
+            // Prisma's RfqType enum (AN/AB) directly, so this is passed
+            // through rather than decoded.
+            type: item.TYPE || null,
+            materialCode: item.MATERIAL_CODE || null,
+            description: item.DESCRIPTION || null,
+            // Observed 0 on every line of a real RFQ in the sandbox (an RFQ
+            // awaiting a supplier's own quote has nothing of its own to
+            // quantify yet) — stored as-is, not substituted, since a bid still
+            // needs every rfq.items line priced regardless of quantity
+            // (controllers/rfq.controller.js's submitBid).
+            quantity: Number(item.ORDERED_QUANTITY) || 0,
+            uom: decodeFromSap('MEINS', item.UOM),
+            plant: item.PLANT || null,
+          })),
         },
       };
     },
@@ -1793,7 +1898,7 @@ module.exports = {
     { name: 'quotationDisplayPath', label: 'Quotation display path (custom Z REST, ME48) — returns all purchasing documents for the vendor, not only quotations', type: 'text', default: '/ZCL_ME48/vendor' },
     { name: 'quotationUpdatePricePath', label: 'Quotation net price update path (custom Z REST, ME47)', type: 'text', default: '/ZQUOT_NETPR/QUOT_UPDPR' },
     { name: 'poGrnPath', label: 'PO/GRN detail path (custom Z REST)', type: 'text', default: '/zpo_grn_vendor/Detail' },
-    { name: 'poDetailPath', label: 'Single purchase-order detail path (custom Z REST, PO-keyed — the source of each line\'s INV_PLANNO)', type: 'text', default: '/zpo_grn/Detail' },
+    { name: 'poDetailPath', label: 'Single order/RFQ detail path (custom Z REST — the source of each PO line\'s INV_PLANNO, and confirmed live for RFQ document numbers too)', type: 'text', default: '/zpo_grn/Detail' },
     { name: 'assetPoCreatePath', label: 'Asset purchase order create path (custom Z REST, ME21N with account assignment A — the one document the portal creates in SAP)', type: 'text', default: '/zasset_po/create' },
     { name: 'assetPoDocType', label: 'Purchasing document type (BSART) for an asset PO', type: 'text', default: 'NB' },
     { name: 'invoicePlanPath', label: 'Invoicing plan display path (custom Z REST, FPLA/FPLT — confirmed live)', type: 'text', default: '/zinv_milestone/plan' },

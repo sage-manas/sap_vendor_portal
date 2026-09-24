@@ -129,6 +129,15 @@ const createMockDriver = ({ config = {} } = {}) => {
     payment: (config.discoveries?.payment || []).map((p) => ({ ...p, id: null })),
     quotation: config.discoveries?.quotation || [],
     invoice: (config.discoveries?.invoice || []).map((inv) => ({ ...inv, id: null })),
+    // An RFQ SAP raised directly (ME41) — the vendorRfqDisplay/vendorRfqDetail
+    // case sweepQuotations.js exists to discover. Each entry is the whole
+    // answer both methods need: `{ sapRfqNumber, date, currency,
+    // purchasingOrg, open, items: [{ materialCode, description, quantity,
+    // uom, plant }] }`. `open` says whether it is still in vendorRfqDisplay's
+    // list (true) or only in vendorQuotationDisplay's fuller ledger (false,
+    // i.e. closed) — the same open/closed signal a live system gives by an
+    // RFQ falling out of ME43 while still appearing in ME48.
+    rfq: config.discoveries?.rfq || [],
   };
 
   const driver = {
@@ -427,19 +436,47 @@ const createMockDriver = ({ config = {} } = {}) => {
     // Mirrors the shape the real driver's ZME43/ME43 endpoint returns. The
     // mock has no database access, so the caller passes back the RFQs this
     // vendor was invited to; each becomes a synthetic SAP RFQ document.
+    // `discoveries.rfq` entries marked `open` (or with `open` omitted —
+    // defaulting open is the common case a test wants) are added alongside,
+    // items included — confirmed live 2026-09-24 that the real endpoint now
+    // embeds each RFQ's own line items (real requested quantity included,
+    // unlike zpo_grn/Detail's ORDERED_QUANTITY). A closed discovery entry is
+    // deliberately left out here (matching the real ME43, which drops a
+    // closed RFQ from its list) — vendorRfqDetail below is what still
+    // answers for one of those.
     vendorRfqDisplay: async ({ rfqs = [] }) => ({
       data: {
         // Dates are the SAP YYYYMMDD string the real endpoint sends, not a Date
         // — same convention as vendorQuotationDisplay below, so a caller that
         // sorts or formats this field cannot care which driver answered.
-        documents: rfqs.map((rfq) => ({
-          sapRfqNumber: `6${digits(9)}`,
-          date: rfq.createdDate
-            ? new Date(rfq.createdDate).toISOString().slice(0, 10).replace(/-/g, '')
-            : null,
-          currency: rfq.currency || 'INR',
-          purchasingOrg: rfq.purchasingOrg || '1000',
-        })),
+        documents: [
+          ...rfqs.map((rfq) => ({
+            sapRfqNumber: `6${digits(9)}`,
+            date: rfq.createdDate
+              ? new Date(rfq.createdDate).toISOString().slice(0, 10).replace(/-/g, '')
+              : null,
+            currency: rfq.currency || 'INR',
+            purchasingOrg: rfq.purchasingOrg || '1000',
+            items: [],
+          })),
+          ...discoveries.rfq
+            .filter((rfq) => rfq.open !== false)
+            .map((rfq) => ({
+              sapRfqNumber: rfq.sapRfqNumber,
+              date: rfq.date || null,
+              currency: rfq.currency || 'INR',
+              purchasingOrg: rfq.purchasingOrg || '1000',
+              items: (rfq.items || []).map((item, index) => ({
+                line: item.line || (index + 1) * 10,
+                materialCode: item.materialCode || null,
+                description: item.description || null,
+                quantity: item.quantity || 0,
+                uom: item.uom || 'EA',
+                targetPrice: item.targetPrice > 0 ? item.targetPrice : null,
+                plant: item.plant || null,
+              })),
+            })),
+        ],
       },
     }),
 
@@ -466,6 +503,13 @@ const createMockDriver = ({ config = {} } = {}) => {
               currency: rfq.currency || 'INR',
               purchasingOrg: rfq.purchasingOrg || '1000',
             })),
+            ...discoveries.rfq.map((rfq) => ({
+              documentNumber: rfq.sapRfqNumber,
+              documentType: 'Quotation',
+              date: rfq.date || null,
+              currency: rfq.currency || 'INR',
+              purchasingOrg: rfq.purchasingOrg || '1000',
+            })),
             ...pos.map((po) => ({
               documentNumber: mockSapPoNumber(po),
               documentType: 'Purchase Order',
@@ -475,6 +519,40 @@ const createMockDriver = ({ config = {} } = {}) => {
             })),
             ...discoveries.quotation,
           ],
+        },
+      };
+    },
+
+    // Mirrors the shape the real driver's zpo_grn/Detail endpoint returns for
+    // an RFQ number. Only `discoveries.rfq` entries are answerable — the
+    // portal-mirror rows vendorRfqDisplay/vendorQuotationDisplay synthesize
+    // above carry a fresh random number on every call, so a caller could
+    // never look one back up by number even if this tried; returning null for
+    // them is the same "nothing to report" a real vanished/mistyped document
+    // number gets, not a special case.
+    vendorRfqDetail: async ({ rfqNumber }) => {
+      const rfq = discoveries.rfq.find((entry) => entry.sapRfqNumber === rfqNumber);
+      if (!rfq) return { data: null };
+
+      return {
+        data: {
+          rfqNumber: rfq.sapRfqNumber,
+          date: rfq.date || null,
+          buyerName: rfq.buyerName || 'SAP System Procurement',
+          buyerGstin: rfq.buyerGstin || null,
+          shipToCity: rfq.shipToCity || null,
+          shipToState: rfq.shipToState || null,
+          companyCode: rfq.companyCode || null,
+          currency: rfq.currency || 'INR',
+          items: (rfq.items || []).map((item, index) => ({
+            line: item.line || (index + 1) * 10,
+            type: item.type || 'AN',
+            materialCode: item.materialCode || null,
+            description: item.description || null,
+            quantity: item.quantity || 0,
+            uom: item.uom || 'EA',
+            plant: item.plant || null,
+          })),
         },
       };
     },

@@ -65,12 +65,30 @@ const SAP_METHODS = {
   // about. Read-only, so not logged like a business transaction.
   vendorPaymentDisplay: { transaction: null, logged: false, fields: { 'vendor.sapVendorCode': 'LIFNR' } },
 
-  // What SAP itself has issued (ME43 Display RFQ) to a vendor. Same family as
-  // vendorMiroDisplay: a read against SAP's own records for cross-check, not
-  // a correlation to our internal RFQ ids — this app's RFQ documents don't
-  // carry an SAP RFQ number (sourcing is portal-internal — see below),
-  // so this is shown as SAP's own ledger, not matched line-by-line.
+  // The RFQs SAP currently has OPEN for a vendor (ME43 Display RFQ) — the
+  // authoritative "still open, still invited" list. jobs/handlers/
+  // sweepQuotations.js reads this alongside vendorQuotationDisplay below to
+  // discover an RFQ SAP raised directly (ME41) and give it a local row, and
+  // to tell an open one from a closed one: closed means it has fallen out of
+  // this list while still appearing in vendorQuotationDisplay's fuller ledger.
+  //
+  // Confirmed live 2026-09-24: each document now carries its own line items
+  // (material, description, real requested quantity, plant) — sweepQuotations
+  // discovers a still-open RFQ's items from here directly. vendorRfqDetail
+  // below remains for the one case this cannot cover: a document that had
+  // already closed (fallen out of this list) before the portal ever swept it
+  // while open, so it was never seen here with items attached.
   vendorRfqDisplay: { transaction: null, logged: false, fields: { 'vendor.sapVendorCode': 'LIFNR' } },
+
+  // Line-item detail for ONE purchasing document SAP holds — confirmed live
+  // against both an order number and an RFQ number (6xxxxxxx range): the
+  // same zpo_grn/Detail endpoint answers both, keyed only on the document
+  // number. sweepQuotations.js falls back to this only for an RFQ discovered
+  // already closed (see vendorRfqDisplay above) — its own ORDERED_QUANTITY
+  // reports 0 for an RFQ regardless (that field is goods received against a
+  // PO, which an RFQ has none of), so a closed RFQ's quantity is honestly
+  // unknown rather than reconstructed.
+  vendorRfqDetail: { transaction: null, logged: false },
 
   // Every PO SAP has for a vendor, with line items and GRNs nested in —
   // fetched by vendor code directly. This is how purchase orders reach the
@@ -87,21 +105,29 @@ const SAP_METHODS = {
   // purchasing-document ledger, rather than mislabelled "quotations".
   vendorQuotationDisplay: { transaction: null, logged: false, fields: { 'vendor.sapVendorCode': 'LIFNR' } },
 
-  // Sourcing is portal-internal, with one confirmed exception.
+  // Sourcing has no SAP *write* path, and never has.
   //
   // There is no rfqCreate/rfqCancel/rfqReissue/infoRecordCreate. Core S/4
   // exposes no public API for issuing an RFQ to, or capturing a bid from, an
   // external portal vendor — that is SAP Ariba/Business Network territory —
   // so these called a custom Z-OData "sourcing" service that was never built,
-  // and threw on every real tenant. RFQs, bids and awards live in this
-  // application; what SAP itself holds is read back through vendorRfqDisplay
-  // and vendorQuotationDisplay.
+  // and threw on every real tenant.
   //
-  // quotationUpdatePrice (ME47, ZQUOT_NETPR/QUOT_UPDPR) is the exception:
-  // confirmed live against the sandbox, it updates the net price of line
-  // items on a document SAP already holds (an `ebeln` from vendorRfqDisplay /
-  // vendorQuotationDisplay's 6xxxxxxx range) — it does not create a bid
-  // against a portal RFQ, which is why rfqSubmitBid above stays gone.
+  // What changed: every RFQ now originates in SAP (ME41), never
+  // in the portal — vendorRfqDisplay/vendorQuotationDisplay/vendorRfqDetail
+  // above are how one gets in front of a supplier at all, via
+  // sweepQuotations.js giving it a local row to bid, evaluate and award
+  // against exactly as a portal-created RFQ always could. What is still true,
+  // and is the actual reason there is no rfqCreate: nothing here ever writes
+  // an RFQ header or a bid INTO SAP. A bid stays a portal record.
+  //
+  // quotationUpdatePrice (ME47, ZQUOT_NETPR/QUOT_UPDPR) is the one write this
+  // family has: confirmed live against the sandbox, it updates the net price
+  // of line items on a document SAP already holds (an `ebeln` from
+  // vendorRfqDisplay/vendorQuotationDisplay's 6xxxxxxx range). It is a
+  // convenience for pushing a price SAP's own buyer can see there too — it
+  // does not create or replace a portal bid, and nothing calls it from the
+  // bid-submission path.
   quotationUpdatePrice: { transaction: 'QUOTATION_PRICE_UPDATE' },
 
   // Purchase orders

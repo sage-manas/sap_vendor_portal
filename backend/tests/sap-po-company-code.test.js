@@ -88,6 +88,41 @@ describe('vendorPoGrnDisplay — company-code scoping (issue #62)', () => {
   });
 });
 
+describe('vendorPoGrnDisplay — drops RFQ documents this endpoint mixes in', () => {
+  // Confirmed live: zpo_grn_vendor/Detail answers with a vendor's whole
+  // purchasing-document set, RFQs in the 6xxxxxxx range included, despite
+  // being the PO/GRN detail read — jobs/handlers/sweepPurchaseOrders.js had
+  // no other signal to tell one from a real order, so it created a bogus
+  // PurchaseOrder row (₹0 value, no GRNs) for each RFQ it saw here. Same
+  // number-range rule src/lib/sapDocuments.js's documentTypeOf already uses.
+  it('excludes a 6xxxxxxx document, keeping only real (45xxxxxxx) orders', async () => {
+    const { restore } = mockHttpRequest(JSON.stringify([
+      poRow('4500098001', '1000'),
+      poRow('6000000072', '1000'),
+    ]));
+    let result;
+    try {
+      result = await driverFor({ companyCode: '1000' }).vendorPoGrnDisplay({ vendor: { sapVendorCode: 'VEN0001' } });
+    } finally { restore(); }
+
+    expect(result.data.orders.map((o) => o.poNumber)).toEqual(['4500098001']);
+  });
+
+  it('is not fooled by a company-code mismatch masking as the fix — both filters apply together', async () => {
+    const { restore } = mockHttpRequest(JSON.stringify([
+      poRow('4500098001', '1000'),
+      poRow('4500098002', '2000'), // wrong company code
+      poRow('6000000072', '1000'), // RFQ range
+    ]));
+    let result;
+    try {
+      result = await driverFor({ companyCode: '1000' }).vendorPoGrnDisplay({ vendor: { sapVendorCode: 'VEN0001' } });
+    } finally { restore(); }
+
+    expect(result.data.orders.map((o) => o.poNumber)).toEqual(['4500098001']);
+  });
+});
+
 describe('validateConfig — company code is required (issue #62)', () => {
   const { validateConfig } = require('../sap/drivers/s4odata.driver');
 

@@ -20,7 +20,7 @@ import Modal from '@/components/ui/Modal';
 
 import FieldCard from '@/components/ui/FieldCard';
 import { rfqStatusVariant } from '@/lib/statusColors';
-import { mergeSapDocuments, countByType, commonPurchasingOrg } from '@/lib/sapDocuments';
+import { mergeSapDocuments, countByType, commonPurchasingOrg, DOCUMENT_TYPE } from '@/lib/sapDocuments';
 import { rfqService } from '../services/rfqService';
 
 const formatDate = (dateStr) => {
@@ -101,11 +101,16 @@ const SkeletonCard = () => (
 
 const getInitialQuoteForm = () => ({
   rfqId: '',
-  selectedLine: 10,
+  // Keyed by line number — every line on the chosen RFQ needs its own price
+  // before submitBid will accept the bid (rfq.controller.js: "Missing unit
+  // price for line N" for whichever line is left out). A single unitPrice
+  // field used to exist here, sent for whichever one line happened to be
+  // "selected" — which meant a multi-line RFQ could never actually be quoted
+  // through this form at all.
+  unitPrices: {},
   quoteRef: '',
   quoteDate: new Date().toISOString().split('T')[0],
   validityDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-  unitPrice: '',
   gstRate: '18%',
   discount: '0',
   deliveryLeadTime: '7',
@@ -175,8 +180,22 @@ export default function RfqView({
   const [quoteErrors, setQuoteErrors] = useState({});
 
   // The merged SAP ledger holds quotations and purchase orders together, so
-  // the tab offers the same split (see lib/sapDocuments.js).
-  const [documentTypeFilter, setDocumentTypeFilter] = useState('all');
+  // the tab offers the same split (see lib/sapDocuments.js). Defaults to RFQs
+  // only — DOCUMENT_TYPE.QUOTATION is SAP's own name for the 6xxxxxxx range
+  // this system uses for RFQ/quotation documents, open or closed alike (SAP
+  // reports no status on either read, so there is nothing to filter further
+  // on) — "My Documents" is reached from inside RFQ management, so an RFQ is
+  // what a visitor is here for; "All documents" (including purchase orders)
+  // is one click away in the selector below, not removed.
+  const [documentTypeFilter, setDocumentTypeFilter] = useState(DOCUMENT_TYPE.QUOTATION);
+
+  // The sealed-tender rule (rfq.controller.js's rfqIncludeFor) already scopes
+  // GET /rfqs to return only this vendor's own bid, never a rival's — so
+  // "the bid in rfq.bids" and "this vendor's bid" are the same thing here,
+  // but the lookup is still explicit rather than assuming `bids` has exactly
+  // one entry, since a workspace/buyer view of the same RFQ shape carries
+  // every vendor's bid.
+  const ownBidFor = (rfq) => rfq?.bids?.find((b) => b.vendorId === state.profile.vendorId);
 
   // "Update Price (ME47)" modal — pushes a net price for a SAP-native
   // quotation document. Line numbers/materials come from a portal RFQ the
@@ -187,10 +206,23 @@ export default function RfqView({
   const [priceUpdatePrices, setPriceUpdatePrices] = useState({});
   const [priceUpdateLoading, setPriceUpdateLoading] = useState(false);
 
+  // Every RFQ now carries the real sapDocNumber the discovery sweep matched
+  // it to (jobs/handlers/sweepQuotations.js) — so "which portal RFQ do these
+  // line items belong to" is no longer a question a human has to answer by
+  // picking from every RFQ in the workspace. It used to be: the dropdown
+  // below let ANY RFQ's items be priced under ANY SAP document's number,
+  // and nothing stopped the two from disagreeing — the exact bug that sent
+  // RFQ-2026-007's items to document 6000000072's number instead of its own
+  // 6000000074. Restricting the option list to a document-number match makes
+  // that mismatch structurally impossible rather than trusting the picker.
+  const priceUpdateCandidates = (doc) => state.rfqs.filter((r) => r.sapDocNumber === doc?.documentNumber);
+
   const openPriceUpdate = (doc) => {
     setPriceUpdateDoc(doc);
-    setPriceUpdateRfqId('');
+    const [onlyMatch] = priceUpdateCandidates(doc);
+    setPriceUpdateRfqId(onlyMatch ? onlyMatch.id : '');
     setPriceUpdatePrices({});
+    if (onlyMatch) handlePriceUpdateRfqChange(onlyMatch.id);
   };
 
   const closePriceUpdate = () => {
@@ -211,7 +243,7 @@ export default function RfqView({
     }
     // Pre-fill from this vendor's own bid on the RFQ, if one exists, else the
     // target reference price — either way the vendor edits before submitting.
-    const ownBid = rfq.bids?.find((b) => b.vendorId === state.profile.vendorId);
+    const ownBid = ownBidFor(rfq);
     const prices = {};
     rfq.items.forEach((item) => {
       const existing = ownBid?.unitPrices?.[item.line] ?? ownBid?.unitPrices?.get?.(String(item.line));
@@ -267,11 +299,23 @@ export default function RfqView({
   const handleQuotationSubmit = async (e) => {
     if (e) e.preventDefault();
 
+    const selectedRfq = state.rfqs.find(r => r.id === quoteForm.rfqId);
+
     const errors = {};
     if (!quoteForm.rfqId) errors.rfqId = true;
     if (!quoteForm.quoteDate) errors.quoteDate = true;
     if (!quoteForm.validityDate) errors.validityDate = true;
-    if (!quoteForm.unitPrice || Number(quoteForm.unitPrice) <= 0) errors.unitPrice = true;
+    // submitBid refuses a bid missing a price for ANY of the RFQ's lines
+    // (rfq.controller.js) — checked per line here so the form can point at
+    // exactly which ones are missing, rather than one generic "unit price"
+    // flag that only ever meant one (arbitrary) line.
+    const unitPriceErrors = {};
+    (selectedRfq?.items || []).forEach((item) => {
+      if (!quoteForm.unitPrices[item.line] || Number(quoteForm.unitPrices[item.line]) <= 0) {
+        unitPriceErrors[item.line] = true;
+      }
+    });
+    if (Object.keys(unitPriceErrors).length > 0) errors.unitPrices = unitPriceErrors;
     if (!quoteForm.gstRate) errors.gstRate = true;
     if (!quoteForm.deliveryLeadTime || Number(quoteForm.deliveryLeadTime) <= 0) errors.deliveryLeadTime = true;
 
@@ -283,10 +327,11 @@ export default function RfqView({
 
     setIsLoading(true);
 
-    // Structure prices object mapping selected line number to unit price
-    const prices = {
-      [quoteForm.selectedLine]: Number(quoteForm.unitPrice)
-    };
+    // Every line on the RFQ, priced — not just whichever one was last
+    // selected.
+    const prices = Object.fromEntries(
+      selectedRfq.items.map((item) => [item.line, Number(quoteForm.unitPrices[item.line])])
+    );
 
     // Formulate comments/remarks
     const remarks = `Quote Ref: ${quoteForm.quoteRef || 'N/A'} | Discount: ${quoteForm.discount || '0'}% | Incoterms: ${quoteForm.incoterms}`;
@@ -577,7 +622,27 @@ export default function RfqView({
                               </>
                             )}
                           </span>
-                          <span className="text-[9px] font-mono text-text-tertiary block mt-1 whitespace-nowrap">Deadline: {formatDate(activeRfq.deadlineDate)}</span>
+                          {/* An RFQ SAP raised directly carries no deadline
+                              (schema.prisma's RFQ.deadlineDate comment) — said
+                              plainly, not as a bare "—" that reads like a
+                              loading gap. */}
+                          <span className="text-[9px] font-mono text-text-tertiary block mt-1 whitespace-nowrap">
+                            Deadline: {activeRfq.deadlineDate ? formatDate(activeRfq.deadlineDate) : 'No deadline set by buyer'}
+                          </span>
+                          {/* Confirms a submission actually landed — before
+                              this, "Bid submitted successfully" was the only
+                              feedback a vendor ever saw; nothing afterward
+                              showed the price back to them anywhere. */}
+                          {(() => {
+                            const ownBid = ownBidFor(activeRfq);
+                            if (!ownBid) return null;
+                            return (
+                              <span className="text-[9px] font-mono text-text-secondary block mt-1 whitespace-nowrap">
+                                Your quote:{' '}
+                                {activeRfq.items.map((item) => `L${item.line} ₹${ownBid.unitPrices?.[item.line] ?? '—'}`).join(', ')}
+                              </span>
+                            );
+                          })()}
                         </div>
 
                         <div className="p-3 border border-border rounded-md bg-surface2/30">
@@ -682,9 +747,12 @@ export default function RfqView({
                 <div className="flex items-center gap-2 shrink-0">
                   <span className="label mb-0 whitespace-nowrap">Type</span>
                   <select className="h-9" value={documentTypeFilter} onChange={(e) => setDocumentTypeFilter(e.target.value)}>
+                    {/* DOCUMENT_TYPE.QUOTATION is SAP's own name for the
+                        RFQ/quotation range (lib/sapDocuments.js) — labelled
+                        "RFQs" here, which is this screen's own vocabulary. */}
+                    <option value={DOCUMENT_TYPE.QUOTATION}>RFQs</option>
+                    <option value={DOCUMENT_TYPE.PURCHASE_ORDER}>Purchase orders</option>
                     <option value="all">All documents</option>
-                    <option value="Quotation">Quotations</option>
-                    <option value="Purchase Order">Purchase orders</option>
                   </select>
                 </div>
               </div>
@@ -697,7 +765,7 @@ export default function RfqView({
                 <EmptyState
                   icon={FileText}
                   title="Nothing on file yet"
-                  description="Your buyer has no documents on file for your company yet. Quotations and purchase orders appear here once they do."
+                  description="Your buyer has no documents on file for your company yet. RFQs and purchase orders appear here once they do."
                 />
               ) : (() => {
                 const counts = countByType(documents);
@@ -709,7 +777,7 @@ export default function RfqView({
                 return (
                   <>
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-text-tertiary">
-                      <span><span className="font-bold text-text-secondary tabular-nums">{counts.quotations}</span> quotation(s)</span>
+                      <span><span className="font-bold text-text-secondary tabular-nums">{counts.quotations}</span> RFQ(s)</span>
                       <span><span className="font-bold text-text-secondary tabular-nums">{counts.purchaseOrders}</span> purchase order(s)</span>
                       {/* Shown once as context rather than repeated down a
                           column: it is the same value on every row. */}
@@ -741,15 +809,19 @@ export default function RfqView({
                                 <td className="font-mono font-bold text-text-primary select-all">{doc.documentNumber || '—'}</td>
                                 <td>
                                   <StatusBadge
-                                    label={doc.documentType}
-                                    variant={doc.documentType === 'Quotation' ? 'info' : 'pending'}
+                                    // The data value stays SAP's own name
+                                    // (DOCUMENT_TYPE.QUOTATION) — only the
+                                    // label shown here uses this screen's
+                                    // vocabulary.
+                                    label={doc.documentType === DOCUMENT_TYPE.QUOTATION ? 'RFQ' : doc.documentType}
+                                    variant={doc.documentType === DOCUMENT_TYPE.QUOTATION ? 'info' : 'pending'}
                                   />
                                 </td>
                                 <td className="font-mono text-text-tertiary tabular-nums whitespace-nowrap">{formatDate(doc.date)}</td>
                                 <td className="font-mono text-text-secondary">{doc.currency || '—'}</td>
                                 {!org && <td className="font-mono text-text-secondary">{doc.purchasingOrg || '—'}</td>}
                                 <td className="text-right">
-                                  {doc.documentType === 'Quotation' && (
+                                  {doc.documentType === DOCUMENT_TYPE.QUOTATION && (
                                     <Button
                                       type="button"
                                       variant="outline"
@@ -838,12 +910,27 @@ export default function RfqView({
                           onChange={e => {
                             const selectedId = e.target.value;
                             const rfq = state.rfqs.find(r => r.id === selectedId);
+                            // A quotation already submitted for this RFQ shows
+                            // its own numbers back rather than a blank form —
+                            // the gap that left an earlier submission with
+                            // nowhere to confirm it had gone in at all.
+                            const ownBid = ownBidFor(rfq);
+                            const unitPrices = {};
+                            (rfq?.items || []).forEach((item) => {
+                              unitPrices[item.line] = ownBid ? String(ownBid.unitPrices?.[item.line] ?? '') : '';
+                            });
                             setQuoteForm({
                               ...quoteForm,
                               rfqId: selectedId,
-                              selectedLine: rfq && rfq.items.length > 0 ? rfq.items[0].line : 10
+                              unitPrices,
+                              gstRate: ownBid?.gstRate || quoteForm.gstRate,
+                              deliveryLeadTime: ownBid ? String(ownBid.deliveryLeadTimeDays ?? '') : quoteForm.deliveryLeadTime,
+                              freight: ownBid ? String(ownBid.freight ?? '0') : quoteForm.freight,
+                              validityDate: ownBid?.validityDate
+                                ? new Date(ownBid.validityDate).toISOString().split('T')[0]
+                                : quoteForm.validityDate,
                             });
-                            if (quoteErrors.rfqId) setQuoteErrors(prev => ({ ...prev, rfqId: false }));
+                            setQuoteErrors(prev => ({ ...prev, rfqId: false, unitPrices: undefined }));
                           }}
                           className={`w-[25ch] max-w-full font-semibold ${
                             quoteErrors.rfqId ? 'border-rose-500' : ''
@@ -868,52 +955,65 @@ export default function RfqView({
                           </span>
                         </div>
 
-                        {/* Line Item selector if multiple items */}
-                        {selectedRfq.items.length > 1 && (
-                          <div className="flex flex-wrap items-center gap-2 py-1">
-                            <span className="text-[9px] font-bold text-text-tertiary uppercase tracking-wider mr-1">Select Line Item:</span>
-                            {selectedRfq.items.map(item => (
-                              <button
-                                key={item.line}
-                                type="button"
-                                onClick={() => setQuoteForm({ ...quoteForm, selectedLine: item.line })}
-                                className={`px-3 py-1 text-xs font-mono font-bold rounded-md border transition-colors duration-150 cursor-pointer ${
-                                  Number(quoteForm.selectedLine) === item.line
-                                    ? 'bg-primary text-white border-primary'
-                                    : 'bg-surface text-text-secondary border-border hover:bg-surface2'
-                                }`}
-                              >
-                                Line {item.line}: {item.materialCode}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* Selected Item Info Card */}
-                        {(() => {
-                          const selectedItem = selectedRfq.items.find(item => item.line === Number(quoteForm.selectedLine)) || selectedRfq.items[0];
-                          if (!selectedItem) return null;
-                          return (
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-1 text-xs font-sans text-text-secondary">
-                              <div>
-                                <span className="text-[9px] text-text-tertiary block font-bold uppercase">Material Code</span>
-                                <span className="font-bold text-text-primary font-mono">{selectedItem.materialCode}</span>
-                              </div>
-                              <div>
-                                <span className="text-[9px] text-text-tertiary block font-bold uppercase">Description</span>
-                                <span className="font-bold text-text-primary truncate block max-w-[200px]">{selectedItem.description}</span>
-                              </div>
-                              <div>
-                                <span className="text-[9px] text-text-tertiary block font-bold uppercase">Required Quantity</span>
-                                <span className="font-bold text-text-primary font-mono tabular-nums">{selectedItem.quantity.toLocaleString()} {selectedItem.uom}</span>
-                              </div>
-                              <div>
-                                <span className="text-[9px] text-text-tertiary block font-bold uppercase">Target Price Reference</span>
-                                <span className="font-bold text-text-primary font-mono tabular-nums">₹{selectedItem.targetPrice?.toFixed(2)}</span>
-                              </div>
-                            </div>
-                          );
-                        })()}
+                        {/* Every line, priced together — submitBid refuses a
+                            bid that leaves any line unpriced, so a single
+                            "pick one line" selector could never actually
+                            quote a multi-line RFQ. */}
+                        <div className="border border-border rounded-md overflow-hidden">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr>
+                                <th className="text-[9px]">Line</th>
+                                <th className="text-[9px]">Material</th>
+                                <th className="text-[9px]">Description</th>
+                                <th className="text-[9px] text-right">Qty</th>
+                                <th className="text-[9px] text-right">Target price</th>
+                                <th className="text-[9px] text-right">Your unit price (₹) *</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {selectedRfq.items.map((item) => (
+                                <tr key={item.line}>
+                                  <td className="font-mono font-bold text-text-tertiary">{item.line}</td>
+                                  <td className="font-mono font-bold text-text-primary whitespace-nowrap">{item.materialCode}</td>
+                                  <td className="text-text-secondary truncate max-w-[200px]">{item.description}</td>
+                                  <td className="text-right font-mono tabular-nums text-text-secondary whitespace-nowrap">{item.quantity.toLocaleString()} {item.uom}</td>
+                                  <td className="text-right font-mono tabular-nums text-text-secondary whitespace-nowrap">
+                                    {item.targetPrice ? `₹${item.targetPrice.toFixed(2)}` : '—'}
+                                  </td>
+                                  <td className="text-right">
+                                    <input
+                                      type="number"
+                                      min="0.01"
+                                      step="0.01"
+                                      required
+                                      aria-label={`Unit price (₹) for line ${item.line}`}
+                                      aria-invalid={quoteErrors.unitPrices?.[item.line] ? true : undefined}
+                                      placeholder="0.00"
+                                      value={quoteForm.unitPrices[item.line] ?? ''}
+                                      onChange={e => {
+                                        setQuoteForm({
+                                          ...quoteForm,
+                                          unitPrices: { ...quoteForm.unitPrices, [item.line]: e.target.value },
+                                        });
+                                        if (quoteErrors.unitPrices?.[item.line]) {
+                                          setQuoteErrors(prev => {
+                                            const rest = { ...prev.unitPrices };
+                                            delete rest[item.line];
+                                            return { ...prev, unitPrices: Object.keys(rest).length ? rest : undefined };
+                                          });
+                                        }
+                                      }}
+                                      className={`w-[12ch] text-right font-mono font-semibold ${
+                                        quoteErrors.unitPrices?.[item.line] ? 'border-rose-500' : ''
+                                      }`}
+                                    />
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -974,29 +1074,10 @@ export default function RfqView({
               </FormSection>
 
 
-              {/* 2. LINE ITEM PRICING */}
-              <FormSection number="02" title="Line item pricing">
+              {/* 2. GST & DISCOUNT — per-line unit price is entered in the
+                  line item table above; these apply to the whole quotation. */}
+              <FormSection number="02" title="GST & discount">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4">
-                  <EnterpriseFieldCard
-                    label="Unit price (₹)"
-                    required
-                    error={quoteErrors.unitPrice}
-                  >
-                    <input
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      required
-                      placeholder="0.00"
-                      value={quoteForm.unitPrice}
-                      onChange={e => {
-                        setQuoteForm({ ...quoteForm, unitPrice: e.target.value });
-                        if (quoteErrors.unitPrice) setQuoteErrors(prev => ({ ...prev, unitPrice: false }));
-                      }}
-                      className="w-[13ch] max-w-full font-mono font-semibold"
-                    />
-                  </EnterpriseFieldCard>
-
                   <EnterpriseFieldCard
                     label="GST rate (%)"
                     required
@@ -1140,27 +1221,49 @@ export default function RfqView({
         }
       >
         <div className="space-y-4">
-          <p className="text-[11px] text-text-tertiary">
-            Pick the request in RFQ Monitor &amp; History whose line items this SAP document corresponds to,
-            then enter the net price per line to send to your buyer&rsquo;s system.
-          </p>
-
-          <div className="space-y-1.5">
-            <label className="text-[11px] font-bold text-text-secondary uppercase tracking-wide" htmlFor="quote-linked-rfq">Linked RFQ</label>
-            <select id="quote-linked-rfq"
-              value={priceUpdateRfqId}
-              onChange={(e) => handlePriceUpdateRfqChange(e.target.value)}
-              className="w-full font-semibold"
-              disabled={priceUpdateLoading}
-            >
-              <option value="">-- Choose RFQ --</option>
-              {state.rfqs.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.id} - {r.description}
-                </option>
-              ))}
-            </select>
-          </div>
+          {(() => {
+            const candidates = priceUpdateCandidates(priceUpdateDoc);
+            if (!candidates.length) {
+              return (
+                <p className="text-[11px] text-rose-400">
+                  No RFQ in this workspace is matched to SAP document {priceUpdateDoc?.documentNumber} — there is
+                  nothing to price yet. This document may not have been discovered as a portal RFQ (or was
+                  discovered on an earlier sweep before an SAP correlation existed).
+                </p>
+              );
+            }
+            return (
+              <>
+                <p className="text-[11px] text-text-tertiary">
+                  Line items below are RFQ {candidates[0].id}&rsquo;s own — the one SAP has matched to this document
+                  ({priceUpdateDoc?.documentNumber}). Enter the net price per line to send to your buyer&rsquo;s system.
+                </p>
+                {/* Restricted to the matching RFQ(s) only — see priceUpdateCandidates
+                    above for why this can no longer be any RFQ in the workspace. A
+                    document with more than one match (shouldn't happen; sapDocNumber
+                    is meant to be unique per document) still lets a human pick, rather
+                    than silently guessing one. */}
+                {candidates.length > 1 && (
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-text-secondary uppercase tracking-wide" htmlFor="quote-linked-rfq">Linked RFQ</label>
+                    <select id="quote-linked-rfq"
+                      value={priceUpdateRfqId}
+                      onChange={(e) => handlePriceUpdateRfqChange(e.target.value)}
+                      className="w-full font-semibold"
+                      disabled={priceUpdateLoading}
+                    >
+                      <option value="">-- Choose RFQ --</option>
+                      {candidates.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.id} - {r.description}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </>
+            );
+          })()}
 
           {priceUpdateRfq && (
             <div className="border border-border rounded-md overflow-hidden">

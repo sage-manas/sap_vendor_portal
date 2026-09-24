@@ -94,21 +94,40 @@ describe('ZCL_ME48/vendor — the live contract', () => {
 });
 
 // The live ZME43/ME43 response, captured from
-//   GET /ZME43/ME43?sap-client=800&LIFNR=1120250000
+//   GET /ZME43/ME43?sap-client=800&LIFNR=1120250081
 //
-// Note it is the *same* envelope, the same field names, and even the same
-// "Quotation fetched successfully" message as ZCL_ME48/vendor — these are the
-// same handler on the SAP side, differing only in which documents they select.
-// Everything here is in the 6xxxxxxx RFQ range, which is what ME43 is for.
+// Confirmed live 2026-09-24: this replaced an earlier header-only shape
+// (ebeln/lifnr/bedat/waers/ekorg, no items — the same envelope ZCL_ME48/vendor
+// still uses, see LIVE_RESPONSE above) with one that embeds each RFQ's own
+// line items, `quantity` included — and, unlike zpo_grn/Detail's
+// ORDERED_QUANTITY (a goods-received field, always 0 for an RFQ), this
+// `quantity` is the real one a supplier is being asked to quote against.
 const LIVE_ME43 = {
   statusCode: 200,
   status: 'SUCCESS',
   message: 'Quotation fetched successfully',
   data: [
-    { ebeln: '6000000057', lifnr: '1120250000', bedat: 20260520, waers: 'INR', ekorg: 'SSDN' },
-    { ebeln: '6000000059', lifnr: '1120250000', bedat: 20260821, waers: 'INR', ekorg: 'SSDN' },
-    { ebeln: '6000000060', lifnr: '1120250000', bedat: 20260821, waers: '',    ekorg: 'SSDN' },
-    { ebeln: '6000000062', lifnr: '1120250000', bedat: 20260821, waers: 'INR', ekorg: 'SSDN' },
+    {
+      quotationNumber: '6000000072', vendorCode: '1120250081', quotationDate: 20260923, currency: '', purchasingOrg: 'SSDN',
+      items: [
+        { quotationNumber: '6000000072', itemNumber: 10, materialCode: '000000000000000032', materialDesc: 'NEW MATERIAL SAGE TESTING', quantity: 10, unitOfMeasure: 'KG', netPrice: 0, priceUnit: 1, plant: 'SSDN', materialGroup: '0001' },
+      ],
+    },
+    {
+      quotationNumber: '6000000073', vendorCode: '1120250081', quotationDate: 20260923, currency: '', purchasingOrg: 'SSDN',
+      items: [
+        { quotationNumber: '6000000073', itemNumber: 10, materialCode: '000000000000000032', materialDesc: 'NEW MATERIAL SAGE TESTING', quantity: 10, unitOfMeasure: 'KG', netPrice: 0, priceUnit: 1, plant: 'SSDN', materialGroup: '0001' },
+        { quotationNumber: '6000000073', itemNumber: 20, materialCode: '000000000000000033', materialDesc: 'NEW MAT TESTING SERILISED PROCREMENT', quantity: 5, unitOfMeasure: 'PC', netPrice: 0, priceUnit: 1, plant: 'SSDN', materialGroup: '0001' },
+      ],
+    },
+    {
+      quotationNumber: '6000000074', vendorCode: '1120250081', quotationDate: 20260923, currency: '', purchasingOrg: 'SSDN',
+      items: [
+        { quotationNumber: '6000000074', itemNumber: 10, materialCode: '000000000000000032', materialDesc: 'NEW MATERIAL SAGE TESTING', quantity: 10, unitOfMeasure: 'KG', netPrice: 0, priceUnit: 1, plant: 'SSDN', materialGroup: '0001' },
+        { quotationNumber: '6000000074', itemNumber: 20, materialCode: '000000000000000033', materialDesc: 'NEW MAT TESTING SERILISED PROCREMENT', quantity: 5, unitOfMeasure: 'PC', netPrice: 0, priceUnit: 1, plant: 'SSDN', materialGroup: '0001' },
+        { quotationNumber: '6000000074', itemNumber: 30, materialCode: '000000000000000034', materialDesc: 'NEW MATERIAL SAGE TESTING 2', quantity: 10, unitOfMeasure: 'KG', netPrice: 0, priceUnit: 1, plant: 'SSDN', materialGroup: '0001' },
+      ],
+    },
   ],
 };
 
@@ -117,28 +136,44 @@ describe('ZME43/ME43 — the live contract', () => {
     const capture = {};
     const driver = driverFor(LIVE_ME43, capture);
 
-    await driver.vendorRfqDisplay({ vendor: { sapVendorCode: '1120250000' } });
+    await driver.vendorRfqDisplay({ vendor: { sapVendorCode: '1120250081' } });
 
-    expect(capture.url).toBe('http://103.206.131.27:8081/ZME43/ME43?sap-client=800&LIFNR=1120250000');
+    expect(capture.url).toBe('http://103.206.131.27:8081/ZME43/ME43?sap-client=800&LIFNR=1120250081');
   });
 
-  it('parses the live payload into the shape the panel renders', async () => {
+  it('parses the live payload into the shape the panel renders, items included', async () => {
     const driver = driverFor(LIVE_ME43);
 
-    const { data } = await driver.vendorRfqDisplay({ vendor: { sapVendorCode: '1120250000' } });
+    const { data } = await driver.vendorRfqDisplay({ vendor: { sapVendorCode: '1120250081' } });
 
     expect(data.documents).toEqual([
-      { sapRfqNumber: '6000000057', date: '20260520', currency: 'INR', purchasingOrg: 'SSDN' },
-      { sapRfqNumber: '6000000059', date: '20260821', currency: 'INR', purchasingOrg: 'SSDN' },
-      { sapRfqNumber: '6000000060', date: '20260821', currency: null, purchasingOrg: 'SSDN' },
-      { sapRfqNumber: '6000000062', date: '20260821', currency: 'INR', purchasingOrg: 'SSDN' },
+      {
+        sapRfqNumber: '6000000072', date: '20260923', currency: null, purchasingOrg: 'SSDN',
+        items: [{ line: 10, materialCode: '000000000000000032', description: 'NEW MATERIAL SAGE TESTING', quantity: 10, uom: 'KG', targetPrice: null, plant: 'SSDN' }],
+      },
+      {
+        sapRfqNumber: '6000000073', date: '20260923', currency: null, purchasingOrg: 'SSDN',
+        items: [
+          { line: 10, materialCode: '000000000000000032', description: 'NEW MATERIAL SAGE TESTING', quantity: 10, uom: 'KG', targetPrice: null, plant: 'SSDN' },
+          { line: 20, materialCode: '000000000000000033', description: 'NEW MAT TESTING SERILISED PROCREMENT', quantity: 5, uom: 'PC', targetPrice: null, plant: 'SSDN' },
+        ],
+      },
+      {
+        sapRfqNumber: '6000000074', date: '20260923', currency: null, purchasingOrg: 'SSDN',
+        items: [
+          { line: 10, materialCode: '000000000000000032', description: 'NEW MATERIAL SAGE TESTING', quantity: 10, uom: 'KG', targetPrice: null, plant: 'SSDN' },
+          { line: 20, materialCode: '000000000000000033', description: 'NEW MAT TESTING SERILISED PROCREMENT', quantity: 5, uom: 'PC', targetPrice: null, plant: 'SSDN' },
+          { line: 30, materialCode: '000000000000000034', description: 'NEW MATERIAL SAGE TESTING 2', quantity: 10, uom: 'KG', targetPrice: null, plant: 'SSDN' },
+        ],
+      },
     ]);
   });
 
   it('emits `date` as a string, matching the ME48 read', async () => {
-    // bedat is a JSON *number*. Both reads must agree on the type, or a caller
-    // that sorts one and formats the other breaks on whichever it met second.
-    const rfq = await driverFor(LIVE_ME43).vendorRfqDisplay({ vendor: { sapVendorCode: '1120250000' } });
+    // quotationDate is a JSON *number*. Both reads must agree on the type, or
+    // a caller that sorts one and formats the other breaks on whichever it
+    // met second.
+    const rfq = await driverFor(LIVE_ME43).vendorRfqDisplay({ vendor: { sapVendorCode: '1120250081' } });
     const me48 = await driverFor(LIVE_RESPONSE).vendorQuotationDisplay({ vendor: { sapVendorCode: '1120250010' } });
 
     expect(typeof rfq.data.documents[0].date).toBe('string');
@@ -157,13 +192,31 @@ describe('ZME43/ME43 — the live contract', () => {
   it('drops any row belonging to another supplier', async () => {
     const driver = driverFor({
       ...LIVE_ME43,
-      data: [...LIVE_ME43.data, { ebeln: '6000009999', lifnr: '9999999999', bedat: 20260101, waers: 'INR', ekorg: 'SSDN' }],
+      data: [...LIVE_ME43.data, { quotationNumber: '6000009999', vendorCode: '9999999999', quotationDate: 20260101, currency: 'INR', purchasingOrg: 'SSDN', items: [] }],
     });
 
-    const { data } = await driver.vendorRfqDisplay({ vendor: { sapVendorCode: '1120250000' } });
+    const { data } = await driver.vendorRfqDisplay({ vendor: { sapVendorCode: '1120250081' } });
 
     expect(data.documents.map((d) => d.sapRfqNumber)).not.toContain('6000009999');
-    expect(data.documents).toHaveLength(4);
+    expect(data.documents).toHaveLength(3);
+  });
+
+  it('reports a target price only when SAP has quoted a real one, never a bare 0', async () => {
+    const driver = driverFor({
+      ...LIVE_ME43,
+      data: [{
+        quotationNumber: '6000000099', vendorCode: '1120250081', quotationDate: 20260923, currency: 'INR', purchasingOrg: 'SSDN',
+        items: [
+          { quotationNumber: '6000000099', itemNumber: 10, materialCode: 'MAT-1', materialDesc: 'Priced line', quantity: 5, unitOfMeasure: 'EA', netPrice: 125.5, priceUnit: 1, plant: 'SSDN' },
+          { quotationNumber: '6000000099', itemNumber: 20, materialCode: 'MAT-2', materialDesc: 'Unpriced line', quantity: 5, unitOfMeasure: 'EA', netPrice: 0, priceUnit: 1, plant: 'SSDN' },
+        ],
+      }],
+    });
+
+    const { data } = await driver.vendorRfqDisplay({ vendor: { sapVendorCode: '1120250081' } });
+
+    expect(data.documents[0].items[0].targetPrice).toBe(125.5);
+    expect(data.documents[0].items[1].targetPrice).toBeNull();
   });
 });
 
