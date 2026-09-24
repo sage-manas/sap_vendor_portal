@@ -1,6 +1,24 @@
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
+// Independent of tests/env.js (Jest's setupFiles, which runs before this
+// setupFilesAfterEnv file and normally redirects DATABASE_URL first) — this
+// is a second, self-contained check rather than trust that env.js already
+// ran. It has to be: on 2026-09-23, a suite ran against this repo's actual
+// development database and wiped every table, including the Kaveri Forge
+// vendor and its live SAP connection config — recovered afterwards only by
+// hand, through raw pg_surgery on the dead tuples DELETE leaves behind. The
+// working theory is a stale checkout predating env.js's own PR — but "the
+// upstream setup file loaded correctly" is exactly the kind of assumption a
+// stale checkout, a wrong working directory, or a hand-edited jest config
+// can quietly break, and resetDatabase() below is the actual destructive
+// operation — it should not have to trust that something else already made
+// it safe. dotenv.config() above does not override an already-set
+// DATABASE_URL, so on a correct run this just reconfirms what env.js set;
+// on a broken one, it is the one thing standing between a test run and the
+// same wipe happening again.
+require('../config/testDatabase').assertSafeToWipe(process.env.DATABASE_URL, 'The Jest suite');
+
 const { rawPrisma } = require('../db/prisma');
 
 // Postgres replaces mongodb-memory-server: a real instance (this repo's
