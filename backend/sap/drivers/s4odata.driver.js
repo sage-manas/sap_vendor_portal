@@ -891,6 +891,18 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
     // with LIFNR as a query param — confirmed against the live sandbox. A
     // vendor with no RFQs comes back 404 with an empty data array, which is
     // "nothing yet", not a failure.
+    //
+    // Confirmed live 2026-09-24: this endpoint now embeds each RFQ's line
+    // items directly (quotationNumber/vendorCode/quotationDate/currency/
+    // purchasingOrg/items), replacing an earlier header-only shape
+    // (ebeln/lifnr/bedat/waers/ekorg, no items) — and, critically, its
+    // `quantity` is real (the requested quantity), unlike zpo_grn/Detail's
+    // ORDERED_QUANTITY, which reports 0 for an RFQ (that field means goods
+    // received against a PO, which an RFQ has none of). sweepQuotations.js
+    // now sources a newly-discovered RFQ's items from here first for exactly
+    // that reason, falling back to vendorRfqDetail only for a document that
+    // has already closed (fallen out of this list) before the portal ever
+    // saw it open.
     vendorRfqDisplay: async ({ vendor }) => {
       // Same guard as vendorQuotationDisplay, and for the same reason: these
       // two endpoints are the same handler on the SAP side (note the shared
@@ -921,15 +933,28 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
           documents: json.data
             // Belt and braces, as in vendorQuotationDisplay: never render
             // another supplier's documents in this vendor's portal.
-            .filter((row) => !row.lifnr || String(row.lifnr).trim() === lifnr)
+            .filter((row) => !row.vendorCode || String(row.vendorCode).trim() === lifnr)
             .map((row) => ({
-              sapRfqNumber: row.ebeln,
-              // bedat arrives as the number 20260520. Stringified so this
-              // field has one type across both drivers and both reads —
+              sapRfqNumber: row.quotationNumber,
+              // quotationDate arrives as the number 20260520. Stringified so
+              // this field has one type across both drivers and both reads —
               // callers sort and format it as a string.
-              date: row.bedat ? String(row.bedat) : null,
-              currency: row.waers || null,
-              purchasingOrg: row.ekorg || null,
+              date: row.quotationDate ? String(row.quotationDate) : null,
+              currency: row.currency || null,
+              purchasingOrg: row.purchasingOrg || null,
+              items: Array.isArray(row.items) ? row.items.map((item) => ({
+                line: Number(item.itemNumber),
+                materialCode: item.materialCode || null,
+                description: item.materialDesc || null,
+                quantity: Number(item.quantity) || 0,
+                uom: decodeFromSap('MEINS', item.unitOfMeasure),
+                // 0 is SAP's "no target price entered yet" here, same as
+                // ORDERED_QUANTITY's 0 meant "not yet quantified" before this
+                // endpoint carried a real quantity — stored as null rather
+                // than a price nobody quoted.
+                targetPrice: Number(item.netPrice) > 0 ? Number(item.netPrice) : null,
+                plant: item.plant || null,
+              })) : [],
             })),
         },
       };

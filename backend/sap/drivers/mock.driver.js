@@ -437,9 +437,13 @@ const createMockDriver = ({ config = {} } = {}) => {
     // mock has no database access, so the caller passes back the RFQs this
     // vendor was invited to; each becomes a synthetic SAP RFQ document.
     // `discoveries.rfq` entries marked `open` (or with `open` omitted —
-    // defaulting open is the common case a test wants) are added alongside —
-    // these are the ones vendorRfqDetail below can actually answer for, since
-    // (unlike the portal-mirror rows) they carry a stable number across calls.
+    // defaulting open is the common case a test wants) are added alongside,
+    // items included — confirmed live 2026-09-24 that the real endpoint now
+    // embeds each RFQ's own line items (real requested quantity included,
+    // unlike zpo_grn/Detail's ORDERED_QUANTITY). A closed discovery entry is
+    // deliberately left out here (matching the real ME43, which drops a
+    // closed RFQ from its list) — vendorRfqDetail below is what still
+    // answers for one of those.
     vendorRfqDisplay: async ({ rfqs = [] }) => ({
       data: {
         // Dates are the SAP YYYYMMDD string the real endpoint sends, not a Date
@@ -453,6 +457,7 @@ const createMockDriver = ({ config = {} } = {}) => {
               : null,
             currency: rfq.currency || 'INR',
             purchasingOrg: rfq.purchasingOrg || '1000',
+            items: [],
           })),
           ...discoveries.rfq
             .filter((rfq) => rfq.open !== false)
@@ -461,6 +466,15 @@ const createMockDriver = ({ config = {} } = {}) => {
               date: rfq.date || null,
               currency: rfq.currency || 'INR',
               purchasingOrg: rfq.purchasingOrg || '1000',
+              items: (rfq.items || []).map((item, index) => ({
+                line: item.line || (index + 1) * 10,
+                materialCode: item.materialCode || null,
+                description: item.description || null,
+                quantity: item.quantity || 0,
+                uom: item.uom || 'EA',
+                targetPrice: item.targetPrice > 0 ? item.targetPrice : null,
+                plant: item.plant || null,
+              })),
             })),
         ],
       },

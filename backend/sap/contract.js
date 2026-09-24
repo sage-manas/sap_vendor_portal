@@ -71,15 +71,23 @@ const SAP_METHODS = {
   // discover an RFQ SAP raised directly (ME41) and give it a local row, and
   // to tell an open one from a closed one: closed means it has fallen out of
   // this list while still appearing in vendorQuotationDisplay's fuller ledger.
+  //
+  // Confirmed live 2026-09-24: each document now carries its own line items
+  // (material, description, real requested quantity, plant) — sweepQuotations
+  // discovers a still-open RFQ's items from here directly. vendorRfqDetail
+  // below remains for the one case this cannot cover: a document that had
+  // already closed (fallen out of this list) before the portal ever swept it
+  // while open, so it was never seen here with items attached.
   vendorRfqDisplay: { transaction: null, logged: false, fields: { 'vendor.sapVendorCode': 'LIFNR' } },
 
   // Line-item detail for ONE purchasing document SAP holds — confirmed live
   // against both an order number and an RFQ number (6xxxxxxx range): the
   // same zpo_grn/Detail endpoint answers both, keyed only on the document
-  // number. sweepQuotations.js calls this once per newly-discovered RFQ to
-  // learn what it is actually asking a supplier to bid on (material,
-  // description, quantity) — vendorRfqDisplay/vendorQuotationDisplay only
-  // ever report the bare document number.
+  // number. sweepQuotations.js falls back to this only for an RFQ discovered
+  // already closed (see vendorRfqDisplay above) — its own ORDERED_QUANTITY
+  // reports 0 for an RFQ regardless (that field is goods received against a
+  // PO, which an RFQ has none of), so a closed RFQ's quantity is honestly
+  // unknown rather than reconstructed.
   vendorRfqDetail: { transaction: null, logged: false },
 
   // Every PO SAP has for a vendor, with line items and GRNs nested in —
@@ -105,7 +113,7 @@ const SAP_METHODS = {
   // so these called a custom Z-OData "sourcing" service that was never built,
   // and threw on every real tenant.
   //
-  // What changed (issue #117): every RFQ now originates in SAP (ME41), never
+  // What changed: every RFQ now originates in SAP (ME41), never
   // in the portal — vendorRfqDisplay/vendorQuotationDisplay/vendorRfqDetail
   // above are how one gets in front of a supplier at all, via
   // sweepQuotations.js giving it a local row to bid, evaluate and award

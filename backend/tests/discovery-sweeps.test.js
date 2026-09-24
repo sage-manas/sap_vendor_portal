@@ -263,7 +263,7 @@ describe('sweepPayments discovery', () => {
   });
 });
 
-describe('sweepQuotations discovery — RFQs raised directly in SAP (issue #117)', () => {
+describe('sweepQuotations discovery — RFQs raised directly in SAP', () => {
   const app = buildTestApp();
 
   const discoveryRfq = (sapRfqNumber, overrides = {}) => ({
@@ -394,5 +394,42 @@ describe('sweepQuotations discovery — RFQs raised directly in SAP (issue #117)
     expect(res.status).toBe(200);
     const bid = await runWithTenant('CLT-0001', () => prisma.rfqBid.findFirst({ where: { rfqPk: rfq.pk, vendorId: vendor.vendorId } }));
     expect(bid).toBeTruthy();
+  });
+
+  // 2026-09-24: before ME43 embedded items, a discovered RFQ's quantity came
+  // from vendorRfqDetail's ORDERED_QUANTITY — always 0 for an RFQ, a
+  // goods-received field an RFQ has none of. Three real RFQs were stuck at
+  // quantity 0 in exactly this way until ME43 started supplying items. A
+  // later sweep, once ME43 does have items for that same still-open
+  // document, must correct the line already on the RFQ rather than leaving
+  // it stuck at whatever that earlier, poorer read recorded.
+  it('backfills a discovered RFQ\'s stale quantity once ME43 supplies a real one', async () => {
+    await seedVendor('CLT-0001', 'vendor_rfq_7', 'VENRFQ7');
+
+    // Seeds the "before" state directly: an RFQ this sweep already
+    // discovered earlier, its one line still carrying the 0 quantity that
+    // vendorRfqDetail's fallback would have reported before ME43 embedded
+    // items — the precondition under test, not the behaviour being tested.
+    const seeded = await runWithTenant('CLT-0001', () => prisma.rFQ.create({
+      data: {
+        id: 'RFQ-2026-900', clientId: 'CLT-0001', description: 'NEW MATERIAL SAGE TESTING',
+        status: 'Bidding Open', rfqType: 'AN', currency: 'INR', purchasingOrg: 'SSDN', companyCode: '1000',
+        sapDocNumber: '6000000920', sapSyncState: 'synced',
+        items: { create: [{ clientId: 'CLT-0001', line: 10, materialCode: 'MAT-9210', description: 'Flange 3" ANSI 150#', quantity: 0, uom: 'EA', plant: 'SSDN' }] },
+        invitedVendors: { create: [{ clientId: 'CLT-0001', vendorExtId: 'vendor_rfq_7', name: 'vendor_rfq_7 Pvt Ltd', status: 'Pending' }] },
+      },
+      include: { items: true },
+    }));
+    expect(Number(seeded.items[0].quantity)).toBe(0);
+
+    // A sweep where ME43 now supplies this still-open document's real
+    // quantity (20, discoveryRfq's default) corrects the existing line.
+    await runQuotationSweep('CLT-0001', { rfq: [discoveryRfq('6000000920')] });
+
+    const rfq = await runWithTenant('CLT-0001', () => prisma.rFQ.findFirst({
+      where: { sapDocNumber: '6000000920' }, include: { items: true },
+    }));
+    expect(Number(rfq.items[0].quantity)).toBe(20);
+    expect(rfq.items).toHaveLength(1); // corrected in place, not duplicated
   });
 });
