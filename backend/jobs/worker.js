@@ -217,7 +217,13 @@ const stop = () => {
   running = false;
 };
 
-module.exports = { processJob, tick, materialiseSchedules, run, stop, WORKER_ID, TICK_MS };
+// Issue #120: a suite that calls run() and forgets stop() leaves a live tick
+// loop contending with every later suite's writes for the same rows — exactly
+// the class of problem this file's own materialiseSchedules touches on every
+// operational tenant. tests/setup.js asserts this is false after every test.
+const isRunning = () => running;
+
+module.exports = { processJob, tick, materialiseSchedules, run, stop, isRunning, WORKER_ID, TICK_MS };
 
 // Entry point for `node jobs/worker.js` (the vendorconnect-jobs PM2 app).
 // Gated on JOBS_ENABLED, default false, so importing this module — in tests
