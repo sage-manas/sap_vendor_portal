@@ -29,12 +29,13 @@ const withQuotedRfq = {
 };
 
 const field = (label) => screen.getByLabelText(label, { exact: false });
+const unitPriceField = (line) => screen.getByLabelText(`Unit price (₹) for line ${line}`, { exact: false });
 
 const openQuotationTab = async (user) => {
   const tab = (await screen.findAllByRole('button', { name: /^Submit Quotation$/i }))
     .find((button) => button.getAttribute('type') !== 'submit');
   await user.click(tab);
-  await waitFor(() => expect(field('Unit price (₹)')).toBeInTheDocument(), { timeout: 4000 });
+  await waitFor(() => expect(screen.getByLabelText('Choose a request')).toBeInTheDocument(), { timeout: 4000 });
 };
 
 const renderRfqs = (api = withQuotedRfq) =>
@@ -57,7 +58,7 @@ describe('a supplier can see the price they already submitted', () => {
     await openQuotationTab(user);
     await user.selectOptions(screen.getByLabelText('Choose a request'), 'RFQ-2026-005');
 
-    await waitFor(() => expect(field('Unit price (₹)')).toHaveValue(1000));
+    await waitFor(() => expect(unitPriceField(10)).toHaveValue(1000));
     expect(field('Delivery lead time (days)')).toHaveValue(7);
   });
 });

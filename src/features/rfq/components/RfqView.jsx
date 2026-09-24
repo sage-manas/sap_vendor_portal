@@ -101,11 +101,16 @@ const SkeletonCard = () => (
 
 const getInitialQuoteForm = () => ({
   rfqId: '',
-  selectedLine: 10,
+  // Keyed by line number — every line on the chosen RFQ needs its own price
+  // before submitBid will accept the bid (rfq.controller.js: "Missing unit
+  // price for line N" for whichever line is left out). A single unitPrice
+  // field used to exist here, sent for whichever one line happened to be
+  // "selected" — which meant a multi-line RFQ could never actually be quoted
+  // through this form at all.
+  unitPrices: {},
   quoteRef: '',
   quoteDate: new Date().toISOString().split('T')[0],
   validityDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-  unitPrice: '',
   gstRate: '18%',
   discount: '0',
   deliveryLeadTime: '7',
@@ -294,11 +299,23 @@ export default function RfqView({
   const handleQuotationSubmit = async (e) => {
     if (e) e.preventDefault();
 
+    const selectedRfq = state.rfqs.find(r => r.id === quoteForm.rfqId);
+
     const errors = {};
     if (!quoteForm.rfqId) errors.rfqId = true;
     if (!quoteForm.quoteDate) errors.quoteDate = true;
     if (!quoteForm.validityDate) errors.validityDate = true;
-    if (!quoteForm.unitPrice || Number(quoteForm.unitPrice) <= 0) errors.unitPrice = true;
+    // submitBid refuses a bid missing a price for ANY of the RFQ's lines
+    // (rfq.controller.js) — checked per line here so the form can point at
+    // exactly which ones are missing, rather than one generic "unit price"
+    // flag that only ever meant one (arbitrary) line.
+    const unitPriceErrors = {};
+    (selectedRfq?.items || []).forEach((item) => {
+      if (!quoteForm.unitPrices[item.line] || Number(quoteForm.unitPrices[item.line]) <= 0) {
+        unitPriceErrors[item.line] = true;
+      }
+    });
+    if (Object.keys(unitPriceErrors).length > 0) errors.unitPrices = unitPriceErrors;
     if (!quoteForm.gstRate) errors.gstRate = true;
     if (!quoteForm.deliveryLeadTime || Number(quoteForm.deliveryLeadTime) <= 0) errors.deliveryLeadTime = true;
 
@@ -310,10 +327,11 @@ export default function RfqView({
 
     setIsLoading(true);
 
-    // Structure prices object mapping selected line number to unit price
-    const prices = {
-      [quoteForm.selectedLine]: Number(quoteForm.unitPrice)
-    };
+    // Every line on the RFQ, priced — not just whichever one was last
+    // selected.
+    const prices = Object.fromEntries(
+      selectedRfq.items.map((item) => [item.line, Number(quoteForm.unitPrices[item.line])])
+    );
 
     // Formulate comments/remarks
     const remarks = `Quote Ref: ${quoteForm.quoteRef || 'N/A'} | Discount: ${quoteForm.discount || '0'}% | Incoterms: ${quoteForm.incoterms}`;
@@ -892,17 +910,19 @@ export default function RfqView({
                           onChange={e => {
                             const selectedId = e.target.value;
                             const rfq = state.rfqs.find(r => r.id === selectedId);
-                            const line = rfq && rfq.items.length > 0 ? rfq.items[0].line : 10;
                             // A quotation already submitted for this RFQ shows
                             // its own numbers back rather than a blank form —
                             // the gap that left an earlier submission with
                             // nowhere to confirm it had gone in at all.
                             const ownBid = ownBidFor(rfq);
+                            const unitPrices = {};
+                            (rfq?.items || []).forEach((item) => {
+                              unitPrices[item.line] = ownBid ? String(ownBid.unitPrices?.[item.line] ?? '') : '';
+                            });
                             setQuoteForm({
                               ...quoteForm,
                               rfqId: selectedId,
-                              selectedLine: line,
-                              unitPrice: ownBid ? String(ownBid.unitPrices?.[line] ?? '') : '',
+                              unitPrices,
                               gstRate: ownBid?.gstRate || quoteForm.gstRate,
                               deliveryLeadTime: ownBid ? String(ownBid.deliveryLeadTimeDays ?? '') : quoteForm.deliveryLeadTime,
                               freight: ownBid ? String(ownBid.freight ?? '0') : quoteForm.freight,
@@ -910,7 +930,7 @@ export default function RfqView({
                                 ? new Date(ownBid.validityDate).toISOString().split('T')[0]
                                 : quoteForm.validityDate,
                             });
-                            if (quoteErrors.rfqId) setQuoteErrors(prev => ({ ...prev, rfqId: false }));
+                            setQuoteErrors(prev => ({ ...prev, rfqId: false, unitPrices: undefined }));
                           }}
                           className={`w-[25ch] max-w-full font-semibold ${
                             quoteErrors.rfqId ? 'border-rose-500' : ''
@@ -935,65 +955,65 @@ export default function RfqView({
                           </span>
                         </div>
 
-                        {/* Line Item selector if multiple items */}
-                        {selectedRfq.items.length > 1 && (
-                          <div className="flex flex-wrap items-center gap-2 py-1">
-                            <span className="text-[9px] font-bold text-text-tertiary uppercase tracking-wider mr-1">Select Line Item:</span>
-                            {selectedRfq.items.map(item => (
-                              <button
-                                key={item.line}
-                                type="button"
-                                onClick={() => {
-                                  // Switching lines re-pulls that line's own
-                                  // already-quoted price, same reasoning as
-                                  // the RFQ selector above — a per-line form
-                                  // showing the previous line's price under a
-                                  // different line's label would be worse
-                                  // than showing nothing.
-                                  const ownBid = ownBidFor(selectedRfq);
-                                  setQuoteForm({
-                                    ...quoteForm,
-                                    selectedLine: item.line,
-                                    unitPrice: ownBid ? String(ownBid.unitPrices?.[item.line] ?? '') : '',
-                                  });
-                                }}
-                                className={`px-3 py-1 text-xs font-mono font-bold rounded-md border transition-colors duration-150 cursor-pointer ${
-                                  Number(quoteForm.selectedLine) === item.line
-                                    ? 'bg-primary text-white border-primary'
-                                    : 'bg-surface text-text-secondary border-border hover:bg-surface2'
-                                }`}
-                              >
-                                Line {item.line}: {item.materialCode}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* Selected Item Info Card */}
-                        {(() => {
-                          const selectedItem = selectedRfq.items.find(item => item.line === Number(quoteForm.selectedLine)) || selectedRfq.items[0];
-                          if (!selectedItem) return null;
-                          return (
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-1 text-xs font-sans text-text-secondary">
-                              <div>
-                                <span className="text-[9px] text-text-tertiary block font-bold uppercase">Material Code</span>
-                                <span className="font-bold text-text-primary font-mono">{selectedItem.materialCode}</span>
-                              </div>
-                              <div>
-                                <span className="text-[9px] text-text-tertiary block font-bold uppercase">Description</span>
-                                <span className="font-bold text-text-primary truncate block max-w-[200px]">{selectedItem.description}</span>
-                              </div>
-                              <div>
-                                <span className="text-[9px] text-text-tertiary block font-bold uppercase">Required Quantity</span>
-                                <span className="font-bold text-text-primary font-mono tabular-nums">{selectedItem.quantity.toLocaleString()} {selectedItem.uom}</span>
-                              </div>
-                              <div>
-                                <span className="text-[9px] text-text-tertiary block font-bold uppercase">Target Price Reference</span>
-                                <span className="font-bold text-text-primary font-mono tabular-nums">₹{selectedItem.targetPrice?.toFixed(2)}</span>
-                              </div>
-                            </div>
-                          );
-                        })()}
+                        {/* Every line, priced together — submitBid refuses a
+                            bid that leaves any line unpriced, so a single
+                            "pick one line" selector could never actually
+                            quote a multi-line RFQ. */}
+                        <div className="border border-border rounded-md overflow-hidden">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr>
+                                <th className="text-[9px]">Line</th>
+                                <th className="text-[9px]">Material</th>
+                                <th className="text-[9px]">Description</th>
+                                <th className="text-[9px] text-right">Qty</th>
+                                <th className="text-[9px] text-right">Target price</th>
+                                <th className="text-[9px] text-right">Your unit price (₹) *</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {selectedRfq.items.map((item) => (
+                                <tr key={item.line}>
+                                  <td className="font-mono font-bold text-text-tertiary">{item.line}</td>
+                                  <td className="font-mono font-bold text-text-primary whitespace-nowrap">{item.materialCode}</td>
+                                  <td className="text-text-secondary truncate max-w-[200px]">{item.description}</td>
+                                  <td className="text-right font-mono tabular-nums text-text-secondary whitespace-nowrap">{item.quantity.toLocaleString()} {item.uom}</td>
+                                  <td className="text-right font-mono tabular-nums text-text-secondary whitespace-nowrap">
+                                    {item.targetPrice ? `₹${item.targetPrice.toFixed(2)}` : '—'}
+                                  </td>
+                                  <td className="text-right">
+                                    <input
+                                      type="number"
+                                      min="0.01"
+                                      step="0.01"
+                                      required
+                                      aria-label={`Unit price (₹) for line ${item.line}`}
+                                      aria-invalid={quoteErrors.unitPrices?.[item.line] ? true : undefined}
+                                      placeholder="0.00"
+                                      value={quoteForm.unitPrices[item.line] ?? ''}
+                                      onChange={e => {
+                                        setQuoteForm({
+                                          ...quoteForm,
+                                          unitPrices: { ...quoteForm.unitPrices, [item.line]: e.target.value },
+                                        });
+                                        if (quoteErrors.unitPrices?.[item.line]) {
+                                          setQuoteErrors(prev => {
+                                            const rest = { ...prev.unitPrices };
+                                            delete rest[item.line];
+                                            return { ...prev, unitPrices: Object.keys(rest).length ? rest : undefined };
+                                          });
+                                        }
+                                      }}
+                                      className={`w-[12ch] text-right font-mono font-semibold ${
+                                        quoteErrors.unitPrices?.[item.line] ? 'border-rose-500' : ''
+                                      }`}
+                                    />
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1054,29 +1074,10 @@ export default function RfqView({
               </FormSection>
 
 
-              {/* 2. LINE ITEM PRICING */}
-              <FormSection number="02" title="Line item pricing">
+              {/* 2. GST & DISCOUNT — per-line unit price is entered in the
+                  line item table above; these apply to the whole quotation. */}
+              <FormSection number="02" title="GST & discount">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4">
-                  <EnterpriseFieldCard
-                    label="Unit price (₹)"
-                    required
-                    error={quoteErrors.unitPrice}
-                  >
-                    <input
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      required
-                      placeholder="0.00"
-                      value={quoteForm.unitPrice}
-                      onChange={e => {
-                        setQuoteForm({ ...quoteForm, unitPrice: e.target.value });
-                        if (quoteErrors.unitPrice) setQuoteErrors(prev => ({ ...prev, unitPrice: false }));
-                      }}
-                      className="w-[13ch] max-w-full font-mono font-semibold"
-                    />
-                  </EnterpriseFieldCard>
-
                   <EnterpriseFieldCard
                     label="GST rate (%)"
                     required

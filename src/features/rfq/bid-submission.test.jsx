@@ -41,19 +41,22 @@ const withRfq = {
 // algorithm.
 const field = (label) => screen.getByLabelText(label, { exact: false });
 
+// Every line has its own price input now (submitBid refuses a bid missing
+// any line's price), labelled per line rather than one shared "Unit price"
+// field — see the RfqView table in the Submit Quotation tab.
+const unitPriceField = (line) => screen.getByLabelText(`Unit price (₹) for line ${line}`, { exact: false });
+
 // The tab shows a skeleton for a deliberate 800ms before the form appears
-// (the tabLoading effect in RfqView), so this waits for a field rather than
-// for the click.
+// (the tabLoading effect in RfqView), so this waits for the RFQ picker
+// rather than for the click — the per-line price fields do not exist until
+// an RFQ is chosen.
 const openQuotationTab = async (user) => {
   // The tab bar button and the form's submit button carry the same label, so
   // the tab is the one that is not a submit control.
   const tab = (await screen.findAllByRole('button', { name: /^Submit Quotation$/i }))
     .find((button) => button.getAttribute('type') !== 'submit');
   await user.click(tab);
-  // The tab shows a skeleton for a deliberate 800ms before the form appears
-  // (RfqView's tabLoading effect), so wait for a field rather than the click.
-  await waitFor(() => expect(field('Unit price (₹)')).toBeInTheDocument(),
-    { timeout: 4000 });
+  await waitFor(() => expect(rfqSelect()).toBeInTheDocument(), { timeout: 4000 });
 };
 
 const submitForm = (user) => user.click(
@@ -68,8 +71,9 @@ const rfqSelect = () => screen.getByLabelText('Choose a request');
 // Everything the form marks required, filled the way a supplier would.
 const fillQuote = async (user) => {
   await user.selectOptions(rfqSelect(), 'RFQ-2026-001');
-  await user.clear(field('Unit price (₹)'));
-  await user.type(field('Unit price (₹)'), '11.5');
+  await waitFor(() => expect(unitPriceField(10)).toBeInTheDocument());
+  await user.clear(unitPriceField(10));
+  await user.type(unitPriceField(10), '11.5');
   await user.clear(field('Delivery lead time (days)'));
   await user.type(field('Delivery lead time (days)'), '5');
   await user.clear(field('Validity date'));
@@ -102,8 +106,8 @@ describe('submitting a quotation', () => {
     await openQuotationTab(user);
 
     await fillQuote(user);
-    await user.clear(field('Unit price (₹)'));
-    await user.type(field('Unit price (₹)'), '0');
+    await user.clear(unitPriceField(10));
+    await user.type(unitPriceField(10), '0');
     await submitForm(user);
 
     // Two rules agree here and the first one wins: the input declares
@@ -111,8 +115,8 @@ describe('submitting a quotation', () => {
     // `Number(unitPrice) <= 0` check. What matters either way is that nothing
     // was sent — asserted on the constraint and on the wire, because dropping
     // the attribute would quietly move the refusal to the (untested) handler.
-    expect(field('Unit price (₹)')).toBeInvalid();
-    expect(field('Unit price (₹)')).toHaveAttribute('min', '0.01');
+    expect(unitPriceField(10)).toBeInvalid();
+    expect(unitPriceField(10)).toHaveAttribute('min', '0.01');
     await waitFor(() => expect(apiMock.callsTo('POST', '/rfqs/RFQ-2026-001/bid')).toHaveLength(0));
   });
 
@@ -165,6 +169,6 @@ describe('submitting a quotation', () => {
     // A rejected submission must not clear the form: re-entering a whole quote
     // because the server said no is the difference between a retry and a
     // re-key.
-    await waitFor(() => expect(field('Unit price (₹)')).toHaveValue(11.5));
+    await waitFor(() => expect(unitPriceField(10)).toHaveValue(11.5));
   });
 });
