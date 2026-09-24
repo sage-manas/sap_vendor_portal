@@ -6,13 +6,29 @@ import { X } from 'lucide-react';
 export default function Modal({ open, onClose, title, children, footer, className = '' }) {
   const panelRef = useRef(null);
 
+  // Focusing the panel belongs to the open/close transition alone — it must
+  // not re-run on every render while the modal stays open. `onClose` is
+  // typically a fresh inline arrow function from the caller on every one of
+  // its own renders (RfqView's closePriceUpdate is one), so a single effect
+  // keyed on `[open, onClose]` used to steal focus back to the panel after
+  // every keystroke in a field inside the modal — the caller re-renders on
+  // its own state change, `onClose`'s reference changes, the effect reruns,
+  // and whatever the person was typing into loses focus mid-word. Split in
+  // two: this one depends on `open` only, so it fires once per open.
+  useEffect(() => {
+    if (open) panelRef.current?.focus();
+  }, [open]);
+
+  // The escape-key listener does need the current `onClose` in its closure,
+  // but re-registering a `keydown` listener on every render has no visible
+  // side effect the way re-focusing the panel does — safe to keep this one
+  // on the wider dependency array.
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (e) => {
       if (e.key === 'Escape') onClose?.();
     };
     document.addEventListener('keydown', onKeyDown);
-    panelRef.current?.focus();
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [open, onClose]);
 
