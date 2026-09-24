@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { poService } from '@/features/purchase-order/services/poService';
 import { useWorkspaceSession } from '@/lib/workspace-session';
 import { PageHeader, Notice, Status, Table, Loading, useResource, formatDate } from '@/components/console/primitives';
+import { hasPendingInvoicePlanChange } from '@/features/purchase-order/poKind';
 
 // Every purchase order this workspace has raised, across every supplier —
 // the buyer/finance/client_admin view of what suppliers/[id]'s "Recent
@@ -57,6 +58,19 @@ export default function WorkspacePurchaseOrdersPage() {
             { key: 'lines', header: 'Lines', render: (row) => (row.items || []).length },
             { key: 'value', header: 'Value', render: (row) => <span className="mono">{money(orderValue(row), row.currency)}</span> },
             { key: 'status', header: 'Status', render: (row) => <Status value={row.status} /> },
+            // A supplier's proposed invoicing-plan change (approved/rejected
+            // on the order's own detail page) was previously invisible from
+            // here — nothing on this list said one was waiting, so
+            // client_admin had no way to find it without already knowing
+            // which order to open. Gated the same way the detail page's own
+            // approve/reject controls are: po:manage.
+            ...(can('po:manage') ? [{
+              key: 'invoicePlan',
+              header: 'Invoice Plan',
+              render: (row) => (hasPendingInvoicePlanChange(row)
+                ? <span className="status-badge status-badge-warn">Change Pending</span>
+                : null),
+            }] : []),
             { key: 'createdDate', header: 'Raised', render: (row) => <span className="mono text-[11px]">{formatDate(row.createdDate)}</span> },
           ]}
           rows={pos.map((po) => ({ ...po, key: po.id }))}
