@@ -2,6 +2,7 @@ const {
   resolveTestDatabaseUrl,
   assertSafeToWipe,
   withTestSuffix,
+  withStatementTimeout,
 } = require('../config/testDatabase');
 
 // Issue #107. Both test runners delete every row and rewrite tenant SAP
@@ -17,14 +18,31 @@ const DEV = 'postgresql://user:pw@localhost:5432/sap_vendor_portal?schema=public
 
 describe('resolveTestDatabaseUrl', () => {
   it('derives a _test database from the development URL', () => {
-    expect(resolveTestDatabaseUrl({ DATABASE_URL: DEV }))
-      .toBe('postgresql://user:pw@localhost:5432/sap_vendor_portal_test?schema=public');
+    const resolved = new URL(resolveTestDatabaseUrl({ DATABASE_URL: DEV }));
+    expect(resolved.pathname).toBe('/sap_vendor_portal_test');
+    expect(resolved.searchParams.get('schema')).toBe('public');
   });
 
-  it('prefers an explicit TEST_DATABASE_URL over deriving one', () => {
+  it('prefers an explicit TEST_DATABASE_URL over deriving one, still bounded by a statement timeout', () => {
     const explicit = 'postgresql://user:pw@db:5432/somewhere_else_test';
-    expect(resolveTestDatabaseUrl({ DATABASE_URL: DEV, TEST_DATABASE_URL: explicit }))
-      .toBe(explicit);
+    const resolved = new URL(resolveTestDatabaseUrl({ DATABASE_URL: DEV, TEST_DATABASE_URL: explicit }));
+    expect(resolved.pathname).toBe('/somewhere_else_test');
+    expect(resolved.host).toBe('db:5432');
+  });
+
+  // Issue #120. A blocked write used to surface as Jest's own bare "Exceeded
+  // timeout of 30000 ms", which says nothing about what it was waiting on.
+  // Every resolved test URL carries a Postgres-side statement_timeout well
+  // under that, so a genuine block fails with a named Postgres error (57014)
+  // instead — verified end to end in tests/statement-timeout.test.js.
+  it('bounds every resolved URL with a statement timeout', () => {
+    const resolved = new URL(resolveTestDatabaseUrl({ DATABASE_URL: DEV }));
+    expect(resolved.searchParams.get('options')).toMatch(/statement_timeout=\d+/);
+  });
+
+  it('does not override an explicit statement_timeout already set via options=', () => {
+    const url = withStatementTimeout('postgresql://u:p@host:5432/db?options=-c%20statement_timeout%3D5000', 15000);
+    expect(new URL(url).searchParams.get('options')).toBe('-c statement_timeout=5000');
   });
 
   it('leaves a URL that already names a test database alone', () => {

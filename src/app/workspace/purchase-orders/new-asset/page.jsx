@@ -4,6 +4,7 @@ import React from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api-client';
 import { poService } from '@/features/purchase-order/services/poService';
+import { useWorkspaceSession } from '@/lib/workspace-session';
 import { PageHeader, Notice, Field, Loading, useResource } from '@/components/console/primitives';
 
 // Raise an asset purchase order (account assignment category A) in SAP.
@@ -58,6 +59,7 @@ const lineValue = (line) => {
 
 export default function NewAssetPoPage() {
   const router = useRouter();
+  const { can } = useWorkspaceSession();
 
   // Only approved suppliers can be named on an order, and only ones SAP has a
   // master record for — the backend enforces both, but offering an ineligible
@@ -81,6 +83,7 @@ export default function NewAssetPoPage() {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
   const [created, setCreated] = React.useState(null);
+  const [outcomeUnknown, setOutcomeUnknown] = React.useState(false);
 
   const setField = (name) => (event) => setHeader((prev) => ({ ...prev, [name]: event.target.value }));
   const setLine = (index, name) => (event) => setLines((prev) =>
@@ -114,13 +117,67 @@ export default function NewAssetPoPage() {
       });
       setCreated(res.po);
     } catch (err) {
-      setError(err?.message || 'The order was not created in SAP.');
+      // Issue #119. A connection dropped before the response arrived does not
+      // mean SAP never got the request — it may have created the order and
+      // only the answer was lost. That is a different, more dangerous fact
+      // than "SAP rejected this", so it gets its own screen rather than the
+      // ordinary error banner: showing the form again invites a duplicate,
+      // irreversible order.
+      if (err?.offline) {
+        setOutcomeUnknown(true);
+      } else {
+        setError(err?.message || 'The order was not created in SAP.');
+      }
     } finally {
       setBusy(false);
     }
   };
 
   // Once SAP has the order there is nothing more to do here, and re-submitting
+  // Issue #117. Raising capex is the buying organisation's decision — a
+  // supplier must never reach this door, and neither should finance, who
+  // holds po:read but not po:manage. The list page already hides the button
+  // that links here, but a typed or bookmarked URL bypassed that; this form
+  // in particular is worth refusing outright rather than letting someone
+  // fill it in and learn only on submit that it was never theirs to send —
+  // the whole point of the warning banner below is that submitting is
+  // irreversible, and discovering a 403 after typing an asset number from
+  // AS03 is a worse way to learn "you can't do this" than seeing it first.
+  if (!can('po:manage')) {
+    return (
+      <>
+        <PageHeader title="New asset purchase order" />
+        <Notice tone="error">
+          Raising an asset purchase order is a decision for the buying organisation. Your role
+          does not hold that permission.
+        </Notice>
+      </>
+    );
+  }
+
+  // Issue #119. The connection dropped before SAP's response arrived — the
+  // order may or may not exist. Replacing the form (rather than an inline
+  // banner with the button still live) is deliberate: it stops a reflex
+  // resubmit from creating a second, real order on top of one that may have
+  // already gone through.
+  if (outcomeUnknown) {
+    return (
+      <>
+        <PageHeader title="Could not confirm the outcome" />
+        <Notice tone="warn">
+          The connection dropped before SAP answered — this order may or may not have been
+          created. Check ME23N (or the purchase-orders list once it appears) before submitting
+          again: if it did go through, submitting a second time creates a duplicate order that
+          the portal cannot reverse.
+        </Notice>
+        <button type="button" className="btn btn-o h-9 mt-4"
+          onClick={() => router.push('/workspace/purchase-orders')}>
+          Back to purchase orders
+        </button>
+      </>
+    );
+  }
+
   // the same form would create a second one — so the form is replaced outright
   // rather than left on screen with a success message above it.
   if (created) {

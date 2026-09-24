@@ -22,39 +22,52 @@ export const apiClient = {
       headers,
     };
 
+    // GET is the only method this app has ever treated as safe to silently
+    // no-op on a network failure. A POST/PUT/PATCH/DELETE whose response
+    // never arrived is NOT known to have failed — the request may already
+    // have reached the server (issue #119) — so it must never collapse into
+    // the same `null` a harmless failed read produces.
+    const isRead = (options.method || 'GET').toUpperCase() === 'GET';
+
+    let response;
     try {
-      const response = await fetch(`${BASE_URL}${endpoint}`, config);
-      if (!response.ok) {
-        if (response.status === 401 && typeof window !== 'undefined') {
-          localStorage.removeItem('jwt_token');
-          localStorage.removeItem('clerk_user_id');
-          localStorage.removeItem('sap_vendor_profile_data');
-          // Never redirect out of the platform console: it authenticates
-          // through platform-client.js and does not hold a supplier token.
-          if (!isAuthPath(window.location.pathname) && !isPlatformPath(window.location.pathname)) {
-            window.location.href = '/sign-in';
-          }
-        }
-        const errorData = await response.json().catch(() => ({}));
-        const error = new Error(errorData.error || `Request failed with status ${response.status}`);
-        // The API answers a validation failure with a { field: message } map;
-        // carrying it on the error is what lets a form point at the field
-        // rather than only showing the summary line.
-        error.status = response.status;
-        error.errors = errorData.errors;
-        error.reason = errorData.reason;
-        throw error;
-      }
-      
-      if (response.status === 204) return null;
-      return response.json();
+      response = await fetch(`${BASE_URL}${endpoint}`, config);
     } catch (err) {
-      if (err.name === 'TypeError' || err.message === 'Failed to fetch') {
+      // A genuine fetch rejection: DNS failure, connection refused, offline.
+      // The request never reached the server at all.
+      if (isRead) {
         console.warn(`[apiClient] Network connectivity error on ${endpoint}`);
         return null;
       }
+      console.warn(`[apiClient] Network connectivity error on ${endpoint} — outcome unknown`);
+      err.offline = true;
       throw err;
     }
+
+    if (!response.ok) {
+      if (response.status === 401 && typeof window !== 'undefined') {
+        localStorage.removeItem('jwt_token');
+        localStorage.removeItem('clerk_user_id');
+        localStorage.removeItem('sap_vendor_profile_data');
+        // Never redirect out of the platform console: it authenticates
+        // through platform-client.js and does not hold a supplier token.
+        if (!isAuthPath(window.location.pathname) && !isPlatformPath(window.location.pathname)) {
+          window.location.href = '/sign-in';
+        }
+      }
+      const errorData = await response.json().catch(() => ({}));
+      const error = new Error(errorData.error || `Request failed with status ${response.status}`);
+      // The API answers a validation failure with a { field: message } map;
+      // carrying it on the error is what lets a form point at the field
+      // rather than only showing the summary line.
+      error.status = response.status;
+      error.errors = errorData.errors;
+      error.reason = errorData.reason;
+      throw error;
+    }
+
+    if (response.status === 204) return null;
+    return response.json();
   },
 
   get(endpoint, headers = {}) {

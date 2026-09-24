@@ -3,6 +3,7 @@
 import React from 'react';
 import { useRouter } from 'next/navigation';
 import { poService } from '@/features/purchase-order/services/poService';
+import { useWorkspaceSession } from '@/lib/workspace-session';
 import { PageHeader, Notice, Status, Table, Loading, useResource, formatDate } from '@/components/console/primitives';
 
 // Every purchase order this workspace has raised, across every supplier —
@@ -24,16 +25,25 @@ const orderValue = (po) => (po.items || []).reduce((sum, item) => sum + Number(i
 
 export default function WorkspacePurchaseOrdersPage() {
   const router = useRouter();
+  const { can } = useWorkspaceSession();
   const { data, error, loading } = useResource(() => poService.getPOs({ limit: 200 }));
   const pos = data?.pos || [];
 
   return (
     <>
       <PageHeader title="Purchase Orders" caption="Every order SAP holds for this workspace's suppliers">
-        <button type="button" className="btn btn-v h-9"
-          onClick={() => router.push('/workspace/purchase-orders/new-asset')}>
-          New asset PO
-        </button>
+        {/* Issue #117: raising capex is the buying organisation's call, and
+            finance does not hold po:manage — the button used to render for
+            them anyway, so the only place they learned that was a 403 after
+            filling in the whole form. Same can() gating every other
+            workspace action button already uses (e.g. users/page.jsx's
+            Invite button on user:invite). */}
+        {can('po:manage') && (
+          <button type="button" className="btn btn-v h-9"
+            onClick={() => router.push('/workspace/purchase-orders/new-asset')}>
+            New asset PO
+          </button>
+        )}
       </PageHeader>
       <Notice tone="error">{error}</Notice>
 

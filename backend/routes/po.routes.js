@@ -18,13 +18,15 @@ const {
 } = require('../controllers/po.controller');
 
 const validate = require('../middleware/validate');
+const validateQuery = require('../middleware/validateQuery');
 const { requirePermission } = require('../middleware/auth');
 const { PERMISSIONS } = require('../config/permissions');
 const { asnCreateSchema } = require('../validators/asn.validator');
 const { invoicePlanSchema, invoicePlanLineBlockSchema, rejectInvoicePlanChangeSchema } = require('../validators/invoicePlan.validator');
 const { assetPoSchema } = require('../validators/assetPo.validator');
+const { paginationSchema } = require('../validators/pagination.validator');
 
-router.get('/', requirePermission(PERMISSIONS.PO_READ), getPOs);
+router.get('/', requirePermission(PERMISSIONS.PO_READ), validateQuery(paginationSchema), getPOs);
 // Must come before ':id' — 'sap-status' would otherwise be swallowed as a PO id.
 router.get('/sap-status', requirePermission(PERMISSIONS.PO_READ), getSapPoStatus);
 // The one endpoint in this application that creates a document in SAP
