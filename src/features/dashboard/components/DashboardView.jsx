@@ -200,17 +200,6 @@ export default function DashboardView({ state, setActiveTab }) {
       iconColor: 'text-red-700 bg-red-50 border-red-200'
     });
   }
-  if (toShip.length > 0) {
-    alerts.push({
-      type: 'ship',
-      title: `${plural(toShip.length, 'acknowledged order')} ready to ship (${listIds(toShip, po => po.id)})`,
-      desc: 'Send the shipment notice when goods leave your dock, so the goods receipt can be matched.',
-      actionText: 'Send shipment',
-      tab: 'pos',
-      icon: ShoppingBag,
-      iconColor: 'text-blue-700 bg-blue-50 border-blue-200'
-    });
-  }
   if (openRfqs.length > 0) {
     alerts.push({
       type: 'rfq',
@@ -395,7 +384,6 @@ export default function DashboardView({ state, setActiveTab }) {
           <div className="flex flex-wrap items-stretch gap-2 border-t border-border pt-4 lg:border-t-0 lg:pt-0">
             {[
               { label: 'View Invoices', tab: 'invoices', icon: Receipt },
-              { label: 'Send shipment', tab: 'pos', icon: ShoppingBag },
               { label: 'View RFQs', tab: 'rfqs', icon: FileText },
               { label: 'Statement', tab: 'payments', icon: CreditCard },
               { label: 'TDS Certificates', tab: 'payments', icon: FileCheck }

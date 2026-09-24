@@ -4,6 +4,7 @@ import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Building2, KeyRound, User, ArrowRight, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { forgetWhoami } from '@/lib/whoami';
 
 // Where an invited colleague or supplier lands from their email. The backend
 // decides which of the two they are: `POST /auth/invitations/accept` creates the
@@ -93,6 +94,7 @@ function AcceptInvitationForm() {
       }
 
       localStorage.setItem('jwt_token', data.token);
+      forgetWhoami();
       setDone('Account created. Taking you to your workspace…');
       setTimeout(() => router.push('/workspace'), 1200);
     } catch (err) {

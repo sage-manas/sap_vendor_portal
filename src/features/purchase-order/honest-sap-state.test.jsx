@@ -165,7 +165,7 @@ describe('when the SAP cross-check cannot be reached', () => {
     // Nothing here addresses a PurchaseOrder row, because there isn't one.
     expect(screen.getByText(/Read-only — not recorded in this portal yet/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Acknowledge Purchase Order/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /2\. Send shipment/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /2. Delivery status/i })).not.toBeInTheDocument();
   });
 
   // The orders list is one table now, not a "Portal Orders"/"All SAP Orders"

@@ -16,6 +16,7 @@ const {
   billablePlanLines,
   hasInvoicePlan,
   InvoicePlanError,
+  assertDatesOnlyChange,
 } = require('../services/invoicePlan.service');
 const { PO_INCLUDE, formatPlan, formatPo, persistInvoicePlan, disableInvoicePlan, syncPoStatus } = require('../db/poHelpers');
 const { createWithUniqueId } = require('../utils/createWithUniqueId');
@@ -791,6 +792,8 @@ const proposeInvoicePlanChange = asyncHandler(async (req, res, next) => {
   // plan looks like by then) when a buyer approves it. See applyInvoicePlan's
   // header and the InvoicePlan.pendingChange comment in schema.prisma.
   try {
+    // A supplier moves dates on the plan that exists; it is not theirs to restructure.
+    assertDatesOnlyChange(req.body, existingPlan);
     buildPlan(req.body, { item, currency: po.currency || 'INR', existingPlan });
   } catch (error) {
     if (error instanceof InvoicePlanError) return next(ApiError.badRequest(error.message));

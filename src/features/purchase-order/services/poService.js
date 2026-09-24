@@ -27,10 +27,6 @@ export const poService = {
     return apiClient.post('/pos/asset', payload);
   },
 
-  async submitASN(poId, asnData) {
-    return apiClient.post(`/pos/${poId}/asn`, asnData);
-  },
-
   async getASNs() {
     return apiClient.get('/asns').catch(() => null);
   },

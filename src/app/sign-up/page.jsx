@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Building2, KeyRound, Mail, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
 import WorkspaceBrand from '@/components/portal/WorkspaceBrand';
 import { useWorkspaceRealm } from '@/lib/workspace-realm';
+import { forgetWhoami } from '@/lib/whoami';
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -69,6 +70,7 @@ export default function SignUpPage() {
 
       // Save credentials and token
       localStorage.setItem('jwt_token', data.token);
+      forgetWhoami();
       localStorage.setItem('clerk_user_id', data.vendor.vendorId);
       localStorage.setItem('sap_vendor_profile_data', JSON.stringify(data.vendor));
 

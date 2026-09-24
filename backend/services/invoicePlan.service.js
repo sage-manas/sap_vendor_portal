@@ -292,6 +292,48 @@ const buildPlan = (input, { item, currency = 'INR', existingPlan = null } = {}) 
   };
 };
 
+/**
+ * A supplier may move the dates of a plan that already exists — nothing else.
+ * Throws InvoicePlanError unless `input` is the live plan with only settlement
+ * dates (or, for a periodic plan, its start/end) changed: same type, same
+ * instalments, descriptions, percentages, frequency and amount. Instalments
+ * already invoiced keep their date.
+ */
+const assertDatesOnlyChange = (input, existingPlan) => {
+  if (!existingPlan?.enabled) {
+    throw new InvoicePlanError('There is no invoicing plan on this line to change the dates of');
+  }
+  if (input.type !== existingPlan.type) {
+    throw new InvoicePlanError('Only the dates of the invoicing plan can be changed — the plan type must stay the same');
+  }
+  const sameNumber = (a, b) => Math.abs(Number(a) - Number(b)) < 0.005;
+  const sameDay = (a, b) => new Date(a).toISOString().slice(0, 10) === new Date(b).toISOString().slice(0, 10);
+
+  if (existingPlan.type === 'Periodic') {
+    const sameRule = (input.invoicingRule || 'Arrears') === (existingPlan.invoicingRule || 'Arrears');
+    const sameAmount = input.periodicAmount == null || sameNumber(input.periodicAmount, existingPlan.periodicAmount);
+    if (input.frequency !== existingPlan.frequency || !sameRule || !sameAmount) {
+      throw new InvoicePlanError('Only the dates of the invoicing plan can be changed — frequency, invoicing rule and amount must stay the same');
+    }
+    return;
+  }
+
+  const lines = [...(existingPlan.lines || [])].sort((a, b) => a.lineNumber - b.lineNumber);
+  const milestones = input.milestones || [];
+  if (milestones.length !== lines.length) {
+    throw new InvoicePlanError('Only the dates of the invoicing plan can be changed — instalments cannot be added or removed');
+  }
+  milestones.forEach((milestone, i) => {
+    const line = lines[i];
+    if (!sameNumber(milestone.percentage, line.percentage) || (milestone.description || '') !== (line.description || '')) {
+      throw new InvoicePlanError(`Only the dates of the invoicing plan can be changed — instalment ${i + 1}'s description and percentage must stay the same`);
+    }
+    if (line.invoiceId && !sameDay(milestone.settlementDate, line.settlementDate)) {
+      throw new InvoicePlanError(`Instalment ${i + 1} has already been invoiced, so its date cannot be changed`);
+    }
+  });
+};
+
 /** True when this line may be invoiced right now. */
 const isLineDue = (line, asOf = new Date()) =>
   line.status === LINE_OPEN && !line.blocked && new Date(line.settlementDate) <= asOf;
@@ -367,6 +409,7 @@ module.exports = {
   generatePeriodicLines,
   buildPartialLines,
   buildPlan,
+  assertDatesOnlyChange,
   isLineDue,
   summarizePlan,
   billablePlanLines,
