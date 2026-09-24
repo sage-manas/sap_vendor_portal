@@ -16,6 +16,12 @@ import { ACCOUNTS, api, ok, tokenFor, signIn, signOut, createTender } from './he
 // the field is announced with a name.
 const quoteField = (page, label) => page.getByLabel(label);
 
+// Every line on the chosen RFQ has its own price field, labelled per line
+// (RfqView.jsx) rather than one shared "Unit price" field — submitBid
+// refuses a bid missing any line's price, so a single shared field could
+// never actually quote a multi-line RFQ. createTender's own tender is
+// always one line, line 10 (e2e/helpers.mjs), so this test only ever needs
+// that one price field.
 const submitQuote = async (page, rfqId, { unitPrice, leadTimeDays }) => {
   // The tab and the form's submit button share a label; the tab is the one
   // that is not a submit control.
@@ -23,10 +29,11 @@ const submitQuote = async (page, rfqId, { unitPrice, leadTimeDays }) => {
     .and(page.locator('button:not([type="submit"])')).click();
 
   // The tab shows a skeleton for a deliberate 800ms before the form appears.
-  await expect(quoteField(page, 'Unit price (₹)')).toBeVisible();
+  await expect(page.getByLabel('Choose a request')).toBeVisible();
 
   await page.getByLabel('Choose a request').selectOption(rfqId);
-  await quoteField(page, 'Unit price (₹)').fill(String(unitPrice));
+  await expect(quoteField(page, 'Unit price (₹) for line 10')).toBeVisible();
+  await quoteField(page, 'Unit price (₹) for line 10').fill(String(unitPrice));
   await quoteField(page, 'Delivery lead time (days)').fill(String(leadTimeDays));
   await quoteField(page, 'Validity date').fill('2099-06-30');
 
