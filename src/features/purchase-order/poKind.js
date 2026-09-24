@@ -116,6 +116,22 @@ export const lineHasInvoicePlan = (item) =>
 /** Whether any line of this order is invoice-planned. */
 export const hasInvoicePlan = (po) => (po?.items || []).some(lineHasInvoicePlan);
 
+/**
+ * Whether a supplier has proposed an invoicing-plan change on this order that
+ * the buying organisation has not yet approved or rejected
+ * (InvoicePlan.pendingChange — set by po.controller.js's
+ * proposeInvoicePlanChange, cleared by approveInvoicePlanChange/
+ * rejectInvoicePlanChange).
+ *
+ * The approve/reject action itself already lives in InvoicePlanPanel, but
+ * that panel only renders once someone opens this specific order's invoice
+ * plan tab — nothing on the PO list said a proposal was sitting there
+ * waiting, so a client_admin had no way to know to look without already
+ * knowing which order to check.
+ */
+export const hasPendingInvoicePlanChange = (po) =>
+  (po?.items || []).some((item) => Boolean(item?.invoicePlan?.pendingChange));
+
 /** The SAP plan numbers on this order, for display. Empty when none. */
 export const invoicePlanNumbers = (po) => [...new Set(
   (po?.items || [])

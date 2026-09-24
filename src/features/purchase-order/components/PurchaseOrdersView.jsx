@@ -17,7 +17,7 @@ import KPICard from '@/components/ui/KPICard';
 import Modal from '@/components/ui/Modal';
 import { poStatusVariant } from '@/lib/statusColors';
 import { describeSyncState } from '@/lib/syncState';
-import { poKind, lineKind, kindTone, lineHasInvoicePlan, hasInvoicePlan as poHasInvoicePlan, invoicePlanNumbers } from '@/features/purchase-order/poKind';
+import { poKind, lineKind, kindTone, lineHasInvoicePlan, hasInvoicePlan as poHasInvoicePlan, hasPendingInvoicePlanChange, invoicePlanNumbers } from '@/features/purchase-order/poKind';
 import { useWhoami } from '@/lib/whoami';
 import InvoicePlanPanel from './InvoicePlanPanel';
 
@@ -898,6 +898,17 @@ export default function PurchaseOrdersView({
                                       <CalendarClock
                                         className="size-3 text-teal-500"
                                         title="Invoiced against an invoicing plan, not on goods receipt"
+                                      />
+                                    )}
+                                    {/* The one signal on this list that a
+                                        supplier's proposed plan change is
+                                        sitting unapproved — without it, the
+                                        only way to find one was to already
+                                        know which order to open. */}
+                                    {canManagePlans && hasPendingInvoicePlanChange(po) && (
+                                      <Clock
+                                        className="size-3 text-amber-500 animate-pulse"
+                                        title="A supplier has proposed an invoicing-plan change here, awaiting your approval"
                                       />
                                     )}
                                   </span>
