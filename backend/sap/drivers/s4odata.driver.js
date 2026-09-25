@@ -313,7 +313,11 @@ const bulkWriteFailure = (json, matches) => {
   const isError = (row) => String(row?.TYPE || '').toUpperCase() !== 'S';
 
   if (String(json.TYPE || '').toUpperCase() !== 'S') {
-    return { failed: true, message: json.MESSAGE || results.find(isError)?.MESSAGE, results };
+    // The envelope's MESSAGE is generic ("upload failed for one or more POs");
+    // the row's MESSAGE is the actual SAP reason, so surface both.
+    const rowMessage = (results.find(matches ? (row) => isError(row) && matches(row) : isError) || results.find(isError))?.MESSAGE;
+    const message = [json.MESSAGE, rowMessage].filter((part, i, all) => part && all.indexOf(part) === i).join(' — ');
+    return { failed: true, message: message || undefined, results };
   }
 
   const ours = matches ? results.filter(matches) : [];

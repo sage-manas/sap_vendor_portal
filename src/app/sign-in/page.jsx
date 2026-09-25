@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Building2, KeyRound, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
 import WorkspaceBrand from '@/components/portal/WorkspaceBrand';
 import { useWorkspaceRealm } from '@/lib/workspace-realm';
+import { forgetWhoami } from '@/lib/whoami';
 
 export default function SignInPage() {
   const router = useRouter();
@@ -54,6 +55,7 @@ export default function SignInPage() {
       // `user`, not `vendor` — only a supplier login carries a vendor profile
       // to cache, and only a supplier belongs on the supplier portal home.
       localStorage.setItem('jwt_token', data.token);
+      forgetWhoami();
 
       if (data.vendor) {
         localStorage.setItem('clerk_user_id', data.vendor.vendorId);

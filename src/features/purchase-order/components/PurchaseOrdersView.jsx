@@ -1830,6 +1830,17 @@ export default function PurchaseOrdersView({
                           </div>
                         );
                       }
+                      if (['Delivered', 'Invoiced', 'Paid'].includes(activePo.status)) {
+                        return (
+                          <div className="card p-6 text-center">
+                            <Truck className="size-8 text-text-tertiary mx-auto mb-2" />
+                            <p className="text-xs font-bold text-text-primary">Goods received — receipt details not synced yet</p>
+                            <p className="text-xs text-text-secondary mt-1">
+                              Your buyer has received this order in SAP. The delivery receipt will appear here once it has synced.
+                            </p>
+                          </div>
+                        );
+                      }
                       return (
                         <div className="card p-6 text-center">
                           <AlertTriangle className="size-8 text-text-tertiary mx-auto mb-2" />

@@ -94,6 +94,8 @@ function Stat({ label, value, hint, accent = '' }) {
 function ConfigureDialog({ po, item, existingPlan, mode = 'manage', onClose, onSaved }) {
   const isPeriodic = (existingPlan?.type || 'Periodic') === 'Periodic';
   const [type, setType] = useState(existingPlan?.type || 'Periodic');
+  // A supplier's proposal moves dates on the plan that exists and nothing else.
+  const datesOnly = mode === 'propose';
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -109,7 +111,7 @@ function ConfigureDialog({ po, item, existingPlan, mode = 'manage', onClose, onS
 
   const [milestones, setMilestones] = useState(
     !isPeriodic && existingPlan?.lines?.length
-      ? existingPlan.lines.map((line) => ({
+      ? [...existingPlan.lines].sort((a, b) => a.lineNumber - b.lineNumber).map((line) => ({
         description: line.description || '',
         settlementDate: day(line.settlementDate),
         percentage: String(line.percentage ?? ''),
@@ -188,14 +190,14 @@ function ConfigureDialog({ po, item, existingPlan, mode = 'manage', onClose, onS
           <div className="flex items-start gap-2 px-3.5 py-3 rounded-lg bg-blue-50 border border-blue-200">
             <CalendarClock className="size-4 text-blue-600 flex-shrink-0 mt-0.5" />
             <p className="text-xs font-medium text-blue-700">
-              This is a proposal, not a change to the live schedule. Your buyer sees exactly what you submit here and must approve it before anything reaches SAP — nothing below is billable until then.
+              You can propose new dates only — descriptions, percentages and amounts stay as they are. Your buyer must approve the new dates before anything reaches SAP, and nothing below is billable until then.
             </p>
           </div>
         )}
 
         {/* Plan type — the one choice everything else follows from, so it is a
             pair of explained cards rather than a dropdown. */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {!datesOnly && <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {PLAN_TYPES.map((option) => {
             const OptionIcon = option.icon;
             const selected = type === option.value;
@@ -217,7 +219,7 @@ function ConfigureDialog({ po, item, existingPlan, mode = 'manage', onClose, onS
               </button>
             );
           })}
-        </div>
+        </div>}
 
         {type === 'Periodic' ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -233,14 +235,14 @@ function ConfigureDialog({ po, item, existingPlan, mode = 'manage', onClose, onS
             </div>
             <div>
               <label className={labelClass} htmlFor="plan-frequency">Frequency</label>
-              <select id="plan-frequency" className={inputClass} value={periodic.frequency}
+              <select id="plan-frequency" disabled={datesOnly} className={inputClass} value={periodic.frequency}
                 onChange={(e) => setPeriodic({ ...periodic, frequency: e.target.value })}>
                 {FREQUENCIES.map((frequency) => <option key={frequency} value={frequency}>{frequency}</option>)}
               </select>
             </div>
             <div>
               <label className={labelClass} htmlFor="plan-invoiced">Invoiced</label>
-              <select id="plan-invoiced" className={inputClass} value={periodic.invoicingRule}
+              <select id="plan-invoiced" disabled={datesOnly} className={inputClass} value={periodic.invoicingRule}
                 onChange={(e) => setPeriodic({ ...periodic, invoicingRule: e.target.value })}>
                 <option value="Arrears">In arrears — at the end of each period</option>
                 <option value="Advance">In advance — at the start of each period</option>
@@ -248,7 +250,7 @@ function ConfigureDialog({ po, item, existingPlan, mode = 'manage', onClose, onS
             </div>
             <div className="sm:col-span-2">
               <label className={labelClass} htmlFor="plan-amount">Amount per period</label>
-              <input id="plan-amount" type="number" min="0" step="0.01" className={inputClass}
+              <input id="plan-amount" disabled={datesOnly} type="number" min="0" step="0.01" className={inputClass}
                 placeholder={`Defaults to the line value, ${money(netValue, po.currency)}`}
                 value={periodic.periodicAmount}
                 onChange={(e) => setPeriodic({ ...periodic, periodicAmount: e.target.value })} />
@@ -269,38 +271,38 @@ function ConfigureDialog({ po, item, existingPlan, mode = 'manage', onClose, onS
 
             {milestones.map((milestone, index) => (
               <div key={index} className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
-                <input id="plan-instalments" className={inputClass + ' sm:flex-1'} placeholder="Milestone" value={milestone.description}
+                <input id="plan-instalments" disabled={datesOnly} className={inputClass + ' sm:flex-1'} placeholder="Milestone" value={milestone.description}
                   onChange={(e) => updateMilestone(index, { description: e.target.value })} />
                 <input type="date" className={inputClass + ' sm:w-40'} value={milestone.settlementDate}
                   onChange={(e) => updateMilestone(index, { settlementDate: e.target.value })} />
                 <div className="relative sm:w-28">
-                  <input type="number" min="0" max="100" step="0.01" className={inputClass + ' pr-7'} value={milestone.percentage}
+                  <input type="number" disabled={datesOnly} min="0" max="100" step="0.01" className={inputClass + ' pr-7'} value={milestone.percentage}
                     onChange={(e) => updateMilestone(index, { percentage: e.target.value })} />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-text-tertiary">%</span>
                 </div>
                 <div className="sm:w-28 text-right text-[11px] font-mono tabular-nums text-text-secondary self-center">
                   {money((netValue * (Number(milestone.percentage) || 0)) / 100, po.currency)}
                 </div>
-                <button type="button" onClick={() => setMilestones((rows) => rows.filter((_, i) => i !== index))}
+                {!datesOnly && <button type="button" onClick={() => setMilestones((rows) => rows.filter((_, i) => i !== index))}
                   disabled={milestones.length === 1}
                   className="p-2 text-text-tertiary hover:text-red-600 disabled:opacity-30 cursor-pointer transition-colors duration-150">
                   <X className="size-4" />
-                </button>
+                </button>}
               </div>
             ))}
 
-            <Button variant="outline" size="sm"
+            {!datesOnly && <Button variant="outline" size="sm"
               onClick={() => setMilestones((rows) => [...rows, { description: '', settlementDate: '', percentage: '' }])}>
               <Plus className="size-3.5 mr-1.5" /> Add instalment
-            </Button>
+            </Button>}
           </div>
         )}
 
-        <div>
+        {!datesOnly && <div>
           <label className={labelClass} htmlFor="plan-reference">Reference (optional)</label>
           <input id="plan-reference" className={inputClass} value={reference} onChange={(e) => setReference(e.target.value)}
             placeholder="Contract number, agreement reference…" />
-        </div>
+        </div>}
 
         {error && (
           <div className="flex items-start gap-2 px-3.5 py-3 rounded-lg bg-red-50 border border-red-200">

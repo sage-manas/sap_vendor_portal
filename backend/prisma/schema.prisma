@@ -768,8 +768,11 @@ model GRN {
 
   poId  String
   po    PurchaseOrder @relation(fields: [clientId, poId], references: [clientId, id])
-  asnId String
-  asn   ASN           @relation(fields: [clientId, asnId], references: [clientId, id])
+  // Null for a receipt SAP posted with no portal shipment behind it (goods
+  // received against a PO the supplier never sent an ASN for) — see
+  // jobs/handlers/sweepPurchaseOrders.js. A GRN for a portal ASN always has one.
+  asnId String?
+  asn   ASN?          @relation(fields: [clientId, asnId], references: [clientId, id])
 
   vendorId         String
   sapMigoDoc       String?

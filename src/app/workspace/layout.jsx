@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Loader2, LogOut } from 'lucide-react';
 import { WorkspaceSessionProvider, useWorkspaceSession, STAGE } from '@/lib/workspace-session';
 import { navFor, isActive } from '@/lib/workspaceNav';
+import { forgetWhoami } from '@/lib/whoami';
 
 // The tenant back office's chrome. It shares the design system and the
 // primitives with the platform console, and nothing else: different plane,
@@ -16,6 +17,7 @@ const signOut = (router) => {
     localStorage.removeItem('jwt_token');
     localStorage.removeItem('clerk_user_id');
     localStorage.removeItem('sap_vendor_profile_data');
+    forgetWhoami();
   }
   router.push('/sign-in');
 };
