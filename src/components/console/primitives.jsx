@@ -45,10 +45,11 @@ export const Notice = ({ tone = 'error', children, onDismiss }) => {
   );
 };
 
-export const Field = ({ label, hint, children, ...props }) => (
+export const Field = ({ label, hint, error, children, ...props }) => (
   <div>
     <label className="label">{label}</label>
-    {children || <input className="w-full" {...props} />}
+    {children || <input className="w-full" aria-invalid={error ? true : undefined} {...props} />}
+    {error && <p className="mt-1.5 text-[11px] text-red-600" role="alert">{error}</p>}
     {hint && <p className="mt-1.5 text-[11px] text-text-tertiary">{hint}</p>}
   </div>
 );

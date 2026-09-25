@@ -19,8 +19,26 @@ const sessionWithManage = {
 const apiWith = (postRoute) => ({
   ...EMPTY_WORKSPACE_API,
   'GET /auth/me': sessionWithManage,
+  'GET /vendors': { vendors: [{ vendorId: 'V1', companyName: 'Kaveri Forge', sapVendorCode: '1120250081' }] },
   'POST /pos/asset': postRoute,
 });
+
+// The form refuses to submit while required fields are empty, so a submit that
+// is meant to reach the API has to be a complete one.
+const fillForm = async () => {
+  const supplier = await screen.findByRole('combobox');
+  await screen.findByRole('option', { name: /kaveri forge/i });
+  fireEvent.change(supplier, { target: { value: 'V1' } });
+  const type = (label, value) =>
+    fireEvent.change(screen.getByText(label, { selector: 'label' }).parentElement.querySelector('input'), { target: { value } });
+  type('Company code', 'SSDN');
+  type('Purchasing org', 'SSDN');
+  type('Purchasing group', 'SDN');
+  type('Description', 'Pump');
+  type('Asset number', '000000000701');
+  type('Plant', '1000');
+  type('Unit price', '1000');
+};
 
 describe('creating an asset PO, when the connection drops', () => {
   it('shows an outcome-unknown screen, not "the order was not created", and does not offer the form again', async () => {
@@ -30,6 +48,7 @@ describe('creating an asset PO, when the connection drops', () => {
       api: apiWith(() => { throw new TypeError('Failed to fetch'); }),
     });
 
+    await fillForm();
     const submit = await screen.findByRole('button', { name: /create in sap/i });
     fireEvent.click(submit);
 
@@ -47,6 +66,7 @@ describe('creating an asset PO, when the connection drops', () => {
       api: apiWith({ status: 422, body: { error: 'Invalid asset number' } }),
     });
 
+    await fillForm();
     const submit = await screen.findByRole('button', { name: /create in sap/i });
     fireEvent.click(submit);
 
@@ -56,5 +76,21 @@ describe('creating an asset PO, when the connection drops', () => {
     // Unlike the offline case, the form is still there — a genuine rejection
     // means SAP never created anything, so retrying after a fix is fine.
     expect(screen.getByRole('button', { name: /create in sap/i })).toBeInTheDocument();
+  });
+});
+
+describe('creating an asset PO, with required fields empty', () => {
+  it('marks the missing fields and does not call the API', async () => {
+    let called = false;
+    renderWithPortal(<WorkspaceNewAssetPoPage />, {
+      plane: 'workspace',
+      route: '/workspace/purchase-orders/new-asset',
+      api: apiWith(() => { called = true; return {}; }),
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: /create in sap/i }));
+
+    expect((await screen.findAllByRole('alert')).length).toBeGreaterThan(0);
+    expect(called).toBe(false);
   });
 });

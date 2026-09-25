@@ -82,6 +82,7 @@ export default function NewAssetPoPage() {
   const [lines, setLines] = React.useState([{ ...BLANK_LINE }]);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
+  const [fieldErrors, setFieldErrors] = React.useState({});
   const [created, setCreated] = React.useState(null);
   const [outcomeUnknown, setOutcomeUnknown] = React.useState(false);
 
@@ -91,8 +92,34 @@ export default function NewAssetPoPage() {
 
   const total = lines.reduce((sum, line) => sum + lineValue(line), 0);
 
+  // Mirrors the required fields of backend/validators/assetPo.validator.js so
+  // an obviously incomplete form is refused before a round trip; the server
+  // stays the authority and its own field messages are shown the same way.
+  const checkForm = () => {
+    const found = {};
+    const need = (key, value, message) => { if (!String(value ?? '').trim()) found[key] = message; };
+    need('vendorId', header.vendorId, 'Select a supplier');
+    need('companyCode', header.companyCode, 'Required');
+    need('purchasingOrg', header.purchasingOrg, 'Required');
+    need('purchasingGroup', header.purchasingGroup, 'Required');
+    lines.forEach((line, i) => {
+      need(`items.${i}.description`, line.description, 'Required');
+      need(`items.${i}.plant`, line.plant, 'Required');
+      need(`items.${i}.assetNumber`, line.assetNumber, 'Required');
+      if (!(Number(line.quantity) > 0)) found[`items.${i}.quantity`] = 'Must be greater than zero';
+      if (!(Number(line.unitPrice) > 0)) found[`items.${i}.unitPrice`] = 'Must be greater than zero';
+    });
+    return found;
+  };
+
   const submit = async () => {
     setError('');
+    const found = checkForm();
+    setFieldErrors(found);
+    if (Object.keys(found).length > 0) {
+      setError('Some required fields are missing or invalid — see the highlighted fields.');
+      return;
+    }
     setBusy(true);
     try {
       const res = await poService.createAssetPo({
@@ -125,6 +152,9 @@ export default function NewAssetPoPage() {
       // irreversible order.
       if (err?.offline) {
         setOutcomeUnknown(true);
+      } else if (err?.errors && typeof err.errors === 'object') {
+        setFieldErrors(err.errors);
+        setError('SAP was not contacted: the request failed validation — see the highlighted fields.');
       } else {
         setError(err?.message || 'The order was not created in SAP.');
       }
@@ -226,7 +256,7 @@ export default function NewAssetPoPage() {
           <div className="card p-5">
             <h3 className="text-sm font-semibold mb-4">Order</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              <Field label="Supplier">
+              <Field label="Supplier" error={fieldErrors.vendorId}>
                 <select className="w-full" value={header.vendorId} onChange={setField('vendorId')}>
                   <option value="">Select a supplier…</option>
                   {vendors.map((vendor) => (
@@ -236,14 +266,14 @@ export default function NewAssetPoPage() {
                   ))}
                 </select>
               </Field>
-              <Field label="Company code" value={header.companyCode} onChange={setField('companyCode')} placeholder="e.g. SSDN" />
-              <Field label="Purchasing org" value={header.purchasingOrg} onChange={setField('purchasingOrg')} placeholder="e.g. SSDN" />
-              <Field label="Purchasing group" value={header.purchasingGroup} onChange={setField('purchasingGroup')} placeholder="e.g. SDN" />
-              <Field label="Document type" value={header.docType} onChange={setField('docType')} hint="SAP BSART" />
-              <Field label="Payment terms" value={header.paymentTerms} onChange={setField('paymentTerms')} placeholder="e.g. 0001" />
-              <Field label="Currency" value={header.currency} onChange={setField('currency')} />
-              <Field label="Document date" type="date" value={header.docDate} onChange={setField('docDate')} />
-              <Field label="Delivery address" value={header.deliveryAddress} onChange={setField('deliveryAddress')} />
+              <Field label="Company code" value={header.companyCode} onChange={setField('companyCode')} error={fieldErrors.companyCode} placeholder="e.g. SSDN" />
+              <Field label="Purchasing org" value={header.purchasingOrg} onChange={setField('purchasingOrg')} error={fieldErrors.purchasingOrg} placeholder="e.g. SSDN" />
+              <Field label="Purchasing group" value={header.purchasingGroup} onChange={setField('purchasingGroup')} error={fieldErrors.purchasingGroup} placeholder="e.g. SDN" />
+              <Field label="Document type" value={header.docType} onChange={setField('docType')} error={fieldErrors.docType} hint="SAP BSART" />
+              <Field label="Payment terms" value={header.paymentTerms} onChange={setField('paymentTerms')} error={fieldErrors.paymentTerms} placeholder="e.g. 0001" />
+              <Field label="Currency" value={header.currency} onChange={setField('currency')} error={fieldErrors.currency} />
+              <Field label="Document date" type="date" value={header.docDate} onChange={setField('docDate')} error={fieldErrors.docDate} />
+              <Field label="Delivery address" value={header.deliveryAddress} onChange={setField('deliveryAddress')} error={fieldErrors.deliveryAddress} />
             </div>
             {vendors.length === 0 && (
               <p className="mt-4 text-[11px] text-text-tertiary">
@@ -274,21 +304,21 @@ export default function NewAssetPoPage() {
                   )}
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <Field label="Description" value={line.description} onChange={setLine(index, 'description')}
+                  <Field label="Description" value={line.description} onChange={setLine(index, 'description')} error={fieldErrors[`items.${index}.description`]}
                     hint="Max 40 characters — SAP truncates beyond that" />
-                  <Field label="Asset number" value={line.assetNumber} onChange={setLine(index, 'assetNumber')}
+                  <Field label="Asset number" value={line.assetNumber} onChange={setLine(index, 'assetNumber')} error={fieldErrors[`items.${index}.assetNumber`]}
                     placeholder="000000000701" hint="ANLN1, from AS03 — not validated here" />
-                  <Field label="Asset sub-number" value={line.assetSubNumber} onChange={setLine(index, 'assetSubNumber')}
+                  <Field label="Asset sub-number" value={line.assetSubNumber} onChange={setLine(index, 'assetSubNumber')} error={fieldErrors[`items.${index}.assetSubNumber`]}
                     hint="ANLN2 — 0000 is the main asset" />
-                  <Field label="Plant" value={line.plant} onChange={setLine(index, 'plant')} />
-                  <Field label="Storage location" value={line.storageLocation} onChange={setLine(index, 'storageLocation')} />
-                  <Field label="Material group" value={line.materialGroup} onChange={setLine(index, 'materialGroup')} />
-                  <Field label="Quantity" type="number" step="0.001" min="0" value={line.quantity} onChange={setLine(index, 'quantity')} />
-                  <Field label="Unit" value={line.uom} onChange={setLine(index, 'uom')} />
-                  <Field label="Unit price" type="number" step="0.01" min="0" value={line.unitPrice} onChange={setLine(index, 'unitPrice')} />
-                  <Field label="Price unit" type="number" step="1" min="1" value={line.priceUnit} onChange={setLine(index, 'priceUnit')}
+                  <Field label="Plant" value={line.plant} onChange={setLine(index, 'plant')} error={fieldErrors[`items.${index}.plant`]} />
+                  <Field label="Storage location" value={line.storageLocation} onChange={setLine(index, 'storageLocation')} error={fieldErrors[`items.${index}.storageLocation`]} />
+                  <Field label="Material group" value={line.materialGroup} onChange={setLine(index, 'materialGroup')} error={fieldErrors[`items.${index}.materialGroup`]} />
+                  <Field label="Quantity" type="number" step="0.001" min="0" value={line.quantity} onChange={setLine(index, 'quantity')} error={fieldErrors[`items.${index}.quantity`]} />
+                  <Field label="Unit" value={line.uom} onChange={setLine(index, 'uom')} error={fieldErrors[`items.${index}.uom`]} />
+                  <Field label="Unit price" type="number" step="0.01" min="0" value={line.unitPrice} onChange={setLine(index, 'unitPrice')} error={fieldErrors[`items.${index}.unitPrice`]} />
+                  <Field label="Price unit" type="number" step="1" min="1" value={line.priceUnit} onChange={setLine(index, 'priceUnit')} error={fieldErrors[`items.${index}.priceUnit`]}
                     hint="SAP PEINH — the unit price is per this many units" />
-                  <Field label="Tax code" value={line.taxCode} onChange={setLine(index, 'taxCode')} placeholder="e.g. V0" />
+                  <Field label="Tax code" value={line.taxCode} onChange={setLine(index, 'taxCode')} error={fieldErrors[`items.${index}.taxCode`]} placeholder="e.g. V0" />
                   <Field label="Line value">
                     <div className="mono text-sm pt-2">{money(lineValue(line), header.currency)}</div>
                   </Field>

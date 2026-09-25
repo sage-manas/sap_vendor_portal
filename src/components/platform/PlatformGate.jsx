@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useId, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
+import QRCode from 'qrcode';
 import { usePathname } from 'next/navigation';
 import { KeyRound, Loader2, AlertCircle, ShieldCheck, Mail } from 'lucide-react';
 import { platformApi } from '@/lib/platform-client';
@@ -163,6 +164,13 @@ function EnrolMfa() {
   const { busy, error, run } = useStep();
   const [enrolment, setEnrolment] = useState(null);
   const [code, setCode] = useState('');
+  const [qr, setQr] = useState(null);
+
+  // Rendered in the browser so the secret never leaves this page.
+  useEffect(() => {
+    if (!enrolment?.otpauthUrl) return;
+    QRCode.toDataURL(enrolment.otpauthUrl, { margin: 1, width: 176 }).then(setQr).catch(() => setQr(null));
+  }, [enrolment]);
 
   const begin = () => run(async () => setEnrolment(await platformApi.enrolMfa()));
 
@@ -188,9 +196,10 @@ function EnrolMfa() {
         <>
           <div className="mb-5 border border-border-em p-4">
             <p className="text-[11px] text-text-secondary">
-              Add an account for <span className="mono">{operator?.email}</span> in your authenticator app,
-              using this key. It is shown once and never again.
+              Scan this code with your authenticator app, or add an account for{' '}
+              <span className="mono">{operator?.email}</span> using the key below. It is shown once and never again.
             </p>
+            {qr && <img src={qr} alt="Authenticator QR code" width={176} height={176} className="mt-3 bg-white" />}
             <p className="mono mt-3 break-all text-[13px] text-emerald-text">{enrolment.secret}</p>
           </div>
 
