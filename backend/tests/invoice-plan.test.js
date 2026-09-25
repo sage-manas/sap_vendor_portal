@@ -261,11 +261,12 @@ describe('a supplier proposing a change to their own invoicing plan', () => {
   it('lets a supplier propose a change without it reaching SAP, then a buyer approve it', async () => {
     const { token, adminToken } = await setUp(1);
 
+    // A supplier may only move dates — same instalments, same split.
     const revised = {
       type: 'Partial',
       milestones: [
-        { settlementDate: '2020-06-01', percentage: 50, description: 'On order' },
-        { settlementDate: '2099-06-01', percentage: 50, description: 'On commissioning' },
+        { settlementDate: '2020-06-01', percentage: 40, description: 'On order' },
+        { settlementDate: '2099-06-01', percentage: 60, description: 'On commissioning' },
       ],
     };
 
@@ -273,12 +274,13 @@ describe('a supplier proposing a change to their own invoicing plan', () => {
     expect(proposed.status).toBe(200);
     expect(proposed.body.item.plan.pendingChange).toBeTruthy();
     expect(proposed.body.item.plan.pendingChange.requestedBy).toBe('vendor_propose_1');
-    // Not applied: the live schedule is unchanged, still the buyer's original.
-    expect(proposed.body.item.plan.lines.map((l) => l.percentage)).toEqual([40, 60]);
+    // Not applied: the live schedule is unchanged, still the buyer's original dates.
+    expect(proposed.body.item.plan.lines.map((l) => l.settlementDate.slice(0, 10))).toEqual(['2020-01-01', '2099-01-01']);
 
     const approved = await approve(adminToken, 'PO-PROPOSE-1', 10);
     expect(approved.status).toBe(200);
-    expect(approved.body.item.plan.lines.map((l) => l.percentage)).toEqual([50, 50]);
+    expect(approved.body.item.plan.lines.map((l) => l.settlementDate.slice(0, 10))).toEqual(['2020-06-01', '2099-06-01']);
+    expect(approved.body.item.plan.lines.map((l) => l.percentage)).toEqual([40, 60]);
     expect(approved.body.item.plan.pendingChange).toBeNull();
   });
 
@@ -286,12 +288,16 @@ describe('a supplier proposing a change to their own invoicing plan', () => {
     const { token, adminToken } = await setUp(2);
     await propose(token, 'PO-PROPOSE-2', 10, {
       type: 'Partial',
-      milestones: [{ settlementDate: '2020-01-01', percentage: 100, description: 'Everything up front' }],
+      milestones: [
+        { settlementDate: '2020-06-01', percentage: 40, description: 'On order' },
+        { settlementDate: '2099-06-01', percentage: 60, description: 'On commissioning' },
+      ],
     });
 
     const rejected = await reject(adminToken, 'PO-PROPOSE-2', 10, 'Not agreed — keep the milestone schedule');
     expect(rejected.status).toBe(200);
     expect(rejected.body.item.plan.pendingChange).toBeNull();
+    expect(rejected.body.item.plan.lines.map((l) => l.settlementDate.slice(0, 10))).toEqual(['2020-01-01', '2099-01-01']);
     expect(rejected.body.item.plan.lines.map((l) => l.percentage)).toEqual([40, 60]);
 
     // Nothing left pending to approve after rejection.
@@ -310,14 +316,14 @@ describe('a supplier proposing a change to their own invoicing plan', () => {
     expect(res.status).toBe(400);
   });
 
-  it('refuses a proposal that does not reconcile to the line value', async () => {
+  it('refuses a proposal that changes the instalment split rather than just its dates', async () => {
     const { token } = await setUp(4);
     const res = await propose(token, 'PO-PROPOSE-4', 10, {
       type: 'Partial',
-      milestones: [{ settlementDate: '2020-01-01', percentage: 40 }],
+      milestones: [{ settlementDate: '2020-01-01', percentage: 40, description: 'On order' }],
     });
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/must add up to the full line value/);
+    expect(res.body.error).toMatch(/instalments cannot be added or removed/);
   });
 
   it('refuses a proposal on a line with no invoicing plan to change', async () => {
@@ -351,10 +357,15 @@ describe('a supplier proposing a change to their own invoicing plan', () => {
 
   it("a buyer's own edit discards a supplier's pending proposal rather than leaving it stranded", async () => {
     const { token, adminToken } = await setUp(8);
-    await propose(token, 'PO-PROPOSE-8', 10, {
+    const proposed = await propose(token, 'PO-PROPOSE-8', 10, {
       type: 'Partial',
-      milestones: [{ settlementDate: '2020-01-01', percentage: 100, description: 'Supplier’s proposal' }],
+      milestones: [
+        { settlementDate: '2020-06-01', percentage: 40, description: 'On order' },
+        { settlementDate: '2099-06-01', percentage: 60, description: 'On commissioning' },
+      ],
     });
+    expect(proposed.status).toBe(200);
+    expect(proposed.body.item.plan.pendingChange).toBeTruthy();
 
     const reconfigured = await configure(adminToken, 'PO-PROPOSE-8', 10, {
       type: 'Partial',
@@ -369,8 +380,8 @@ describe('a supplier proposing a change to their own invoicing plan', () => {
     await propose(token, 'PO-PROPOSE-9', 10, {
       type: 'Partial',
       milestones: [
-        { settlementDate: '2020-06-01', percentage: 50, description: 'On order' },
-        { settlementDate: '2099-06-01', percentage: 50, description: 'On commissioning' },
+        { settlementDate: '2020-06-01', percentage: 40, description: 'On order' },
+        { settlementDate: '2099-06-01', percentage: 60, description: 'On commissioning' },
       ],
     });
 
