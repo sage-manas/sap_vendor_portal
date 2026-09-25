@@ -119,6 +119,8 @@ export default function PurchaseOrdersView({
   selectedPoId,
   setSelectedPoId,
   asnForm,
+  setAsnForm,
+  handleAsnSubmit,
   acknowledgePO,
   retrySapStatus
 }) {
@@ -254,7 +256,9 @@ export default function PurchaseOrdersView({
   // this order until jobs/handlers/sweepPurchaseOrders.js records it.
   const activePoIsSapOnly = Boolean(activePo?.sapOnly);
   const activeGrn = activeGrnState ? (cleanGrns.find(g => g.id === activeGrnState.id) || activeGrnState) : null;
+  const [localSubmissionTimes, setLocalSubmissionTimes] = useState({});
   const [activeLineIdx, setActiveLineIdx] = useState(0);
+  const [asnLineIdx, setAsnLineIdx] = useState(0);
   const [grnLineIdx, setGrnLineIdx] = useState(0);
 
   // Selecting a different order restarts its ASN/GRN line cursors. Done as an
@@ -266,6 +270,7 @@ export default function PurchaseOrdersView({
   const [lineCursorPoId, setLineCursorPoId] = useState(activePo?.id);
   if (activePo?.id !== lineCursorPoId) {
     setLineCursorPoId(activePo?.id);
+    setAsnLineIdx(0);
     setGrnLineIdx(0);
   }
 
@@ -284,10 +289,16 @@ export default function PurchaseOrdersView({
   const itemsPerPage = 5;
 
   // Local state for E-Way Bill uploads and validation errors
+  const [ewayBillNo, setEwayBillNo] = useState('');
+  const [ewayBillFile, setEwayBillFile] = useState(null);
+  const [dispatchQuantities, setDispatchQuantities] = useState({});
+  const [validationErrors, setValidationErrors] = useState({});
 
   // Local state for local uploads in ASN
+  const [asnDocs, setAsnDocs] = useState({ packingList: null, invoiceCopy: null, transportDoc: null });
 
   // ASN Success Display state
+  const [asnSuccessInfo, setAsnSuccessInfo] = useState(null);
 
   // Sliding Side Drawer for Communication Center
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -341,7 +352,7 @@ export default function PurchaseOrdersView({
           // Since submitASN creates the ASN and triggers GRN in 10 seconds,
           // we can simulate a countdown from 10 seconds.
           const asn = cleanAsns.find(a => a.poId === po.id);
-          const submittedDate = asn?.submittedAt || asn?.createdAt;
+          const submittedDate = asn?.submittedAt || asn?.createdAt || localSubmissionTimes[po.id];
           if (submittedDate) {
             const elapsed = Math.floor((now - parseDateSafe(submittedDate).getTime()) / 1000);
             const remaining = Math.max(0, 10 - elapsed);
@@ -353,7 +364,7 @@ export default function PurchaseOrdersView({
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [cleanPOs, cleanAsns]);
+  }, [cleanPOs, cleanAsns, localSubmissionTimes]);
 
   // Every PO starts with an empty thread. Nothing here seeds a message
   // attributed to Buyer — no buyer sent one, and inventing a greeting on
@@ -366,6 +377,47 @@ export default function PurchaseOrdersView({
       }
     });
   }, [cleanPOs]);
+
+  // Prefills the shipment form the first time an order's "Send shipment" tab is
+  // opened. This used to be an effect watching `detailTab`, which meant a render
+  // pass that painted the empty form before a second pass filled it in, and it
+  // generated tracking/e-way numbers from Math.random() and the clock — so it
+  // could not simply move into the render body either.
+  //
+  // Opening that tab is a user action, so the initialization belongs on the
+  // action. The "Send shipment" button at handleSendShipmentClick already did
+  // its own prefill; this covers the other way in, the tab header. The
+  // `isInitialized` guard keeps it idempotent, so re-entering the tab never
+  // overwrites quantities the supplier has already edited.
+  const ensureAsnPrefill = () => {
+    if (!activePo || activePo.status === 'Open') return;
+
+    const lines = (activePo.items || []).map(item => item.line);
+    const isInitialized = lines.length > 0 && lines.every(line => dispatchQuantities[line] !== undefined);
+    if (isInitialized) return;
+
+    const initialQtys = {};
+    const initialErrors = {};
+    (activePo.items || []).forEach(item => {
+      const remaining = item.quantity - (item.grnQuantity || 0);
+      initialQtys[item.line] = remaining;
+      initialErrors[item.line] = '';
+    });
+    setDispatchQuantities(initialQtys);
+    setValidationErrors(initialErrors);
+    // Only the dates get a default. Carrier, vehicle, tracking, invoice and
+    // e-way bill references are the supplier's own documents: an invented one
+    // would be submitted to the buyer as if the supplier had typed it.
+    setAsnForm(prev => ({
+      carrierName: prev.carrierName || '',
+      trackingNumber: prev.trackingNumber || '',
+      vehicleNumber: prev.vehicleNumber || '',
+      invoiceReference: prev.invoiceReference || '',
+      shipDate: prev.shipDate || new Date().toISOString().split('T')[0],
+      estimatedDeliveryDate: prev.estimatedDeliveryDate || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      items: initialQtys
+    }));
+  };
 
   // Handle PO Row selection
   const handleOpenPoDetails = (po) => {
@@ -461,6 +513,96 @@ export default function PurchaseOrdersView({
   const filteredPOs = getFilteredPOs();
   const totalPages = Math.ceil(filteredPOs.length / itemsPerPage);
   const paginatedPOs = filteredPOs.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  // Initialize ASN Form
+  const handleOpenAsnForm = (po) => {
+    setActivePo(po);
+    const initialQtys = {};
+    const initialErrors = {};
+    (po.items || []).forEach(item => {
+      // Remaining qty = Ordered Qty - GRN Quantity
+      const remaining = item.quantity - (item.grnQuantity || 0);
+      initialQtys[item.line] = remaining;
+      initialErrors[item.line] = '';
+    });
+    setDispatchQuantities(initialQtys);
+    setValidationErrors(initialErrors);
+    setEwayBillNo('');
+    setAsnDocs({ packingList: null, invoiceCopy: null, transportDoc: null });
+    setAsnForm({
+      carrierName: '',
+      trackingNumber: '',
+      vehicleNumber: '',
+      invoiceReference: '',
+      shipDate: new Date().toISOString().split('T')[0],
+      estimatedDeliveryDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      items: initialQtys
+    });
+    setDetailTab('create_asn');
+    setCurrentView('detail');
+  };
+
+  // Validate and submit ASN
+  const handleAsnSubmitClick = async () => {
+    let hasErrors = false;
+    const newErrors = {};
+
+    (activePo?.items || []).forEach(item => {
+      const qty = Number(dispatchQuantities[item.line]);
+      const remaining = item.quantity - (item.grnQuantity || 0);
+
+      if (isNaN(qty) || qty <= 0) {
+        newErrors[item.line] = 'Quantity must be greater than 0';
+        hasErrors = true;
+      } else if (qty > remaining) {
+        newErrors[item.line] = `Quantity cannot exceed remaining ordered units (${remaining})`;
+        hasErrors = true;
+      } else {
+        newErrors[item.line] = '';
+      }
+    });
+
+    setValidationErrors(newErrors);
+
+    if (hasErrors) return;
+
+    try {
+      // Record local submission timestamp to start countdown immediately
+      if (activePo) {
+        setLocalSubmissionTimes(prev => ({ ...prev, [activePo.id]: new Date().toISOString() }));
+      }
+
+      // Call store dispatch
+      const res = await handleAsnSubmit({
+        ...activePo,
+        items: activePo?.items || [],
+        ewayBillNo,
+        documentIds: Object.values(asnDocs).filter(Boolean).map(d => d.documentId)
+      });
+
+      if (res && res.asn) {
+        // Configure the success info using the actual backend-generated IDs
+        setAsnSuccessInfo({
+          asnId: res.asn.id,
+          sapInbound: res.asn.sapInboundDelivery,
+          poId: activePo?.id || 'PO',
+          carrierName: asnForm.carrierName || '—',
+          trackingNumber: asnForm.trackingNumber || asnForm.vehicleNumber || '—',
+          eta: asnForm.estimatedDeliveryDate,
+          items: (activePo?.items || []).map(item => ({
+            ...item,
+            shippedQty: Number(dispatchQuantities[item.line])
+          }))
+        });
+      }
+
+      setDetailTab('grn_status');
+      setCurrentView('detail');
+    } catch (e) {
+      console.error(e);
+      alert('Could not send the shipment details: ' + (e.message || e));
+    }
+  };
 
   // Status Chip formatting
   const renderStatusChip = (status) => {
@@ -832,6 +974,21 @@ export default function PurchaseOrdersView({
                                   View PO
                                 </Button>
 
+                                {/* Shipment and chat both act on a
+                                    PurchaseOrder row, which an order SAP holds
+                                    but this portal has not recorded yet does
+                                    not have. The detail page above opens for
+                                    it either way, read-only. */}
+                                {!po.sapOnly && po.status === 'Acknowledged' && (
+                                  <Button
+                                    size="xs"
+                                    variant="outline"
+                                    onClick={() => handleOpenAsnForm(po)}
+                                  >
+                                    Send shipment
+                                  </Button>
+                                )}
+
                                 {!po.sapOnly && (
                                   <button
                                     onClick={(e) => handleOpenDrawer(e, po)}
@@ -1111,13 +1268,15 @@ export default function PurchaseOrdersView({
                 ? [{ id: 'po_detail', label: 'Order details' }]
                 : [
                   { id: 'po_detail', label: '1. Order details' },
-                  { id: 'grn_status', label: '2. Delivery status' },
+                  { id: 'create_asn', label: '2. Send shipment' },
+                  { id: 'grn_status', label: '3. Delivery status' },
                   ...(showInvoicePlanTab ? [{ id: 'invoice_plan', label: 'Invoicing plan' }] : [])
                 ]
               ).map(t => (
                 <button
                   key={t.id}
                   onClick={() => {
+                    if (t.id === 'create_asn') ensureAsnPrefill();
                     setDetailTab(t.id);
                   }}
                   className={`pb-2.5 text-xs font-bold border-b-2 transition-all duration-150 cursor-pointer focus-visible:outline-none ${activeDetailTab === t.id
@@ -1335,6 +1494,275 @@ export default function PurchaseOrdersView({
                 </div>
               )}
 
+              {/* TAB 2: Send shipment */}
+              {activeDetailTab === 'create_asn' && (
+                <div className="space-y-6 animate-fade-in">
+                  {activePo.status === 'Open' ? (
+                    <div className="card p-6 text-center">
+                      <AlertTriangle className="size-8 text-amber-500 mx-auto mb-2" />
+                      <p className="text-xs font-bold text-text-primary">PO Acknowledgement Required</p>
+                      <p className="text-xs text-text-secondary mt-1">
+                        You must acknowledge this purchase order before you can send shipment details.
+                      </p>
+                      <Button
+                        onClick={() => acknowledgePO(activePo.id)}
+                        variant="outline"
+                        className="mt-4"
+                      >
+                        Acknowledge PO
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      <div className="card p-4 flex items-center justify-between">
+                        <div>
+                          <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">Advanced Shipping Notice Form (VL31N)</h3>
+                          <p className="text-[10px] text-text-secondary font-medium mt-0.5">Provide actual shipment details and dispatch quantities</p>
+                        </div>
+                        <Button
+                          onClick={handleAsnSubmitClick}
+                          variant="default"
+                        >
+                          Submit Inbound Delivery
+                        </Button>
+                      </div>
+
+                      {/* Shipment header fields — 3-column grid, label-on-top aligned */}
+                      <div className="card overflow-hidden">
+                        <div className="flex items-center gap-2 px-5 py-3 border-b border-border bg-surface2/40">
+                          <div className="size-1.5 rounded-full bg-purple-500"></div>
+                          <span className="text-[10px] font-extrabold text-text-secondary uppercase tracking-widest">Shipment details</span>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-5">
+                          <SapInputField label="Linked PO Number" icon={ShoppingBag}>
+                            <input
+                              type="text"
+                              readOnly
+                              value={activePo.id}
+                              className="w-36 bg-surface border border-border rounded-[3px] px-2.5 h-6.5 text-xs outline-none text-text-primary font-mono font-bold tabular-nums cursor-not-allowed select-all"
+                            />
+                          </SapInputField>
+
+                          <SapInputField label="Dispatch Date" required icon={Calendar}>
+                            <input
+                              type="date"
+                              required
+                              value={asnForm.shipDate}
+                              onChange={e => setAsnForm({ ...asnForm, shipDate: e.target.value })}
+                              className="w-36 bg-surface border border-border focus:border-[rgb(var(--color-emerald-default-rgb))] rounded-[3px] px-2.5 h-6.5 text-xs outline-none text-text-primary font-mono font-bold tabular-nums transition-all duration-150"
+                            />
+                          </SapInputField>
+
+                          <SapInputField label="Expected Delivery" required icon={Calendar}>
+                            <input
+                              type="date"
+                              required
+                              value={asnForm.estimatedDeliveryDate}
+                              onChange={e => setAsnForm({ ...asnForm, estimatedDeliveryDate: e.target.value })}
+                              className="w-36 bg-surface border border-border focus:border-[rgb(var(--color-emerald-default-rgb))] rounded-[3px] px-2.5 h-6.5 text-xs outline-none text-text-primary font-mono font-bold tabular-nums transition-all duration-150"
+                            />
+                          </SapInputField>
+
+                          <SapInputField label="Carrier / Transporter" required icon={Truck}>
+                            <input
+                              type="text"
+                              required
+                              maxLength={10}
+                              value={asnForm.carrierName}
+                              onChange={e => setAsnForm({ ...asnForm, carrierName: e.target.value })}
+                              placeholder="DHL Express"
+                              className="w-[14ch] bg-surface border border-border focus:border-[rgb(var(--color-emerald-default-rgb))] rounded-[3px] px-2.5 h-6.5 text-xs outline-none text-text-primary font-bold transition-all duration-150"
+                            />
+                          </SapInputField>
+
+                          <SapInputField label="Vehicle / Tracking No." icon={Truck}>
+                            <input
+                              type="text"
+                              maxLength={20}
+                              value={asnForm.vehicleNumber}
+                              onChange={e => setAsnForm({ ...asnForm, vehicleNumber: e.target.value })}
+                              placeholder="MH-12-XY-4321"
+                              className="w-[24ch] bg-surface border border-border focus:border-[rgb(var(--color-emerald-default-rgb))] rounded-[3px] px-2.5 h-6.5 text-xs outline-none text-text-primary font-mono font-bold uppercase transition-all duration-150"
+                            />
+                          </SapInputField>
+
+                          <SapInputField label="E-Way Bill Number" icon={Receipt}>
+                            <input
+                              type="text"
+                              maxLength={12}
+                              value={ewayBillNo}
+                              onChange={e => setEwayBillNo(e.target.value.replace(/\D/g, ''))}
+                              placeholder="12-digit numeric code"
+                              className="w-[16ch] bg-surface border border-border focus:border-[rgb(var(--color-emerald-default-rgb))] rounded-[3px] px-2.5 h-6.5 text-xs outline-none text-text-primary font-mono font-bold tabular-nums transition-all duration-150"
+                            />
+                          </SapInputField>
+                        </div>
+                      </div>
+
+                      {/* Shipment document attachments */}
+                      <div className="space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-2">
+                          <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider">
+                            Shipment Document Attachments
+                          </h4>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <FileUploadZone
+                            label="Packing List (Optional)"
+                            value={asnDocs.packingList}
+                            onUploadComplete={result => setAsnDocs(prev => ({ ...prev, packingList: result }))}
+                            onFileRemoved={() => setAsnDocs(prev => ({ ...prev, packingList: null }))}
+                            linkedTo="ASN"
+                            accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
+                          />
+                          <FileUploadZone
+                            label="Invoice Copy (Optional)"
+                            value={asnDocs.invoiceCopy}
+                            onUploadComplete={result => setAsnDocs(prev => ({ ...prev, invoiceCopy: result }))}
+                            onFileRemoved={() => setAsnDocs(prev => ({ ...prev, invoiceCopy: null }))}
+                            linkedTo="ASN"
+                            accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
+                          />
+                          <FileUploadZone
+                            label="Transport Bill / LR (Optional)"
+                            value={asnDocs.transportDoc}
+                            onUploadComplete={result => setAsnDocs(prev => ({ ...prev, transportDoc: result }))}
+                            onFileRemoved={() => setAsnDocs(prev => ({ ...prev, transportDoc: null }))}
+                            linkedTo="ASN"
+                            accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Dispatch quantities allocation */}
+                      <div className="space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-2">
+                          <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider">
+                            Dispatch Qty Allocation
+                          </h4>
+
+                          {/* Carousel Navigation Controls */}
+                          {activePo.items && activePo.items.length > 0 && (
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                disabled={asnLineIdx === 0}
+                                onClick={() => setAsnLineIdx(prev => Math.max(0, prev - 1))}
+                                className="p-1.5 border border-border rounded-lg hover:bg-surface2 disabled:opacity-40 disabled:hover:bg-transparent text-text-secondary cursor-pointer transition-colors duration-150"
+                              >
+                                <ChevronLeft className="size-4" />
+                              </button>
+                              <span className="text-xs font-semibold text-text-secondary font-mono select-none tabular-nums">
+                                Page {asnLineIdx + 1} of {Math.max(1, Math.ceil(activePo.items.length / 5))}
+                              </span>
+                              <button
+                                type="button"
+                                disabled={asnLineIdx >= Math.ceil(activePo.items.length / 5) - 1}
+                                onClick={() => setAsnLineIdx(prev => Math.min(Math.ceil(activePo.items.length / 5) - 1, prev + 1))}
+                                className="p-1.5 border border-border rounded-lg hover:bg-surface2 disabled:opacity-40 disabled:hover:bg-transparent text-text-secondary cursor-pointer transition-colors duration-150"
+                              >
+                                <ChevronRight className="size-4" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {activePo.items && activePo.items.length > 0 && (
+                          <div className="w-full space-y-4">
+                            {/* Responsive Table Container */}
+                            <div className="w-full overflow-x-auto card">
+                              <table className="w-full text-left border-collapse min-w-[900px]">
+                                <thead>
+                                  <tr>
+                                    <th className="w-16">Line</th>
+                                    <th className="w-36">Item code</th>
+                                    <th className="min-w-[200px]">Description</th>
+                                    <th className="w-28 text-right">Ordered Qty</th>
+                                    <th className="w-28 text-right">Remaining Qty</th>
+                                    <th className="w-36 text-center">Dispatched Qty</th>
+                                    <th className="w-20">UoM</th>
+                                    <th className="w-32 text-right">Net Price</th>
+                                    <th className="text-right w-36">Delivery Date</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {activePo.items.slice(asnLineIdx * 5, asnLineIdx * 5 + 5).map((item, idx) => {
+                                    const remaining = item.quantity - (item.grnQuantity || 0);
+                                    const error = validationErrors[item.line];
+                                    return (
+                                      <tr key={item.line || idx}>
+                                        <td className="font-semibold font-mono">{item.line}</td>
+                                        <td>
+                                          <span className="text-blue-600 font-bold hover:underline cursor-pointer">{item.materialCode}</span>
+                                        </td>
+                                        <td className="text-text-primary font-medium">{item.description}</td>
+                                        <td className="font-bold text-text-primary text-right font-mono tabular-nums">{item.quantity}</td>
+                                        <td className="font-bold text-amber-700 text-right font-mono tabular-nums">{remaining}</td>
+                                        <td className="text-center">
+                                          <div className="flex flex-col items-center justify-center gap-0.5">
+                                            <input
+                                              type="number"
+                                              value={dispatchQuantities[item.line] || ''}
+                                              onChange={e => {
+                                                const val = e.target.value;
+                                                setDispatchQuantities(prev => ({
+                                                  ...prev,
+                                                  [item.line]: val
+                                                }));
+                                                setAsnForm(prev => ({
+                                                  ...prev,
+                                                  items: {
+                                                    ...prev.items,
+                                                    [item.line]: val
+                                                  }
+                                                }));
+                                              }}
+                                              className={`w-24 bg-surface border focus:border-[rgb(var(--color-emerald-default-rgb))] rounded-[3px] px-2 py-0.5 text-xs text-right font-mono font-semibold outline-none tabular-nums transition-all duration-150 ${error ? 'border-red-500 focus:border-red-500 bg-red-50/30' : 'border-border-em'
+                                                }`}
+                                              placeholder="0"
+                                            />
+                                            {error && (
+                                              <span className="text-[9px] text-red-600 font-bold block max-w-24 leading-tight truncate" title={error}>
+                                                {error}
+                                              </span>
+                                            )}
+                                          </div>
+                                        </td>
+                                        <td className="font-medium">{item.uom || 'EA'}</td>
+                                        <td className="font-bold text-text-primary text-right font-mono tabular-nums">₹ {Number(item.unitPrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                        <td className="font-medium font-mono tabular-nums text-right">{formatDate(item.deliveryDate || activePo.createdDate)}</td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+
+                            {/* Bullet page indicators */}
+                            {Math.ceil(activePo.items.length / 5) > 1 && (
+                              <div className="flex justify-center items-center gap-1.5 mt-3 select-none">
+                                {Array.from({ length: Math.ceil(activePo.items.length / 5) }).map((_, dotIdx) => (
+                                  <button
+                                    key={dotIdx}
+                                    type="button"
+                                    onClick={() => setAsnLineIdx(dotIdx)}
+                                    className={`size-2 rounded-full transition-all duration-150 cursor-pointer ${asnLineIdx === dotIdx
+                                      ? 'bg-text-primary w-4.5'
+                                      : 'bg-border-em hover:bg-text-tertiary'
+                                      }`}
+                                    title={`Go to page ${dotIdx + 1}`}
+                                  />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* TAB 3: Delivery status */}
               {activeDetailTab === 'invoice_plan' && (
                 <div className="p-4">
@@ -1346,7 +1774,7 @@ export default function PurchaseOrdersView({
                 <div className="space-y-6 animate-fade-in">
                   {(() => {
                     const grn = cleanGrns.find(g => g.poId === activePo.id);
-                    const activeAsn = cleanAsns.find(a => a.poId === activePo.id);
+                    const activeAsn = cleanAsns.find(a => a.poId === activePo.id) || (asnSuccessInfo?.poId === activePo.id ? asnSuccessInfo : null);
                     if (!grn) {
                       if (activePo.status === 'Dispatched') {
                         return (

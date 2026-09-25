@@ -33,7 +33,7 @@ const GRN = {
   items: [{ line: 10, materialCode: 'MAT-001', description: 'Hex bolts', receivedQuantity: 100, acceptedQuantity: 95, rejectedQuantity: 5, uom: 'EA' }],
 };
 
-const TABS = ['1. Order details', '2. Delivery status'];
+const TABS = ['1. Order details', '2. Send shipment', '3. Delivery status'];
 
 const renderLedger = (order, api = {}) => {
   const user = userEvent.setup();
@@ -66,13 +66,22 @@ describe('the purchase-order detail view', () => {
     await walkTabs(await openDetail(po({ status: 'Open' })));
   });
 
+  it("nests the shipment form's sub-sections one level under it", async () => {
+    const user = await openDetail(po({ status: 'Acknowledged' }));
+    await user.click(screen.getByRole('button', { name: '2. Send shipment' }));
+
+    expect(await screen.findByRole('heading', { level: 3, name: /Advanced Shipping Notice Form/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 4, name: /Dispatch Qty Allocation/i })).toBeInTheDocument();
+    await walkTabs(user);
+  });
+
   it('has no skipped level once the shipment has gone out', async () => {
     await walkTabs(await openDetail(po({ status: 'Dispatched' })));
   });
 
   it('nests the inspection result one level under the delivery receipt', async () => {
     const user = await openDetail(po({ status: 'Delivered' }), withGrn);
-    await user.click(screen.getByRole('button', { name: '2. Delivery status' }));
+    await user.click(screen.getByRole('button', { name: '3. Delivery status' }));
 
     expect(await screen.findByRole('heading', { level: 3, name: 'Delivery receipt' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 4, name: /Items received/i })).toBeInTheDocument();
@@ -84,7 +93,11 @@ describe('the purchase-order detail view', () => {
 
     // A call to action or an empty state may look like a heading; being one
     // puts it in a screen reader's heading list as a section to read.
-    await user.click(screen.getByRole('button', { name: '2. Delivery status' }));
+    await user.click(screen.getByRole('button', { name: '2. Send shipment' }));
+    expect(await screen.findByText('PO Acknowledgement Required')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'PO Acknowledgement Required' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '3. Delivery status' }));
     expect(await screen.findByText('No delivery confirmed yet')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'No delivery confirmed yet' })).not.toBeInTheDocument();
   });

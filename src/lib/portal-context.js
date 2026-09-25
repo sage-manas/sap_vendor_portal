@@ -194,6 +194,12 @@ export function PortalProvider({ children }) {
   const [bidLeadTime, setBidLeadTime] = useState(7);
   const [bidRemarks, setBidRemarks] = useState('');
 
+  const [asnForm, setAsnForm] = useState({
+    carrierName: '', trackingNumber: '', vehicleNumber: '',
+    invoiceReference: '', shipDate: '', estimatedDeliveryDate: '',
+    items: {}
+  });
+
   // Seed the registration form from the stored profile — once per supplier.
   //
   // This used to run on every change to `state.profile` and replace the whole
@@ -293,6 +299,47 @@ export function PortalProvider({ children }) {
     return result;
   };
 
+  const handleAsnSubmit = async (po) => {
+    const items = po.items.map(item => ({
+      line: item.line,
+      shippedQuantity: Number(asnForm.items[item.line] || item.quantity)
+    }));
+
+    const res = await poHook.submitASN({
+      poId: po.id,
+      shipDate: asnForm.shipDate || new Date().toISOString().split('T')[0],
+      estimatedDeliveryDate: asnForm.estimatedDeliveryDate || new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      // Blank stays blank: these are the supplier's document references, and
+      // the API accepts every one of them as optional.
+      carrierName: asnForm.carrierName || undefined,
+      trackingNumber: asnForm.trackingNumber || undefined,
+      vehicleNumber: asnForm.vehicleNumber || undefined,
+      invoiceReference: asnForm.invoiceReference || undefined,
+      ewayBillNo: po.ewayBillNo || '',
+      documentIds: po.documentIds || [],
+      items
+    });
+
+    setSelectedPoId(null);
+    setAsnForm({
+      carrierName: '', trackingNumber: '', vehicleNumber: '',
+      invoiceReference: '', shipDate: '', estimatedDeliveryDate: '',
+      items: {}
+    });
+
+    // MOCK — replace with real GRN/MIGO poll/webhook when SAP integration lands.
+    // Backend (backend/controllers/po.controller.js submitASN) fakes goods receipt via a
+    // 10s setTimeout ([SIMULATOR] logs); this just refreshes state 1s after that fires.
+    setTimeout(() => {
+      console.log('[PortalContext] Fallback refresh for GRN/MIGO simulation...');
+      poHook.refreshPOs();
+      poHook.refreshASNs();
+      poHook.refreshGRNs();
+    }, 11000);
+
+    return res;
+  };
+
   const handleResetDatabase = () => {
     if (confirm('Reset the portal back to its default demo data? This will clear all transactions.')) {
       dashboardHook.clearAllState();
@@ -338,12 +385,15 @@ export function PortalProvider({ children }) {
         setBidLeadTime,
         bidRemarks,
         setBidRemarks,
+        asnForm,
+        setAsnForm,
         handleCompanySubmit,
         handleBidSubmit,
         handleSapQuotePriceUpdate,
         handleCreateRFQ,
         handleReissueRFQ,
         handleCancelRFQ,
+        handleAsnSubmit,
         handleResetDatabase,
         logout,
         awardVendorBidWrapper,

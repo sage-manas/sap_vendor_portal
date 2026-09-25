@@ -137,6 +137,21 @@ export function usePOs(profile) {
     }
   };
 
+  const submitASN = async (asnData) => {
+    try {
+      setPos(prev => prev.map(po => po.id === asnData.poId ? { ...po, status: 'Dispatched' } : po));
+      const res = await poService.submitASN(asnData.poId, asnData);
+      refreshPOs();
+      refreshASNs();
+      return res;
+    } catch (e) {
+      console.error(e);
+      refreshPOs();
+      refreshASNs();
+      throw e;
+    }
+  };
+
   return {
     pos,
     asns,
@@ -145,6 +160,7 @@ export function usePOs(profile) {
     sapPoStatus,
     addPO,
     acknowledgePO,
+    submitASN,
     refreshPOs,
     refreshGRNs,
     refreshASNs,
