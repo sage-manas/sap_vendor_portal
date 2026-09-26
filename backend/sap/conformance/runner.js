@@ -81,13 +81,13 @@ const runConformanceSuite = async ({ adapter, clientId, timeoutMs = DEFAULT_TIME
     // this report gets read is someone deciding whether a sandbox is wired up
     // correctly. `skipped` says what actually happened, and the reason travels
     // with it so nobody has to come back here to find out why.
-    if (spec.createsDocument) {
+    if (spec.createsDocument || spec.changesMasterData) {
       results.push({
         method,
         transaction: spec.transaction,
         status: 'skipped',
         durationMs: 0,
-        error: `${method} creates a document in SAP and is not safe to exercise against a live system (see sap/contract.js)`,
+        error: `${method} ${spec.createsDocument ? 'creates a document' : 'changes vendor master data'} in SAP and is not safe to exercise against a live system (see sap/contract.js)`,
       });
       continue;
     }

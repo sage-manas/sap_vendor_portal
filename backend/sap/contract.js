@@ -41,6 +41,16 @@ const SAP_METHODS = {
   vendorCreate:        { transaction: 'VENDOR_CREATE' },
   vendorVerifyKyc:     { transaction: 'VENDOR_KYC_VERIFY' },
   vendorReject:        { transaction: 'VENDOR_REJECT' },
+  // A buyer-approved change to the payout bank account on a vendor master SAP
+  // already holds (XK02/FK02 bank data). F110 pays from SAP's master, not the
+  // portal's copy, so an approval that never reaches SAP pays the old account.
+  // No live endpoint exists yet (docs/abap-requests/vendor-bank-update.md);
+  // until one does, a driver throws not_implemented and approveBankChange
+  // falls back to a manual "confirmed in SAP" step.
+  // `changesMasterData`: the conformance runner skips it, like createsDocument
+  // — pointed at a customer's sandbox it would repoint a real vendor's payout
+  // account.
+  vendorBankUpdate:    { transaction: 'VENDOR_BANK_UPDATE', changesMasterData: true },
 
   // Reference data VENDOR_CR's own fields are coded against (region, payment
   // terms, payment method) — read-only master-data lookups, not a business

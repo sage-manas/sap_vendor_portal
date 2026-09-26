@@ -1,6 +1,8 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
-const { prisma } = require('../db/prisma');
+const { prisma, rawPrisma } = require('../db/prisma');
+const { withoutTenantScope } = require('../utils/tenantContext');
+const { invalidateSapAdapter } = require('../sap');
 const { registerVendor, onboardVendor, createTenantUser, asTenant } = require('./helpers');
 
 const app = buildTestApp();
@@ -143,5 +145,133 @@ describe('vendor bank-account change (issue #53)', () => {
 
     const payments = await asTenant(() => prisma.payment.findMany({ where: { vendorId: supplier.vendor.vendorId } }));
     expect(payments).toHaveLength(0);
+  });
+});
+
+// F110 pays from SAP's vendor master, not the portal's row. An approval that
+// only moved the portal's copy left the supplier looking paid-to-new while
+// SAP kept paying the old account — so SAP is asked first, and where it
+// can't take the change yet the live row waits for a person to confirm it.
+describe('bank-account change reaches SAP before the portal shows it', () => {
+  let supplier;
+  let admin;
+
+  const asSupplier = (req) => req.set('Authorization', `Bearer ${supplier.token}`);
+  const asAdmin = (req) => req.set('Authorization', `Bearer ${admin.token}`);
+  const liveVendor = () => asTenant(() => prisma.vendor.findFirst({ where: { vendorId: supplier.vendor.vendorId } }));
+  const sapLogs = () => asTenant(() => prisma.sapLog.findMany({ where: { vendorId: supplier.vendor.vendorId, name: 'ZVENDOR_BANK_UPDATE' } }));
+
+  beforeEach(async () => {
+    supplier = await registerVendor(app, {}, { onboarded: false });
+    await onboardVendor(supplier.vendor.vendorId, { status: 'Approved' });
+    await asTenant(() => prisma.vendor.updateMany({ where: { vendorId: supplier.vendor.vendorId }, data: { sapVendorCode: '1120250999' } }));
+    admin = await createTenantUser({ role: 'client_admin' });
+    await asSupplier(request(app).put('/api/vendors/profile')).send({ accountNumber: '99999999999', ifscCode: 'HDFC0000999' });
+  });
+
+  afterEach(() => invalidateSapAdapter());
+
+  const useRealSapDriver = async () => {
+    await withoutTenantScope(() => rawPrisma.sapConnection.create({
+      data: { clientId: 'CLT-0001', environment: 'sandbox', driver: 's4_odata', config: { baseUrl: 'http://127.0.0.1:9' } },
+    }));
+    invalidateSapAdapter();
+  };
+
+  it('applies the change once SAP accepts it, and logs the SAP call without the full account number', async () => {
+    const pk = (await liveVendor()).pk;
+    const res = await asAdmin(request(app).put(`/api/vendors/${pk}/bank-change/approve`));
+
+    expect(res.status).toBe(200);
+    const after = await liveVendor();
+    expect(after.accountNumber).toBe('99999999999');
+    expect(after.pendingBankChange).toBeNull();
+
+    const logs = await sapLogs();
+    expect(logs).toHaveLength(1);
+    expect(logs[0].payload).not.toContain('99999999999');
+
+    const audit = await asTenant(() => prisma.auditLog.findFirst({ where: { action: 'vendor.bank_change_approved' } }));
+    expect(audit.meta.sapSync).toBe('synced');
+  });
+
+  it('when SAP has no endpoint for it yet, approval keeps the live account SAP still pays', async () => {
+    await useRealSapDriver();
+    const before = await liveVendor();
+
+    const res = await asAdmin(request(app).put(`/api/vendors/${before.pk}/bank-change/approve`));
+
+    expect(res.status).toBe(200);
+    expect(res.body.awaitingSapConfirmation).toBe(true);
+    const after = await liveVendor();
+    expect(after.accountNumber).toBe(before.accountNumber);
+    expect(after.pendingBankChange.accountNumber).toBe('99999999999');
+    expect(after.pendingBankChange.sapApproval.approvedBy).toBeTruthy();
+
+    const audit = await asTenant(() => prisma.auditLog.findFirst({ where: { action: 'vendor.bank_change_approved' } }));
+    expect(audit.meta.sapSync).toBe('manual_required');
+  });
+
+  it('applies an approval awaiting SAP once someone confirms it was made in SAP', async () => {
+    await useRealSapDriver();
+    const pk = (await liveVendor()).pk;
+    await asAdmin(request(app).put(`/api/vendors/${pk}/bank-change/approve`));
+
+    const res = await asAdmin(request(app).put(`/api/vendors/${pk}/bank-change/confirm-sap`));
+
+    expect(res.status).toBe(200);
+    const after = await liveVendor();
+    expect(after.accountNumber).toBe('99999999999');
+    expect(after.ifscCode).toBe('HDFC0000999');
+    expect(after.pendingBankChange).toBeNull();
+    const audit = await asTenant(() => prisma.auditLog.findFirst({ where: { action: 'vendor.bank_change_sap_confirmed' } }));
+    expect(audit.meta.new.accountNumber).toBe('99999999999');
+  });
+
+  it('refuses to confirm a change that was never approved, or to approve one twice', async () => {
+    await useRealSapDriver();
+    const pk = (await liveVendor()).pk;
+
+    const early = await asAdmin(request(app).put(`/api/vendors/${pk}/bank-change/confirm-sap`));
+    expect(early.status).toBe(400);
+    expect((await liveVendor()).accountNumber).not.toBe('99999999999');
+
+    await asAdmin(request(app).put(`/api/vendors/${pk}/bank-change/approve`));
+    const again = await asAdmin(request(app).put(`/api/vendors/${pk}/bank-change/approve`));
+    expect(again.status).toBe(400);
+    expect(again.body.reason).toBe('awaiting_sap_confirmation');
+  });
+
+  it('can still reject an approval that is waiting on SAP', async () => {
+    await useRealSapDriver();
+    const before = await liveVendor();
+    await asAdmin(request(app).put(`/api/vendors/${before.pk}/bank-change/approve`));
+
+    const res = await asAdmin(request(app).put(`/api/vendors/${before.pk}/bank-change/reject`)).send({ reason: 'XK02 change not made' });
+
+    expect(res.status).toBe(200);
+    const after = await liveVendor();
+    expect(after.accountNumber).toBe(before.accountNumber);
+    expect(after.pendingBankChange).toBeNull();
+  });
+
+  it('keeps payments blocked while the change waits on SAP', async () => {
+    await useRealSapDriver();
+    const pk = (await liveVendor()).pk;
+    await asAdmin(request(app).put(`/api/vendors/${pk}/bank-change/approve`));
+    const finance = await createTenantUser({ role: 'finance' });
+
+    const res = await request(app).post('/api/payments')
+      .set('Authorization', `Bearer ${finance.token}`)
+      .send({ vendorId: supplier.vendor.vendorId, poId: 'PO-2026-0001', netAmount: 100, paymentDate: new Date().toISOString(), utrCode: 'UTRTEST0002' });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('is only available to someone who may approve suppliers', async () => {
+    const buyer = await createTenantUser({ role: 'buyer' });
+    const pk = (await liveVendor()).pk;
+    const res = await request(app).put(`/api/vendors/${pk}/bank-change/confirm-sap`).set('Authorization', `Bearer ${buyer.token}`);
+    expect(res.status).toBe(403);
   });
 });

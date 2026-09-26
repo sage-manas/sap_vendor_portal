@@ -41,8 +41,16 @@ async function sweepOneVendor({ clientId, vendor, adapter }) {
   const result = await adapter.vendorMiroDisplay({ vendor, invoices: existingInvoices.map(formatInvoice) });
   const documents = result?.documents || [];
 
+  // An unchanged SAP answer normally means there is nothing to do — but not
+  // while a document it lists is still unrecorded here. upsertInvoice defers
+  // a document whose PO or goods receipt the portal hasn't synced yet, and
+  // SAP's answer won't change when that receipt later arrives, so without
+  // this the deferred invoice would never be retried.
   const { changed } = await recordSweepTick({ clientId, feed: FEED, vendorCode: vendor.sapVendorCode, data: documents });
-  if (!changed) return;
+  const unrecorded = documents.some(
+    (document) => document.miroDoc && !existingInvoices.some((inv) => inv.sapMiroDoc === document.miroDoc),
+  );
+  if (!changed && !unrecorded) return;
 
   for (const document of documents) {
     // eslint-disable-next-line no-await-in-loop

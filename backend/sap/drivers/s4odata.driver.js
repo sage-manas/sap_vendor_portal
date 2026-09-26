@@ -1520,6 +1520,12 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
       },
     }),
 
+    // No vendorBankUpdate override either, for the same reason: VENDOR_CR
+    // only creates, and no endpoint that changes an existing vendor's bank
+    // data exists yet (docs/abap-requests/vendor-bank-update.md). Throwing
+    // not_implemented is what makes approveBankChange fall back to its
+    // manual "confirmed in SAP" step instead of claiming a sync.
+    //
     // No vendorReject override here (issue #59): unlike vendorCreate's
     // VENDOR_CR, there is no confirmed Z REST/OData endpoint for rejecting a
     // vendor master in SAP, and VENDOR_REJECT is registered as a real OData

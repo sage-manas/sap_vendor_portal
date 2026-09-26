@@ -35,6 +35,10 @@ const AUDIT_ACTIONS = {
   VENDOR_BANK_CHANGE_REQUESTED: 'vendor.bank_change_requested',
   VENDOR_BANK_CHANGE_APPROVED: 'vendor.bank_change_approved',
   VENDOR_BANK_CHANGE_REJECTED: 'vendor.bank_change_rejected',
+  // The manual half of an approval SAP could not take automatically: a
+  // person states the change is now in SAP's vendor master (XK02), and only
+  // then does the portal's copy move to the new account.
+  VENDOR_BANK_CHANGE_SAP_CONFIRMED: 'vendor.bank_change_sap_confirmed',
 
   // Tenant staff (tenant plane)
   USER_INVITED: 'user.invited',

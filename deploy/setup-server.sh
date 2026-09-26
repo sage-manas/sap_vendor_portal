@@ -57,8 +57,9 @@ cat <<'EOF'
    DATABASE_URL must match the role/database created above, e.g.
      postgresql://sap_portal:<password>@localhost:5432/sap_vendor_portal?schema=public
      git clone <repo-url> vendorconnect && cd vendorconnect
-     npm install && npm run build
-     cd backend && npm install && npx prisma migrate deploy && cd ..
+     npm ci --include=dev && npm run build
+     cd backend && npm ci --include=dev && npx prisma generate && npx prisma migrate deploy && cd ..
+   (Every later release: bash deploy/deploy.sh — it repeats these steps.)
 
 3. Copy deploy/nginx.conf to /etc/nginx/sites-available/vendorconnect,
    edit server_name, then:

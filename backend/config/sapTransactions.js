@@ -15,6 +15,7 @@ const SAP_TRANSACTIONS = {
   VENDOR_CREATE:      { code: 'BAPI_VENDOR_CREATE',        type: 'BAPI',  direction: 'OUTBOUND', label: 'Create vendor master record' },
   VENDOR_CONFIRM:     { code: 'OData_VENDOR_CONFIRM',      type: 'OData', direction: 'INBOUND',  label: 'Vendor master confirmed' },
   VENDOR_REJECT:      { code: 'OData_VENDOR_REJECT',       type: 'OData', direction: 'INBOUND',  label: 'Vendor master rejected' },
+  VENDOR_BANK_UPDATE: { code: 'ZVENDOR_BANK_UPDATE',       type: 'OData', direction: 'OUTBOUND', label: 'Update vendor master bank details' },
   VENDOR_KYC_VERIFY:  { code: 'GSTIN_PAN_VERIFY',          type: 'KYC',   direction: 'OUTBOUND', label: 'GSTIN and PAN verification' },
 
   // Purchase orders. The portal creates no *material* orders — ME21N for one

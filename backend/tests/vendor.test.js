@@ -259,8 +259,13 @@ describe('registration approval flow', () => {
     expect(kycLog.documentRef).not.toBe('undefined');
   });
 
+  // SAP only hears about a rejection for a vendor whose master it holds — a
+  // supplier rejected at onboarding has none, so none is logged (see
+  // tests/vendor-reject-real-sap.test.js). This one has a code, so the SAP
+  // call is made and its log entry is what's under test.
   it("logs the vendor's real pk on reject, not \"undefined\" (issue #59)", async () => {
     const { vendor } = await registerVendor(app);
+    await asTenant(() => prisma.vendor.update({ where: { pk: vendor.pk }, data: { sapVendorCode: '1120259999' } }));
     const { token: adminToken } = await createAdminUser();
 
     await request(app)

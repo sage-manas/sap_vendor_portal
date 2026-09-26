@@ -2,7 +2,7 @@
 // this sweep is what an Invoice row's existence now depends on entirely,
 // the same "SAP originated it" shape as sweepPurchaseOrders/sweepPayments
 // (see jobs/handlers/sweepInvoices.js's own header comment).
-const { prisma } = require('../db/prisma');
+const { prisma, rawPrisma } = require('../db/prisma');
 const { runWithTenant } = require('../utils/tenantContext');
 const { buildTransientAdapter } = require('../sap');
 const sweepInvoices = require('../jobs/handlers/sweepInvoices');
@@ -52,6 +52,13 @@ const runSweep = (clientId, discoveries) => runWithTenant(clientId, () => sweepI
   job: { clientId, args: {} },
   adapter: buildTransientAdapter({ clientId, driver: 'mock', config: { discoveries }, secrets: {} }),
 }));
+
+// A vendor swept moments ago isn't due again yet (adaptive polling) — stands
+// in for the interval passing between two real ticks.
+const makeDueAgain = (clientId) => rawPrisma.sapSyncCursor.updateMany({
+  where: { clientId, feed: 'invoice' },
+  data: { lastRunAt: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+});
 
 beforeEach(() => seedClient());
 
@@ -160,6 +167,41 @@ describe('sweepInvoices discovery', () => {
 
     const count = await runWithTenant('CLT-0001', () => prisma.invoice.count({ where: { vendorId: 'vendor_inv_6' } }));
     expect(count).toBe(0);
+  });
+
+  // SAP's answer is identical on both ticks — only the portal's side changed
+  // (the receipt arrived) — so a fingerprint-only shortcut would never retry.
+  it('picks up a deferred document once its goods receipt arrives, even though SAP’s answer is unchanged', async () => {
+    await seedVendor('CLT-0001', 'vendor_inv_8', 'VENINV8');
+    const po = await seedPo('CLT-0001', { id: 'PO-INVSWEEP-8', vendorId: 'vendor_inv_8' });
+    const doc = discoveryInvoice(po.id, { sapMiroDoc: 'MIRO-DEFERRED-8' });
+
+    await runSweep('CLT-0001', { invoice: [doc] });
+    const before = await runWithTenant('CLT-0001', () => prisma.invoice.count({ where: { poId: po.id } }));
+    expect(before).toBe(0);
+
+    const grn = await seedGrn('CLT-0001', { id: 'GRN-INVSWEEP-8', poId: po.id, vendorId: 'vendor_inv_8' });
+    await makeDueAgain('CLT-0001');
+    await runSweep('CLT-0001', { invoice: [doc] });
+
+    const invoice = await runWithTenant('CLT-0001', () => prisma.invoice.findFirst({ where: { poId: po.id } }));
+    expect(invoice).toBeTruthy();
+    expect(invoice.grnId).toBe(grn.id);
+  });
+
+  it('picks up a deferred document once its purchase order is discovered', async () => {
+    await seedVendor('CLT-0001', 'vendor_inv_9', 'VENINV9');
+    const doc = discoveryInvoice('PO-INVSWEEP-9', { sapMiroDoc: 'MIRO-DEFERRED-9' });
+
+    await runSweep('CLT-0001', { invoice: [doc] });
+
+    const po = await seedPo('CLT-0001', { id: 'PO-INVSWEEP-9', vendorId: 'vendor_inv_9' });
+    await seedGrn('CLT-0001', { id: 'GRN-INVSWEEP-9', poId: po.id, vendorId: 'vendor_inv_9' });
+    await makeDueAgain('CLT-0001');
+    await runSweep('CLT-0001', { invoice: [doc] });
+
+    const count = await runWithTenant('CLT-0001', () => prisma.invoice.count({ where: { poId: po.id } }));
+    expect(count).toBe(1);
   });
 
   // Issue #72's own suggested pattern (a conditional updateMany, count === 0

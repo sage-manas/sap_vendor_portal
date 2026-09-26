@@ -101,6 +101,89 @@ function DocumentRow({ label, document: file }) {
   );
 }
 
+// A supplier's request to change their payout account. SAP pays from its own
+// vendor master, so an approval is only complete once SAP holds the new
+// account: while the tenant's SAP can't take the change automatically, an
+// approved request waits here for someone to confirm it was entered in SAP
+// (XK02), and the Banking facts above keep showing the account SAP pays.
+function PendingBankChange({ vendor, canDecide, onDone, onError }) {
+  const change = vendor.pendingBankChange;
+  const [busy, setBusy] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const [reason, setReason] = useState('');
+  if (!change) return null;
+
+  const awaitingSap = Boolean(change.sapApproval);
+
+  const act = async (path, body, fallback) => {
+    setBusy(true);
+    onError('');
+    try {
+      const res = await apiClient.put(`/vendors/${vendor.pk}/bank-change/${path}`, body || {});
+      await onDone(res?.message || fallback);
+    } catch (err) {
+      onError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-4 rounded-md border border-amber-500/40 p-3">
+      <p className="mb-1 text-[13px] font-semibold text-text-primary">
+        {awaitingSap ? 'Bank change approved — waiting to be updated in SAP' : 'Bank change requested by the supplier'}
+      </p>
+      <p className="mb-3 text-[12px] text-text-tertiary">
+        {awaitingSap
+          ? `Approved by ${change.sapApproval.approvedBy || 'a reviewer'} on ${formatDate(change.sapApproval.approvedAt)}. Update vendor ${vendor.sapVendorCode}'s bank details in SAP (XK02), then confirm here. Until then SAP keeps paying the current account, and payments to this supplier stay blocked.`
+          : `Requested ${formatDate(change.requestedAt)}. Verify it with the supplier through a channel you already trust before approving. Payments to this supplier are blocked until this is decided.`}
+      </p>
+      <Facts columns="md:grid-cols-3" rows={[
+        ['New bank', change.bankName, { plain: true }],
+        ['New branch', change.bankBranch, { plain: true }],
+        ['New account holder', change.accountName, { plain: true }],
+        ['New account number', <AccountNumber key="new-acct" value={change.accountNumber} />, { plain: true }],
+        ['New IFSC', change.ifscCode],
+      ]} />
+      {canDecide && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {awaitingSap ? (
+            <button type="button" className="btn btn-v h-8" disabled={busy}
+              onClick={() => act('confirm-sap', null, 'Confirmed. The portal now shows the account SAP pays.')}>
+              Confirm updated in SAP
+            </button>
+          ) : (
+            <button type="button" className="btn btn-v h-8" disabled={busy}
+              onClick={() => act('approve', null, 'Bank account change approved.')}>
+              Approve change
+            </button>
+          )}
+          {rejecting ? (
+            <>
+              <input
+                className="input h-8 min-w-0 flex-1 text-[13px]"
+                placeholder="Reason (shared in the audit log)"
+                aria-label="Reason for rejecting the bank change"
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+              />
+              <button type="button" className="btn btn-o h-8" disabled={busy}
+                onClick={() => act('reject', { reason }, 'Bank account change rejected.')}>
+                Reject change
+              </button>
+              <button type="button" className="btn btn-o h-8" disabled={busy} onClick={() => setRejecting(false)}>Cancel</button>
+            </>
+          ) : (
+            <button type="button" className="btn btn-o h-8" disabled={busy} onClick={() => setRejecting(true)}>
+              {awaitingSap ? 'Withdraw approval' : 'Reject'}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Verification({ label, verified }) {
   const Icon = verified ? ShieldCheck : ShieldAlert;
   return (
@@ -218,6 +301,12 @@ export default function SupplierDetailPage({ params }) {
               ['Account number', <AccountNumber key="acct" value={vendor.bankDetails?.accountNumber} />, { plain: true }],
               ['IFSC', vendor.bankDetails?.ifscCode],
             ]} />
+            <PendingBankChange
+              vendor={vendor}
+              canDecide={can('vendor:approve')}
+              onError={setError}
+              onDone={async (message) => { setDone(message); await reload(); }}
+            />
           </Section>
 
           <Section title="Recent purchase orders">
