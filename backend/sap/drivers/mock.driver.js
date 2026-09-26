@@ -662,6 +662,22 @@ const createMockDriver = ({ config = {} } = {}) => {
       },
     }),
 
+    vendorBankUpdate: async ({ vendor, bank }) => ({
+      data: {},
+      log: {
+        vendorId: vendor.vendorId,
+        // Never log a full account number — the last four identify it.
+        payload: {
+          sapVendorCode: vendor.sapVendorCode,
+          bankName: bank.bankName,
+          ifscCode: bank.ifscCode,
+          accountNumber: bank.accountNumber ? `****${String(bank.accountNumber).slice(-4)}` : undefined,
+        },
+        status: 'SUCCESS',
+        documentRef: String(vendor.pk),
+      },
+    }),
+
     vendorReject: async ({ vendor, reason }) => ({
       data: {},
       log: {

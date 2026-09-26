@@ -514,11 +514,44 @@ const rejectVendor = asyncHandler(async (req, res, next) => {
   res.json({ message: 'Vendor rejected successfully', vendor: formatVendorResponse(updated) });
 });
 
-// @desc    Approve a supplier's pending bank-account change and apply it to
-//          the live row
+// Only the five bank columns ever move from a request onto the live row —
+// the request JSON also carries requestedAt and, once approved, sapApproval.
+const requestedBankOf = (pending) => Object.fromEntries(
+  BANK_FIELDS.filter((field) => field in pending).map((field) => [field, pending[field]]),
+);
+
+const bankSnapshot = (row) => Object.fromEntries(BANK_FIELDS.map((field) => [field, row[field]]));
+
+// Moves an approved request onto the live row and records it. Shared by the
+// two ways an approval completes: SAP accepted it directly, or a person has
+// confirmed it was entered in SAP by hand.
+const applyBankChange = async (req, vendor, { action, sapSync }) => {
+  const updated = await prisma.vendor.update({
+    where: { pk: vendor.pk },
+    data: { ...requestedBankOf(vendor.pendingBankChange), pendingBankChange: null },
+  });
+  await recordAudit({
+    action,
+    req,
+    target: { type: 'Vendor', id: updated.vendorId, label: updated.companyName },
+    meta: { old: bankSnapshot(vendor), new: bankSnapshot(updated), sapSync },
+  });
+  return updated;
+};
+
+// @desc    Approve a supplier's pending bank-account change
 // @route   PUT /api/vendors/:id/bank-change/approve
 // @access  Admin/Private (vendor:approve — the same gate the original
 //          onboarding approval sits behind)
+//
+// F110 pays from SAP's vendor master, not from this row, so an approval is
+// only real once SAP holds the new account. SAP is asked first; the live row
+// moves only if it accepted. When the tenant's SAP has no endpoint for this
+// yet (the driver throws not_implemented — see
+// docs/abap-requests/vendor-bank-update.md), the approval is recorded but the
+// live row keeps showing the account SAP will actually pay, until someone
+// confirms the change was made in XK02 (confirmBankChangeInSap below). Any
+// other SAP failure leaves everything as it was.
 const approveBankChange = asyncHandler(async (req, res, next) => {
   const { id } = req.params;
   const vendor = await prisma.vendor.findFirst({ where: { pk: id } });
@@ -528,28 +561,79 @@ const approveBankChange = asyncHandler(async (req, res, next) => {
   if (!vendor.pendingBankChange) {
     return next(ApiError.badRequest('This supplier has no bank-account change awaiting approval'));
   }
+  if (vendor.pendingBankChange.sapApproval) {
+    return next(ApiError.badRequest(
+      'This change is already approved and waiting to be confirmed in SAP.',
+      { reason: 'awaiting_sap_confirmation' },
+    ));
+  }
 
-  const { requestedAt, ...requestedBank } = vendor.pendingBankChange;
-  const updated = await prisma.vendor.update({
-    where: { pk: vendor.pk },
-    data: { ...requestedBank, pendingBankChange: null },
+  // A supplier with no SAP vendor master has nothing in SAP to fall out of
+  // step with.
+  if (!vendor.sapVendorCode) {
+    const updated = await applyBankChange(req, vendor, { action: AUDIT_ACTIONS.VENDOR_BANK_CHANGE_APPROVED, sapSync: 'not_in_sap' });
+    return res.json({ message: 'Bank account change approved and applied', vendor: formatVendorResponse(updated) });
+  }
+
+  const sap = await getSapAdapterForClient(req.clientId);
+  try {
+    await sap.vendorBankUpdate({ vendor, bank: requestedBankOf(vendor.pendingBankChange) });
+  } catch (error) {
+    if (error.code !== 'not_implemented') throw error;
+
+    const updated = await prisma.vendor.update({
+      where: { pk: vendor.pk },
+      data: {
+        pendingBankChange: {
+          ...vendor.pendingBankChange,
+          sapApproval: { approvedAt: new Date().toISOString(), approvedBy: req.auth?.email || null },
+        },
+      },
+    });
+    await recordAudit({
+      action: AUDIT_ACTIONS.VENDOR_BANK_CHANGE_APPROVED,
+      req,
+      target: { type: 'Vendor', id: updated.vendorId, label: updated.companyName },
+      meta: { old: bankSnapshot(vendor), new: requestedBankOf(vendor.pendingBankChange), sapSync: 'manual_required' },
+    });
+    return res.json({
+      message: `Approved. SAP can't take this change automatically yet — update vendor ${vendor.sapVendorCode}'s bank details in SAP (XK02), then confirm it here. Until then SAP keeps paying the current account.`,
+      awaitingSapConfirmation: true,
+      vendor: formatVendorResponse(updated),
+    });
+  }
+
+  const updated = await applyBankChange(req, vendor, { action: AUDIT_ACTIONS.VENDOR_BANK_CHANGE_APPROVED, sapSync: 'synced' });
+  res.json({ message: 'Bank account change approved and updated in SAP', vendor: formatVendorResponse(updated) });
+});
+
+// @desc    Confirm an approved bank-account change has been made in SAP by
+//          hand, and apply it to the live row
+// @route   PUT /api/vendors/:id/bank-change/confirm-sap
+// @access  Admin/Private (vendor:approve)
+const confirmBankChangeInSap = asyncHandler(async (req, res, next) => {
+  const { id } = req.params;
+  const vendor = await prisma.vendor.findFirst({ where: { pk: id } });
+  if (!vendor) {
+    return next(ApiError.notFound('Vendor not found'));
+  }
+  if (!vendor.pendingBankChange?.sapApproval) {
+    return next(ApiError.badRequest(
+      'There is no approved bank-account change waiting to be confirmed in SAP.',
+      { reason: 'nothing_to_confirm' },
+    ));
+  }
+
+  const updated = await applyBankChange(req, vendor, {
+    action: AUDIT_ACTIONS.VENDOR_BANK_CHANGE_SAP_CONFIRMED,
+    sapSync: 'manual_confirmed',
   });
-
-  await recordAudit({
-    action: AUDIT_ACTIONS.VENDOR_BANK_CHANGE_APPROVED,
-    req,
-    target: { type: 'Vendor', id: updated.vendorId, label: updated.companyName },
-    meta: {
-      old: Object.fromEntries(BANK_FIELDS.map((field) => [field, vendor[field]])),
-      new: Object.fromEntries(BANK_FIELDS.map((field) => [field, updated[field]])),
-    },
-  });
-
-  res.json({ message: 'Bank account change approved and applied', vendor: formatVendorResponse(updated) });
+  res.json({ message: 'Confirmed. The portal now shows the account SAP pays.', vendor: formatVendorResponse(updated) });
 });
 
 // @desc    Reject a supplier's pending bank-account change — the live row is
-//          left exactly as it was
+//          left exactly as it was. Also withdraws an approval still waiting
+//          to be confirmed in SAP (e.g. the XK02 change was never made).
 // @route   PUT /api/vendors/:id/bank-change/reject
 // @access  Admin/Private (vendor:approve)
 const rejectBankChange = asyncHandler(async (req, res, next) => {
@@ -847,6 +931,7 @@ module.exports = {
   approveVendor,
   rejectVendor,
   approveBankChange,
+  confirmBankChangeInSap,
   rejectBankChange,
   listVendors,
   getVendorById,
