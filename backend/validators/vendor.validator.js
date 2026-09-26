@@ -78,7 +78,10 @@ const profileCreateSchema = z.object({
   tdsSection: optionalText,
   vendorCategory: optionalText,
   msmeRegistered: optionalFlag,
-  status: optionalText,
+  // No `status`: a supplier's lifecycle is the workflow's to set (submit,
+  // approve, reject), never the caller's. Accepting it here let a Draft
+  // supplier PUT itself to Approved, and let an anonymous self-registration
+  // arrive already Approved. Zod strips the key if a client still sends it.
   
   // Flat address & bank details
   address: addressSchema,
@@ -118,9 +121,8 @@ const profileUpdateSchema = profileCreateSchema.partial();
 
 // A supplier created from the tenant's directory. Derived from the
 // self-registration schema rather than restated, so the two can never drift:
-// the tenant supplies the same fields minus the two it does not own — the
-// vendorId (issued server-side) and the status (the workflow's to set).
-const vendorCreateSchema = profileCreateSchema.omit({ vendorId: true, status: true });
+// the tenant supplies the same fields minus the vendorId (issued server-side).
+const vendorCreateSchema = profileCreateSchema.omit({ vendorId: true });
 
 const rejectVendorSchema = z.object({
   reason: z.string().min(1, { message: "Rejection reason is required" })

@@ -1,4 +1,4 @@
-import { Geist, Geist_Mono, Source_Serif_4 } from "next/font/google";
+import localFont from "next/font/local";
 import Script from "next/script";
 import "./globals.css";
 import { ShellProvider } from "@/lib/shell-context";
@@ -9,14 +9,20 @@ import PortalLayout from "@/components/portal/PortalLayout";
 // Runs before first paint to resolve the theme and avoid a light→dark flash.
 const themeScript = `(function(){try{var t=localStorage.getItem('vc-theme');if(!t){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}var r=document.documentElement;if(t==='dark'){r.classList.add('dark');}r.style.colorScheme=t;}catch(e){}})();`;
 
-const geistSans = Geist({
+// Fonts are self-hosted (src/app/fonts, the Latin subsets Google Fonts
+// serves) rather than loaded through next/font/google, which downloads them
+// from fonts.gstatic.com during every build — a network hiccup there failed
+// CI's frontend build with nothing wrong in the code.
+const geistSans = localFont({
+  src: "./fonts/Geist-Variable.woff2",
   variable: "--font-geist-sans",
-  subsets: ["latin"],
+  weight: "100 900",
 });
 
-const geistMono = Geist_Mono({
+const geistMono = localFont({
+  src: "./fonts/GeistMono-Variable.woff2",
   variable: "--font-geist-mono",
-  subsets: ["latin"],
+  weight: "100 900",
 });
 
 // Serif display face for page-level headings only (claude/DESIGN.md's
@@ -24,10 +30,10 @@ const geistMono = Geist_Mono({
 // open, screen-legible stand-in that still reads editorial at 20-28px —
 // Cormorant/EB Garamond, the doc's own suggested substitutes, get too
 // delicate at the sizes a dense console actually uses for its headers).
-const sourceSerif = Source_Serif_4({
+const sourceSerif = localFont({
+  src: "./fonts/SourceSerif4-Variable.woff2",
   variable: "--font-serif-display",
-  subsets: ["latin"],
-  weight: ["500", "600"],
+  weight: "500 600",
 });
 
 export const metadata = {

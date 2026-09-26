@@ -28,13 +28,14 @@ describe('the conformance suite', () => {
     expect(report.results).toHaveLength(METHOD_NAMES.length);
 
     // A method the contract marks  is skipped, not run — see
-    // runner.js. Today that is poAssetCreate alone: exercising it would create
-    // a real purchase order. Derived from the contract rather than hardcoded so
+    // runner.js. Today that is poAssetCreate (it would create a real purchase
+    // order) and vendorBankUpdate (it would repoint a real vendor's payout
+    // account). Derived from the contract rather than hardcoded so
     // adding one does not quietly leave this assertion measuring the wrong
     // thing. Note this is NOT "every method without a fixture": most reads need
     // no arguments and are deliberately fixture-less but still exercised.
-    const skippable = METHOD_NAMES.filter((method) => SAP_METHODS[method].createsDocument);
-    expect(skippable).toEqual(['poAssetCreate']);
+    const skippable = METHOD_NAMES.filter((method) => (SAP_METHODS[method].createsDocument || SAP_METHODS[method].changesMasterData));
+    expect(skippable).toEqual(['vendorBankUpdate', 'poAssetCreate']);
 
     const notSkipped = report.results.filter((r) => r.status !== 'skipped');
     expect(notSkipped.every((r) => r.status === 'passed')).toBe(true);
@@ -81,11 +82,11 @@ describe('the conformance suite', () => {
     expect(byMethod.testConnection).toBe('passed');
     expect(byMethod.health).toBe('passed');
 
-    // A createsDocument method is skipped before the driver is ever consulted,
+    // A createsDocument (or changesMasterData) method is skipped before the driver is ever consulted,
     // so it reports 'skipped' here rather than 'not_implemented' — the runner
     // never asked ecc_rfc whether it could do it. Excluded explicitly rather
     // than loosened to "not failed", so a genuine regression still shows.
-    const skipped = METHOD_NAMES.filter((method) => SAP_METHODS[method].createsDocument);
+    const skipped = METHOD_NAMES.filter((method) => (SAP_METHODS[method].createsDocument || SAP_METHODS[method].changesMasterData));
     const rest = report.results.filter((r) =>
       !['testConnection', 'health'].includes(r.method) && !skipped.includes(r.method));
     expect(rest.every((r) => r.status === 'not_implemented')).toBe(true);
@@ -178,10 +179,10 @@ describe('the conformance suite', () => {
     // read-only cross-check added since (the catalogues, the MIRO/payment/RFQ/
     // PO-GRN/quotation displays) is unlogged too, and a fixed offset went stale
     // silently each time one landed.
-    // A createsDocument method is skipped, so it writes nothing — it would
+    // A createsDocument (or changesMasterData) method is skipped, so it writes nothing — it would
     // otherwise be counted here as a logged method that never ran.
     const loggedMethods = METHOD_NAMES.filter((method) =>
-      SAP_METHODS[method].logged !== false && !SAP_METHODS[method].createsDocument);
+      SAP_METHODS[method].logged !== false && !(SAP_METHODS[method].createsDocument || SAP_METHODS[method].changesMasterData));
     expect(logged).toBeGreaterThanOrEqual(loggedMethods.length);
   });
 
