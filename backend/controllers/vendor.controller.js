@@ -524,8 +524,22 @@ const rejectVendor = asyncHandler(async (req, res, next) => {
     data: { status: VENDOR_STATUS.REJECTED, rejectionReason: reason },
   });
 
-  const sap = await getSapAdapterForClient(req.clientId);
-  await sap.vendorReject({ vendor: updated, reason });
+  // A rejection is the portal's decision, and it is already saved. SAP only
+  // has something to hear about if it holds this vendor's master — which it
+  // doesn't until approval, so a supplier rejected at onboarding is never
+  // sent. When it does hold one, a failure to tell it (s4_odata has no
+  // endpoint for this yet: not_implemented) is recorded in the SAP log by the
+  // adapter wrapper, but must not undo the decision or skip the audit entry
+  // and the supplier's email below — it used to answer 501 after the status
+  // had already changed.
+  if (updated.sapVendorCode) {
+    const sap = await getSapAdapterForClient(req.clientId);
+    try {
+      await sap.vendorReject({ vendor: updated, reason });
+    } catch (error) {
+      logger.warn(`[vendor] rejection of ${updated.vendorId} not sent to SAP: ${error.message}`);
+    }
+  }
 
   await notifyDecision(req, updated, { approved: false, reason });
 
