@@ -44,6 +44,14 @@ const PROTECTED_VENDOR_FIELDS = new Set([
 // the account-takeover path AP fraud runs through.
 const BANK_FIELDS = ['bankName', 'accountNumber', 'ifscCode', 'accountName', 'bankBranch'];
 
+const IDENTITY_FIELDS = ['companyName', 'gstin', 'pan', 'email'];
+const normaliseIdentity = (field, value) => {
+  const text = String(value ?? '').trim();
+  if (field === 'email') return text.toLowerCase();
+  if (field === 'gstin' || field === 'pan') return text.toUpperCase();
+  return text;
+};
+
 // Maps a body carrying flat and/or legacy nested fields onto flat Vendor
 // columns. The flat column the body names wins; a nested value only fills a gap.
 //
@@ -240,7 +248,7 @@ const createProfile = asyncHandler(async (req, res, next) => {
     data: {
       ...rest,
       ...passwordFields,
-      status: mappedBody.status || defaultStatus,
+      status: defaultStatus,
     },
   }));
 
@@ -329,6 +337,23 @@ const updateProfile = asyncHandler(async (req, res, next) => {
   }
   if (data.password) {
     Object.assign(data, await hashPassword(data.password));
+  }
+
+  // The legal identity a buyer approved — and SAP's vendor master was
+  // created from — is not the supplier's to rewrite afterwards. Before
+  // approval it may still change, but a changed GSTIN or PAN voids the
+  // verification already run on the old one, so approveVendor re-runs it.
+  const changedIdentity = IDENTITY_FIELDS.filter(
+    (field) => field in data && normaliseIdentity(field, data[field]) !== normaliseIdentity(field, vendor[field]),
+  );
+  if (changedIdentity.length && vendor.status === VENDOR_STATUS.APPROVED) {
+    return next(ApiError.conflict(
+      'Your company name, GSTIN, PAN and email are locked once you are approved. Ask your buyer to update them.',
+      { reason: 'identity_locked', fields: changedIdentity },
+    ));
+  }
+  if (changedIdentity.includes('gstin') || changedIdentity.includes('pan')) {
+    Object.assign(data, { gstinVerified: false, panVerified: false, verifiedAt: null, verificationDetails: null });
   }
 
   // Once Approved, a bank-field change is never written to the live row
