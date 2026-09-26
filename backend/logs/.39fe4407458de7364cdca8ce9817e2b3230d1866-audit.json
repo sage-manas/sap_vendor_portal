@@ -59,6 +59,11 @@
             "date": 1790274603563,
             "name": "C:\\Users\\pc\\Desktop\\sap_vendor_portal\\backend\\logs\\error-2026-09-25.log",
             "hash": "52b563485ad69c6a2be3153310fe0382928f41295746641d9597b65d49d0b688"
+        },
+        {
+            "date": 1790416580522,
+            "name": "C:\\Users\\pc\\Desktop\\sap_vendor_portal\\backend\\logs\\error-2026-09-26.log",
+            "hash": "0613b83351054b5bbf15e17d68cd322ea1c664c1ae2542b9dcbe0ca4254394a6"
         }
     ],
     "hashType": "sha256"
