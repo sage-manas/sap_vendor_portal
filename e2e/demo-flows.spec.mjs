@@ -151,13 +151,17 @@ test.describe('demo flows, through the UI', () => {
     // --- The dashboard tells the supplier there is an order to acknowledge ---
     await expect(page.getByText(new RegExp(`awaiting acknowledgement.*${po.id}`))).toBeVisible();
 
+    // --- Acknowledge ----------------------------------------------------------
+    await page.goto('/pos');
+    await page.getByPlaceholder('PO # or material description...').fill(po.id);
+    await page.getByRole('row').filter({ hasText: po.id }).getByRole('button', { name: 'View PO' }).click();
+
     // --- The awarded PO downloads under the name the server chose --------------
     // CORS has to expose Content-Disposition for the browser to read it at all
     // (issue #110) — without it, apiClient.getBlob() falls back to an
-    // extensionless 'export', which is exactly what shipped undetected.
-    await page.goto('/rfqs');
-    await page.getByPlaceholder('Search RFQs...').fill(rfq.id);
-    await page.getByRole('button', { name: new RegExp(rfq.id) }).click();
+    // extensionless 'export', which is exactly what shipped undetected. This
+    // RFQ already carries the supplier's own bid, so it no longer appears in
+    // RFQ Monitor & History — the export lives on the PO's own detail page.
     const download = await Promise.all([
       page.waitForEvent('download'),
       // The button's text is styled with CSS `uppercase` (`text-transform`),
@@ -166,10 +170,6 @@ test.describe('demo flows, through the UI', () => {
     ]).then(([d]) => d);
     expect(download.suggestedFilename()).toBe(`${po.id}.csv`);
 
-    // --- Acknowledge ----------------------------------------------------------
-    await page.goto('/pos');
-    await page.getByPlaceholder('PO # or material description...').fill(po.id);
-    await page.getByRole('row').filter({ hasText: po.id }).getByRole('button', { name: 'View PO' }).click();
     await page.getByRole('button', { name: 'Acknowledge Purchase Order' }).click();
     await expect(page.getByRole('heading', { name: new RegExp(`${po.id}.*Acknowledged`) })).toBeVisible();
 

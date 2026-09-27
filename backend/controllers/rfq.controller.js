@@ -5,7 +5,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const { getSapAdapterForClient } = require('../sap');
 const { EVENTS, emitToVendor } = require('../utils/socketEmitter');
 
-const { requireVendorScope, vendorScope, isSupplier } = require('../utils/requestScope');
+const { requireVendorScope, vendorScope, isSupplier, scopedWhere } = require('../utils/requestScope');
 const { assertCanCreate } = require('../utils/usage');
 const { toNumber } = require('../utils/money');
 const { toNumber: toQty } = require('../utils/quantity');
@@ -720,8 +720,13 @@ const exportAwardedPo = asyncHandler(async (req, res, next) => {
     return next(ApiError.badRequest('This RFQ has not been awarded yet'));
   }
 
+  // Scoped to the calling supplier's own vendorId — same as every other
+  // by-id PO lookup (po.controller.js). Without it, any supplier in the
+  // tenant with RFQ_READ could pull another vendor's awarded PO just by
+  // guessing/enumerating an RFQ id, since this endpoint takes no vendorId
+  // of its own to check against.
   const po = await prisma.purchaseOrder.findFirst({
-    where: { id: rfq.convertedPoId },
+    where: scopedWhere(req, { id: rfq.convertedPoId }),
     include: { items: { orderBy: { line: 'asc' } }, vendor: true },
   });
   if (!po) {

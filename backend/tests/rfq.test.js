@@ -620,6 +620,29 @@ describe('GET /api/rfqs/:id/export (Phase 5.2 export bridge)', () => {
     expect(res.text).toContain(po.id);
     expect(res.text.match(/E1EDP01/g)).toHaveLength(2); // one per PO line
   });
+
+  it('lets the awarded vendor download their own PO export', async () => {
+    const { rfq, po } = await awardedRfq();
+    const res = await asVendor(request(app).get(`/api/rfqs/${rfq.id}/export`));
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-disposition']).toBe(`attachment; filename="${po.id}.csv"`);
+  });
+
+  it("404s a losing invited bidder trying to download the winner's PO export", async () => {
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload({
+      invitedVendors: [{ id: 'vendor_test_001', rating: 95 }, { id: 'vendor_test_002', rating: 90 }],
+    }))).body;
+    await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bidPayload());
+    await asVendor2(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bidPayload({ unitPrices: { 10: 13, 20: 4.5 } }));
+    await asBuyer(request(app).post(`/api/rfqs/${rfq.id}/award`)).send({ vendorId: 'vendor_test_001' });
+
+    // vendor_test_002 was invited and bid, but did not win — the export
+    // endpoint took no vendorId of its own to check against, so before this
+    // fix any supplier who could name the RFQ id got the winner's PO file.
+    const res = await asVendor2(request(app).get(`/api/rfqs/${rfq.id}/export`));
+    expect(res.status).toBe(404);
+  });
 });
 
 describe('cancel and reissue', () => {

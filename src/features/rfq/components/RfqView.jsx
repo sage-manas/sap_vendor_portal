@@ -676,20 +676,6 @@ export default function RfqView({
                                 <span className="text-[9px] font-mono text-text-tertiary block mt-1 whitespace-nowrap">
                                   Deadline: {activeRfq.deadlineDate ? formatDate(activeRfq.deadlineDate) : 'No deadline set by buyer'}
                                 </span>
-                                {/* Confirms a submission actually landed — before
-                                    this, "Bid submitted successfully" was the only
-                                    feedback a vendor ever saw; nothing afterward
-                                    showed the price back to them anywhere. */}
-                                {(() => {
-                                  const ownBid = ownBidFor(activeRfq);
-                                  if (!ownBid) return null;
-                                  return (
-                                    <span className="text-[9px] font-mono text-text-secondary block mt-1 whitespace-nowrap">
-                                      Your quote:{' '}
-                                      {activeRfq.items.map((item) => `L${item.line} ₹${ownBid.unitPrices?.[item.line] ?? '—'}`).join(', ')}
-                                    </span>
-                                  );
-                                })()}
                               </div>
 
                               <div className={`p-3 border-t-2 rounded-md bg-surface2/30 border-x border-b border-border ${isAwarded ? 'border-t-[rgb(var(--color-emerald-default-rgb))]' : hasBids ? 'border-t-primary/60' : 'border-t-border'}`}>

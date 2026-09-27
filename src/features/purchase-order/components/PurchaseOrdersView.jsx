@@ -19,6 +19,7 @@ import { poStatusVariant } from '@/lib/statusColors';
 import { describeSyncState } from '@/lib/syncState';
 import { poKind, lineKind, kindTone, lineHasInvoicePlan, hasInvoicePlan as poHasInvoicePlan, hasPendingInvoicePlanChange, invoicePlanNumbers } from '@/features/purchase-order/poKind';
 import { useWhoami } from '@/lib/whoami';
+import { rfqService } from '@/features/rfq/services/rfqService';
 import InvoicePlanPanel from './InvoicePlanPanel';
 
 import { useLabelledControl } from '@/components/ui/FieldCard';
@@ -257,6 +258,22 @@ export default function PurchaseOrdersView({
   const activePoIsSapOnly = Boolean(activePo?.sapOnly);
   const activeGrn = activeGrnState ? (cleanGrns.find(g => g.id === activeGrnState.id) || activeGrnState) : null;
   const [localSubmissionTimes, setLocalSubmissionTimes] = useState({});
+  // The export bridge (Phase 5.2): downloads the awarded PO as a file for
+  // the buyer's own MM team to import into SAP on their own schedule — not
+  // a live SAP write. Keyed by rfqId (the export endpoint is RFQ-scoped) so
+  // `exportingFormat` tracks which of the four buttons is in flight, but
+  // only for the order currently open.
+  const [exportingFormat, setExportingFormat] = useState(null);
+  const handleExportPo = async (rfqId, format) => {
+    setExportingFormat(format);
+    try {
+      await rfqService.downloadPoExport(rfqId, format);
+    } catch (err) {
+      alert('Failed to export purchase order: ' + (err.message || err));
+    } finally {
+      setExportingFormat(null);
+    }
+  };
   const [activeLineIdx, setActiveLineIdx] = useState(0);
   const [asnLineIdx, setAsnLineIdx] = useState(0);
   const [grnLineIdx, setGrnLineIdx] = useState(0);
@@ -1193,6 +1210,21 @@ export default function PurchaseOrdersView({
                   </span>
                 ) : (
                   <>
+                    {activePo.fromRfqId && (
+                      <div className="flex items-center gap-1" title="Download this PO for your buyer's MM team to import into SAP — a file, not a live sync.">
+                        {['csv', 'xlsx', 'json', 'idoc'].map((format) => (
+                          <button
+                            key={format}
+                            type="button"
+                            disabled={exportingFormat !== null}
+                            onClick={() => handleExportPo(activePo.fromRfqId, format)}
+                            className="font-mono text-[10px] uppercase text-text-secondary bg-surface2/50 border border-border px-2 py-1 rounded font-bold hover:bg-surface2 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {exportingFormat === format ? <Loader2 className="size-3 animate-spin" /> : format}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <Button
                       onClick={(e) => handleOpenDrawer(e, activePo)}
                       variant="outline"

@@ -7,9 +7,10 @@ import RfqsPage from '@/app/rfqs/page';
 
 // "Bid submitted successfully" used to be the only feedback a supplier ever
 // saw — nothing afterward showed the price back to them anywhere in the
-// portal: not the RFQ detail view, not the Submit Quotation form on a second
-// visit. A supplier who submitted a real quote (RFQ 6000000072, ₹1000/line)
-// had no way to confirm it had actually landed.
+// portal. A supplier who submitted a real quote (RFQ 6000000072, ₹1000/line)
+// had no way to confirm it had actually landed. Since a quoted RFQ now drops
+// out of RFQ Monitor & History entirely (My Documents / Submit Quotation is
+// where it's reached instead), confirmation is checked there.
 
 const ALREADY_QUOTED_RFQ = {
   id: 'RFQ-2026-005', description: 'Flange order', status: 'Bidding Open', deadlineDate: null,
@@ -42,12 +43,15 @@ const renderRfqs = (api = withQuotedRfq) =>
   renderWithPortal(<RfqsPage />, { plane: 'supplier', route: '/rfqs', api });
 
 describe('a supplier can see the price they already submitted', () => {
-  it('shows the submitted quote in the RFQ Monitor detail view', async () => {
+  it('moves an already-quoted RFQ out of RFQ Monitor & History', async () => {
     renderRfqs();
 
-    // RFQ Monitor & History is the default tab.
-    await waitFor(() => expect(screen.getByText(/your quote/i)).toBeInTheDocument());
-    expect(screen.getByText(/L10 ₹1000/)).toBeInTheDocument();
+    // RFQ Monitor & History is the default tab. The one RFQ in this fixture
+    // already carries this vendor's own bid, so the monitor list — requests
+    // still waiting on a quote — has nothing to show.
+    await waitFor(() => expect(screen.getByText(/no open rfqs to show/i)).toBeInTheDocument());
+    expect(screen.getByText(/no open rfq records found/i)).toBeInTheDocument();
+    expect(screen.getByText(/1\s*quoted/i)).toBeInTheDocument();
   });
 
   it('pre-fills the Submit Quotation form with the already-quoted price, not a blank form', async () => {
