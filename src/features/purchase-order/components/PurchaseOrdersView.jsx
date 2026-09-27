@@ -720,17 +720,20 @@ export default function PurchaseOrdersView({
                 value={<span className="tabular-nums">{allPOs.filter(p => p.status === 'Open').length}</span>}
                 sub="Requires attention"
                 icon={Clock}
+                tone="amber"
               />
               <KPICard
                 label="Shipments to send"
                 value={<span className="tabular-nums">{allPOs.filter(p => p.status === 'Acknowledged').length}</span>}
                 sub="Ready for shipment"
                 icon={Truck}
+                tone="info"
               />
               <KPICard
                 label="Completed Orders"
                 value={<span className="tabular-nums">{allPOs.filter(p => p.status === 'Delivered' || p.status === 'Invoiced' || p.status === 'Paid').length}</span>}
                 sub="Stores receipted & post"
+                tone="success"
                 icon={CheckCircle2}
               />
             </div>

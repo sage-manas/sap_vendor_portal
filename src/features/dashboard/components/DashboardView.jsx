@@ -200,6 +200,17 @@ export default function DashboardView({ state, setActiveTab }) {
       iconColor: 'text-red-700 bg-red-50 border-red-200'
     });
   }
+  if (pendingInvoices.length > 0) {
+    alerts.push({
+      type: 'invoice',
+      title: `${plural(pendingInvoices.length, 'goods receipt')} awaiting invoice (${listIds(pendingInvoices, g => g.id)})`,
+      desc: 'Submit your invoice against these goods receipts so payment can be processed.',
+      actionText: 'Submit invoice',
+      tab: 'pos',
+      icon: Receipt,
+      iconColor: 'text-amber-600 bg-amber-50 border-amber-200'
+    });
+  }
   if (toShip.length > 0) {
     alerts.push({
       type: 'ship',
@@ -439,6 +450,7 @@ export default function DashboardView({ state, setActiveTab }) {
                   label="Pending Invoices"
                   value={<span className="tabular-nums">{pendingInvoicesCount}</span>}
                   icon={Receipt}
+                  tone="amber"
                   sub={pendingInvoicesCount ? 'goods receipts to invoice' : 'nothing to invoice'}
                 />
               </div>
@@ -449,6 +461,7 @@ export default function DashboardView({ state, setActiveTab }) {
                   label="Awaiting Payment"
                   value={<span className="tabular-nums">{inrCompact(unpaidTotal)}</span>}
                   icon={CreditCard}
+                  tone="info"
                   sub={`${plural(unpaidInvoices.length, 'invoice')} not yet cleared`}
                 />
               </div>
@@ -464,6 +477,7 @@ export default function DashboardView({ state, setActiveTab }) {
                     </span>
                   }
                   icon={Activity}
+                  tone="success"
                   sub={performance.grade ? `Grade ${performance.grade}` : undefined}
                 />
               </div>

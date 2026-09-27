@@ -1,6 +1,5 @@
 ﻿import React, { useState, useEffect } from 'react';
 import {
-  Clock,
   CheckCircle2,
   Percent,
   ClipboardList,
@@ -197,6 +196,12 @@ export default function RfqView({
   // every vendor's bid.
   const ownBidFor = (rfq) => rfq?.bids?.find((b) => b.vendorId === state.profile.vendorId);
 
+  // RFQ Monitor & History is where a vendor tracks requests still waiting on
+  // their quote — once they've placed a bid, that RFQ's own line items and
+  // price are reached from My Documents (Update Price / ME47) instead, so it
+  // drops out of this list rather than appearing in both places.
+  const openRfqs = state.rfqs.filter((r) => !ownBidFor(r));
+
   // "Update Price (ME47)" modal — pushes a net price for a SAP-native
   // quotation document. Line numbers/materials come from a portal RFQ the
   // vendor picks (the ones they already see in RFQ Monitor & History), since
@@ -383,15 +388,17 @@ export default function RfqView({
       {/* PAGE HEADER */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-4 select-none">
         <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <h2 className="page-title">RFQ Management</h2>
-          </div>
-          <div className="flex items-center gap-2 text-text-tertiary text-xs font-semibold">
-            <span className="bg-surface2 border border-border text-text-secondary px-2 py-0.5 rounded font-mono uppercase tracking-wide">
-              Procurement
-            </span>
-          </div>
+          <h2 className="page-title flex items-center gap-2">
+            <ClipboardList className="size-5 text-primary shrink-0" /> RFQ Management
+          </h2>
+          <p className="text-text-tertiary text-xs font-semibold">
+            Review requests you&rsquo;ve been invited to quote, submit pricing, and track awards through to a purchase order
+          </p>
         </div>
+        <span className="chip bg-surface2 text-text-secondary border border-border w-fit shrink-0">
+          <span className="status-dot status-dot-active"></span>
+          {openRfqs.length} open &middot; {state.rfqs.length - openRfqs.length} quoted
+        </span>
       </div>
 
       {/* PROCUREMENT SUB NAVIGATION */}
@@ -458,10 +465,10 @@ export default function RfqView({
               </div>
             </div>
             <div className="flex-1 overflow-y-auto custom-scrollbar divide-y divide-border">
-              {state.rfqs
+              {openRfqs
                 .filter(r => r.id.toLowerCase().includes(listSearch.toLowerCase()) || r.description.toLowerCase().includes(listSearch.toLowerCase()))
                 .map(rfq => {
-                  const isSelected = selectedRfqId === rfq.id || (!selectedRfqId && state.rfqs[0]?.id === rfq.id);
+                  const isSelected = selectedRfqId === rfq.id || (!selectedRfqId && openRfqs[0]?.id === rfq.id);
                   
                   return (
                     <button
@@ -488,8 +495,12 @@ export default function RfqView({
                     </button>
                   );
                 })}
-              {state.rfqs.filter(r => r.id.toLowerCase().includes(listSearch.toLowerCase()) || r.description.toLowerCase().includes(listSearch.toLowerCase())).length === 0 && (
-                <EmptyState title="No RFQ records found" className="py-8" />
+              {openRfqs.filter(r => r.id.toLowerCase().includes(listSearch.toLowerCase()) || r.description.toLowerCase().includes(listSearch.toLowerCase())).length === 0 && (
+                <EmptyState
+                  title="No open RFQ records found"
+                  description="RFQs you've already quoted move to My Documents for price updates."
+                  className="py-8"
+                />
               )}
             </div>
           </div>
@@ -499,11 +510,14 @@ export default function RfqView({
 
             {/* TABS: MONITOR VIEW */}
             {activeProcTab === 'monitor' && (() => {
-              const activeRfq = state.rfqs.find(r => r.id === selectedRfqId) || state.rfqs[0];
+              const activeRfq = openRfqs.find(r => r.id === selectedRfqId) || openRfqs[0];
               if (!activeRfq) {
                 return (
                   <div className="flex-1 flex items-center justify-center p-8">
-                    <EmptyState title="Select an RFQ from the left list to view details" />
+                    <EmptyState
+                      title="No open RFQs to show"
+                      description="RFQs you've already quoted move to My Documents for price updates."
+                    />
                   </div>
                 );
               }
@@ -569,7 +583,7 @@ export default function RfqView({
 
                     {/* OTHER DETAILS (INVITED VENDORS) */}
                     <FormSection number="02" title="Invited vendors">
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                         {activeRfq.invitedVendors?.map(v => {
                            const ratingVal = Number(v.rating || 0);
                            let ratingColorClass = "bg-surface2 text-text-secondary border-border-em";
@@ -580,18 +594,28 @@ export default function RfqView({
                            } else if (ratingVal > 0) {
                              ratingColorClass = "bg-rose-900/20 text-rose-400 border-rose-900/50";
                            }
+                           const initials = (v.name || '?')
+                             .split(/\s+/)
+                             .filter(Boolean)
+                             .slice(0, 2)
+                             .map(w => w[0])
+                             .join('')
+                             .toUpperCase();
 
                            return (
-                             <div key={v.id} className="p-4 bg-surface2/30 border border-border rounded-xl flex flex-col justify-between gap-3 text-xs shadow-xs hover:shadow-sm transition-all duration-200 relative min-h-[90px]">
-                               <div className="flex justify-between items-start gap-4 w-full">
-                                 <p className="font-bold text-text-primary text-[11px] leading-tight break-words flex-1 pr-6">{v.name}</p>
-                                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${ratingColorClass} absolute top-4.5 right-4.5`} title={`Vendor Rating: ${v.rating}`}>
-                                   {v.rating}
-                                 </span>
+                             <div key={v.id} className="p-3.5 bg-surface border border-border rounded-xl flex items-center gap-3 text-xs shadow-xs hover:border-border-em hover:shadow-sm transition-all duration-200">
+                               <span className="size-9 rounded-full flex items-center justify-center font-bold text-[11px] shrink-0" style={{ backgroundColor: 'var(--color-emerald-dim)', color: 'rgb(var(--color-emerald-text-rgb))' }}>
+                                 {initials}
+                               </span>
+                               <div className="min-w-0 flex-1">
+                                 <p className="font-bold text-text-primary text-[11px] leading-tight truncate" title={v.name}>
+                                   {v.name}
+                                 </p>
+                                 <p className="text-[10px] text-text-tertiary font-mono truncate">Code: {v.id}</p>
                                </div>
-                               <div>
-                                 <p className="text-[10px] text-text-secondary font-mono break-all">Code: {v.id}</p>
-                               </div>
+                               <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border shrink-0 ${ratingColorClass}`} title={`Vendor Rating: ${v.rating}`}>
+                                 {v.rating}
+                               </span>
                              </div>
                            );
                          })}
@@ -600,85 +624,95 @@ export default function RfqView({
 
                     {/* PROCESS DETAILS (AUDIT WORKFLOW STATUS) */}
                     <FormSection number="03" title="Progress of this request">
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                        <div className="p-3 border border-border rounded-md bg-surface2/30">
-                          <span className="text-[9px] text-text-tertiary uppercase block font-bold">Request published</span>
-                          <span className="font-bold text-text-primary flex items-center gap-1.5 mt-1.5">
-                            <CheckCircle2 className="size-3.5 text-green-600" /> Published
-                          </span>
-                          <span className="text-[9px] font-mono text-text-tertiary block mt-1 whitespace-nowrap">{formatDate(activeRfq.createdDate)}</span>
-                        </div>
+                      {(() => {
+                        const hasBids = activeRfq.bids?.length > 0;
+                        const isAwarded = activeRfq.status === 'Awarded';
+                        // Each step is "done" only once the one after it has
+                        // started — a request with bids in but no award yet
+                        // is not "evaluation done", it's "evaluation active".
+                        const stepDone = [true, hasBids, isAwarded, isAwarded];
+                        const stepActive = [false, !hasBids, hasBids && !isAwarded, false];
 
-                        <div className="p-3 border border-border rounded-md bg-surface2/30">
-                          <span className="text-[9px] text-text-tertiary uppercase block font-bold">Quotes received</span>
-                          <span className={`font-bold mt-1.5 flex items-center gap-1.5 ${activeRfq.bids?.length > 0 ? 'text-text-primary' : 'text-text-tertiary'}`}>
-                            {activeRfq.bids?.length > 0 ? (
-                              <>
-                                <CheckCircle2 className="size-3.5 text-green-600" /> {activeRfq.bids.length} Bid(s) Recd
-                              </>
-                            ) : (
-                              <>
-                                <Clock className="size-3.5 text-text-tertiary animate-pulse" /> Pending Bids
-                              </>
-                            )}
-                          </span>
-                          {/* An RFQ SAP raised directly carries no deadline
-                              (schema.prisma's RFQ.deadlineDate comment) — said
-                              plainly, not as a bare "—" that reads like a
-                              loading gap. */}
-                          <span className="text-[9px] font-mono text-text-tertiary block mt-1 whitespace-nowrap">
-                            Deadline: {activeRfq.deadlineDate ? formatDate(activeRfq.deadlineDate) : 'No deadline set by buyer'}
-                          </span>
-                          {/* Confirms a submission actually landed — before
-                              this, "Bid submitted successfully" was the only
-                              feedback a vendor ever saw; nothing afterward
-                              showed the price back to them anywhere. */}
-                          {(() => {
-                            const ownBid = ownBidFor(activeRfq);
-                            if (!ownBid) return null;
-                            return (
-                              <span className="text-[9px] font-mono text-text-secondary block mt-1 whitespace-nowrap">
-                                Your quote:{' '}
-                                {activeRfq.items.map((item) => `L${item.line} ₹${ownBid.unitPrices?.[item.line] ?? '—'}`).join(', ')}
-                              </span>
-                            );
-                          })()}
-                        </div>
+                        return (
+                          <div>
+                            {/* Connected rail — the one visual that answers
+                                "how far along is this" before reading a
+                                single word below it. */}
+                            <div className="flex items-center px-1 mb-4" aria-hidden="true">
+                              {stepDone.map((done, i) => (
+                                <React.Fragment key={i}>
+                                  <span className={`size-6 rounded-full flex items-center justify-center shrink-0 border-2 font-mono text-[10px] font-bold transition-colors duration-150 ${
+                                    done
+                                      ? 'border-transparent text-on-emerald'
+                                      : stepActive[i]
+                                        ? 'border-primary text-primary bg-primary/10'
+                                        : 'border-border text-text-tertiary bg-surface'
+                                  }`} style={done ? { backgroundColor: 'rgb(var(--color-emerald-default-rgb))' } : undefined}>
+                                    {done ? <CheckCircle2 className="size-3.5" /> : i + 1}
+                                  </span>
+                                  {i < stepDone.length - 1 && (
+                                    <span className={`flex-1 h-0.5 mx-1.5 rounded-full transition-colors duration-150 ${stepDone[i + 1] || stepDone[i] ? 'bg-[rgb(var(--color-emerald-default-rgb))]' : 'bg-border'}`} />
+                                  )}
+                                </React.Fragment>
+                              ))}
+                            </div>
 
-                        <div className="p-3 border border-border rounded-md bg-surface2/30">
-                          <span className="text-[9px] text-text-tertiary uppercase block font-bold">Evaluation</span>
-                          <span className={`font-bold mt-1.5 flex items-center gap-1.5 ${activeRfq.status === 'Awarded' || activeRfq.status === 'Under Review' ? 'text-text-primary' : 'text-text-tertiary'}`}>
-                            {activeRfq.status === 'Awarded' ? (
-                              <>
-                                <CheckCircle2 className="size-3.5 text-green-600" /> Evaluated
-                              </>
-                            ) : activeRfq.bids?.length > 0 ? (
-                              <>
-                                <Clock className="size-3.5 text-amber-500 animate-pulse" /> Review Ready
-                              </>
-                            ) : (
-                              'Pending Review'
-                            )}
-                          </span>
-                          <span className="text-[9px] text-text-tertiary block mt-1">Score weights active</span>
-                        </div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                              <div className="p-3 border-t-2 border-t-[rgb(var(--color-emerald-default-rgb))] border-x border-b border-border rounded-md bg-surface2/30">
+                                <span className="text-[9px] text-text-tertiary uppercase block font-bold">Request published</span>
+                                <span className="font-bold text-text-primary block mt-1.5">Published</span>
+                                <span className="text-[9px] font-mono text-text-tertiary block mt-1 whitespace-nowrap">{formatDate(activeRfq.createdDate)}</span>
+                              </div>
 
-                        <div className="p-3 border border-border rounded-md bg-surface2/30">
-                          <span className="text-[9px] text-text-tertiary uppercase block font-bold">Order raised</span>
-                          <span className={`font-bold mt-1.5 flex items-center gap-1.5 ${activeRfq.status === 'Awarded' ? 'text-text-primary' : 'text-text-tertiary'}`}>
-                            {activeRfq.status === 'Awarded' ? (
-                              <>
-                                <CheckCircle2 className="size-3.5 text-green-600" /> Order raised
-                              </>
-                            ) : (
-                              'PO Pending'
-                            )}
-                          </span>
-                          <span className="text-[9px] font-mono text-text-tertiary block mt-1">
-                            {activeRfq.status === 'Awarded' ? 'Conversion Completed' : 'Pending Award'}
-                          </span>
-                        </div>
-                      </div>
+                              <div className={`p-3 border-t-2 rounded-md bg-surface2/30 border-x border-b border-border ${hasBids ? 'border-t-[rgb(var(--color-emerald-default-rgb))]' : 'border-t-primary/60'}`}>
+                                <span className="text-[9px] text-text-tertiary uppercase block font-bold">Quotes received</span>
+                                <span className={`font-bold block mt-1.5 ${hasBids ? 'text-text-primary' : 'text-text-tertiary'}`}>
+                                  {hasBids ? `${activeRfq.bids.length} bid(s) received` : 'Pending bids'}
+                                </span>
+                                {/* An RFQ SAP raised directly carries no deadline
+                                    (schema.prisma's RFQ.deadlineDate comment) — said
+                                    plainly, not as a bare "—" that reads like a
+                                    loading gap. */}
+                                <span className="text-[9px] font-mono text-text-tertiary block mt-1 whitespace-nowrap">
+                                  Deadline: {activeRfq.deadlineDate ? formatDate(activeRfq.deadlineDate) : 'No deadline set by buyer'}
+                                </span>
+                                {/* Confirms a submission actually landed — before
+                                    this, "Bid submitted successfully" was the only
+                                    feedback a vendor ever saw; nothing afterward
+                                    showed the price back to them anywhere. */}
+                                {(() => {
+                                  const ownBid = ownBidFor(activeRfq);
+                                  if (!ownBid) return null;
+                                  return (
+                                    <span className="text-[9px] font-mono text-text-secondary block mt-1 whitespace-nowrap">
+                                      Your quote:{' '}
+                                      {activeRfq.items.map((item) => `L${item.line} ₹${ownBid.unitPrices?.[item.line] ?? '—'}`).join(', ')}
+                                    </span>
+                                  );
+                                })()}
+                              </div>
+
+                              <div className={`p-3 border-t-2 rounded-md bg-surface2/30 border-x border-b border-border ${isAwarded ? 'border-t-[rgb(var(--color-emerald-default-rgb))]' : hasBids ? 'border-t-primary/60' : 'border-t-border'}`}>
+                                <span className="text-[9px] text-text-tertiary uppercase block font-bold">Evaluation</span>
+                                <span className={`font-bold block mt-1.5 ${isAwarded || activeRfq.status === 'Under Review' ? 'text-text-primary' : 'text-text-tertiary'}`}>
+                                  {isAwarded ? 'Evaluated' : hasBids ? 'Review ready' : 'Pending review'}
+                                </span>
+                                <span className="text-[9px] text-text-tertiary block mt-1">Score weights active</span>
+                              </div>
+
+                              <div className={`p-3 border-t-2 rounded-md bg-surface2/30 border-x border-b border-border ${isAwarded ? 'border-t-[rgb(var(--color-emerald-default-rgb))]' : 'border-t-border'}`}>
+                                <span className="text-[9px] text-text-tertiary uppercase block font-bold">Order raised</span>
+                                <span className={`font-bold block mt-1.5 ${isAwarded ? 'text-text-primary' : 'text-text-tertiary'}`}>
+                                  {isAwarded ? 'Order raised' : 'PO pending'}
+                                </span>
+                                <span className="text-[9px] font-mono text-text-tertiary block mt-1">
+                                  {isAwarded ? 'Conversion completed' : 'Pending award'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </FormSection>
 
                     <div className="flex justify-between items-center pt-3 border-t border-border text-xs text-text-secondary">
