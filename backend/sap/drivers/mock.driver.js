@@ -267,10 +267,18 @@ const createMockDriver = ({ config = {} } = {}) => {
     vendorPoGrnDisplay: async ({ pos = [] }) => {
       const allowed = declaredCompanyCodes(config);
       const inScope = (po) => !allowed.length || allowed.includes(String(po.companyCode || behaviour.companyCode));
+      // `config.vanishedPoIds` — issue #73's own testing exception, same
+      // shape of concession as `discoveries.po` above: a re-swept order this
+      // driver otherwise always echoes straight back (it has no store of its
+      // own to have dropped a row from), so the one deliberate way to test
+      // "gone from SAP's ledger" is to name the portal id that should stop
+      // appearing.
+      const vanished = new Set((config.vanishedPoIds || []).map(String));
+      const stillInSap = (po) => !vanished.has(String(po.id));
 
       return {
         data: {
-          orders: [...pos, ...discoveries.po].filter(inScope).map((po) => ({
+          orders: [...pos.filter(stillInSap), ...discoveries.po].filter(inScope).map((po) => ({
             poNumber: mockSapPoNumber(po),
             // Which of the caller's own PurchaseOrder rows this is — the mock can
             // say so honestly because it built this row from that same `po`. The
