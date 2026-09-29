@@ -5,6 +5,7 @@ import { EMPTY_WORKSPACE_API } from '@/test/fixtures';
 
 import WorkspaceUsersPage from '@/app/workspace/users/page';
 import WorkspaceSettingsPage from '@/app/workspace/settings/page';
+import WorkspaceAuditPage from '@/app/workspace/audit/page';
 
 // Issue #159. Of the ten workspace screens, these two were the only ones that
 // crashed to Next's raw error boundary when a workspace API call failed —
@@ -42,5 +43,27 @@ describe('/workspace/settings, when the API call fails', () => {
       expect(screen.getByRole('status')).toHaveTextContent(/forbidden/i);
     });
     expect(screen.getByRole('heading', { name: 'Settings', level: 1 })).toBeInTheDocument();
+  });
+});
+
+// Issue #162. /workspace/audit didn't crash on a 403 — its `data?.entries ||
+// []` guard already saved it from that — but it rendered the error notice
+// and the table's "Nothing has happened here yet." empty state together,
+// which reads as "there's nothing to see" rather than "you're not allowed to
+// see it". A 403 should suppress the table entirely.
+describe('/workspace/audit, when the API call fails', () => {
+  it('shows only the error notice, not the empty table', async () => {
+    renderWithPortal(<WorkspaceAuditPage />, {
+      plane: 'workspace',
+      route: '/workspace/audit',
+      api: { ...EMPTY_WORKSPACE_API, 'GET /workspace/audit': failing(403) },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent(/forbidden/i);
+    });
+    expect(screen.getByRole('heading', { name: 'Audit', level: 1 })).toBeInTheDocument();
+    expect(screen.queryByText(/nothing has happened here yet/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 });
