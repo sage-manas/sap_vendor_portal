@@ -186,7 +186,7 @@ describe('feature flags close the API, not just the screen', () => {
       .post('/api/auth/register')
       .set('x-client-slug', 'legacy')
       .send({
-        vendorId: 'VND-90001', password: 'secret123', companyName: 'Walk In Ltd',
+        vendorId: 'VND-90001', password: 'Secret12345', companyName: 'Walk In Ltd',
         gstin: '27WWWWW1234F1Z5', pan: 'WWWWW1234F', email: 'walkin@example.com',
       });
     expect(walkIn.status).toBe(403);
@@ -201,7 +201,7 @@ describe('feature flags close the API, not just the screen', () => {
       .post('/api/auth/register')
       .set('x-client-slug', 'legacy')
       .send({
-        vendorId: 'VND-90002', password: 'secret123', companyName: 'Invited Ltd',
+        vendorId: 'VND-90002', password: 'Secret12345', companyName: 'Invited Ltd',
         gstin: '27VVVVV1234F1Z5', pan: 'VVVVV1234F', email: 'invited@example.com',
       });
     expect(invited.status).toBe(201);

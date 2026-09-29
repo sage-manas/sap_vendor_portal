@@ -9,7 +9,7 @@ const { ROLES } = require('../config/roles');
 
 const baseVendor = {
   vendorId: 'vendor_test_001',
-  password: 'secret123',
+  password: 'Secret12345',
   companyName: 'Acme Industries Pvt Ltd',
   gstin: '27AABCB1234F1Z5',
   pan: 'AABCB1234F',

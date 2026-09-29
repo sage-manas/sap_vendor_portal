@@ -90,7 +90,7 @@ describe('the registration form round-trip', () => {
   // explicitly rather than left out.
   const signUpOnly = {
     vendorId: 'vendor_signup_001',
-    password: 'secret123',
+    password: 'Secret12345',
     companyName: 'Sahyadri Fasteners Pvt Ltd',
     gstin: '27AAHCS4321K1Z5',
     pan: 'AAHCS4321K',

@@ -108,8 +108,9 @@ export default function ChangePasswordPage() {
               <input id="change-password-2"
                 type="password"
                 required
+                minLength={10}
                 disabled={busy}
-                placeholder="Min 6 characters"
+                placeholder="Min 10 chars, incl. upper, lower & a number"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 className="pl-9 disabled:opacity-55"
