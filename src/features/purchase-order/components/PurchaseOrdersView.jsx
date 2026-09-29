@@ -853,7 +853,7 @@ export default function PurchaseOrdersView({
             ) : (
               <div className="card overflow-hidden">
                 <div className="overflow-x-auto custom-scrollbar border border-border">
-                  <table className="w-full text-left border-collapse table-sticky">
+                  <table className="w-full text-left border-collapse table-sticky min-w-[1150px]">
                     <thead>
                       <tr>
                         <th className="cursor-pointer" onClick={() => handleSort('id')}>
@@ -875,7 +875,7 @@ export default function PurchaseOrdersView({
                           Status {sortField === 'status' && (sortOrder === 'asc' ? '▲' : '▼')}
                         </th>
                         <th className="text-center">Confirmed</th>
-                        <th className="text-center">Row Actions</th>
+                        <th className="text-center w-40">Row Actions</th>
                       </tr>
                     </thead>
                     <tbody>
