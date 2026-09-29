@@ -92,13 +92,13 @@ describe('workspace settings', () => {
 
     expect(res.status).toBe(200);
     const keys = res.body.groups.flatMap((group) => group.settings.map((setting) => setting.key));
-    expect(keys).toContain('features.supplierChat');
+    expect(keys).toContain('features.supplierSelfRegistration');
     expect(keys).toContain('thresholds.invoiceReviewAmount');
     // Never set, so the registry's default is what the screen renders.
-    const chat = res.body.groups
+    const selfRegistration = res.body.groups
       .flatMap((group) => group.settings)
-      .find((setting) => setting.key === 'features.supplierChat');
-    expect(chat.value).toBe(true);
+      .find((setting) => setting.key === 'features.supplierSelfRegistration');
+    expect(selfRegistration.value).toBe(true);
   });
 
   it('lets a client_admin change a setting and records what changed', async () => {
@@ -158,26 +158,12 @@ describe('workspace settings', () => {
   });
 });
 
+// The 404-vs-200-per-tenant half of this pattern (issue #109's supplier
+// messaging feature was the worked example, ADR-0023) is now covered directly
+// against the middleware in tests/requireFeature.test.js — that feature was
+// removed (issue #168) along with its only route. This describe block covers
+// the other feature flag currently in the registry.
 describe('feature flags close the API, not just the screen', () => {
-  it('answers 404 on messaging for a tenant that switched it off, and 200 for one that did not', async () => {
-    // Both onboarded: this is about the feature flag, and the onboarding gate
-    // would otherwise refuse messaging first, for both tenants alike.
-    const { token } = await registerVendor(app, {}, { onboarded: true });
-    await seedClient(OTHER);
-    const { token: otherToken } = await registerVendor(app, {
-      clientId: OTHER.clientId,
-      vendorId: 'vendor_other_2',
-      email: 'other2@example.com',
-      gstin: '27YYYYY1234F1Z5',
-      pan: 'YYYYY1234F',
-    }, { clientSlug: OTHER.slug, onboarded: true });
-
-    await setSetting('features.supplierChat', false);
-
-    expect((await request(app).get('/api/chats').set(auth(token))).status).toBe(404);
-    expect((await request(app).get('/api/chats').set(auth(otherToken))).status).toBe(200);
-  });
-
   it('closes self-registration but still admits an invited supplier', async () => {
     const { token: adminToken } = await createAdminUser();
     await setSetting('features.supplierSelfRegistration', false);

@@ -3,8 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import {
   ShoppingBag, Clock, CheckCircle2, Truck, ChevronRight, ChevronLeft, Search, Filter,
-  Calendar, User, Download, AlertTriangle, MessageSquare, Plus, Send,
-  FileText, X, ChevronDown, Check, MapPin, CreditCard, ArrowLeft,
+  Calendar, User, Download, AlertTriangle, Plus,
+  FileText, ChevronDown, Check, MapPin, CreditCard, ArrowLeft,
   Building, Building2, TrendingUp, Percent, ShieldCheck, ShieldAlert, Loader2, RefreshCw, HelpCircle, Receipt, CalendarClock, AlertCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -252,9 +252,9 @@ export default function PurchaseOrdersView({
   // yet opens the same detail page as any other, so it has to be findable here
   // too or the page would fall back to a stale snapshot of it.
   const activePo = activePoState ? (allPOs.find(p => p.id === activePoState.id) || activePoState) : null;
-  // Read-only: every write on this page (acknowledge, ASN, invoicing plan,
-  // chat) addresses a PurchaseOrder row by id, and there is no such row for
-  // this order until jobs/handlers/sweepPurchaseOrders.js records it.
+  // Read-only: every write on this page (acknowledge, ASN, invoicing plan)
+  // addresses a PurchaseOrder row by id, and there is no such row for this
+  // order until jobs/handlers/sweepPurchaseOrders.js records it.
   const activePoIsSapOnly = Boolean(activePo?.sapOnly);
   const activeGrn = activeGrnState ? (cleanGrns.find(g => g.id === activeGrnState.id) || activeGrnState) : null;
   const [localSubmissionTimes, setLocalSubmissionTimes] = useState({});
@@ -317,13 +317,6 @@ export default function PurchaseOrdersView({
   // ASN Success Display state
   const [asnSuccessInfo, setAsnSuccessInfo] = useState(null);
 
-  // Sliding Side Drawer for Communication Center
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerPo, setDrawerPo] = useState(null);
-  const [chatMessageInput, setChatMessageInput] = useState('');
-  const [poIssueStatus, setPoIssueStatus] = useState({}); // poId -> 'Open' | 'In Review' | 'Resolved'
-  const [poChats, setPoChats] = useState({}); // poId -> array of messages
-
   // Detail View Active Sub-tab ('po_detail' | 'create_asn' | 'grn_status')
   const [detailTab, setDetailTab] = useState('po_detail');
 
@@ -383,18 +376,6 @@ export default function PurchaseOrdersView({
     return () => clearInterval(timer);
   }, [cleanPOs, cleanAsns, localSubmissionTimes]);
 
-  // Every PO starts with an empty thread. Nothing here seeds a message
-  // attributed to Buyer — no buyer sent one, and inventing a greeting on
-  // their behalf is exactly the fabrication issue #55 removed from the
-  // backend's auto-reply too.
-  useEffect(() => {
-    cleanPOs.forEach(po => {
-      if (poIssueStatus[po.id] === undefined) {
-        setPoIssueStatus(prev => ({ ...prev, [po.id]: 'In Review' }));
-      }
-    });
-  }, [cleanPOs]);
-
   // Prefills the shipment form the first time an order's "Send shipment" tab is
   // opened. This used to be an effect watching `detailTab`, which meant a render
   // pass that painted the empty form before a second pass filled it in, and it
@@ -451,32 +432,6 @@ export default function PurchaseOrdersView({
     setDetailTab('grn_status');
     setCurrentView('detail');
     setActiveLineIdx(0);
-  };
-
-  // Open Communication Drawer
-  const handleOpenDrawer = (e, po) => {
-    e.stopPropagation();
-    setDrawerPo(po);
-    setDrawerOpen(true);
-  };
-
-  // Send Drawer Message. Local to this screen only — nothing here reaches
-  // the buyer, so nothing writes a reply on their behalf (issue #55).
-  const handleSendDrawerMessage = () => {
-    if (!chatMessageInput.trim()) return;
-
-    const newMessage = {
-      sender: 'Vendor',
-      message: chatMessageInput,
-      timestamp: new Date().toISOString()
-    };
-
-    setPoChats(prev => ({
-      ...prev,
-      [drawerPo.id]: [...(prev[drawerPo.id] || []), newMessage]
-    }));
-
-    setChatMessageInput('');
   };
 
   // Sort POs
@@ -994,11 +949,11 @@ export default function PurchaseOrdersView({
                                   View PO
                                 </Button>
 
-                                {/* Shipment and chat both act on a
-                                    PurchaseOrder row, which an order SAP holds
-                                    but this portal has not recorded yet does
-                                    not have. The detail page above opens for
-                                    it either way, read-only. */}
+                                {/* Shipment acts on a PurchaseOrder row,
+                                    which an order SAP holds but this portal
+                                    has not recorded yet does not have. The
+                                    detail page above opens for it either way,
+                                    read-only. */}
                                 {!po.sapOnly && po.status === 'Acknowledged' && (
                                   <Button
                                     size="xs"
@@ -1007,16 +962,6 @@ export default function PurchaseOrdersView({
                                   >
                                     Send shipment
                                   </Button>
-                                )}
-
-                                {!po.sapOnly && (
-                                  <button
-                                    onClick={(e) => handleOpenDrawer(e, po)}
-                                    className="p-1 text-text-tertiary hover:text-text-primary hover:bg-surface2 rounded-md transition-colors duration-150"
-                                    title="Chat / Raise Issue"
-                                  >
-                                    <MessageSquare className="size-4" />
-                                  </button>
                                 )}
                               </div>
                             </td>
@@ -1225,13 +1170,6 @@ export default function PurchaseOrdersView({
                         ))}
                       </div>
                     )}
-                    <Button
-                      onClick={(e) => handleOpenDrawer(e, activePo)}
-                      variant="outline"
-                    >
-                      <MessageSquare className="size-4" />
-                      <span>Chat</span>
-                    </Button>
                     {activePo.status === 'Open' && (
                       <Button
                         onClick={() => acknowledgePO(activePo.id)}
@@ -2055,95 +1993,6 @@ export default function PurchaseOrdersView({
             </div>
           </div>
         )}
-
-        {/* ================================================================= */}
-        {/* COLLAPSIBLE RIGHT DRAWER: COMMUNICATION CENTER                   */}
-        {/* ================================================================= */}
-        {drawerOpen && drawerPo && (
-          <div className="fixed inset-0 z-50 overflow-hidden" onClick={() => setDrawerOpen(false)}>
-            <div className="absolute inset-0 bg-black/20 backdrop-blur-xs transition-opacity animate-fade-in" />
-
-            <div className="absolute inset-y-0 right-0 pl-10 max-w-full flex" onClick={e => e.stopPropagation()}>
-              <div className="w-screen max-w-md bg-surface shadow-xl flex flex-col h-full border-l border-border animate-slide-left">
-
-                {/* Drawer Header */}
-                <div className="p-5 border-b border-border bg-surface2/40 flex items-center justify-between">
-                  <div>
-                    <h3 className="font-bold text-sm text-text-primary flex items-center gap-2">
-                      <MessageSquare className="size-4.5 text-text-tertiary" />
-                      <span>Communication Desk</span>
-                    </h3>
-                    <p className="text-[10px] text-text-tertiary font-mono mt-0.5">PO Ref: {drawerPo.id}</p>
-                  </div>
-                  <button
-                    onClick={() => setDrawerOpen(false)}
-                    className="p-1.5 text-text-tertiary hover:text-text-primary hover:bg-surface2 rounded-md transition-colors duration-150"
-                  >
-                    <X className="size-4" />
-                  </button>
-                </div>
-
-                {/* Status control */}
-                <div className="px-5 py-3 border-b border-border flex items-center justify-between text-xs bg-surface2/30">
-                  <span className="font-bold text-text-secondary uppercase text-[9px] tracking-wider">Issue Status Tag:</span>
-                  <div className="flex items-center gap-1.5">
-                    {['Open', 'In Review', 'Resolved'].map(st => (
-                      <button
-                        key={st}
-                        onClick={() => setPoIssueStatus(prev => ({ ...prev, [drawerPo.id]: st }))}
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors duration-150 ${poIssueStatus[drawerPo.id] === st
-                          ? st === 'Open' ? 'bg-red-50 text-red-700 border-red-200'
-                            : st === 'In Review' ? 'bg-amber-50 text-amber-700 border-amber-200'
-                              : 'bg-green-50 text-green-700 border-green-200'
-                          : 'bg-surface border-border text-text-secondary hover:bg-surface2'
-                          }`}
-                      >
-                        {st}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Messages Body */}
-                <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar bg-base/20">
-                  {(poChats[drawerPo.id] || []).map((msg, idx) => (
-                    <div key={idx} className={`flex flex-col gap-1 max-w-[85%] ${msg.sender === 'Vendor' ? 'ml-auto items-end' : 'mr-auto items-start'}`}>
-                      <span className="text-[8px] font-bold text-text-tertiary uppercase tracking-widest font-mono">
-                        {msg.sender === 'Vendor' ? 'Your Firm' : 'Buyer'}
-                      </span>
-                      <div className={`p-3 rounded-2xl border text-xs ${msg.sender === 'Vendor' ? 'bg-[rgb(var(--color-emerald-default-rgb))] border-transparent text-white rounded-tr-none' : 'bg-surface border-border text-text-primary rounded-tl-none shadow-xs'}`}>
-                        <p className="leading-relaxed">{msg.message}</p>
-                      </div>
-                      <span className="text-[8px] text-text-tertiary font-mono mt-0.5 tabular-nums">
-                        {parseDateSafe(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Message Input Footer */}
-                <div className="p-4 border-t border-border bg-surface flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="Ask buyer a question..."
-                    value={chatMessageInput}
-                    onChange={e => setChatMessageInput(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleSendDrawerMessage()}
-                    className="flex-1"
-                  />
-                  <button
-                    onClick={handleSendDrawerMessage}
-                    className="px-3 bg-[rgb(var(--color-emerald-default-rgb))] hover:opacity-90 text-white rounded-lg transition-all duration-150 cursor-pointer flex items-center justify-center"
-                  >
-                    <Send className="size-4" />
-                  </button>
-                </div>
-
-              </div>
-            </div>
-          </div>
-        )}
-
 
       </div>
     </ErrorBoundary>

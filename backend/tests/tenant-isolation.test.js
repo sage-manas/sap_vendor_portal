@@ -131,13 +131,6 @@ const MODEL_CASES = [
     update: { bankName: 'Wrong Bank' },
   },
   {
-    name: 'ChatMessage',
-    adapter: adapterFor('chatMessage'),
-    create: () => prisma.chatMessage.create({ data: { vendorId: 'VND-1', sender: 'Vendor', message: 'Where is my payment?' } }),
-    find: () => ({ vendorId: 'VND-1' }),
-    update: { isRead: true },
-  },
-  {
     name: 'SapLog',
     adapter: adapterFor('sapLog'),
     create: () => prisma.sapLog.create({ data: { vendorId: 'VND-1', type: 'BAPI', direction: 'OUTBOUND', name: 'BAPI_RFQ_CREATE', status: 'SUCCESS' } }),

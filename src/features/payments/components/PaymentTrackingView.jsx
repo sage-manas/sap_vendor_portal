@@ -287,17 +287,13 @@ export default function PaymentTrackingView({ state }) {
     window.URL.revokeObjectURL(url);
   };
 
-  // These two used to POST to /api/chats and tell the supplier a buyer officer
-  // would respond. Nothing in this application renders a ChatMessage on either
-  // plane, and `POST /api/chats` is structurally supplier-only — `sender` is
-  // hardcoded to 'Vendor' and the controller requires a vendor scope — so no
-  // member of the buyer's staff could have replied even if a thread view
-  // existed. The message went to a table nobody reads (issue #109).
-  //
-  // Rather than delete the affordance, it now does the part the portal can
-  // honestly do: assemble the reference the supplier needs to quote and put it
-  // on the clipboard. Routing it is the supplier's own email or phone call,
-  // and the copy says so instead of promising a reply.
+  // These two used to promise the supplier a buyer officer would respond
+  // (issue #109) and later route through supplier messaging, which was
+  // confirmed out of scope and removed entirely (issue #168). This does the
+  // part the portal can honestly do: assemble the reference the supplier
+  // needs to quote and put it on the clipboard. Routing it is the supplier's
+  // own email or phone call, and the copy says so instead of promising a
+  // reply.
   const copyForBuyer = async (text, what) => {
     try {
       await navigator.clipboard.writeText(text);
