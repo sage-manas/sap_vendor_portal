@@ -62,13 +62,13 @@ describe('POST /api/auth/reset-password', () => {
 
     const token = tokenSentTo(baseVendor.email);
 
-    const resetRes = await request(app).post('/api/auth/reset-password').send({ token, password: 'newpass456' });
+    const resetRes = await request(app).post('/api/auth/reset-password').send({ token, password: 'Newpass456' });
     expect(resetRes.status).toBe(200);
     expect(resetRes.body.success).toBe(true);
 
     const loginRes = await request(app).post('/api/auth/login').send({
       vendorIdOrEmail: baseVendor.email,
-      password: 'newpass456'
+      password: 'Newpass456'
     });
     expect(loginRes.status).toBe(200);
 
@@ -80,7 +80,7 @@ describe('POST /api/auth/reset-password', () => {
   });
 
   it('rejects an unknown/garbage token with 400', async () => {
-    const res = await request(app).post('/api/auth/reset-password').send({ token: 'not-a-real-token', password: 'newpass456' });
+    const res = await request(app).post('/api/auth/reset-password').send({ token: 'not-a-real-token', password: 'Newpass456' });
     expect(res.status).toBe(400);
   });
 
@@ -93,7 +93,7 @@ describe('POST /api/auth/reset-password', () => {
     // Force the token to have already expired
     await asTenant(() => rawPrisma.vendor.updateMany({ where: { email: baseVendor.email }, data: { resetPasswordExpires: new Date(Date.now() - 1000) } }));
 
-    const res = await request(app).post('/api/auth/reset-password').send({ token, password: 'newpass456' });
+    const res = await request(app).post('/api/auth/reset-password').send({ token, password: 'Newpass456' });
     expect(res.status).toBe(400);
   });
 
@@ -103,8 +103,8 @@ describe('POST /api/auth/reset-password', () => {
 
     const token = tokenSentTo(baseVendor.email);
 
-    await request(app).post('/api/auth/reset-password').send({ token, password: 'newpass456' });
-    const secondAttempt = await request(app).post('/api/auth/reset-password').send({ token, password: 'anotherpass789' });
+    await request(app).post('/api/auth/reset-password').send({ token, password: 'Newpass456' });
+    const secondAttempt = await request(app).post('/api/auth/reset-password').send({ token, password: 'Anotherpass789' });
 
     expect(secondAttempt.status).toBe(400);
   });

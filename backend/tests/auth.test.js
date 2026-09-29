@@ -7,7 +7,7 @@ const app = buildTestApp();
 
 const validRegistration = {
   vendorId: 'vendor_test_001',
-  password: 'secret123',
+  password: 'Secret12345',
   companyName: 'Acme Industries Pvt Ltd',
   gstin: '27AABCB1234F1Z5',
   pan: 'AABCB1234F',
@@ -68,6 +68,38 @@ describe('POST /api/auth/register', () => {
       email: expect.any(String),
       password: expect.any(String)
     });
+  });
+
+  // Issue #167: a supplier account holds bank details, GSTIN, PAN and KYC
+  // documents behind a password alone (no MFA, unlike the platform console).
+  // 6 characters with no complexity requirement was judged too weak to ship —
+  // raised to 10 characters plus at least one lowercase, uppercase and digit.
+  it.each([
+    ['short but otherwise valid', 'Sh0rt12'],
+    ['long enough but all lowercase', 'alllowercase123'],
+    ['long enough but all uppercase', 'ALLUPPERCASE123'],
+    ['long enough but no digit', 'NoDigitsHere'],
+  ])('rejects a password that is %s', async (_label, password) => {
+    const res = await request(app).post('/api/auth/register').send({
+      ...validRegistration,
+      vendorId: 'vendor_weak_pw',
+      email: 'weak-pw@example.com',
+      password,
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.errors.password).toEqual(expect.any(String));
+  });
+
+  it('accepts a password meeting the length and complexity floor', async () => {
+    const res = await request(app).post('/api/auth/register').send({
+      ...validRegistration,
+      vendorId: 'vendor_strong_pw',
+      email: 'strong-pw@example.com',
+      password: 'Str0ngEnough',
+    });
+
+    expect(res.status).toBe(201);
   });
 });
 

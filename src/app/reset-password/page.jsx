@@ -89,8 +89,9 @@ function ResetPasswordForm() {
               <input id="reset-1"
                 type="password"
                 required
+                minLength={10}
                 disabled={loading}
-                placeholder="Min 6 characters"
+                placeholder="Min 10 chars, incl. upper, lower & a number"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="pl-9 disabled:opacity-55"

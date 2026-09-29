@@ -237,7 +237,7 @@ describe('a temporary password is reported on every session, not just at login',
     const changed = await request(app)
       .post('/api/auth/change-password')
       .set(auth(token))
-      .send({ currentPassword: 'secret123', newPassword: 'a-much-better-one' });
+      .send({ currentPassword: 'secret123', newPassword: 'A-much-better-one1' });
 
     expect(changed.body.token).toBeTruthy();
 

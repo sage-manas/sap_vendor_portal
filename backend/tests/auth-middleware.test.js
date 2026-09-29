@@ -129,7 +129,7 @@ describe('protect middleware', () => {
     const changed = await request(app)
       .post('/api/auth/change-password')
       .set('Authorization', `Bearer ${token}`)
-      .send({ currentPassword: 'secret123', newPassword: 'a-much-better-one' });
+      .send({ currentPassword: 'Secret12345', newPassword: 'A-much-better-one1' });
 
     expect(changed.status).toBe(200);
     expect(changed.body.token).toBeTruthy();

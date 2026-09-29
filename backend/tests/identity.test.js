@@ -111,7 +111,7 @@ describe('invitations', () => {
     expect(preview.body.invitation.role).toBe('buyer');
 
     const accept = await request(app).post('/api/auth/invitations/accept')
-      .send({ token: rawToken, password: 'secret123', name: 'New Buyer' });
+      .send({ token: rawToken, password: 'Secret12345', name: 'New Buyer' });
 
     expect(accept.status).toBe(201);
     expect(accept.body.user.role).toBe('buyer');
@@ -120,7 +120,7 @@ describe('invitations', () => {
     expect(me.body.auth.clientId).toBe('CLT-0001');
 
     const reuse = await request(app).post('/api/auth/invitations/accept')
-      .send({ token: rawToken, password: 'secret123' });
+      .send({ token: rawToken, password: 'Secret12345' });
     expect(reuse.status).toBe(400);
   });
 
@@ -141,7 +141,7 @@ describe('invitations', () => {
 
     const rawToken = inviteTokenFor('supplier@example.com');
     const accept = await request(app).post('/api/auth/invitations/accept')
-      .send({ token: rawToken, password: 'secret123' });
+      .send({ token: rawToken, password: 'Secret12345' });
 
     expect(accept.status).toBe(200);
     expect(accept.body.next).toBe('register');
@@ -163,7 +163,7 @@ describe('invitations', () => {
     expect(revoke.status).toBe(200);
 
     const accept = await request(app).post('/api/auth/invitations/accept')
-      .send({ token: rawToken, password: 'secret123' });
+      .send({ token: rawToken, password: 'Secret12345' });
     expect(accept.status).toBe(400);
   });
 
@@ -192,7 +192,7 @@ describe('invitations', () => {
     // Accepting still works — the invitation itself names the tenant.
     const rawToken = inviteTokenFor('their-invitee@example.com');
     const accept = await request(app).post('/api/auth/invitations/accept')
-      .send({ token: rawToken, password: 'secret123' });
+      .send({ token: rawToken, password: 'Secret12345' });
 
     expect(accept.status).toBe(201);
     const created = await asTenant(() => prisma.user.findFirst({ where: { email: 'their-invitee@example.com' } }), 'CLT-0002');
@@ -251,11 +251,11 @@ describe('platform plane identity', () => {
     const rawToken = /token=([a-f0-9]+)/i.exec(lastMailTo(operator.email).text)[1];
 
     const reset = await request(app).post('/api/platform/auth/reset-password')
-      .send({ token: rawToken, password: 'brandnew123' });
+      .send({ token: rawToken, password: 'Brandnew123' });
     expect(reset.status).toBe(200);
 
     const login = await request(app).post('/api/platform/auth/login')
-      .send({ email: 'ops3@platform.example.com', password: 'brandnew123' });
+      .send({ email: 'ops3@platform.example.com', password: 'Brandnew123' });
     expect(login.status).toBe(200);
   });
 });
@@ -270,15 +270,15 @@ describe('forced password change', () => {
     expect(login.body.mustChangePassword).toBe(true);
 
     const wrongCurrent = await bearer(request(app).post('/api/auth/change-password'), login.body.token)
-      .send({ currentPassword: 'nope123', newPassword: 'changed123' });
+      .send({ currentPassword: 'nope123', newPassword: 'Changed1234' });
     expect(wrongCurrent.status).toBe(401);
 
     const changed = await bearer(request(app).post('/api/auth/change-password'), login.body.token)
-      .send({ currentPassword: 'secret123', newPassword: 'changed123' });
+      .send({ currentPassword: 'secret123', newPassword: 'Changed1234' });
     expect(changed.status).toBe(200);
 
     const relogin = await request(app).post('/api/auth/login')
-      .send({ vendorIdOrEmail: 'temp@example.com', password: 'changed123' });
+      .send({ vendorIdOrEmail: 'temp@example.com', password: 'Changed1234' });
     expect(relogin.body.mustChangePassword).toBe(false);
   });
 
@@ -286,10 +286,10 @@ describe('forced password change', () => {
     const { token } = await registerVendor(app);
 
     const changed = await bearer(request(app).post('/api/auth/change-password'), token)
-      .send({ currentPassword: 'secret123', newPassword: 'changed123' });
+      .send({ currentPassword: 'Secret12345', newPassword: 'Changed1234' });
     expect(changed.status).toBe(200);
 
     const stored = await asTenant(() => rawPrisma.vendor.findFirst({ where: { email: 'acme@example.com' }, omit: { password: false } }));
-    expect(await comparePassword('changed123', stored.password)).toBe(true);
+    expect(await comparePassword('Changed1234', stored.password)).toBe(true);
   });
 });

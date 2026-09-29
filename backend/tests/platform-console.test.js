@@ -208,12 +208,12 @@ describe('platform console — acceptance: provision a tenant end to end', () =>
     const changed = await request(app)
       .post('/api/auth/change-password')
       .set(bearer(adminToken))
-      .send({ currentPassword: temporaryPassword, newPassword: 'a-proper-password' });
+      .send({ currentPassword: temporaryPassword, newPassword: 'A-proper-password1' });
     expect(changed.status).toBe(200);
 
     const relogin = await request(app)
       .post('/api/auth/login')
-      .send({ vendorIdOrEmail: 'ops@northwind.example.com', password: 'a-proper-password' });
+      .send({ vendorIdOrEmail: 'ops@northwind.example.com', password: 'A-proper-password1' });
     expect(relogin.body.mustChangePassword).toBe(false);
 
     // 5. Inside the tenant they are an administrator — and the tenant is theirs

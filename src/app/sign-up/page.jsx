@@ -166,8 +166,9 @@ export default function SignUpPage() {
               <input id="signup-password"
                 type="password"
                 required
+                minLength={10}
                 disabled={loading}
-                placeholder="Min 6 characters"
+                placeholder="Min 10 chars, incl. upper, lower & a number"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="pl-8.5"
