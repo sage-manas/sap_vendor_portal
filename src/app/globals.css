@@ -231,6 +231,11 @@ aside nav::-webkit-scrollbar-thumb:hover {
   input[type=date],
   input[type=tel],
   input[type=search],
+  input[type=url],
+  input[type=time],
+  input[type=month],
+  input[type=week],
+  input[type=datetime-local],
   select,
   textarea {
     @apply bg-surface border border-border rounded-md px-[11px] py-[7px] text-[13px] text-text-primary outline-none transition-all duration-150 w-full placeholder:text-text-tertiary;
