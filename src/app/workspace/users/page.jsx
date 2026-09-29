@@ -102,6 +102,15 @@ export default function UsersPage() {
 
   if (loading) return <Loading label="Loading the team" />;
 
+  if (!data) {
+    return (
+      <>
+        <PageHeader title="Users" caption="Who works in this workspace, and what each of them may do." />
+        <Notice tone="error" onDismiss={() => setError('')}>{error}</Notice>
+      </>
+    );
+  }
+
   const manageable = can('user:manage');
 
   const userColumns = [
