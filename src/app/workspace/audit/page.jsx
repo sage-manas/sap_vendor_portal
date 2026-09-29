@@ -59,6 +59,15 @@ export default function WorkspaceAuditPage() {
 
   const pages = data ? Math.max(Math.ceil(data.total / data.limit), 1) : 1;
 
+  if (!loading && !data) {
+    return (
+      <>
+        <PageHeader title="Audit" caption="Everything that happened in this workspace, and who did it." />
+        <Notice tone="error">{error}</Notice>
+      </>
+    );
+  }
+
   return (
     <>
       <PageHeader title="Audit" caption="Everything that happened in this workspace, and who did it." />
