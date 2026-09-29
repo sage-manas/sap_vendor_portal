@@ -142,7 +142,6 @@ describe('the transacting modules are closed until registration is submitted', (
     ['get', '/api/payments'],
     ['get', '/api/asns'],
     ['get', '/api/logs'],
-    ['get', '/api/chats'],
     ['get', '/api/reports/metrics'],
   ];
 

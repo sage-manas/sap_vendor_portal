@@ -98,7 +98,7 @@ const wipe = async () => {
   // PurchaseOrderItem → InvoicePlan → InvoicePlanLine, any invoicing plan) with
   // them.
   const order = [
-    'sapLog', 'chatMessage', 'document', 'payment', 'invoice', 'gRN', 'aSN',
+    'sapLog', 'document', 'payment', 'invoice', 'gRN', 'aSN',
     'purchaseOrder', 'rFQ', 'invitation', 'vendor', 'user',
   ];
   for (const model of order) {
@@ -931,26 +931,8 @@ const seedInvoicesAndPayments = async (vendor, pos, grns) => {
 };
 
 // ---------------------------------------------------------------------------
-// Chat and the SAP communication log.
+// The SAP communication log.
 // ---------------------------------------------------------------------------
-
-const seedChat = async () => {
-  const messages = [
-    ['Buyer',     'Welcome aboard — your vendor master is live in SAP as VND-51204.', '2026-02-12T09:12:00Z', {}],
-    ['Vendor',    'Thank you. We have acknowledged PO-2026-0001 and will ship by 28 June.', '2026-06-16T11:40:00Z', { linkedPoId: 'PO-2026-0001' }],
-    ['Warehouse', 'GRN-180043117 posted. 6 pipes and 3 flanges rejected on dimensional variance.', '2026-07-04T14:05:00Z', { linkedPoId: 'PO-2026-0001' }],
-    ['Finance',   'Invoice MC/2026-27/0148 is on hold — billed rate 43.50 against a PO rate of 42.00.', '2026-08-11T10:22:00Z', { linkedPoId: 'PO-2026-0002' }],
-    ['Buyer',     'RFQ-2026-001 closes on 19 September — please submit your quotation.', '2026-09-02T08:30:00Z', { linkedRfqId: 'RFQ-2026-001' }],
-  ];
-  for (const [sender, message, timestamp, links] of messages) {
-    await prisma.chatMessage.create({
-      data: {
-        clientId, vendorId: VENDOR_ID, sender, message,
-        timestamp: new Date(timestamp), isRead: sender === 'Vendor', ...links,
-      },
-    });
-  }
-};
 
 const seedSapLogs = async (vendor, vendor2, plan) => {
   // Every row names a transaction from config/sapTransactions.js, so its code,
@@ -1064,9 +1046,8 @@ const run = async () => {
   const plan = await seedInvoicingPlan(vendor);
   log(`PO-2026-0007 — invoicing plan ${plan.planNumber}, 1 instalment cleared, 1 open, 1 billing-blocked, 1 not yet due`);
 
-  await seedChat();
   await seedSapLogs(vendor, vendor2, plan);
-  log('5 chat messages, 13 SAP log entries');
+  log('13 SAP log entries');
 
   console.log('');
   log(`supplier login:  ${VENDOR_EMAIL} / ${VENDOR_PASSWORD}`);

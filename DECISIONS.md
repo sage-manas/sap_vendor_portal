@@ -724,11 +724,17 @@ Branding and feature flags keep the `Client` fields the platform plane already e
 thresholds and notifications live under a new `Client.settings`.
 
 **Decision, second half.** A feature flag closes the API, not just the screen.
-`requireFeature('features.supplierChat')` sits on `/api/chats` and answers **404** — to a
-workspace without messaging the endpoint does not exist, and "forbidden" would tell a
-supplier about a feature they do not have. Self-registration is the same flag pattern, with
-one exemption: an invited supplier is not self-service, so a pending or accepted invitation
-reopens the door for that email.
+`middleware/requireFeature.js` takes a registry key and answers **404**, not 403, on a route
+whose module the workspace has switched off — to that workspace the endpoint does not
+exist, and "forbidden" would tell a caller about a feature they do not have. Its original
+worked example, `requireFeature('features.supplierChat')` on `/api/chats`, was removed along
+with the rest of the (never-built-on) supplier-messaging feature (issue #168) —
+`tests/requireFeature.test.js` now exercises the middleware directly rather than through a
+route, so the pattern stays covered independent of which route uses it next.
+Self-registration is a related but distinct pattern: an inline `settingValue()` check in the
+controller answers 403, not 404 (an unregistered supplier is meant to know self-service
+exists — the API isn't hidden, just closed), with one exemption: an invited supplier is not
+self-service, so a pending or accepted invitation reopens the door for that email.
 
 **Consequences.** Adding a setting is one entry, and no screen changes. Every setting in
 the registry is read by something — the `readBy` field is there to keep it that way, and a

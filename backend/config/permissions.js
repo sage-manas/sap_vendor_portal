@@ -51,8 +51,6 @@ const P = {
   PAYMENT_CREATE: 'payment:create',
 
   // Collaboration and content
-  CHAT_READ: 'chat:read',
-  CHAT_WRITE: 'chat:write',
   DOCUMENT_READ: 'document:read',
   DOCUMENT_WRITE: 'document:write',
   DOCUMENT_DELETE: 'document:delete',
@@ -96,8 +94,6 @@ const TENANT_READ_ONLY = [
   P.GRN_READ,
   P.INVOICE_READ,
   P.PAYMENT_READ,
-  P.CHAT_READ,
-  P.CHAT_WRITE,
   P.DOCUMENT_READ,
   P.REPORT_READ,
   P.REPORT_METRICS,
@@ -160,8 +156,6 @@ const VENDOR = [
   P.GRN_READ,
   P.INVOICE_READ,
   P.PAYMENT_READ,
-  P.CHAT_READ,
-  P.CHAT_WRITE,
   P.DOCUMENT_READ,
   P.DOCUMENT_WRITE,
   P.REPORT_READ,

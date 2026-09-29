@@ -50,7 +50,6 @@ const TENANT_SCOPED_MODELS = new Set([
   'Invoice',
   'InvoiceItem',
   'Payment',
-  'ChatMessage',
   'Document',
   'SapLog',
 ]);

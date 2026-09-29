@@ -7,7 +7,6 @@ const EVENTS = {
   PAYMENT_CLEARED:  'payment:cleared',
   RFQ_AWARDED:      'rfq:awarded',
   BID_RECEIVED:     'rfq:bid_received',
-  CHAT_MESSAGE:     'chat:message',
   VENDOR_APPROVED:  'vendor:approved',
   LOG_NEW:          'log:new',
 };

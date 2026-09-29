@@ -17,7 +17,6 @@ const TENANT_MODELS = [
   { name: 'GRN', label: 'Goods receipts' },
   { name: 'Invoice', label: 'Invoices' },
   { name: 'Payment', label: 'Payments' },
-  { name: 'ChatMessage', label: 'Messages' },
   { name: 'Document', label: 'Documents', metric: 'documents' },
   { name: 'SapLog', label: 'SAP log' },
 ];

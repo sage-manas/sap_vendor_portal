@@ -85,16 +85,6 @@ const SETTINGS = [
     readBy: 'POST /api/auth/register, POST /api/vendors/profile',
   },
   {
-    key: 'features.supplierChat',
-    path: 'featureFlags.supplierChat',
-    group: 'features',
-    type: 'boolean',
-    default: true,
-    label: 'Supplier messaging',
-    hint: 'When off, the /api/chats endpoints answer 404 for this workspace.',
-    readBy: 'requireFeature on /api/chats',
-  },
-  {
     key: 'thresholds.invoiceReviewAmount',
     path: 'settings.thresholds.invoiceReviewAmount',
     group: 'thresholds',

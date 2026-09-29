@@ -62,11 +62,10 @@ export function useDashboard(profile) {
     }
   }, [profile]);
 
-  // No chat state here any more (issue #109). `GET /api/chats` was fetched on
-  // every page load, and `sendChatMessage` posted rows, for a thread view this
-  // application does not have on either plane — so a supplier's message went
-  // to a table nothing reads. The localStorage key is still cleared below so an
-  // existing client drops its stale copy.
+  // No chat state here any more (issue #109) — the feature itself, `/api/chats`
+  // included, was later confirmed out of scope and removed entirely (issue
+  // #168). The localStorage key is still cleared below so an existing client
+  // drops its stale copy.
 
   const clearAllState = () => {
     localStorage.removeItem('sap_vendor_profile_data');

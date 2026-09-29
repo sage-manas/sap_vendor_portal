@@ -69,7 +69,6 @@ router.use('/pos', protectOnboarded, require('./po.routes'));
 router.use('/grns', protectOnboarded, require('./grn.routes'));
 router.use('/invoices', protectOnboarded, require('./invoice.routes'));
 router.use('/payments', protectOnboarded, require('./payment.routes'));
-router.use('/chats', protectOnboarded, require('./chat.routes'));
 router.use('/uploads', protectTenant, require('./upload.routes'));
 router.use('/reports', protectOnboarded, require('./report.routes'));
 router.use('/asns', protectOnboarded, require('./asn.routes'));

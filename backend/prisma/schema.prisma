@@ -109,15 +109,6 @@ enum PaymentMethod {
   IMPS
 }
 
-enum ChatSender {
-  Vendor
-  Buyer
-  System
-  Finance
-  Quality
-  Warehouse
-}
-
 enum DocumentLinkType {
   ASN
   RFQ
@@ -382,7 +373,6 @@ model RFQ {
   bids           RfqBid[]
   invitedVendors RfqInvitedVendor[]
   purchaseOrders PurchaseOrder[]
-  chatMessages   ChatMessage[]
 
   @@unique([clientId, id])
   @@index([clientId, status])
@@ -547,7 +537,6 @@ model PurchaseOrder {
   grns         GRN[]
   invoices     Invoice[]
   paymentItems PaymentItem[]
-  chatMessages ChatMessage[]
 
   @@unique([clientId, id])
   @@index([clientId, vendorId])
@@ -1042,29 +1031,8 @@ model PaymentItem {
 }
 
 // ---------------------------------------------------------------------------
-// ChatMessage, Document — simple tenant-scoped tables
+// Document — a simple tenant-scoped table
 // ---------------------------------------------------------------------------
-
-model ChatMessage {
-  pk       String @id @default(uuid()) @db.Uuid
-  clientId String
-
-  vendorId    String
-  sender      ChatSender
-  message     String
-  linkedPoId  String?
-  po          PurchaseOrder? @relation(fields: [clientId, linkedPoId], references: [clientId, id])
-  linkedRfqId String?
-  rfq         RFQ?           @relation(fields: [clientId, linkedRfqId], references: [clientId, id])
-  timestamp   DateTime       @default(now())
-  isRead      Boolean        @default(false)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([clientId, vendorId, timestamp])
-  @@map("chat_messages")
-}
 
 model Document {
   pk       String @id @default(uuid()) @db.Uuid

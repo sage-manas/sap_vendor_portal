@@ -101,7 +101,6 @@ User tenant staff
 PlatformUser platform operators
 RFQ, PurchaseOrder, ASN, GRN, Invoice, Payment
 Document metadata
-ChatMessage
 SapLog
 SapConnection and SapConnectionAudit
 AuditLog

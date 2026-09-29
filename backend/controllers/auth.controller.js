@@ -143,7 +143,6 @@ const describeWorkspace = (client) => ({
     primaryColor: settingValue(client, 'branding.primaryColor'),
   },
   features: {
-    supplierChat: settingValue(client, 'features.supplierChat'),
     supplierSelfRegistration: settingValue(client, 'features.supplierSelfRegistration'),
   },
 });
