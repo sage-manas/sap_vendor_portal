@@ -64,6 +64,15 @@ export default function SettingsPage() {
 
   if (loading) return <Loading label="Loading settings" />;
 
+  if (!data) {
+    return (
+      <>
+        <PageHeader title="Settings" caption="How this workspace works — for its staff and for its suppliers." />
+        <Notice tone="error" onDismiss={() => setError('')}>{error}</Notice>
+      </>
+    );
+  }
+
   const valueOf = (setting) => (setting.key in edits ? edits[setting.key] : setting.value);
   const dirty = Object.keys(edits).length > 0;
 
