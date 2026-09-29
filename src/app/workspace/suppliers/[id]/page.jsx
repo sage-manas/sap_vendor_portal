@@ -274,9 +274,11 @@ export default function SupplierDetailPage({ params }) {
               ['Address', vendor.address, { plain: true }],
               ['City', vendor.city, { plain: true }],
               // Older records wrote a free-text state; newer ones write a
-              // country-scoped region code. Both are shown rather than one
-              // being presented as the truth.
-              ['Region', vendor.region || vendor.state, { plain: true }],
+              // SAP region code (e.g. "13"), resolved server-side to a display
+              // name (regionLabel) against the same catalogue the registration
+              // form's dropdown uses. Falls back to the raw code if the
+              // catalogue lookup ever comes back empty, rather than hiding it.
+              ['Region', vendor.regionLabel || vendor.region || vendor.state, { plain: true }],
               ['Country', vendor.country, { plain: true }],
               ['Postal code', vendor.postalCode],
             ]} />

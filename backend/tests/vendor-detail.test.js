@@ -29,6 +29,7 @@ describe('GET /api/vendors/:id', () => {
   it('returns the profile, live trading figures and recent orders', async () => {
     const { vendor } = await registerVendor(app, { vendorId: 'vendor_detail_1', gstin: '27AAAAA3001A1Z1' }, { onboarded: true });
     const { token } = await createAdminUser({ email: 'detail-admin-1@example.com' });
+    await runWithTenant('CLT-0001', () => prisma.vendor.update({ where: { pk: vendor.pk }, data: { region: '13' } }));
     await seedPO(vendor.vendorId, { id: 'PO-VD-1' });
     await seedPO(vendor.vendorId, { id: 'PO-VD-2', status: 'Acknowledged' });
 
@@ -42,6 +43,10 @@ describe('GET /api/vendors/:id', () => {
     expect(res.body.activity.purchaseOrders.byStatus.Acknowledged).toMatchObject({ count: 1, value: 1000 });
     expect(res.body.recentOrders).toHaveLength(2);
     expect(res.body.activity.payments.total).toBe(0);
+    // Issue #164: vendor.region is a raw SAP region code ("13"), not a
+    // display name — the workspace detail page needs the resolved label.
+    expect(res.body.vendor.region).toBe('13');
+    expect(res.body.vendor.regionLabel).toBe('Maharashtra');
   });
 
   it('is addressable by the supplier id as well as the document id', async () => {

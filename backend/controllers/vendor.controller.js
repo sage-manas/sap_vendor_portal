@@ -776,6 +776,7 @@ const getVendorById = asyncHandler(async (req, res, next) => {
 
   const { vendorId } = vendor;
   const clientId = getTenantId();
+  const sap = await getSapAdapterForClient(req.clientId);
 
   // One round trip each, in parallel — a supplier with a long history should
   // not make this page noticeably slower than one with none.
@@ -787,6 +788,7 @@ const getVendorById = asyncHandler(async (req, res, next) => {
     grnCount,
     asnCount,
     recentOrders,
+    regionCatalogue,
   ] = await Promise.all([
     prisma.$queryRaw`
       SELECT po.status AS status, COUNT(DISTINCT po.pk)::int AS count,
@@ -814,13 +816,18 @@ const getVendorById = asyncHandler(async (req, res, next) => {
     // Enough recent orders to show the shape of the relationship without
     // turning this into the purchase order list.
     prisma.purchaseOrder.findMany({ where: { vendorId }, include: { items: true }, orderBy: { createdAt: 'desc' }, take: 5 }),
+    // vendor.region is the SAP region code (e.g. "13"), not a display name —
+    // resolve it against the same catalogue the registration form's dropdown
+    // uses, so this screen shows "Maharashtra" rather than the raw code.
+    sap.vendorRegionCatalogue().catch(() => ({ regions: [] })),
   ]);
 
   const totalOf = (rows, field) => rows.reduce((sum, row) => sum + (row[field] || 0), 0);
   const byStatus = (rows) => Object.fromEntries(rows.map((row) => [row.status, { count: row.count, value: row.value || 0 }]));
+  const regionLabel = (regionCatalogue.regions || []).find((r) => r.code === vendor.region)?.label || null;
 
   res.json({
-    vendor: formatVendorResponse(vendor),
+    vendor: { ...formatVendorResponse(vendor), regionLabel },
     // Whether this supplier is a decision waiting to happen is the registry's
     // answer, the same as it is for the directory list — a screen that retyped
     // the list would silently stop offering the buttons the day a status is
