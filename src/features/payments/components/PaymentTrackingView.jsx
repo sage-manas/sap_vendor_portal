@@ -13,6 +13,9 @@ import EmptyState from '@/components/ui/EmptyState';
 import { paymentStatusVariant } from '@/lib/statusColors';
 import { usePortal } from '@/lib/portal-context';
 
+const formatInr = (amount) =>
+  Number(amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 const formatDate = (dateStr) => {
   if (!dateStr) return '';
   if (typeof dateStr === 'string' && dateStr.includes('T')) {
@@ -491,13 +494,13 @@ export default function PaymentTrackingView({ state }) {
                             {formatDate(payment.paymentDate)}
                           </td>
                           <td className="font-bold text-text-primary text-right font-mono whitespace-nowrap tabular-nums">
-                            ₹ {Number(grossAmt || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            ₹ {formatInr(grossAmt)}
                           </td>
                           <td className="font-medium text-destructive text-right font-mono whitespace-nowrap tabular-nums">
-                            - ₹ {Number(tdsAmt || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            - ₹ {formatInr(tdsAmt)}
                           </td>
                           <td className="font-extrabold text-emerald-400 text-right font-mono whitespace-nowrap tabular-nums">
-                            ₹ {Number(payAmt || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            ₹ {formatInr(payAmt)}
                           </td>
                           <td className="font-mono font-bold text-text-primary select-all break-all">
                             {payment.utrCode}
@@ -614,13 +617,13 @@ export default function PaymentTrackingView({ state }) {
                               {formatDate(row.clearingDate)}
                             </td>
                             <td className="font-bold text-text-primary text-right font-mono whitespace-nowrap tabular-nums">
-                              ₹ {Number(row.grossAmount || 0).toLocaleString('en-IN')}
+                              ₹ {formatInr(row.grossAmount)}
                             </td>
                             <td className="font-medium text-destructive text-right font-mono whitespace-nowrap tabular-nums">
-                              - ₹ {Number(row.tdsDeducted || 0).toLocaleString('en-IN')}
+                              - ₹ {formatInr(row.tdsDeducted)}
                             </td>
                             <td className="font-extrabold text-emerald-400 text-right font-mono whitespace-nowrap tabular-nums">
-                              ₹ {Number(row.netDisbursed || 0).toLocaleString('en-IN')}
+                              ₹ {formatInr(row.netDisbursed)}
                             </td>
                             <td className="font-mono font-bold text-text-primary select-all break-all">
                               {row.utrReference || '—'}
@@ -712,7 +715,7 @@ export default function PaymentTrackingView({ state }) {
                           {row.deducteePan || '—'}
                         </td>
                         <td className="font-extrabold text-emerald-400 text-right whitespace-nowrap tabular-nums">
-                          ₹ {Number(row.taxWithheld).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          ₹ {formatInr(row.taxWithheld)}
                         </td>
                         <td className="text-right whitespace-nowrap tabular-nums text-text-secondary">
                           {row.paymentCount}
