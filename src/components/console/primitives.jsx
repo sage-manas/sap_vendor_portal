@@ -165,3 +165,12 @@ export const useResource = (loader, key = '') => {
 
 export const formatDate = (value) =>
   (value ? new Date(value).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—');
+
+// For a field that is a date, not a moment — e.g. RFQ.deadlineDate, always
+// stored at UTC midnight. Run through formatDate, every such field showed an
+// identical, meaningless "5:30 am" (00:00 UTC rendered in IST) on every row
+// (issue #166). Read the calendar date in UTC rather than the viewer's local
+// zone — there's no real time-of-day to convert, and converting one can roll
+// the date itself onto the wrong day in a timezone behind UTC.
+export const formatDateOnly = (value) =>
+  (value ? new Date(value).toLocaleDateString('en-IN', { dateStyle: 'medium', timeZone: 'UTC' }) : '—');

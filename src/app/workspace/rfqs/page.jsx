@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { rfqService } from '@/features/rfq/services/rfqService';
-import { PageHeader, Notice, Status, Table, Loading, useResource, formatDate } from '@/components/console/primitives';
+import { PageHeader, Notice, Status, Table, Loading, useResource, formatDateOnly } from '@/components/console/primitives';
 
 // Every RFQ this workspace's suppliers hold, across every supplier — the
 // buyer's (and client_admin's) tenant-wide sourcing monitor. GET /api/rfqs
@@ -50,7 +50,7 @@ export default function WorkspaceRfqsPage() {
               render: (row) => (row.awardedVendorName ? <span className="mono">{row.awardedVendorName}</span> : '—'),
             },
             { key: 'status', header: 'Status', render: (row) => <Status value={row.status} /> },
-            { key: 'deadlineDate', header: 'Deadline', render: (row) => <span className="mono text-[11px]">{formatDate(row.deadlineDate)}</span> },
+            { key: 'deadlineDate', header: 'Deadline', render: (row) => <span className="mono text-[11px]">{formatDateOnly(row.deadlineDate)}</span> },
           ]}
           rows={rfqs.map((rfq) => ({ ...rfq, key: rfq.id }))}
           empty="No RFQs discovered from SAP yet."
