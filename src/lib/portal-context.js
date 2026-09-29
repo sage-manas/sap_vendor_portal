@@ -126,6 +126,20 @@ export function PortalProvider({ children }) {
       addToast('info', `New Purchase Order received! ID: ${po.id}`);
     });
 
+    socket.on('po:updated', (po) => {
+      poHook.refreshPOs();
+      const lineCount = po.lines?.length || 0;
+      const what = lineCount
+        ? `${lineCount} line${lineCount > 1 ? 's' : ''} changed`
+        : 'Details changed';
+      addToast('info', `Purchase Order ${po.id} updated by your buyer. ${what} — please review.`);
+    });
+
+    socket.on('po:deleted', (po) => {
+      poHook.refreshPOs();
+      addToast('warning', `Purchase Order ${po.id} was removed in SAP by your buyer.`);
+    });
+
     socket.on('grn:received', (grn) => {
       poHook.refreshGRNs();
       poHook.refreshPOs();

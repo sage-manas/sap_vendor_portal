@@ -529,6 +529,16 @@ model PurchaseOrder {
   sapSyncedAt  DateTime?
   sapSyncError String?
 
+  // Set when a sweep re-reads this vendor's ledger and the order it once
+  // correlated is simply no longer in it (issue #73) — SAP has no "deleted"
+  // flag on this feed to read instead, so absence from a full-history
+  // response is the only signal available. `status` is left untouched:
+  // none of PoStatus's values mean "gone," and this can arrive at any
+  // status, including one already Delivered/Invoiced. Never cleared once
+  // set — a deletion SAP reinstates would come back as a *different* SAP
+  // document number in practice, not the same one un-deleting itself.
+  sapDeletedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

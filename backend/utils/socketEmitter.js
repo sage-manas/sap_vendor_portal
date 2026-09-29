@@ -2,6 +2,8 @@ const logger = require('./logger');
 
 const EVENTS = {
   PO_NEW:           'po:new',
+  PO_UPDATED:       'po:updated',
+  PO_DELETED:       'po:deleted',
   INVOICE_NEW:      'invoice:new',
   GRN_RECEIVED:     'grn:received',
   PAYMENT_CLEARED:  'payment:cleared',
