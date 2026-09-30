@@ -16,3 +16,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const { resolveTestDatabaseUrl, assertSafeToWipe } = require('../config/testDatabase');
 
 process.env.DATABASE_URL = assertSafeToWipe(resolveTestDatabaseUrl(), 'The Jest suite');
+
+// The per-account login backoff (middleware/accountGuard.js) is real seconds in
+// production; a test that wants to observe it sets its own.
+process.env.AUTH_DELAY_BASE_MS = '1';
