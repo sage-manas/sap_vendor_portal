@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the VendorConnect backup nightly
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+RandomizedDelaySec=10min
+# If the server was off at 02:30, take the backup when it is next up.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

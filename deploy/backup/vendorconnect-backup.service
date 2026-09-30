@@ -1,0 +1,20 @@
+# Nightly encrypted database + uploads backup. Install:
+#   sudo cp deploy/backup/vendorconnect-backup.{service,timer} /etc/systemd/system/
+#   sudo install -d -m 0700 -o vendorconnect /etc/vendorconnect
+#   sudo editor /etc/vendorconnect/backup.env        (mode 0600, see the runbook)
+#   sudo systemctl daemon-reload && sudo systemctl enable --now vendorconnect-backup.timer
+# Run once by hand first:  sudo systemctl start vendorconnect-backup.service && journalctl -u vendorconnect-backup -e
+[Unit]
+Description=VendorConnect encrypted backup (database and uploads)
+After=postgresql.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=vendorconnect
+EnvironmentFile=/etc/vendorconnect/backup.env
+WorkingDirectory=/home/vendorconnect/vendorconnect
+ExecStart=/bin/bash /home/vendorconnect/vendorconnect/deploy/backup/pg-backup.sh
+# A backup that hangs must not hide behind "still running".
+TimeoutStartSec=2h
+Nice=10

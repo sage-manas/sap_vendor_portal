@@ -12,6 +12,7 @@
     "prisma:deploy": "prisma migrate deploy",
     "test": "cross-env NODE_ENV=test JWT_SECRET=test-secret jest --runInBand --forceExit",
     "seed:platform-admin": "node scripts/seed-platform-admin.js",
+    "bootstrap:production": "node scripts/bootstrap-production.js",
     "backup:drill": "node scripts/backup-restore-drill.js",
     "sap:conformance": "node scripts/sap-conformance.js",
     "seed:demo": "node scripts/seed-demo.js",
