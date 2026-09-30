@@ -44,3 +44,41 @@ describe('apiClient.request, network failure', () => {
     await expect(promise.catch((err) => err.offline)).resolves.toBeUndefined();
   });
 });
+
+// The server refuses every call but /auth/me and /auth/change-password to an
+// account that must still change its temporary password (403,
+// reason: 'password_change_required'). A request that raced the whoami gate
+// must land the user on the change screen.
+describe('apiClient.request, password change required', () => {
+  const originalLocation = window.location;
+  const refused = () => vi.fn(async () => ({
+    ok: false,
+    status: 403,
+    json: async () => ({ error: 'You must change your temporary password before continuing', reason: 'password_change_required' }),
+  }));
+  const at = (pathname) => Object.defineProperty(window, 'location', { configurable: true, writable: true, value: { pathname, href: pathname } });
+
+  afterEach(() => Object.defineProperty(window, 'location', { configurable: true, writable: true, value: originalLocation }));
+
+  it('sends the user to /change-password and still rejects the call', async () => {
+    vi.stubGlobal('fetch', refused());
+    at('/purchase-orders');
+    await expect(apiClient.get('/pos')).rejects.toMatchObject({ status: 403, reason: 'password_change_required' });
+    expect(window.location.href).toBe('/change-password');
+  });
+
+  it('does not redirect when already on /change-password', async () => {
+    vi.stubGlobal('fetch', refused());
+    at('/change-password');
+    await expect(apiClient.get('/pos')).rejects.toMatchObject({ status: 403 });
+    expect(window.location.href).toBe('/change-password');
+    expect(window.location.pathname).toBe('/change-password');
+  });
+
+  it('leaves an unrelated 403 alone', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 403, json: async () => ({ error: 'Forbidden' }) })));
+    at('/purchase-orders');
+    await expect(apiClient.get('/pos')).rejects.toMatchObject({ status: 403 });
+    expect(window.location.href).toBe('/purchase-orders');
+  });
+});
