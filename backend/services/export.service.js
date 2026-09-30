@@ -53,8 +53,20 @@ const buildExportPayload = ({ rfq, po }) => ({
   })),
 });
 
+// Formula injection (issue #75): a cell whose text begins with =, +, -, @,
+// or a tab/carriage return is read as a formula by Excel/LibreOffice on
+// open — `=HYPERLINK(...)`, `+cmd|'/c calc'!A1`, etc. — regardless of which
+// export format wrote it. vendorName/companyName are attacker-controlled (a
+// supplier picks both at self-registration), and materialCode/description
+// can arrive this way from SAP too, so this neutralises at the boundary
+// every string cell is written through rather than trying to validate every
+// source. A leading `'` is Excel/LibreOffice's own "force text" marker —
+// visible once opened, but no longer executable.
+const FORMULA_PREFIX = /^[=+\-@\t\r]/;
+const neutraliseFormula = (str) => (FORMULA_PREFIX.test(str) ? `'${str}` : str);
+
 const csvCell = (value) => {
-  const str = value == null ? '' : String(value);
+  const str = neutraliseFormula(value == null ? '' : String(value));
   return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
 };
 
@@ -107,8 +119,13 @@ const xmlEscape = (value) => String(value == null ? '' : value)
 // plain XML this function writes by hand, so there is no third-party parser
 // in the dependency tree to carry a CVE for a file this service only ever
 // *produces*, never reads back.
-const ssCell = (value, type = 'String') =>
-  `<Cell><Data ss:Type="${type}">${xmlEscape(value)}</Data></Cell>`;
+// Only a String cell can be read as a formula on open — a Number cell's
+// content is never text Excel would re-parse, so neutralisation applies to
+// that type alone.
+const ssCell = (value, type = 'String') => {
+  const content = type === 'String' ? neutraliseFormula(String(value == null ? '' : value)) : value;
+  return `<Cell><Data ss:Type="${type}">${xmlEscape(content)}</Data></Cell>`;
+};
 
 const buildXlsx = (payload) => {
   const headerRow = `<Row>${HEADER_COLUMNS.map(([key, label]) => ssCell(`${label}: ${payload[key] ?? ''}`)).join('')}</Row>`;
