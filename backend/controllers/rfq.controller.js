@@ -712,7 +712,14 @@ const exportAwardedPo = asyncHandler(async (req, res, next) => {
     return next(ApiError.badRequest(`Unsupported export format '${format}'. Use one of: ${Object.keys(EXPORT_FORMATS).join(', ')}`));
   }
 
-  const rfq = await prisma.rFQ.findFirst({ where: { id: req.params.id } });
+  // A supplier who was not invited gets the same 404 as a tender that does not
+  // exist, before this endpoint says anything about whether it was awarded.
+  const rfq = await prisma.rFQ.findFirst({
+    where: {
+      id: req.params.id,
+      ...(isSupplier(req) ? { invitedVendors: { some: { vendorExtId: vendorScope(req) } } } : {}),
+    },
+  });
   if (!rfq) {
     return next(ApiError.notFound('RFQ not found'));
   }

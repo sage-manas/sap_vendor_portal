@@ -4,7 +4,7 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { assertCanCreate } = require('../utils/usage');
 
-const { requireVendorScope, vendorScope, isSupplier } = require('../utils/requestScope');
+const { requireVendorScope, vendorScope, isSupplier, scopedWhere } = require('../utils/requestScope');
 
 // @desc    Upload file and save document details
 // @route   POST /api/uploads
@@ -64,17 +64,13 @@ const uploadFile = asyncHandler(async (req, res, next) => {
 // @access  Public
 const downloadFile = asyncHandler(async (req, res, next) => {
   const { id } = req.params;
-  const vendorId = vendorScope(req);
 
-  const doc = await prisma.document.findFirst({ where: { pk: id } });
+  // A supplier reaches only their own documents, and someone else's is
+  // indistinguishable from one that does not exist. Tenant staff reach any
+  // document in their tenant — the tenant extension has already scoped the read.
+  const doc = await prisma.document.findFirst({ where: scopedWhere(req, { pk: id }) });
   if (!doc) {
     return next(ApiError.notFound('Document not found'));
-  }
-
-  // A supplier reaches only their own documents. Tenant staff reach any
-  // document in their tenant — the tenant extension has already scoped the read.
-  if (isSupplier(req) && doc.vendorId !== vendorId) {
-    return next(ApiError.forbidden('You do not have permission to view this document'));
   }
 
   if (!fs.existsSync(doc.filePath)) {

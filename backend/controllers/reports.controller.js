@@ -3,7 +3,7 @@ const { prisma } = require('../db/prisma');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 
-const { requireVendorScope } = require('../utils/requestScope');
+const { requireVendorScope, scopedWhere } = require('../utils/requestScope');
 const { toNumber } = require('../utils/money');
 
 // PDFKit's built-in Helvetica is WinAnsi-encoded and has no rupee glyph: a
@@ -168,9 +168,12 @@ const generateStatement = asyncHandler(async (req, res, next) => {
 // @access  Public
 const generateInvoicePDF = asyncHandler(async (req, res, next) => {
   const { id } = req.params;
-  const vendorId = requireVendorScope(req);
+  // Staff must name the supplier (?vendorId=); a supplier is always themselves.
+  requireVendorScope(req);
 
-  const invoice = await prisma.invoice.findFirst({ where: { id }, include: { items: true } });
+  // scopedWhere confines a supplier to their own invoices: another supplier's
+  // id resolves to the same 404 as one that does not exist.
+  const invoice = await prisma.invoice.findFirst({ where: scopedWhere(req, { id }), include: { items: true } });
   if (!invoice) {
     return next(ApiError.notFound('Invoice document not found'));
   }
