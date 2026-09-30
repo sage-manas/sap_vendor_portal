@@ -581,7 +581,10 @@ export default function RfqView({
                       </div>
                     </FormSection>
 
-                    {/* OTHER DETAILS (INVITED VENDORS) */}
+                    {/* The API withholds the invitee list from suppliers (a sealed
+                        tender does not name the competition); it is only
+                        present for staff. */}
+                    {activeRfq.invitedVendors && (
                     <FormSection number="02" title="Invited vendors">
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                         {activeRfq.invitedVendors?.map(v => {
@@ -621,9 +624,10 @@ export default function RfqView({
                          })}
                       </div>
                     </FormSection>
+                    )}
 
                     {/* PROCESS DETAILS (AUDIT WORKFLOW STATUS) */}
-                    <FormSection number="03" title="Progress of this request">
+                    <FormSection number={activeRfq.invitedVendors ? '03' : '02'} title="Progress of this request">
                       {(() => {
                         const hasBids = activeRfq.bids?.length > 0;
                         const isAwarded = activeRfq.status === 'Awarded';
