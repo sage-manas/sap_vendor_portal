@@ -10,7 +10,7 @@ const {
   changePasswordSchema,
   acceptInvitationSchema
 } = require('../validators/auth.validator');
-const { protect, requirePermission } = require('../middleware/auth');
+const { protectSession, requirePermission } = require('../middleware/auth');
 const { PERMISSIONS } = require('../config/permissions');
 
 // Public: identity is being established, so there is no principal to authorize.
@@ -24,8 +24,9 @@ router.post('/reset-password', validate(resetPasswordSchema), authController.res
 router.get('/invitations/:token', invitationController.getInvitation);
 router.post('/invitations/accept', validate(acceptInvitationSchema), invitationController.acceptInvitation);
 
-// Authenticated: every principal holds self:read.
-router.get('/me', protect, requirePermission(PERMISSIONS.SELF_READ), authController.getMe);
-router.post('/change-password', protect, requirePermission(PERMISSIONS.SELF_READ), validate(changePasswordSchema), authController.changePassword);
+// Authenticated: every principal holds self:read. These two are the only routes
+// open to an account that must still change its temporary password.
+router.get('/me', protectSession, requirePermission(PERMISSIONS.SELF_READ), authController.getMe);
+router.post('/change-password', protectSession, requirePermission(PERMISSIONS.SELF_READ), validate(changePasswordSchema), authController.changePassword);
 
 module.exports = router;

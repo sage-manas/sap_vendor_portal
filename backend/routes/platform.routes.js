@@ -9,7 +9,7 @@ const sapController = require('../controllers/platformSap.controller');
 const validate = require('../middleware/validate');
 const validateQuery = require('../middleware/validateQuery');
 const { paginationSchema } = require('../validators/pagination.validator');
-const { protectPlatform, requireMfa, requirePermission } = require('../middleware/auth');
+const { protectPlatform, protectPlatformSession, requireMfa, requirePermission } = require('../middleware/auth');
 const { PERMISSIONS } = require('../config/permissions');
 const {
   platformLoginSchema,
@@ -43,8 +43,8 @@ router.post('/auth/login', validate(platformLoginSchema), platformAuthController
 router.post('/auth/forgot-password', validate(forgotPasswordSchema), platformAuthController.forgotPassword);
 router.post('/auth/reset-password', validate(resetPasswordSchema), platformAuthController.resetPassword);
 
-router.get('/auth/me', protectPlatform, requirePermission(PERMISSIONS.SELF_READ), platformAuthController.getMe);
-router.post('/auth/change-password', protectPlatform, requirePermission(PERMISSIONS.SELF_READ), validate(changePasswordSchema), platformAuthController.changePassword);
+router.get('/auth/me', protectPlatformSession, requirePermission(PERMISSIONS.SELF_READ), platformAuthController.getMe);
+router.post('/auth/change-password', protectPlatformSession, requirePermission(PERMISSIONS.SELF_READ), validate(changePasswordSchema), platformAuthController.changePassword);
 router.post('/auth/mfa/enrol', protectPlatform, requirePermission(PERMISSIONS.SELF_READ), platformAuthController.enrolMfa);
 router.post('/auth/mfa/verify', protectPlatform, requirePermission(PERMISSIONS.SELF_READ), validate(mfaVerifySchema), platformAuthController.verifyMfa);
 
