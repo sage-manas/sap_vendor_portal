@@ -27,41 +27,32 @@ describe('GET /api/vendors/profile', () => {
   });
 });
 
+// The unauthenticated POST /api/vendors/profile used to create a supplier from
+// a request body alone — /api/auth/register is the only self-registration path.
 describe('POST /api/vendors/profile', () => {
-  it('creates a profile and flattens nested legacy address/bankDetails', async () => {
-    const res = await request(app).post('/api/vendors/profile').send({
-      vendorId: 'vendor_nested_1',
-      companyName: 'Nested Corp Ltd',
-      gstin: '29AABCN9876Q1Z2',
-      pan: 'AABCN9876Q',
-      email: 'nested@example.com',
-      address: { street: '5 Brigade Rd', city: 'Bengaluru', state: 'Karnataka', pincode: '560001' },
-      bankDetails: { bankName: 'ICICI', accountNumber: '999888777666', ifscCode: 'ICIC0000012', accountHolderName: 'Nested Corp Ltd', branch: 'MG Road' }
-    });
+  const body = {
+    vendorId: 'vendor_anon_1',
+    companyName: 'Anonymous Corp Ltd',
+    gstin: '29AABCN9876Q1Z2',
+    pan: 'AABCN9876Q',
+    email: 'anon@example.com',
+  };
+  const supplierRows = () => asTenant(() => prisma.vendor.count({ where: { vendorId: body.vendorId } }));
 
-    expect(res.status).toBe(201);
-    expect(res.body.city).toBe('Bengaluru');
-    expect(res.body.postalCode).toBe('560001');
-    expect(res.body.bankDetails.bankName).toBe('ICICI');
-    expect(res.body.bankDetails.accountHolderName).toBe('Nested Corp Ltd');
-    expect(res.body.status).toBe('Draft');
+  it('does not exist for an anonymous caller, and creates nothing', async () => {
+    await registerVendor(app); // ensures the workspace exists
+    const res = await request(app).post('/api/vendors/profile').set('x-client-slug', 'legacy').send(body);
+
+    expect(res.status).toBe(404);
+    expect(await supplierRows()).toBe(0);
   });
 
-  it('rejects a duplicate profile with 409', async () => {
-    await registerVendor(app);
-    const res = await request(app).post('/api/vendors/profile').send({
-      vendorId: baseVendor.vendorId,
-      companyName: baseVendor.companyName,
-      gstin: baseVendor.gstin,
-      pan: baseVendor.pan,
-      email: baseVendor.email
-    });
-    expect(res.status).toBe(409);
-  });
+  it('does not exist for a signed-in supplier either', async () => {
+    const { token } = await registerVendor(app);
+    const res = await request(app).post('/api/vendors/profile').set('Authorization', `Bearer ${token}`).send(body);
 
-  it('rejects missing required fields with 400', async () => {
-    const res = await request(app).post('/api/vendors/profile').send({ vendorId: 'x' });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(404);
+    expect(await supplierRows()).toBe(0);
   });
 });
 

@@ -1,7 +1,6 @@
 const router = require('express').Router();
 const {
   getProfile,
-  createProfile,
   createVendor,
   updateProfile,
   submitRegistration,
@@ -24,16 +23,14 @@ const { protect, requirePermission } = require('../middleware/auth');
 const { tenantLimiter } = require('../middleware/rateLimiter');
 const { PERMISSIONS } = require('../config/permissions');
 const {
-  profileCreateSchema,
   profileUpdateSchema,
   vendorCreateSchema,
   rejectVendorSchema
 } = require('../validators/vendor.validator');
 const { inviteVendorSchema } = require('../validators/user.validator');
 
-// Supplier self-service. POST /profile is the unauthenticated arm of
-// registration and resolves its tenant from the request (ADR-0004).
-router.post('/profile', validate(profileCreateSchema), createProfile);
+// Supplier self-service. There is no POST /profile: /api/auth/register is the
+// only way a supplier account comes into being on its own.
 router.get('/profile', protect, tenantLimiter, requirePermission(PERMISSIONS.PROFILE_READ), getProfile);
 router.put('/profile', protect, tenantLimiter, requirePermission(PERMISSIONS.PROFILE_WRITE), validate(profileUpdateSchema), updateProfile);
 router.post('/profile/submit', protect, tenantLimiter, requirePermission(PERMISSIONS.PROFILE_SUBMIT), submitRegistration);

@@ -8,7 +8,7 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret';
 
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
 const {
-  createProfile, createVendor, updateProfile, submitRegistration,
+  createVendor, updateProfile, submitRegistration,
   approveVendor, rejectVendor, listVendors,
 } = require('../controllers/vendor.controller');
 
@@ -49,16 +49,11 @@ async function main() {
     data: { clientId: 'CLT-0001', slug: 'legacy', companyName: 'Legacy', status: 'Active' },
   }));
 
-  await test('createProfile creates a Draft vendor from a public (unauthenticated) request', async () => {
-    const req = fakeReq({
-      headers: { 'x-client-slug': 'legacy' },
-      body: { vendorId: 'VND-11111', companyName: 'Profile Co', gstin: '27AABCB1234F1Z5', pan: 'AABCB1234F', email: 'profile@example.com' },
-    });
-    const res = fakeRes();
-    await createProfile(req, res, capturedNext());
-    assert.strictEqual(res.statusCode, 201);
-    assert.strictEqual(res.body.status, 'Draft');
-  });
+  // The supplier the next steps act on. There is no create-profile endpoint any
+  // more (registration is /auth/register), so it is seeded directly.
+  await withoutTenantScope(() => rawPrisma.vendor.create({
+    data: { clientId: 'CLT-0001', vendorId: 'VND-11111', companyName: 'Profile Co', gstin: '27AABCB1234F1Z5', pan: 'AABCB1234F', email: 'profile@example.com', status: 'Draft' },
+  }));
 
   await test('updateProfile updates fields and re-hashes a password if one is sent', async () => {
     const req = fakeReq({

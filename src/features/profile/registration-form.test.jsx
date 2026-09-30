@@ -105,6 +105,29 @@ describe('submitting a completed registration', () => {
     expect(saved.submittedAt).toEqual(expect.any(String));
   });
 
+  // The old code answered a refused PUT by POSTing the whole profile to the
+  // anonymous POST /vendors/profile and carrying on to submit. That endpoint no
+  // longer exists; a refusal is now a refusal, and it is shown.
+  it('reports a refused save instead of creating an account another way', async () => {
+    const user = userEvent.setup();
+    const { apiMock } = renderWithPortal(<SubmitHarness />, {
+      plane: 'supplier',
+      route: '/registration',
+      api: {
+        ...draftApi,
+        'PUT /vendors/profile': { status: 409, body: { error: 'Legal identity is locked', reason: 'identity_locked' } },
+      },
+    });
+
+    await user.click(await screen.findByRole('button', { name: 'submit registration' }));
+    await waitFor(() => expect(apiMock.callsTo('PUT', '/vendors/profile')).toHaveLength(1));
+    // Let anything the failure would have chained onto it happen.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(apiMock.callsTo('POST', '/vendors/profile')).toHaveLength(0);
+    expect(apiMock.callsTo('POST', '/vendors/profile/submit')).toHaveLength(0);
+  });
+
   it('re-reads the profile afterwards, so the server decides the status', async () => {
     const user = userEvent.setup();
     const { apiMock } = renderWithPortal(<SubmitHarness />, {

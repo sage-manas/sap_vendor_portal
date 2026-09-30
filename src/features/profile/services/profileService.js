@@ -5,10 +5,6 @@ export const profileService = {
     return apiClient.get('/vendors/profile');
   },
 
-  async createProfile(data) {
-    return apiClient.post('/vendors/profile', data);
-  },
-
   async updateProfile(data) {
     return apiClient.put('/vendors/profile', data);
   },

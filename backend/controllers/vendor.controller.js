@@ -1,13 +1,11 @@
 const { prisma } = require('../db/prisma');
 const { hashPassword, issueResetToken } = require('../db/credentials');
-const { isClientOperational } = require('../db/clientHelpers');
 const { getTenantId } = require('../utils/tenantContext');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const logger = require('../utils/logger');
 const { verifyGstinPan } = require('../services/verification.service');
 const { runWithTenant } = require('../utils/tenantContext');
-const { resolveClientForRequest } = require('../utils/resolveClient');
 const { getSapAdapterForClient } = require('../sap');
 
 const { requireVendorScope } = require('../utils/requestScope');
@@ -25,7 +23,6 @@ const IDENTITY_CONFLICT_MESSAGE = {
   gstin: 'A supplier with this GSTIN already exists',
 };
 const { assertCanCreate } = require('../utils/usage');
-const { hasSupplierInvitation } = require('./invitation.controller');
 const { sendMail } = require('../utils/mailer');
 const { frontendUrl } = require('../config/emailTemplates');
 const { RESET_TOKEN_TTL_MS } = require('../db/credentials');
@@ -197,62 +194,6 @@ const getProfile = asyncHandler(async (req, res, next) => {
     return next(ApiError.notFound('Vendor profile not found'));
   }
   res.json(formatVendorResponse(vendor));
-});
-
-// @desc    Create vendor profile (for dev onboarding / clerk sync)
-// @route   POST /api/vendors/profile
-// @access  Public
-const createProfile = asyncHandler(async (req, res, next) => {
-  const mappedBody = mapIncomingBody(req.body);
-  const { vendorId, companyName, gstin, pan, email } = mappedBody;
-
-  if (!vendorId || !companyName || !gstin || !pan || !email) {
-    return next(ApiError.badRequest('Vendor ID, company name, GSTIN, PAN, and email are required'));
-  }
-
-  // This route is unauthenticated, so — like registration — it resolves the
-  // workspace from the request rather than from a bound tenant context.
-  const client = await resolveClientForRequest(req);
-  if (!client) {
-    return next(ApiError.badRequest('Unknown workspace'));
-  }
-  if (!isClientOperational(client)) {
-    return next(ApiError.forbidden('This workspace is not accepting registrations'));
-  }
-
-  // Same rule as POST /api/auth/register: a workspace may admit suppliers by
-  // invitation only, and an invited supplier is not self-service.
-  if (!settingValue(client, 'features.supplierSelfRegistration')
-    && !(await hasSupplierInvitation(client.clientId, email))) {
-    return next(ApiError.forbidden('This workspace admits suppliers by invitation only'));
-  }
-
-  await assertCanCreate(client, 'vendors');
-
-  // vendorId/email are global login identities; gstin is checked within this
-  // workspace only (issue #67, ADR-0039).
-  const conflict = await identityConflict({ vendorId, email, gstin, clientId: client.clientId });
-  if (conflict) {
-    return next(ApiError.conflict(IDENTITY_CONFLICT_MESSAGE[conflict], { reason: conflict }));
-  }
-
-  // Determine starting status
-  const defaultStatus = (vendorId && vendorId.startsWith('mock_vendor_'))
-    ? VENDOR_STATUS.PENDING
-    : VENDOR_STATUS.DRAFT;
-
-  const { password, ...rest } = mappedBody;
-  const passwordFields = password ? await hashPassword(password) : {};
-
-  const vendor = await runWithTenant(client.clientId, () => prisma.vendor.create({
-    data: {
-      ...rest,
-      ...passwordFields,
-      status: defaultStatus,
-    },
-  }));
-
-  res.status(201).json(formatVendorResponse(vendor));
 });
 
 // @desc    Create a supplier from the tenant's own directory
@@ -970,7 +911,6 @@ const getPerformance = asyncHandler(async (req, res, next) => {
 
 module.exports = {
   getProfile,
-  createProfile,
   createVendor,
   updateProfile,
   submitRegistration,
