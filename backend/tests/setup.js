@@ -171,6 +171,9 @@ beforeAll(async () => {
 beforeEach(async () => {
   const { seedClient } = require('./helpers');
   await seedClient();
+  // Failed-login counters live in memory, keyed by identifier, and every test
+  // reuses the same few addresses.
+  require('../middleware/accountGuard').resetAccountGuards();
 });
 
 afterEach(async () => {

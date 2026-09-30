@@ -1,5 +1,5 @@
 const { prisma } = require('../db/prisma');
-const { comparePassword, hashPassword, issueResetToken, consumeResetToken, hashResetToken, RESET_TOKEN_TTL_MS } = require('../db/credentials');
+const { comparePassword, burnPasswordCheck, hashPassword, issueResetToken, consumeResetToken, hashResetToken, RESET_TOKEN_TTL_MS } = require('../db/credentials');
 const { canPlatformUserAuthenticate } = require('../db/accountHelpers');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
@@ -51,7 +51,11 @@ const login = asyncHandler(async (req, res, next) => {
     omit: { password: false },
   });
 
-  if (!operator || !(await comparePassword(password, operator.password))) {
+  // Unknown operator: same hashing work as a wrong password (see burnPasswordCheck).
+  const passwordOk = operator
+    ? await comparePassword(password, operator.password)
+    : await burnPasswordCheck(password);
+  if (!operator || !passwordOk) {
     await recordAudit({
       action: AUDIT_ACTIONS.OPERATOR_LOGIN_FAILED,
       clientId: null,
