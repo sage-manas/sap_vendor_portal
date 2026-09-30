@@ -1870,10 +1870,22 @@ const SECRET_FIELDS = [
 // about the shape of `config` keeps working unchanged — the production-
 // credentials rule only engages when a caller actually says which
 // environment this is for.
+//
+// Transport: production must be https. Plain http would carry the technical
+// user's password and every vendor's bank details in the clear. A sandbox may
+// use http (a lab system often has no certificate), which configWarnings
+// reports rather than refuses. TLS on SAP's own endpoints is the customer's
+// SAP team's to provide; this only stops the portal being pointed at http.
+const schemeOf = (baseUrl) => /^\s*(https?):\/\//i.exec(String(baseUrl || ''))?.[1].toLowerCase() || null;
+
 const validateConfig = (config = {}, { environment, secrets = {} } = {}) => {
   const errors = {};
+  const scheme = schemeOf(config.baseUrl);
   if (!config.baseUrl) errors.baseUrl = 'A gateway base URL is required';
-  else if (!/^https?:\/\//i.test(config.baseUrl)) errors.baseUrl = 'Must be an http(s) URL';
+  else if (!scheme) errors.baseUrl = 'Must be an http(s) URL';
+  else if (environment === 'production' && scheme === 'http') {
+    errors.baseUrl = "A production connection must use https:// — plain http sends the technical user's password and vendors' bank details unencrypted";
+  }
   if (!config.sapClient) errors.sapClient = 'An SAP client number is required (e.g. 100)';
   // Issue #62: this used to default silently to '1000' (the SAP IDES demo
   // company code), so a tenant that never configured it ran on a value
@@ -1885,9 +1897,17 @@ const validateConfig = (config = {}, { environment, secrets = {} } = {}) => {
   return errors;
 };
 
+// Things worth telling the operator that do not stop the save.
+const configWarnings = (config = {}, { environment } = {}) => (
+  environment !== 'production' && schemeOf(config.baseUrl) === 'http'
+    ? ['This connection uses plain http://, so credentials and data cross the network unencrypted. Acceptable for a sandbox only; a production connection is refused unless it uses https://.']
+    : []
+);
+
 module.exports = {
   createS4ODataDriver,
   validateConfig,
+  configWarnings,
   secretFields: SECRET_FIELDS,
   configFields: [
     { name: 'baseUrl', label: 'Gateway base URL', type: 'text', placeholder: 'https://my-s4.example.com' },

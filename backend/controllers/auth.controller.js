@@ -1,5 +1,5 @@
 const { prisma } = require('../db/prisma');
-const { hashPassword, comparePassword, issueResetToken, consumeResetToken, hashResetToken, RESET_TOKEN_TTL_MS } = require('../db/credentials');
+const { hashPassword, comparePassword, burnPasswordCheck, issueResetToken, consumeResetToken, hashResetToken, RESET_TOKEN_TTL_MS } = require('../db/credentials');
 const { canAuthenticate } = require('../db/accountHelpers');
 const { isClientOperational } = require('../db/clientHelpers');
 const ApiError = require('../utils/ApiError');
@@ -188,6 +188,9 @@ const login = asyncHandler(async (req, res, next) => {
 
   const account = user || vendor;
   if (!account) {
+    // Same work as a wrong password, so the response time does not say the
+    // account does not exist.
+    await burnPasswordCheck(password);
     return next(ApiError.unauthorized('Invalid credentials'));
   }
 
@@ -198,6 +201,7 @@ const login = asyncHandler(async (req, res, next) => {
   // fallback is a guess about which workspace was meant.
   const realm = await resolveRealmForRequest(req);
   if (realm.source === 'subdomain' && account.clientId !== realm.client?.clientId) {
+    await burnPasswordCheck(password);
     return next(ApiError.unauthorized('Invalid credentials'));
   }
 

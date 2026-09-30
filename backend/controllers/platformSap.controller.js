@@ -191,9 +191,15 @@ const configureSap = asyncHandler(async (req, res) => {
     meta: { driver, environment, changedFields: Object.keys(changes), credentialsSet: secretsChanged },
   });
 
+  // Shown in the console next to the saved connection, and left in the server
+  // log so it is not only visible to whoever happens to be looking.
+  const warnings = definition.configWarnings?.(config, { environment }) || [];
+  warnings.forEach((warning) => logger.warn(`[sap] ${client.clientId}/${environment}: ${warning}`));
+
   res.json({
     success: true,
     connection: await formatConnection(connection, { active: (client.sapEnvironment || 'sandbox') === environment }),
+    warnings,
   });
 });
 

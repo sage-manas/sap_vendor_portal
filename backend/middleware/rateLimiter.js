@@ -1,8 +1,14 @@
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 
+// An abuse ceiling, not a fairness mechanism: an office behind one NAT address
+// is one IP to this limiter, and a single-page app makes several calls per
+// screen. 100 per 15 minutes locked a small team out within a few minutes;
+// this leaves genuine use alone and still stops a script hammering the API.
+// The controls that matter for sign-in are per account
+// (middleware/accountGuard.js) and, per tenant, `tenantLimiter` below.
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: Number(process.env.API_RATE_LIMIT_MAX) || 5000,
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   message: {

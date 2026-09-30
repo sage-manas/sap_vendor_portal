@@ -1,5 +1,6 @@
 import { isPlatformPath, isAuthPath } from './planes';
 
+const CHANGE_PASSWORD_PATH = '/change-password';
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
 export const apiClient = {
@@ -56,6 +57,18 @@ export const apiClient = {
         }
       }
       const errorData = await response.json().catch(() => ({}));
+      // The server refuses everything but /auth/me and /auth/change-password to
+      // an account still on its temporary password. The whoami gate normally
+      // routes there first; this covers a request that raced it (or a stale
+      // tab), so the user lands on the change screen, not on a broken page.
+      if (
+        response.status === 403 && errorData.reason === 'password_change_required' &&
+        typeof window !== 'undefined' &&
+        window.location.pathname !== CHANGE_PASSWORD_PATH &&
+        !isAuthPath(window.location.pathname) && !isPlatformPath(window.location.pathname)
+      ) {
+        window.location.href = CHANGE_PASSWORD_PATH;
+      }
       const error = new Error(errorData.error || `Request failed with status ${response.status}`);
       // The API answers a validation failure with a { field: message } map;
       // carrying it on the error is what lets a form point at the field

@@ -244,8 +244,8 @@ export default function TenantSapPage({ params }) {
 
   const save = (environment, body) =>
     act(async () => {
-      await platformApi.configureSap(clientId, environment, body);
-      return `${environment} connection saved. Test it before making it live.`;
+      const { warnings = [] } = await platformApi.configureSap(clientId, environment, body);
+      return `${environment} connection saved. Test it before making it live.${warnings.length ? ` Warning: ${warnings.join(' ')}` : ''}`;
     }).catch(() => {});
 
   const test = (environment) => act(async () => {

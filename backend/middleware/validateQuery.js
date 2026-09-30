@@ -5,7 +5,7 @@
 // property early in the middleware chain (Express 5 made it a getter with
 // no setter by default), specifically so something downstream — this,
 // originally the mongo-sanitizer — can rewrite it in place.
-const validateQuery = (schema) => (req, res, next) => {
+const validateQuery = (schema) => Object.assign((req, res, next) => {
   const result = schema.safeParse(req.query);
   if (!result.success) {
     const errors = result.error.issues.reduce((acc, e) => {
@@ -16,6 +16,6 @@ const validateQuery = (schema) => (req, res, next) => {
   }
   req.query = result.data; // use coerced/cleaned data
   next();
-};
+}, { schema }); // exposed so a route-table test can see which schema a route is guarded by
 
 module.exports = validateQuery;

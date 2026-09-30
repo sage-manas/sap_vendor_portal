@@ -133,7 +133,7 @@ const attachPrincipal = (req, account, plane) => {
  * Platform accounts are refused here with a 403 before any query runs — they
  * have their own surface under /api/platform (see `protectPlatform`).
  */
-const protect = asyncHandler(async (req, res, next) => {
+const buildProtect = ({ allowPendingPasswordChange }) => asyncHandler(async (req, res, next) => {
   const { account, claims, plane } = await resolveAccount(req);
 
   if (plane === PLANES.PLATFORM) {
@@ -156,6 +156,9 @@ const protect = asyncHandler(async (req, res, next) => {
   }
 
   attachPrincipal(req, account, plane);
+  if (!allowPendingPasswordChange && req.auth.mustChangePassword) {
+    return next(passwordChangeRequired());
+  }
   req.client = client;
   req.clientId = account.clientId;
 
@@ -179,7 +182,7 @@ const protect = asyncHandler(async (req, res, next) => {
  * platform code that needs to touch a tenant collection must say so with an
  * explicit withoutTenantScope() or runWithTenant().
  */
-const protectPlatform = asyncHandler(async (req, res, next) => {
+const buildProtectPlatform = ({ allowPendingPasswordChange }) => asyncHandler(async (req, res, next) => {
   const { account, claims, plane } = await resolveAccount(req);
 
   if (plane !== PLANES.PLATFORM) {
@@ -188,12 +191,29 @@ const protectPlatform = asyncHandler(async (req, res, next) => {
   }
 
   attachPrincipal(req, account, plane);
+  if (!allowPendingPasswordChange && req.auth.mustChangePassword) {
+    return next(passwordChangeRequired());
+  }
   req.platformUser = account;
   // The second factor's state, for `requireMfa` below. Enrolment is a property
   // of the account; verification is a property of this particular token.
   req.mfa = { enrolled: Boolean(account.mfaEnabled), verified: claims.mfa === true };
   return next();
 });
+
+// An account still on the temporary password it was provisioned with may read
+// its own session and change the password, and nothing else. The flag used to
+// be reported to the UI alone, so anyone holding such a token could skip the
+// change screen and call the API directly. The routes that stay open use the
+// `…Session` guards below and nothing else does; `allowsPendingPasswordChange`
+// marks them so a test can list them.
+const passwordChangeRequired = () =>
+  ApiError.forbidden('You must change your temporary password before continuing', { reason: 'password_change_required' });
+
+const protect = buildProtect({ allowPendingPasswordChange: false });
+const protectSession = Object.assign(buildProtect({ allowPendingPasswordChange: true }), { allowsPendingPasswordChange: true });
+const protectPlatform = buildProtectPlatform({ allowPendingPasswordChange: false });
+const protectPlatformSession = Object.assign(buildProtectPlatform({ allowPendingPasswordChange: true }), { allowsPendingPasswordChange: true });
 
 /**
  * The platform plane's second gate: MFA is mandatory on the console (ADR-0016).
@@ -251,4 +271,4 @@ const requirePlane = (...planes) => {
   return guard;
 };
 
-module.exports = { protect, protectPlatform, requireMfa, requirePermission, requirePlane, resolveAccountFromToken };
+module.exports = { protect, protectSession, protectPlatform, protectPlatformSession, requireMfa, requirePermission, requirePlane, resolveAccountFromToken };

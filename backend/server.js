@@ -46,8 +46,8 @@ const io = new Server(server, {
   }
 });
 
-const { vendorRoom, procurementRoom } = require('./utils/socketEmitter');
-const { authenticateSocket, recheckSocket, recheckAllSockets } = require('./sockets/socketAuth');
+const { authenticateSocket, recheckAllSockets } = require('./sockets/socketAuth');
+const { registerConnectionHandlers } = require('./sockets/connectionHandlers');
 
 // Pre-auth Socket.io connection middleware. A socket's tenant comes from its
 // JWT and from nowhere else — it is what every room it may join is keyed on.
@@ -58,30 +58,7 @@ const { authenticateSocket, recheckSocket, recheckAllSockets } = require('./sock
 // could still open a socket.
 io.use(authenticateSocket);
 
-io.on('connection', (socket) => {
-  logger.info(`🔌 Client connected to Socket.io: ${socket.id} (client: ${socket.clientId}, vendorId: ${socket.clerkUserId})`);
-
-  if (socket.clerkUserId) {
-    const room = vendorRoom(socket.clientId, socket.clerkUserId);
-    socket.join(room);
-    logger.info(`🏢 Socket ${socket.id} joined room: ${room}`);
-  }
-
-  socket.on('join_procurement_room', async () => {
-    // Re-checked here too, not just at connect (issue #74's suggested fix):
-    // a room grant is a fresh privilege, and the periodic sweep below could
-    // be seconds away from catching a revocation that happened in between.
-    if (!(await recheckSocket(socket))) return;
-    // Always this socket's own tenant — the client cannot name the room.
-    const room = procurementRoom(socket.clientId);
-    socket.join(room);
-    logger.info(`🏢 Socket ${socket.id} joined room: ${room}`);
-  });
-
-  socket.on('disconnect', () => {
-    logger.info(`🔌 Client disconnected from Socket.io: ${socket.id}`);
-  });
-});
+registerConnectionHandlers(io);
 
 // The handshake alone only proves a session was valid the moment it opened —
 // nothing about an open socket re-runs that check on its own afterwards.

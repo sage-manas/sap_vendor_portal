@@ -120,11 +120,10 @@ export function useProfile() {
     setProfile(updated);
     persistLocally(updated);
 
-    // The vendor's account (and its Vendor doc) already exists for anyone who
-    // signed up normally, so PUT is the common case; only fall back to POST
-    // for the dev/mock-vendor flow that hasn't created a profile doc yet.
+    // The supplier's account already exists — registration created it — so
+    // saving is always an update.
     try {
-      await profileService.updateProfile(updated).catch(() => profileService.createProfile(updated));
+      await profileService.updateProfile(updated);
     } catch (e) {}
   };
 
@@ -141,7 +140,7 @@ export function useProfile() {
     persistLocally(updated);
 
     try {
-      await profileService.updateProfile(updated).catch(() => profileService.createProfile(updated));
+      await profileService.updateProfile(updated);
       await profileService.submitRegistration(updated);
       // The backend is the source of truth for status from here — it may
       // already be 'Under Review' rather than 'Pending Approval', and the

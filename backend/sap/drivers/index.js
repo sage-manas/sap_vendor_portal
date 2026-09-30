@@ -28,6 +28,7 @@ const DRIVERS = {
     implemented: false,
     create: s4odata.createS4ODataDriver,
     validateConfig: s4odata.validateConfig,
+    configWarnings: s4odata.configWarnings,
     secretFields: s4odata.secretFields,
     configFields: s4odata.configFields,
   },
@@ -55,7 +56,7 @@ const driverDefinition = (key) => {
 // What the console needs to draw the configuration form, with nothing secret in
 // it: field names, not values.
 const driverCatalogue = () => DRIVER_KEYS.map((key) => {
-  const { create, validateConfig, ...rest } = DRIVERS[key];
+  const { create, validateConfig, configWarnings, ...rest } = DRIVERS[key];
   return rest;
 });
 

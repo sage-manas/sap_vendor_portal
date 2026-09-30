@@ -72,12 +72,22 @@ const formatRfqItem = ({ pk, clientId, rfqPk, targetPrice, quantity, ...item }) 
   quantity: toQty(quantity),
 });
 
-const formatRfq = (rfq) => ({
+const formatRfq = ({ invitedVendors, ...rfq }) => ({
   ...rfq,
   items: (rfq.items || []).map(formatRfqItem),
-  invitedVendors: (rfq.invitedVendors || []).map((v) => ({ id: v.vendorExtId, name: v.name, status: v.status, rating: v.rating })),
+  invitedVendors: (invitedVendors || []).map((v) => ({ id: v.vendorExtId, name: v.name, status: v.status, rating: v.rating })),
   bids: (rfq.bids || []).map(formatBid),
 });
+
+// What a caller is shown. The invitee list names every competitor, so it is as
+// sealed as their bids: a supplier gets the tender without it. Only tenant
+// staff, who ran the invitation, see who was asked.
+const formatRfqFor = (req, rfq) => {
+  const formatted = formatRfq(rfq);
+  if (!isSupplier(req)) return formatted;
+  const { invitedVendors, ...sealed } = formatted;
+  return sealed;
+};
 
 
 // @desc    Get RFQs (invited or all)
@@ -105,7 +115,7 @@ const getRFQs = asyncHandler(async (req, res, next) => {
   ]);
 
   res.json({
-    rfqs: rfqs.map(formatRfq),
+    rfqs: rfqs.map((rfq) => formatRfqFor(req, rfq)),
     pagination: {
       total,
       page: Number(page),
@@ -197,7 +207,7 @@ const getRFQById = asyncHandler(async (req, res, next) => {
     }
   }
 
-  res.json(formatRfq(rfq));
+  res.json(formatRfqFor(req, rfq));
 });
 
 // @desc    Create RFQ
@@ -712,7 +722,14 @@ const exportAwardedPo = asyncHandler(async (req, res, next) => {
     return next(ApiError.badRequest(`Unsupported export format '${format}'. Use one of: ${Object.keys(EXPORT_FORMATS).join(', ')}`));
   }
 
-  const rfq = await prisma.rFQ.findFirst({ where: { id: req.params.id } });
+  // A supplier who was not invited gets the same 404 as a tender that does not
+  // exist, before this endpoint says anything about whether it was awarded.
+  const rfq = await prisma.rFQ.findFirst({
+    where: {
+      id: req.params.id,
+      ...(isSupplier(req) ? { invitedVendors: { some: { vendorExtId: vendorScope(req) } } } : {}),
+    },
+  });
   if (!rfq) {
     return next(ApiError.notFound('RFQ not found'));
   }

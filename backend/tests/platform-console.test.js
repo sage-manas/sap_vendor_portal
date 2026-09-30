@@ -251,6 +251,19 @@ describe('platform console — operators and MFA', () => {
     expect(login.body.next).toBe('change_password');
     expect(login.body.mfaEnrolled).toBe(false);
 
+    // The temporary password comes first: until it is changed the server
+    // refuses everything else (reason password_change_required).
+    const changed = await request(app)
+      .post('/api/platform/auth/change-password')
+      .set(bearer(login.body.token))
+      .send({
+        currentPassword: lastMailTo('newop@platform.example.com').html.match(/<code>(.+?)<\/code>/)[1],
+        newPassword: 'Sturdy-Passw0rd!',
+      });
+    expect(changed.status).toBe(200);
+    expect(changed.body.next).toBe('enrol_mfa');
+    login.body.token = changed.body.token;
+
     const blocked = await request(app).get('/api/platform/tenants').set(bearer(login.body.token));
     expect(blocked.status).toBe(403);
     expect(blocked.body.reason).toBe('mfa_enrolment_required');

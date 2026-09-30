@@ -25,6 +25,18 @@ const comparePassword = async (candidate, storedHash) => {
   return bcrypt.compare(candidate, storedHash);
 };
 
+// A well-formed hash (same cost as real ones) of a password nobody knows.
+// Checking a candidate against it costs the same as checking against a real
+// account, so a login for an account that does not exist takes as long as one
+// with a wrong password — response time is not a way to ask "does this
+// account exist?".
+const DUMMY_HASH = '$2b$10$G4nhRn6DDl8ezJvdn53NrOfurGP9eN82R62BB9MzUDhOu7VfxoxVG';
+
+const burnPasswordCheck = async (candidate) => {
+  await bcrypt.compare(String(candidate || 'x'), DUMMY_HASH);
+  return false;
+};
+
 // Returns { rawToken, fields } — `fields` is what to write to the row,
 // `rawToken` is what to email. Only the hash is ever persisted.
 const issueResetToken = () => {
@@ -55,6 +67,7 @@ const consumeResetToken = async (newPassword) => {
 module.exports = {
   hashPassword,
   comparePassword,
+  burnPasswordCheck,
   issueResetToken,
   consumeResetToken,
   hashResetToken,
