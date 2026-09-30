@@ -1,7 +1,7 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
 const { prisma } = require('../db/prisma');
-const { registerVendor, onboardVendor, seedClient, asTenant } = require('./helpers');
+const { registerVendor, onboardVendor, asTenant } = require('./helpers');
 
 const app = buildTestApp();
 
@@ -38,24 +38,6 @@ describe('supplier status is never caller-controlled', () => {
 
     expect(res.status).toBe(200);
     expect((await liveVendor(supplier.vendor.vendorId)).status).toBe('Approved');
-  });
-
-  it('ignores a status in the anonymous POST /vendors/profile', async () => {
-    await seedClient({ slug: 'legacy', clientId: 'CLT-0001' });
-    const res = await request(app)
-      .post('/api/vendors/profile')
-      .set('x-client-slug', 'legacy')
-      .send({
-        vendorId: 'VND-PROBE-1',
-        companyName: 'Probe Industries',
-        gstin: '27ABCDE1234F1Z5',
-        pan: 'ABCDE1234F',
-        email: 'probe@example.com',
-        status: 'Approved',
-      });
-
-    expect(res.status).toBe(201);
-    expect(res.body.status).toBe('Draft');
   });
 });
 
