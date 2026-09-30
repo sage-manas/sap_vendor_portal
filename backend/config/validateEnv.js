@@ -17,6 +17,18 @@ const validateEnv = () => {
     process.exit(1);
   }
 
+  // Workspaces are `<slug>.PORTAL_BASE_DOMAIN`. Without it the resolver has to
+  // guess a tenant from the first label of whatever host arrived, which is how
+  // a shared name like vendorportal.example.com broke every login.
+  if (process.env.NODE_ENV === 'production' && !process.env.PORTAL_BASE_DOMAIN) {
+    const msg = '❌ Server crash in Production: PORTAL_BASE_DOMAIN is required — workspaces are <slug>.<PORTAL_BASE_DOMAIN> (e.g. portal.example.com)';
+    logger.error(msg);
+    console.error(`
+${msg}
+`);
+    process.exit(1);
+  }
+
   // Sessions are signed with this; the 'secret' fallback in code is a
   // development convenience and must never reach production.
   if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {

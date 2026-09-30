@@ -18,12 +18,15 @@ describe('realm resolution', () => {
       .toEqual({ slug: 'northwind', source: 'subdomain' });
   });
 
-  it('follows the proxy hostname ahead of the origin one', () => {
+  // A bare request object has no proxy to trust, so X-Forwarded-Host is not read
+  // here; Express's own `req.hostname` (trust-proxy aware) is, and
+  // production-hostnames.test.js covers both the trusted and untrusted cases.
+  it('does not take the hostname from a raw X-Forwarded-Host header', () => {
     const realm = realmFromRequest(asRequest({
       'x-forwarded-host': 'northwind.vendorconnect.io',
       host: 'internal-lb:5000',
     }));
-    expect(realm).toEqual({ slug: 'northwind', source: 'subdomain' });
+    expect(realm.source).toBe('default');
   });
 
   it('does not read a tenant out of the console or marketing hostnames', () => {
@@ -128,13 +131,13 @@ describe('registration is addressed to one workspace', () => {
     expect(res.body.vendor.clientId).toBe('CLT-0002');
   });
 
-  it('refuses a hostname no tenant owns', async () => {
+  it('answers 404 for a hostname no tenant owns', async () => {
     const res = await request(app)
       .post('/api/auth/register')
       .set('host', 'nobody.vendorconnect.io')
       .send(baseVendor);
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(404);
   });
 });
 

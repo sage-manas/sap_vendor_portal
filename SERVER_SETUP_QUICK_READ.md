@@ -63,6 +63,7 @@ Important values:
 PORT=5000
 DATABASE_URL=postgresql://<user>:<password>@localhost:5432/sap_vendor_portal?schema=public
 FRONTEND_URL=https://your-domain.com
+PORTAL_BASE_DOMAIN=your-domain.com
 ALLOWED_ORIGINS=https://your-domain.com
 NODE_ENV=production
 JWT_SECRET=<strong random secret>
