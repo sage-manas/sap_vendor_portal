@@ -27,6 +27,9 @@ pm2 startup systemd -u "$USER" --hp "$HOME" | tail -n1 | sudo bash || true
 
 echo "== Nginx + Certbot =="
 sudo apt -y install nginx certbot python3-certbot-nginx
+# Certificates expire in 90 days; the package installs a renewal timer, this
+# makes sure it is on.
+sudo systemctl enable --now certbot.timer || echo "  certbot.timer not available; see manual step 3 for the renewal check"
 
 echo "== PostgreSQL 16 =="
 sudo apt -y install postgresql postgresql-contrib
@@ -66,7 +69,15 @@ cat <<'EOF'
      sudo ln -s /etc/nginx/sites-available/vendorconnect /etc/nginx/sites-enabled/
      sudo rm -f /etc/nginx/sites-enabled/default
      sudo nginx -t && sudo systemctl reload nginx
-     sudo certbot --nginx -d your.domain.com
+     sudo certbot --nginx -d your.domain.com --redirect --agree-tos -m ops@your.domain.com
+   Then prove renewal works before you need it (a lapsed certificate takes the
+   whole portal down, and Strict-Transport-Security means browsers will not let
+   anyone click through the warning):
+     sudo certbot renew --dry-run
+     systemctl list-timers | grep certbot
+   The Next app sends the page security headers (HSTS, CSP, ...) itself; nginx
+   only hides its version (server_tokens off). Check them after deploy:
+     curl -sI https://your.domain.com/sign-in | grep -iE 'strict-transport|content-security|x-frame|x-content-type|referrer|server:'
 
 4. Start the app:
      pm2 start deploy/ecosystem.config.js

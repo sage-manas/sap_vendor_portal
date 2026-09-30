@@ -1,5 +1,6 @@
 import localFont from "next/font/local";
 import Script from "next/script";
+import { headers } from "next/headers";
 import "./globals.css";
 import { ShellProvider } from "@/lib/shell-context";
 import { PortalProvider } from "@/lib/portal-context";
@@ -41,7 +42,11 @@ export const metadata = {
   description: "Register as a supplier, quote for requests, manage purchase orders and shipments, submit invoices, and track payments — all in one place.",
 };
 
-export default function RootLayout({ children }) {
+export default async function RootLayout({ children }) {
+  // Minted per request in src/proxy.js. The theme script is inline, so it only
+  // runs under the Content-Security-Policy if it carries this.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
   return (
     <html
       lang="en"
@@ -52,6 +57,7 @@ export default function RootLayout({ children }) {
         <Script
           id="theme-script"
           strategy="beforeInteractive"
+          nonce={nonce}
           dangerouslySetInnerHTML={{ __html: themeScript }}
         />
       </head>

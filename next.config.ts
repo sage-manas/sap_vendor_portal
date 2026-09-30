@@ -1,8 +1,16 @@
 import type { NextConfig } from "next";
+import { STATIC_SECURITY_HEADERS } from "./src/lib/security-headers.js";
 
 const nextConfig: NextConfig = {
   /* config options here */
   reactCompiler: true,
+  // No `X-Powered-By: Next.js`.
+  poweredByHeader: false,
+  // The Content-Security-Policy is per request (a nonce) and is set in
+  // src/proxy.js; these do not vary.
+  async headers() {
+    return [{ source: "/(.*)", headers: STATIC_SECURITY_HEADERS }];
+  },
   allowedDevOrigins: ['*.trycloudflare.com'],
   experimental: {
     // Next's static-generation workers run prerendering in parallel, and a

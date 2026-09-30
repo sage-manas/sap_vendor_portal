@@ -18,6 +18,9 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+      # Serves the build and checks the headers and CSP nonce the pages really
+      # carry (scripts/check-security-headers.mjs).
+      - run: npm run check:headers
 
   backend:
     runs-on: ubuntu-latest
