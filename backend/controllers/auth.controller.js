@@ -63,7 +63,7 @@ const register = asyncHandler(async (req, res, next) => {
   // header/DEFAULT_CLIENT_SLUG/legacy until then.)
   const client = await resolveClientForRequest(req);
   if (!client) {
-    return next(ApiError.badRequest('Unknown workspace'));
+    return next(ApiError.notFound('Unknown workspace'));
   }
   if (!isClientOperational(client)) {
     return next(ApiError.forbidden('This workspace is not accepting registrations'));
@@ -168,6 +168,12 @@ const getWorkspace = asyncHandler(async (req, res, next) => {
 const login = asyncHandler(async (req, res, next) => {
   const { vendorIdOrEmail, password } = req.body;
   const identifier = String(vendorIdOrEmail || '').trim();
+
+  // An address that names no workspace (an unknown subdomain, the bare domain)
+  // is not a wrong password: there is nothing here to sign in to.
+  if (!(await resolveRealmForRequest(req)).client) {
+    return next(ApiError.notFound('Unknown workspace'));
+  }
 
   // Login precedes tenancy — the account itself carries the clientId that every
   // later request is bound to. Staff sign in with an email; suppliers with
