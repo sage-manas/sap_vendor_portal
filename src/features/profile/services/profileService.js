@@ -10,7 +10,7 @@ export const profileService = {
     return apiClient.put('/vendors/profile', pickProfileFields(data));
   },
 
-  // Submitting is a state change, not a write of fields — the endpoint reads no
+  // Submitting is a state change, not a write of fields â€” the endpoint reads no
   // body, and the profile was saved by updateProfile just before.
   async submitRegistration() {
     return apiClient.post('/vendors/profile/submit', {});

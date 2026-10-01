@@ -1,4 +1,4 @@
-// The profile columns PUT /api/vendors/profile accepts — the keys of
+// The profile columns PUT /api/vendors/profile accepts â€” the keys of
 // profileUpdateSchema (backend/validators/vendor.validator.js). The API refuses
 // any other key (a supplier's status, ids and timestamps are the server's), and
 // the profile object the form holds is the whole GET /vendors/profile response,

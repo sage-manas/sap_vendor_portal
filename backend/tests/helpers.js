@@ -169,7 +169,7 @@ const runDueJobs = (...args) => require('../jobs/worker').tick(...args);
 // What the supplier form actually PUTs: the GET /vendors/profile response
 // narrowed to the columns the API declares. PUT /vendors/profile refuses any
 // other key, so a test that "sends back what the API returned" must narrow it
-// the way the form does. The list is read from the frontend file — one source.
+// the way the form does. The list is read from the frontend file â€” one source.
 const PROFILE_WRITABLE_FIELDS = (() => {
   const source = require('fs').readFileSync(
     require('path').join(__dirname, '../../src/features/profile/profileFields.js'), 'utf8');
