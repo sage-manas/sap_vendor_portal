@@ -100,9 +100,13 @@ describe('submitting a completed registration', () => {
       gstin: '27AABCB1234F1Z5',
       pan: 'AABCB1234F',
       ifscCode: 'HDFC0000060',
-      status: 'Pending Approval',
     });
-    expect(saved.submittedAt).toEqual(expect.any(String));
+    // The lifecycle is the server's: the API refuses a body that names a status
+    // or a timestamp, so the form sends only the columns a supplier may edit.
+    expect(saved).not.toHaveProperty('status');
+    expect(saved).not.toHaveProperty('submittedAt');
+    expect(saved).not.toHaveProperty('pk');
+    expect(apiMock.lastBody('POST', '/vendors/profile/submit')).toEqual({});
   });
 
   // The old code answered a refused PUT by POSTing the whole profile to the

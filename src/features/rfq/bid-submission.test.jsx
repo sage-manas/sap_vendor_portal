@@ -145,6 +145,8 @@ describe('submitting a quotation', () => {
       deliveryLeadTimeDays: 5,
     });
     expect(body.validityDate).toContain('2099-06-30');
+    // The bid API declares no `moq`, and refuses keys it does not declare.
+    expect(body).not.toHaveProperty('moq');
   });
 
   it('keeps the typed quote when the server refuses it', async () => {

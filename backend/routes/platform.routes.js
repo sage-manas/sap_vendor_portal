@@ -7,6 +7,7 @@ const healthController = require('../controllers/platformHealth.controller');
 const reconciliationController = require('../controllers/platformReconciliation.controller');
 const sapController = require('../controllers/platformSap.controller');
 const validate = require('../middleware/validate');
+const { noBody } = require('../validators/common.validator');
 const validateQuery = require('../middleware/validateQuery');
 const { paginationSchema } = require('../validators/pagination.validator');
 const { protectPlatform, protectPlatformSession, requireMfa, requirePermission } = require('../middleware/auth');
@@ -46,7 +47,7 @@ router.post('/auth/reset-password', validate(resetPasswordSchema), guards.platfo
 
 router.get('/auth/me', protectPlatformSession, requirePermission(PERMISSIONS.SELF_READ), platformAuthController.getMe);
 router.post('/auth/change-password', protectPlatformSession, requirePermission(PERMISSIONS.SELF_READ), validate(changePasswordSchema), platformAuthController.changePassword);
-router.post('/auth/mfa/enrol', protectPlatform, requirePermission(PERMISSIONS.SELF_READ), platformAuthController.enrolMfa);
+router.post('/auth/mfa/enrol', protectPlatform, requirePermission(PERMISSIONS.SELF_READ), validate(noBody), platformAuthController.enrolMfa);
 router.post('/auth/mfa/verify', protectPlatform, requirePermission(PERMISSIONS.SELF_READ), validate(mfaVerifySchema), platformAuthController.verifyMfa);
 
 // Everything below is the console proper: operator + MFA, then a permission.
@@ -61,8 +62,8 @@ router.post('/tenants/:clientId/suspend', requirePermission(PERMISSIONS.TENANT_M
 router.post('/tenants/:clientId/reactivate', requirePermission(PERMISSIONS.TENANT_MANAGE), validate(lifecycleSchema), tenantController.reactivateTenant);
 router.post('/tenants/:clientId/terminate', requirePermission(PERMISSIONS.TENANT_MANAGE), validate(lifecycleSchema), tenantController.terminateTenant);
 router.get('/tenants/:clientId/export', requirePermission(PERMISSIONS.TENANT_MANAGE), tenantController.exportTenant);
-router.post('/tenants/:clientId/administrators/:userId/credentials', requirePermission(PERMISSIONS.TENANT_MANAGE), tenantController.reissueCredentials);
-router.post('/tenants/:clientId/billing/sync-usage', requirePermission(PERMISSIONS.TENANT_MANAGE), tenantController.syncUsage);
+router.post('/tenants/:clientId/administrators/:userId/credentials', requirePermission(PERMISSIONS.TENANT_MANAGE), validate(noBody), tenantController.reissueCredentials);
+router.post('/tenants/:clientId/billing/sync-usage', requirePermission(PERMISSIONS.TENANT_MANAGE), validate(noBody), tenantController.syncUsage);
 
 // Operators
 router.get('/operators', requirePermission(PERMISSIONS.OPERATOR_MANAGE), operatorController.listOperators);
@@ -77,7 +78,7 @@ router.post('/operators/:id/mfa/reset', requirePermission(PERMISSIONS.OPERATOR_M
 router.get('/tenants/:clientId/sap', requirePermission(PERMISSIONS.SAP_CONFIGURE), sapController.getSapConfiguration);
 router.get('/tenants/:clientId/sap/audit', requirePermission(PERMISSIONS.SAP_CONFIGURE), validateQuery(paginationSchema), sapController.listSapAudit);
 router.put('/tenants/:clientId/sap/:environment', requirePermission(PERMISSIONS.SAP_CONFIGURE), validate(sapConnectionSchema), sapController.configureSap);
-router.post('/tenants/:clientId/sap/:environment/test', requirePermission(PERMISSIONS.SAP_CONFIGURE), sapController.testSapConnection);
+router.post('/tenants/:clientId/sap/:environment/test', requirePermission(PERMISSIONS.SAP_CONFIGURE), validate(noBody), sapController.testSapConnection);
 router.post('/tenants/:clientId/sap/promote', requirePermission(PERMISSIONS.SAP_CONFIGURE), validate(sapPromoteSchema), sapController.promoteSapEnvironment);
 
 // Audit explorer
@@ -89,10 +90,10 @@ router.get('/health', requirePermission(PERMISSIONS.PLATFORM_HEALTH_READ), healt
 
 // SAP job runtime (docs/04-sap-runtime-engineering-plan.md Phase 1)
 router.get('/jobs', requirePermission(PERMISSIONS.PLATFORM_HEALTH_READ), validateQuery(paginationSchema), healthController.listJobs);
-router.post('/jobs/:pk/retry', requirePermission(PERMISSIONS.TENANT_MANAGE), healthController.retryJob);
+router.post('/jobs/:pk/retry', requirePermission(PERMISSIONS.TENANT_MANAGE), validate(noBody), healthController.retryJob);
 
 // Dual identity / sync state — the reconciliation queue (Phase 3)
 router.get('/reconciliation', requirePermission(PERMISSIONS.PLATFORM_HEALTH_READ), reconciliationController.listReconciliation);
-router.post('/reconciliation/:type/:pk/retry', requirePermission(PERMISSIONS.TENANT_MANAGE), reconciliationController.retryReconciliationRow);
+router.post('/reconciliation/:type/:pk/retry', requirePermission(PERMISSIONS.TENANT_MANAGE), validate(noBody), reconciliationController.retryReconciliationRow);
 
 module.exports = router;

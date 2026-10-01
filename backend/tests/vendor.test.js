@@ -1,7 +1,7 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
 const { prisma } = require('../db/prisma');
-const { baseVendor, registerVendor, completeProfile, createAdminUser, asTenant } = require('./helpers');
+const { baseVendor, registerVendor, completeProfile, createAdminUser, asTenant, seedClient, profileFormPayload } = require('./helpers');
 
 const app = buildTestApp();
 
@@ -99,7 +99,7 @@ describe('the registration form round-trip', () => {
     return { token, profile: read.body };
   };
 
-  it('accepts the profile the API itself returned, nulls included', async () => {
+  it('accepts the profile the form sends back from what the API returned, nulls included', async () => {
     const { token, profile } = await signUpAndRead();
     // A fresh account holds nulls (vendorCategory among them); the schema used
     // to answer 400 to its own output.
@@ -108,7 +108,7 @@ describe('the registration form round-trip', () => {
     const saved = await request(app)
       .put('/api/vendors/profile')
       .set('Authorization', `Bearer ${token}`)
-      .send({ ...profile, city: 'Pune', businessType: 'MFGR' });
+      .send({ ...profileFormPayload(profile), city: 'Pune', businessType: 'MFGR' });
     expect(saved.status).toBe(200);
 
     // The trade terms VENDOR_CR needs are not part of what sign-up collects,
@@ -131,7 +131,7 @@ describe('the registration form round-trip', () => {
       .put('/api/vendors/profile')
       .set('Authorization', `Bearer ${token}`)
       .send({
-        ...profile,
+        ...profileFormPayload(profile),
         bankName: 'HDFC Bank',
         accountNumber: '50100234567812',
         ifscCode: 'HDFC0000060',
@@ -321,12 +321,22 @@ describe('GET /api/vendors (admin list)', () => {
 // ADMIN_BOOTSTRAP_EMAILS is gone (ADR-0009). Self-registration is a supplier
 // door and nothing else — staff arrive by invitation.
 describe('self-registration cannot mint a staff account', () => {
-  it('always assigns the vendor role, whatever the request asks for', async () => {
+  it('assigns the vendor role to a registration that names none', async () => {
     const { vendor } = await registerVendor(app, {
       vendorId: 'vendor_bootstrap_1',
       email: 'owner@example.com',
-      role: 'client_admin'
     });
     expect(vendor.role).toBe('vendor');
+  });
+
+  it('refuses a registration that asks for a role, and creates no account', async () => {
+    await seedClient({ slug: 'legacy', clientId: 'CLT-0001' });
+    const res = await request(app)
+      .post('/api/auth/register')
+      .set('x-client-slug', 'legacy')
+      .send({ ...baseVendor, vendorId: 'vendor_bootstrap_2', email: 'owner2@example.com', role: 'client_admin' });
+
+    expect(res.status).toBe(400);
+    expect(await asTenant(() => prisma.vendor.count({ where: { email: 'owner2@example.com' } }))).toBe(0);
   });
 });

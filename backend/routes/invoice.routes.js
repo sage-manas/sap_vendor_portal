@@ -1,4 +1,6 @@
 const router = require('express').Router();
+const validate = require('../middleware/validate');
+const { invoiceStatusSchema } = require('../validators/invoice.validator');
 const {
   getInvoices,
   getInvoiceById,
@@ -15,6 +17,6 @@ router.get('/', requirePermission(PERMISSIONS.INVOICE_READ), validateQuery(pagin
 // Must come before ':id' — 'sap-status' would otherwise be swallowed as an invoice id.
 router.get('/sap-status', requirePermission(PERMISSIONS.INVOICE_READ), getSapInvoiceStatus);
 router.get('/:id', requirePermission(PERMISSIONS.INVOICE_READ), getInvoiceById);
-router.put('/:id/status', requirePermission(PERMISSIONS.INVOICE_APPROVE), updateInvoiceStatus);
+router.put('/:id/status', requirePermission(PERMISSIONS.INVOICE_APPROVE), validate(invoiceStatusSchema), updateInvoiceStatus);
 
 module.exports = router;
