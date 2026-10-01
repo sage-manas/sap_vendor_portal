@@ -11,6 +11,7 @@ const {
   asTenant,
 } = require('./helpers');
 const { sentMails, lastMailTo, clearMails } = require('../utils/mailer');
+const { drainBackground } = require('../utils/background');
 
 const app = buildTestApp();
 
@@ -244,10 +245,12 @@ describe('platform plane identity', () => {
     const tenantAttempt = await request(app).post('/api/auth/forgot-password')
       .send({ email: 'ops3@platform.example.com' });
     expect(tenantAttempt.status).toBe(200);
+    await drainBackground();
     expect(sentMails()).toHaveLength(0);
 
     await request(app).post('/api/platform/auth/forgot-password')
       .send({ email: 'ops3@platform.example.com' });
+    await drainBackground();
     const rawToken = /token=([a-f0-9]+)/i.exec(lastMailTo(operator.email).text)[1];
 
     const reset = await request(app).post('/api/platform/auth/reset-password')

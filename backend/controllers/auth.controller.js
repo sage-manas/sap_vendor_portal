@@ -9,7 +9,9 @@ const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
 const { resolveClientForRequest, resolveRealmForRequest } = require('../utils/resolveClient');
 const { ROLES } = require('../config/roles');
 const { signToken } = require('../utils/authToken');
-const { sendMail } = require('../utils/mailer');
+// Called as mailer.sendMail so a test can stand in for the transport.
+const mailer = require('../utils/mailer');
+const { runInBackground } = require('../utils/background');
 const { frontendUrl } = require('../config/emailTemplates');
 const { generateVendorId, identityConflict } = require('../utils/vendorIdentity');
 const { settingValue } = require('../config/tenantSettings');
@@ -272,24 +274,29 @@ const forgotPassword = asyncHandler(async (req, res) => {
     return res.json({ success: true, message: GENERIC_FORGOT_MESSAGE });
   }
 
-  const { rawToken, fields } = issueResetToken();
-  await withoutTenantScope(() => prisma[kind].update({ where: { pk: account.pk }, data: fields }));
-
-  const resetUrl = `${frontendUrl()}/reset-password?token=${rawToken}`;
-
-  // The link is emailed, never logged (ADR-0011).
-  await sendMail({
-    to: account.email,
-    template: 'passwordReset',
-    data: {
-      name: account.name || account.companyName,
-      resetUrl,
-      expiresInMinutes: RESET_TOKEN_TTL_MS / 60000,
-    },
-  });
-  logger.info(`Password reset email dispatched for account ${account.pk}`);
-
+  // Answered before the token is written and the email is sent. That work is
+  // the only difference between a real address and an unknown one, and doing it
+  // first made the difference measurable from outside (finding 1.4).
   res.json({ success: true, message: GENERIC_FORGOT_MESSAGE });
+
+  runInBackground('forgot-password', async () => {
+    const { rawToken, fields } = issueResetToken();
+    await withoutTenantScope(() => prisma[kind].update({ where: { pk: account.pk }, data: fields }));
+
+    const resetUrl = `${frontendUrl()}/reset-password?token=${rawToken}`;
+
+    // The link is emailed, never logged (ADR-0011).
+    await mailer.sendMail({
+      to: account.email,
+      template: 'passwordReset',
+      data: {
+        name: account.name || account.companyName,
+        resetUrl,
+        expiresInMinutes: RESET_TOKEN_TTL_MS / 60000,
+      },
+    });
+    logger.info(`Password reset email dispatched for account ${account.pk}`);
+  });
 });
 
 // @desc    Reset a password using a token issued by forgotPassword
