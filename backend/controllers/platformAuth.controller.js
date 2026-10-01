@@ -5,7 +5,9 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const logger = require('../utils/logger');
 const { signToken } = require('../utils/authToken');
-const { sendMail } = require('../utils/mailer');
+// Called as mailer.sendMail so a test can stand in for the transport.
+const mailer = require('../utils/mailer');
+const { runInBackground } = require('../utils/background');
 const { frontendUrl } = require('../config/emailTemplates');
 const { recordAudit } = require('../utils/audit');
 const { AUDIT_ACTIONS } = require('../config/auditActions');
@@ -230,21 +232,24 @@ const forgotPassword = asyncHandler(async (req, res) => {
     return res.json({ success: true, message: GENERIC_FORGOT_MESSAGE });
   }
 
-  const { rawToken, fields } = issueResetToken();
-  await prisma.platformUser.update({ where: { pk: operator.pk }, data: fields });
-
-  await sendMail({
-    to: operator.email,
-    template: 'passwordReset',
-    data: {
-      name: operator.name,
-      resetUrl: `${frontendUrl()}/platform/reset-password?token=${rawToken}`,
-      expiresInMinutes: RESET_TOKEN_TTL_MS / 60000,
-    },
-  });
-  logger.info(`Platform password reset email dispatched for operator ${operator.pk}`);
-
+  // Answered first; see the tenant forgotPassword for why.
   res.json({ success: true, message: GENERIC_FORGOT_MESSAGE });
+
+  runInBackground('platform-forgot-password', async () => {
+    const { rawToken, fields } = issueResetToken();
+    await prisma.platformUser.update({ where: { pk: operator.pk }, data: fields });
+
+    await mailer.sendMail({
+      to: operator.email,
+      template: 'passwordReset',
+      data: {
+        name: operator.name,
+        resetUrl: `${frontendUrl()}/platform/reset-password?token=${rawToken}`,
+        expiresInMinutes: RESET_TOKEN_TTL_MS / 60000,
+      },
+    });
+    logger.info(`Platform password reset email dispatched for operator ${operator.pk}`);
+  });
 });
 
 // @desc    Complete an operator password reset

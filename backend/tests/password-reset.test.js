@@ -3,6 +3,7 @@ const buildTestApp = require('./testApp');
 const { rawPrisma } = require('../db/prisma');
 const { baseVendor, registerVendor, asTenant } = require('./helpers');
 const { sentMails, lastMailTo, clearMails } = require('../utils/mailer');
+const { drainBackground } = require('../utils/background');
 
 const app = buildTestApp();
 
@@ -21,6 +22,7 @@ describe('POST /api/auth/forgot-password', () => {
 
   it('returns a generic success response for an unknown email without setting a token', async () => {
     const res = await request(app).post('/api/auth/forgot-password').send({ email: 'nobody@example.com' });
+    await drainBackground();
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
@@ -31,6 +33,7 @@ describe('POST /api/auth/forgot-password', () => {
     await registerVendor(app);
 
     const res = await request(app).post('/api/auth/forgot-password').send({ email: baseVendor.email });
+    await drainBackground();
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
@@ -48,6 +51,7 @@ describe('POST /api/auth/forgot-password', () => {
 
   it('rejects a malformed email with a 400 field error', async () => {
     const res = await request(app).post('/api/auth/forgot-password').send({ email: 'not-an-email' });
+    await drainBackground();
     expect(res.status).toBe(400);
     expect(res.body.errors.email).toEqual(expect.any(String));
   });
@@ -59,6 +63,7 @@ describe('POST /api/auth/reset-password', () => {
   it('resets the password with a valid token and allows login with the new password', async () => {
     await registerVendor(app);
     await request(app).post('/api/auth/forgot-password').send({ email: baseVendor.email });
+    await drainBackground();
 
     const token = tokenSentTo(baseVendor.email);
 
@@ -87,6 +92,7 @@ describe('POST /api/auth/reset-password', () => {
   it('rejects an expired token with 400', async () => {
     await registerVendor(app);
     await request(app).post('/api/auth/forgot-password').send({ email: baseVendor.email });
+    await drainBackground();
 
     const token = tokenSentTo(baseVendor.email);
 
@@ -100,6 +106,7 @@ describe('POST /api/auth/reset-password', () => {
   it('rejects a token reused after it has already been consumed', async () => {
     await registerVendor(app);
     await request(app).post('/api/auth/forgot-password').send({ email: baseVendor.email });
+    await drainBackground();
 
     const token = tokenSentTo(baseVendor.email);
 
