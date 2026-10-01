@@ -9,6 +9,7 @@ const {
   asTenant,
 } = require('./helpers');
 const { prisma, rawPrisma } = require('../db/prisma');
+const { drainBackground } = require('../utils/background');
 const { topLevelFieldsFor } = require('../config/tenantSettings');
 const { withoutTenantScope } = require('../utils/tenantContext');
 const { recordAudit } = require('../utils/audit');
@@ -175,7 +176,10 @@ describe('feature flags close the API, not just the screen', () => {
         vendorId: 'VND-90001', password: 'Secret12345', companyName: 'Walk In Ltd',
         gstin: '27WWWWW1234F1Z5', pan: 'WWWWW1234F', email: 'walkin@example.com',
       });
-    expect(walkIn.status).toBe(403);
+    // Answered like any registration; the refusal is emailed, and nothing is created.
+    expect(walkIn.status).toBe(202);
+    await drainBackground();
+    expect(await asTenant(() => rawPrisma.vendor.count({ where: { email: 'walkin@example.com' } }))).toBe(0);
 
     await request(app)
       .post('/api/vendors/invitations')
@@ -190,7 +194,9 @@ describe('feature flags close the API, not just the screen', () => {
         vendorId: 'VND-90002', password: 'Secret12345', companyName: 'Invited Ltd',
         gstin: '27VVVVV1234F1Z5', pan: 'VVVVV1234F', email: 'invited@example.com',
       });
-    expect(invited.status).toBe(201);
+    expect(invited.status).toBe(202);
+    await drainBackground();
+    expect(await asTenant(() => rawPrisma.vendor.count({ where: { email: 'invited@example.com' } }))).toBe(1);
   });
 });
 

@@ -30,6 +30,8 @@ const AUTH_PATHS = new Set([
   '/sign-up',
   '/forgot-password',
   '/reset-password',
+  // Where a supplier lands from the email that confirms their registration.
+  '/confirm-email',
   // Where an invited colleague or supplier lands from their email.
   '/accept-invitation',
 ]);

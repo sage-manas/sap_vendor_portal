@@ -3,10 +3,9 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Building2, KeyRound, Mail, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
+import { Building2, KeyRound, Mail, ArrowRight, Loader2, AlertCircle, MailCheck } from 'lucide-react';
 import WorkspaceBrand from '@/components/portal/WorkspaceBrand';
 import { useWorkspaceRealm } from '@/lib/workspace-realm';
-import { forgetWhoami } from '@/lib/whoami';
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -19,6 +18,7 @@ export default function SignUpPage() {
   
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [submittedTo, setSubmittedTo] = useState('');
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -68,20 +68,36 @@ export default function SignUpPage() {
         throw new Error(data.error || Object.values(data.errors || {})[0] || 'Registration failed');
       }
 
-      // Save credentials and token
-      localStorage.setItem('jwt_token', data.token);
-      forgetWhoami();
-      localStorage.setItem('clerk_user_id', data.vendor.vendorId);
-      localStorage.setItem('sap_vendor_profile_data', JSON.stringify(data.vendor));
-
-      // Route to dashboard
-      router.push('/');
+      // No session comes back: the account exists once the emailed link is
+      // followed. The answer is the same whether or not the address was already
+      // known, so this screen says only what is true in both cases.
+      setSubmittedTo(email);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
   };
+
+  if (submittedTo) {
+    return (
+      <div className="w-full max-w-[460px] p-8 card animate-fadeUp my-8">
+        <WorkspaceBrand workspace={workspace} caption="Supplier registration" />
+        <div className="p-4 rounded-none bg-emerald-900/10 border border-emerald-900/40 flex items-start gap-2.5 text-xs text-emerald-400">
+          <MailCheck className="size-4 shrink-0 mt-0.5" />
+          <span>
+            Check your email. If {submittedTo} can be registered, a confirmation link is on its way —
+            open it and enter your password to finish creating your account.
+          </span>
+        </div>
+        <div className="mt-6 pt-5 border-t border-border text-center">
+          <Link href="/sign-in" className="text-[11px] text-emerald-400 hover:underline font-medium">
+            Back to sign in
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   // A workspace can close self-service registration (config/tenantSettings.js).
   // The API refuses the POST either way; this is so a supplier reads the reason

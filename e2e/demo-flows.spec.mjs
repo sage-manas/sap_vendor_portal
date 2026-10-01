@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ACCOUNTS, api, ok, tokenFor, signIn, signOut, createTender } from './helpers.mjs';
+import { ACCOUNTS, api, ok, tokenFor, signIn, signOut, createTender, confirmationTokenFor } from './helpers.mjs';
 
 // The two stories a demo of this product tells, each driven through the
 // screens a person actually uses.
@@ -54,7 +54,17 @@ test.describe('demo flows, through the UI', () => {
     await page.getByLabel('GSTIN Number (India)').fill(who.gstin);
     await page.getByLabel('PAN Number').fill(who.pan);
     await page.getByRole('button', { name: 'Create Account' }).click();
-    await page.waitForURL((url) => new URL(url).pathname === '/');
+
+    // Registering does not sign anyone in: the account exists once the emailed
+    // link is followed, and that link asks for the password chosen here.
+    await expect(page.getByText(/Check your email/i)).toBeVisible();
+    const token = await confirmationTokenFor(who.email);
+    await page.goto(`/confirm-email?token=${token}`);
+    await page.getByLabel('Your password').fill('Demo@12345');
+    await page.getByRole('button', { name: 'Confirm email' }).click();
+    await expect(page.getByText(/Email confirmed/i)).toBeVisible();
+
+    await signIn(page, { email: who.email, password: 'Demo@12345' });
 
     // A supplier who has not registered is not shown a made-up account.
     await expect(page.getByText('Next Payment')).toHaveCount(0);

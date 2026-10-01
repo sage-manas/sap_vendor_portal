@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import { defineConfig, devices } from '@playwright/test';
+import { MAIL_FILE } from './e2e/mail-file.mjs';
 
 const require = createRequire(import.meta.url);
 require('dotenv').config({ path: './backend/.env' });
@@ -86,7 +87,9 @@ export default defineConfig({
         JWT_SECRET: 'e2e-secret',
         FRONTEND_URL: WEB_URL,
         ALLOWED_ORIGINS: WEB_URL,
-        MAIL_TRANSPORT: 'log',
+        // Registration is confirmed by an emailed link; the spec reads it from here.
+        MAIL_TRANSPORT: 'file',
+        MAIL_FILE,
         // e2e/api-server.cjs starts the job worker in this same process.
         JOBS_ENABLED: 'true',
         // The whole suite signs in to one tenant, and the sweep alone loads

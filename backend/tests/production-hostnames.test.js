@@ -2,7 +2,7 @@ const express = require('express');
 const request = require('supertest');
 const buildTestApp = require('./testApp');
 const { realmFromRequest } = require('../utils/resolveClient');
-const { seedClient, baseVendor } = require('./helpers');
+const { seedClient, baseVendor, confirmationTokenFor } = require('./helpers');
 
 const app = buildTestApp();
 
@@ -87,14 +87,20 @@ describe('X-Forwarded-Host is only believed from a trusted proxy', () => {
 
 describe('sign-in through production-shaped hostnames', () => {
   const at = (host) => (req) => req.set('Host', host);
-  const prod = (fn) => withEnv({ PORTAL_BASE_DOMAIN: BASE, NODE_ENV: 'production' }, fn);
+  // Registration's confirmation mail is sent after the response, and production
+  // would pick the SMTP transport: keep it in memory so the test can read it.
+  const prod = (fn) => withEnv({ PORTAL_BASE_DOMAIN: BASE, NODE_ENV: 'production', MAIL_TRANSPORT: 'memory' }, fn);
   const payload = { ...baseVendor, email: 'acme-supplier@example.com', vendorId: 'vendor_acme_1', gstin: '27AABCA1234F1Z5', pan: 'AABCA1234F' };
 
   beforeEach(() => seedClient({ clientId: 'CLT-0002', slug: 'acme', companyName: 'Acme Ltd' }));
 
   it('registers and logs in at the tenant subdomain', async () => {
     const registered = await prod(() => at(`acme.${BASE}`)(request(app).post('/api/auth/register')).send(payload));
-    expect(registered.status).toBe(201);
+    expect(registered.status).toBe(202);
+
+    const confirmed = await prod(async () => at(`acme.${BASE}`)(request(app).post('/api/auth/confirm-email'))
+      .send({ token: await confirmationTokenFor(payload.email), password: payload.password }));
+    expect(confirmed.status).toBe(200);
 
     const login = await prod(() => at(`acme.${BASE}`)(request(app).post('/api/auth/login'))
       .send({ vendorIdOrEmail: payload.email, password: payload.password }));

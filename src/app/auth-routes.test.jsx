@@ -6,6 +6,7 @@ import SignInPage from '@/app/sign-in/page';
 import SignUpPage from '@/app/sign-up/page';
 import ForgotPasswordPage from '@/app/forgot-password/page';
 import ResetPasswordPage from '@/app/reset-password/page';
+import ConfirmEmailPage from '@/app/confirm-email/page';
 import ChangePasswordPage from '@/app/change-password/page';
 import AcceptInvitationPage from '@/app/accept-invitation/page';
 import PlatformResetPasswordPage from '@/app/platform/reset-password/page';
@@ -24,6 +25,7 @@ const ROUTES = [
   ['/sign-up', SignUpPage, /Company|Email/i],
   ['/forgot-password', ForgotPasswordPage, /Email/i],
   ['/reset-password', ResetPasswordPage, /password/i],
+  ['/confirm-email', ConfirmEmailPage, /confirm/i],
   ['/accept-invitation', AcceptInvitationPage, /invitation|password|Loading/i],
   ['/platform/reset-password', PlatformResetPasswordPage, /password/i],
 ];

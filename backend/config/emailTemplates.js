@@ -34,6 +34,40 @@ const TEMPLATES = {
     ]),
   }),
 
+  // Registration is answered identically whether or not the address is already
+  // known (finding 1.4), so what a visitor learns arrives by email, addressed
+  // to whoever owns the mailbox.
+
+  // { companyName, workspaceName, confirmUrl, expiresInHours }
+  registrationConfirm: ({ companyName, workspaceName, confirmUrl, expiresInHours = 24 }) => ({
+    subject: `${APP_NAME}: confirm your email to finish registering`,
+    ...layout(`Confirm your email`, [
+      `Hello${companyName ? ` ${companyName}` : ''},`,
+      `Someone registered this address as a supplier${workspaceName ? ` of ${workspaceName}` : ''} on ${APP_NAME}. To finish, open the link below and enter the password you chose.`,
+      `<a href="${confirmUrl}">${confirmUrl}</a>`,
+      `The link expires in ${expiresInHours} hours. If this was not you, ignore this email — nothing is created until it is confirmed.`,
+    ]),
+  }),
+
+  // { signInUrl, resetUrl }
+  registrationExisting: ({ signInUrl, resetUrl }) => ({
+    subject: `${APP_NAME}: you already have an account`,
+    ...layout(`You already have an account`, [
+      `Someone tried to register this email address on ${APP_NAME}, but it already belongs to an account.`,
+      `If that was you, <a href="${signInUrl}">sign in</a>, or <a href="${resetUrl}">reset your password</a> if you have forgotten it.`,
+      `If it was not you, no action is needed.`,
+    ]),
+  }),
+
+  // { workspaceName, reason }
+  registrationRefused: ({ workspaceName, reason }) => ({
+    subject: `${APP_NAME}: your registration could not be completed`,
+    ...layout(`We could not complete your registration`, [
+      `Someone used this email address to register as a supplier${workspaceName ? ` of ${workspaceName}` : ''}, and it could not be completed: ${reason}`,
+      `If that was you, please contact ${workspaceName || 'your buyer'} directly. If it was not you, no action is needed.`,
+    ]),
+  }),
+
   // { name, inviterName, companyName, role, acceptUrl }
   invitation: ({ name, inviterName, companyName, role, acceptUrl }) => ({
     subject: `${APP_NAME}: you have been invited to ${companyName}`,

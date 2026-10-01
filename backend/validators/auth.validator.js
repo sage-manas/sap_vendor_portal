@@ -69,6 +69,11 @@ const acceptInvitationSchema = z.object({
   name: z.string().min(2).max(120).optional()
 });
 
+const confirmEmailSchema = z.strictObject({
+  token: z.string().min(1, { message: "Confirmation token is required" }).max(200),
+  password: z.string().min(1, { message: "Password is required" })
+});
+
 const platformLoginSchema = z.object({
   email: z.string().email({ message: "Invalid email format" }),
   password: z.string().min(1, { message: "Password is required" })
@@ -81,6 +86,7 @@ module.exports = {
   resetPasswordSchema,
   changePasswordSchema,
   acceptInvitationSchema,
+  confirmEmailSchema,
   platformLoginSchema,
   passwordField
 };

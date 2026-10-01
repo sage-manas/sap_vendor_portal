@@ -1,6 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import fs from 'node:fs';
 import path from 'node:path';
+import { MAIL_FILE } from './mail-file.mjs';
 
 // Seeds the demo tenant and makes the mock SAP answer instantly.
 //
@@ -9,6 +11,10 @@ import path from 'node:path';
 
 export default async function globalSetup() {
   const root = path.resolve(import.meta.dirname, '..');
+
+  // A run reads only its own mail.
+  fs.mkdirSync(path.dirname(MAIL_FILE), { recursive: true });
+  fs.writeFileSync(MAIL_FILE, '');
 
   // playwright.config.mjs already resolves and guards DATABASE_URL, and this
   // runs after it — but the guard is repeated here because this module is

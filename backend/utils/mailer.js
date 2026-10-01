@@ -72,13 +72,23 @@ const sendMail = async ({ to, template, data = {} }) => {
       SENT.push(record);
       break;
 
+    case 'file': {
+      // One JSON object per line, for a browser test that has to read the mail
+      // the API sent from a different process (e2e/). Never a production
+      // transport: assertMailerConfigured refuses it there with the others.
+      const file = process.env.MAIL_FILE;
+      if (!file) throw new Error('MAIL_TRANSPORT=file requires MAIL_FILE');
+      require('fs').appendFileSync(file, `${JSON.stringify(record)}\n`);
+      break;
+    }
+
     case 'smtp':
       await getSmtpTransport().sendMail({ from: fromAddress(), to, subject, text, html });
       logger.info(`[mail:${template}] delivered to=${to} subject="${subject}"`);
       break;
 
     default:
-      throw new Error(`Unknown MAIL_TRANSPORT "${transportName}" (expected smtp, log or memory)`);
+      throw new Error(`Unknown MAIL_TRANSPORT "${transportName}" (expected smtp, log, memory or file)`);
   }
 
   return { transport: transportName, to, subject, template };
@@ -102,5 +112,10 @@ const assertMailerConfigured = () => {
 const sentMails = () => [...SENT];
 const lastMailTo = (to) => [...SENT].reverse().find((mail) => mail.to === to.toLowerCase() || mail.to === to) || null;
 const clearMails = () => { SENT.length = 0; };
+// Lets a test helper take back the mail its own set-up caused (registering a
+// supplier sends a confirmation) without erasing what the test already sent.
+const removeMailsWhere = (predicate) => {
+  for (let i = SENT.length - 1; i >= 0; i -= 1) if (predicate(SENT[i])) SENT.splice(i, 1);
+};
 
-module.exports = { sendMail, assertMailerConfigured, sentMails, lastMailTo, clearMails, chooseTransportName };
+module.exports = { sendMail, assertMailerConfigured, sentMails, lastMailTo, clearMails, removeMailsWhere, chooseTransportName };

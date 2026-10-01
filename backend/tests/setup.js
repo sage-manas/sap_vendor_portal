@@ -187,6 +187,11 @@ afterEach(async () => {
   const leaked = worker.isRunning();
   if (leaked) worker.stop();
 
+  // Work an endpoint kept running after it answered (registration, a password
+  // reset email) must finish before the database is wiped, or it lands in the
+  // next test.
+  await require('../utils/background').drainBackground();
+
   // Runs regardless of the leak check above — failing this test must not
   // also leave the database dirty for whatever runs next.
   await resetDatabase();
