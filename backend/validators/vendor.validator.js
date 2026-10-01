@@ -11,7 +11,7 @@ const phoneRegex = /^\+?[\d\s-]{10,15}$/;
 
 const addressSchema = z.union([
   z.string(),
-  z.object({
+  z.strictObject({
     street: z.string().optional(),
     address: z.string().optional(),
     city: z.string().optional(),
@@ -27,7 +27,7 @@ const addressSchema = z.union([
 // records/tests written before uploads carried full metadata.
 const uploadedDocumentSchema = z.union([
   z.string(),
-  z.object({
+  z.strictObject({
     documentId: z.string(),
     originalName: z.string().optional(),
     url: z.string().optional(),
@@ -36,7 +36,7 @@ const uploadedDocumentSchema = z.union([
 
 const bankDetailsSchema = z.union([
   z.string(),
-  z.object({
+  z.strictObject({
     bankName: z.string().optional(),
     accountNumber: z.string().optional(),
     ifscCode: z.string().optional(),
@@ -61,7 +61,7 @@ const bankDetailsSchema = z.union([
 const optionalText = z.string().nullish().transform((value) => value ?? undefined);
 const optionalFlag = z.boolean().nullish().transform((value) => value ?? undefined);
 
-const profileCreateSchema = z.object({
+const profileCreateSchema = z.strictObject({
   vendorId: z.string(),
   companyName: z.string().min(3).max(100),
   gstin: z.string().regex(gstinRegex, { message: "Invalid GSTIN format" }),
@@ -124,11 +124,18 @@ const profileUpdateSchema = profileCreateSchema.partial();
 // the tenant supplies the same fields minus the vendorId (issued server-side).
 const vendorCreateSchema = profileCreateSchema.omit({ vendorId: true });
 
-const rejectVendorSchema = z.object({
+const rejectVendorSchema = z.strictObject({
   reason: z.string().min(1, { message: "Rejection reason is required" })
 });
 
+// The reason is optional on a bank-change rejection (the supplier is told the
+// change was refused either way); an empty body is fine.
+const bankChangeRejectSchema = z.strictObject({
+  reason: z.string().max(500).optional()
+});
+
 module.exports = {
+  bankChangeRejectSchema,
   profileCreateSchema,
   profileUpdateSchema,
   vendorCreateSchema,

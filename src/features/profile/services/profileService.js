@@ -1,4 +1,5 @@
 import { apiClient } from '../../../lib/api-client';
+import { pickProfileFields } from '../profileFields';
 
 export const profileService = {
   async getProfile() {
@@ -6,11 +7,13 @@ export const profileService = {
   },
 
   async updateProfile(data) {
-    return apiClient.put('/vendors/profile', data);
+    return apiClient.put('/vendors/profile', pickProfileFields(data));
   },
 
-  async submitRegistration(data) {
-    return apiClient.post('/vendors/profile/submit', data);
+  // Submitting is a state change, not a write of fields — the endpoint reads no
+  // body, and the profile was saved by updateProfile just before.
+  async submitRegistration() {
+    return apiClient.post('/vendors/profile/submit', {});
   },
 
   async getSapReferenceData() {

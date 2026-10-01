@@ -57,12 +57,13 @@ export function useRFQs(profile) {
 
   const submitBid = async (rfqId, unitPrices, leadTime, remarks, gstRate, validityDate, freight = 0, moq = 1, uploadedDocs = []) => {
     try {
+      // `moq` is deliberately not sent: the bid API has no such field and refuses
+      // keys it does not declare (it used to drop this one silently).
       const bidData = {
         unitPrices,
         deliveryLeadTimeDays: leadTime,
         gstRate,
         freight,
-        moq,
         validityDate,
         remarks,
         uploadedDocs

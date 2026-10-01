@@ -112,7 +112,7 @@ describe('platform console — tenants', () => {
     expect(res.body.tenant.branding.primaryColor).toBe('#059669');
   });
 
-  it('will not let an operator change a tenant clientId or slug', async () => {
+  it('refuses an attempt to change a tenant clientId or slug, and changes nothing', async () => {
     const { token } = await createOperatorSession();
     await createTenant(token);
 
@@ -121,8 +121,12 @@ describe('platform console — tenants', () => {
       .set(bearer(token))
       .send({ slug: 'stolen', clientId: 'CLT-9999', companyName: 'Renamed Ltd' });
 
-    expect(res.status).toBe(200);
-    expect(res.body.tenant).toMatchObject({ clientId: 'CLT-0002', slug: 'northwind', companyName: 'Renamed Ltd' });
+    expect(res.status).toBe(400);
+    expect(res.body.errors).toBeTruthy();
+
+    const after = await request(app).get('/api/platform/tenants/CLT-0002').set(bearer(token));
+    expect(after.body.tenant).toMatchObject({ clientId: 'CLT-0002', slug: 'northwind' });
+    expect(after.body.tenant.companyName).not.toBe('Renamed Ltd');
   });
 
   it('suspends, reactivates and terminates — and refuses illegal transitions', async () => {

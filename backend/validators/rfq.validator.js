@@ -1,7 +1,7 @@
 const { z } = require('zod');
 const { SAP_FIELDS } = require('../sap/mappings/fields');
 
-const rfqItemSchema = z.object({
+const rfqItemSchema = z.strictObject({
   line: z.coerce.number().int().positive(),
   materialCode: z.string().min(1).max(SAP_FIELDS.MATNR.max),
   description: z.string().max(SAP_FIELDS.TXZ01.max).optional(),
@@ -12,7 +12,7 @@ const rfqItemSchema = z.object({
   deliveryDate: z.string().refine((val) => !isNaN(Date.parse(val)), { message: "Invalid deliveryDate format" }).optional()
 });
 
-const rfqCreateSchema = z.object({
+const rfqCreateSchema = z.strictObject({
   description: z.string().min(5).max(200),
   deadlineDate: z.string().refine((val) => !isNaN(Date.parse(val)), { message: "Invalid deadlineDate format" }),
   rfqType: z.enum(['AN', 'AB']).optional(),
@@ -20,7 +20,7 @@ const rfqCreateSchema = z.object({
   deliveryLocation: z.string().optional(),
   items: z.array(rfqItemSchema).min(1),
   invitedVendors: z.array(
-    z.object({
+    z.strictObject({
       id: z.string().min(1),
       name: z.string().optional(),
       status: z.string().optional(),
@@ -29,7 +29,7 @@ const rfqCreateSchema = z.object({
   ).optional()
 });
 
-const bidSchema = z.object({
+const bidSchema = z.strictObject({
   unitPrices: z.record(z.string(), z.coerce.number().positive()),
   gstRate: z.union([z.enum(['5%', '12%', '18%', '28%']), z.string(), z.number()]),
   deliveryLeadTimeDays: z.coerce.number().int().positive(),
@@ -39,21 +39,26 @@ const bidSchema = z.object({
   uploadedDocs: z.array(z.string()).optional()
 });
 
-const reissueRfqSchema = z.object({
+const reissueRfqSchema = z.strictObject({
   deadlineDate: z.string().refine((val) => !isNaN(Date.parse(val)), { message: "Invalid deadlineDate format" })
 });
 
-const quotationPriceUpdateSchema = z.object({
+const quotationPriceUpdateSchema = z.strictObject({
   sapRfqNumber: z.string().min(1),
   items: z.array(
-    z.object({
+    z.strictObject({
       line: z.coerce.number().int().positive(),
       netPrice: z.coerce.number().positive()
     })
   ).min(1)
 });
 
+const awardSchema = z.strictObject({
+  vendorId: z.string().min(1, { message: 'Winner vendorId is required' })
+});
+
 module.exports = {
+  awardSchema,
   rfqCreateSchema,
   bidSchema,
   reissueRfqSchema,

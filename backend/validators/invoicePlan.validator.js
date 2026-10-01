@@ -3,7 +3,7 @@ const { PLAN_TYPES, INVOICING_RULES, FREQUENCIES } = require('../services/invoic
 
 const isoDate = z.string().refine((value) => !Number.isNaN(Date.parse(value)), { message: 'Invalid date' });
 
-const milestoneSchema = z.object({
+const milestoneSchema = z.strictObject({
   settlementDate: isoDate,
   description: z.string().max(200).optional(),
   // A milestone states its share either way round — a percentage of the line or
@@ -18,7 +18,7 @@ const milestoneSchema = z.object({
 // discriminated union: the two shapes share more than they differ, and the
 // error a buyer needs ("a periodic plan needs a frequency") reads better than
 // "no union member matched".
-const invoicePlanSchema = z.object({
+const invoicePlanSchema = z.strictObject({
   type: z.enum(PLAN_TYPES),
   reference: z.string().max(200).optional(),
   currency: z.string().length(3).optional(),
@@ -54,11 +54,11 @@ const invoicePlanSchema = z.object({
 });
 
 // FPLT-FAKSP, on its own: withholding one date is not a change to the schedule.
-const invoicePlanLineBlockSchema = z.object({ blocked: z.boolean() });
+const invoicePlanLineBlockSchema = z.strictObject({ blocked: z.boolean() });
 
 // Mirrors rejectVendorSchema (validators/vendor.validator.js) — a rejection a
 // supplier cannot act on is not much of an answer.
-const rejectInvoicePlanChangeSchema = z.object({
+const rejectInvoicePlanChangeSchema = z.strictObject({
   reason: z.string().min(1, { message: 'A reason is required' }),
 });
 
