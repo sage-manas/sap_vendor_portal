@@ -74,7 +74,7 @@ describe('plan enforcement — vendors', () => {
       .set('x-client-slug', 'legacy')
       .send(baseVendor);
 
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(202);
   });
 
   it('an unlimited plan (limit 0/unset is treated as unset only when null) still enforces a numeric 0', async () => {
@@ -87,7 +87,7 @@ describe('plan enforcement — vendors', () => {
       .set('x-client-slug', 'legacy')
       .send(baseVendor);
 
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(202);
   });
 });
 

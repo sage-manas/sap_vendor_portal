@@ -6,7 +6,9 @@
 // (ADR-0002), unaffected here.
 const request = require('supertest');
 const buildTestApp = require('./testApp');
-const { prisma } = require('../db/prisma');
+const { prisma, rawPrisma } = require('../db/prisma');
+const { lastMailTo } = require('../utils/mailer');
+const { drainBackground } = require('../utils/background');
 const { registerVendor, asTenant, seedClient } = require('./helpers');
 
 const app = buildTestApp();
@@ -41,7 +43,11 @@ describe('Vendor.gstin is unique per tenant, not platform-wide (issue #67)', () 
         vendorId: 'vendor_gstin_d', email: 'gstin-d@example.com', gstin: SHARED_GSTIN,
       });
 
-    expect(res.status).toBe(409);
+    // Answered like any registration; the refusal is emailed, and nothing is created.
+    expect(res.status).toBe(202);
+    await drainBackground();
+    expect(lastMailTo('gstin-d@example.com').template).toBe('registrationRefused');
+    expect(await asTenant(() => rawPrisma.vendor.count({ where: { vendorId: 'vendor_gstin_d' } }))).toBe(0);
   });
 
   it('keeps email a global login identity — a second tenant cannot reuse it even with a fresh GSTIN', async () => {
@@ -58,7 +64,10 @@ describe('Vendor.gstin is unique per tenant, not platform-wide (issue #67)', () 
         vendorId: 'vendor_gstin_f', email: 'gstin-shared-email@example.com', gstin: '29AABCF0000F1Z1',
       });
 
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(202);
+    await drainBackground();
+    expect(lastMailTo('gstin-shared-email@example.com').template).toBe('registrationExisting');
+    expect(await asTenant(() => rawPrisma.vendor.count({ where: { vendorId: 'vendor_gstin_f' } }))).toBe(0);
   });
 
   it('keeps each tenant blind to the other GSTIN-sharing vendor row (tenant isolation)', async () => {

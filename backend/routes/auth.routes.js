@@ -8,7 +8,8 @@ const {
   forgotPasswordSchema,
   resetPasswordSchema,
   changePasswordSchema,
-  acceptInvitationSchema
+  acceptInvitationSchema,
+  confirmEmailSchema
 } = require('../validators/auth.validator');
 const { protectSession, requirePermission } = require('../middleware/auth');
 const { PERMISSIONS } = require('../config/permissions');
@@ -19,6 +20,7 @@ const { guards } = require('../middleware/accountGuard');
 // screen needs before anyone has a session to read it from.
 router.get('/workspace', authController.getWorkspace);
 router.post('/register', validate(registerSchema), authController.register);
+router.post('/confirm-email', validate(confirmEmailSchema), authController.confirmEmail);
 // The account guards run after validation (so they see a clean identifier) and
 // before the handler; see middleware/accountGuard.js.
 router.post('/login', validate(loginSchema), guards.login, authController.login);

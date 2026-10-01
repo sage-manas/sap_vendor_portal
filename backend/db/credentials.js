@@ -8,6 +8,7 @@ const bcrypt = require('bcryptjs');
 // (Vendor, User, PlatformUser), same behavior — just invoked, not implicit.
 
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
+const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 const hashResetToken = (rawToken) =>
   crypto.createHash('sha256').update(rawToken).digest('hex');
@@ -50,6 +51,16 @@ const issueResetToken = () => {
   };
 };
 
+// The token that confirms a self-registration. `expires` is a parameter so a
+// re-sent link can keep the original deadline instead of extending it.
+const issueEmailVerification = (expires = new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS)) => {
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  return {
+    rawToken,
+    fields: { emailVerificationToken: hashResetToken(rawToken), emailVerificationExpires: expires },
+  };
+};
+
 // Returns the fields to write when consuming a reset token with a new
 // password: hashes the password and clears the reset/must-change fields in
 // one payload, mirroring consumeResetToken()'s single save.
@@ -69,7 +80,9 @@ module.exports = {
   comparePassword,
   burnPasswordCheck,
   issueResetToken,
+  issueEmailVerification,
   consumeResetToken,
   hashResetToken,
   RESET_TOKEN_TTL_MS,
+  EMAIL_VERIFICATION_TTL_MS,
 };

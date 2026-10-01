@@ -1,7 +1,8 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
 const { rawPrisma } = require('../db/prisma');
-const { asTenant } = require('./helpers');
+const { asTenant, registerVendor } = require('./helpers');
+const { drainBackground } = require('../utils/background');
 
 const app = buildTestApp();
 
@@ -25,31 +26,35 @@ const validRegistration = {
 };
 
 describe('POST /api/auth/register', () => {
-  it('registers a vendor, returns a token, and hides the password', async () => {
+  it('accepts a registration without issuing a session, and stores the password hashed', async () => {
     const res = await request(app).post('/api/auth/register').send(validRegistration);
 
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(202);
     expect(res.body.success).toBe(true);
-    expect(res.body.token).toEqual(expect.any(String));
-    expect(res.body.vendor.vendorId).toBe(validRegistration.vendorId);
-    expect(res.body.vendor.status).toBe('Draft');
-    expect(res.body.vendor.bankDetails.ifscCode).toBe('HDFC0000060');
-    expect(res.body.vendor.password).toBeUndefined();
+    expect(res.body.token).toBeUndefined();
+    expect(res.body.vendor).toBeUndefined();
 
-    // Password must be stored hashed
+    // The account is created after the answer goes out.
+    await drainBackground();
     const stored = await asTenant(() => rawPrisma.vendor.findFirst({
       where: { vendorId: validRegistration.vendorId },
       omit: { password: false },
     }));
+    expect(stored.status).toBe('Draft');
+    expect(stored.role).toBe('vendor');
+    expect(stored.ifscCode).toBe('HDFC0000060');
     expect(stored.password).not.toBe(validRegistration.password);
   });
 
-  it('rejects duplicate vendorId/email/gstin with 409', async () => {
-    await request(app).post('/api/auth/register').send(validRegistration);
-    const res = await request(app).post('/api/auth/register').send(validRegistration);
+  it('answers a duplicate vendorId/email/gstin exactly as it answers a new one, and creates nothing', async () => {
+    const first = await request(app).post('/api/auth/register').send(validRegistration);
+    await drainBackground();
+    const second = await request(app).post('/api/auth/register').send(validRegistration);
+    await drainBackground();
 
-    expect(res.status).toBe(409);
-    expect(res.body.success).toBe(false);
+    expect(second.status).toBe(first.status);
+    expect(second.body).toEqual(first.body);
+    expect(await asTenant(() => rawPrisma.vendor.count({ where: { email: validRegistration.email } }))).toBe(1);
   });
 
   it('rejects invalid GSTIN, PAN, email, and short password with 400 field errors', async () => {
@@ -99,38 +104,45 @@ describe('POST /api/auth/register', () => {
       password: 'Str0ngEnough',
     });
 
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(202);
   });
 });
 
 describe('POST /api/auth/register — vendorId assignment', () => {
+  const stored = (email) => asTenant(() => rawPrisma.vendor.findFirst({ where: { email } }));
+
   it('assigns a server-generated vendorId and Draft status when none is supplied', async () => {
     const { vendorId, ...withoutVendorId } = validRegistration;
     const res = await request(app).post('/api/auth/register').send(withoutVendorId);
+    expect(res.status).toBe(202);
 
-    expect(res.status).toBe(201);
-    expect(res.body.vendor.vendorId).toEqual(expect.stringMatching(/^VND-\d{5}$/));
-    expect(res.body.vendor.status).toBe('Draft');
+    await drainBackground();
+    const vendor = await stored(validRegistration.email);
+    expect(vendor.vendorId).toEqual(expect.stringMatching(/^VND-\d{5}$/));
+    expect(vendor.status).toBe('Draft');
   });
 
   it('assigns distinct auto-generated vendorIds to successive registrations', async () => {
     const { vendorId, ...withoutVendorId } = validRegistration;
-    const first = await request(app).post('/api/auth/register').send(withoutVendorId);
+    await request(app).post('/api/auth/register').send(withoutVendorId);
     const second = await request(app).post('/api/auth/register').send({
       ...withoutVendorId,
       email: 'second-vendor@example.com',
       gstin: '29AABCS1234F1Z8'
     });
+    expect(second.status).toBe(202);
 
-    expect(second.status).toBe(201);
-    expect(second.body.vendor.vendorId).not.toBe(first.body.vendor.vendorId);
-    expect(second.body.vendor.vendorId).toEqual(expect.stringMatching(/^VND-\d{5}$/));
+    await drainBackground();
+    const first = await stored(validRegistration.email);
+    const other = await stored('second-vendor@example.com');
+    expect(other.vendorId).not.toBe(first.vendorId);
+    expect(other.vendorId).toEqual(expect.stringMatching(/^VND-\d{5}$/));
   });
 });
 
 describe('POST /api/auth/login', () => {
   beforeEach(async () => {
-    await request(app).post('/api/auth/register').send(validRegistration);
+    await registerVendor(app);
   });
 
   it('logs in by vendorId', async () => {
@@ -175,10 +187,10 @@ describe('POST /api/auth/login', () => {
 
 describe('GET /api/auth/me', () => {
   it('returns the profile for a valid token', async () => {
-    const reg = await request(app).post('/api/auth/register').send(validRegistration);
+    const reg = await registerVendor(app);
     const res = await request(app)
       .get('/api/auth/me')
-      .set('Authorization', `Bearer ${reg.body.token}`);
+      .set('Authorization', `Bearer ${reg.token}`);
 
     expect(res.status).toBe(200);
     expect(res.body.vendor.vendorId).toBe(validRegistration.vendorId);

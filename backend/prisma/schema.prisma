@@ -307,6 +307,16 @@ model Vendor {
   lastLoginAt          DateTime?
   passwordChangedAt    DateTime?
 
+  // Self-registration is confirmed by email before the account can sign in
+  // (finding 1.4). A pending registration holds the SHA-256 of the emailed
+  // token; null means confirmed — which is what every account created any
+  // other way (invitation, tenant directory, seed) already is, so no backfill
+  // is needed. An unconfirmed row past its expiry is purged by the next
+  // registration that touches the same identity, which also frees a GSTIN
+  // someone squatted without owning the mailbox.
+  emailVerificationToken   String?
+  emailVerificationExpires DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

@@ -22,6 +22,8 @@ const rawPrisma = new PrismaClient({
       password: true,
       resetPasswordToken: true,
       resetPasswordExpires: true,
+      emailVerificationToken: true,
+      emailVerificationExpires: true,
     },
     user: {
       password: true,

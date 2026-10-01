@@ -1,5 +1,5 @@
 const { prisma } = require('../db/prisma');
-const { hashPassword, comparePassword, burnPasswordCheck, issueResetToken, consumeResetToken, hashResetToken, RESET_TOKEN_TTL_MS } = require('../db/credentials');
+const { hashPassword, comparePassword, burnPasswordCheck, issueResetToken, issueEmailVerification, consumeResetToken, hashResetToken, RESET_TOKEN_TTL_MS, EMAIL_VERIFICATION_TTL_MS } = require('../db/credentials');
 const { canAuthenticate } = require('../db/accountHelpers');
 const { isClientOperational } = require('../db/clientHelpers');
 const ApiError = require('../utils/ApiError');
@@ -54,50 +54,94 @@ const formatUserResponse = (user) => {
   return obj;
 };
 
-// @desc    Register a new vendor
-// @route   POST /api/auth/register
-// @access  Public
-const register = asyncHandler(async (req, res, next) => {
-  const { password, companyName, gstin, pan, email, phone, address, city, state, postalCode, bankName, accountNumber, ifscCode, accountName, bankBranch } = req.body;
-  let { vendorId } = req.body;
+// What registration answers, whatever it found. A different answer for a taken
+// email, GSTIN or vendor ID is how a stranger learns who has an account here
+// (finding 1.4), so what actually happened is told to the mailbox owner by email
+// and never to the caller.
+const REGISTRATION_ACCEPTED = {
+  success: true,
+  message: 'Check your email to finish registering. If this address can be registered, a confirmation link is on its way.',
+};
 
-  // Which workspace is this supplier registering into? (Subdomain in Phase 6;
-  // header/DEFAULT_CLIENT_SLUG/legacy until then.)
-  const client = await resolveClientForRequest(req);
-  if (!client) {
-    return next(ApiError.notFound('Unknown workspace'));
-  }
-  if (!isClientOperational(client)) {
-    return next(ApiError.forbidden('This workspace is not accepting registrations'));
-  }
+const stripUndefined = (object) => Object.fromEntries(Object.entries(object).filter(([, value]) => value !== undefined));
+
+// Everything registration does once it has answered. See `register`.
+const processRegistration = async (client, body) => {
+  const { password, companyName, gstin, pan, phone, address, city, state, postalCode, bankName, accountNumber, ifscCode, accountName, bankBranch } = body;
+  const email = String(body.email).toLowerCase();
+  const requestedId = body.vendorId;
+  const mail = (template, data) => mailer.sendMail({ to: email, template, data });
+
+  // An unconfirmed registration past its deadline is dead weight that also
+  // holds its email, GSTIN and ID hostage — anyone can register an address they
+  // do not own. Clearing it here means those identities are free again 24 hours
+  // after the last attempt, and nothing needs a sweeper.
+  await withoutTenantScope(() => prisma.vendor.deleteMany({
+    where: {
+      emailVerificationToken: { not: null },
+      emailVerificationExpires: { lt: new Date() },
+      OR: [
+        { email },
+        ...(requestedId ? [{ vendorId: requestedId }] : []),
+        ...(gstin ? [{ clientId: client.clientId, gstin: String(gstin).toUpperCase() }] : []),
+      ],
+    },
+  }));
 
   // A workspace can close self-service registration and admit suppliers by
   // invitation only (config/tenantSettings.js). An invited supplier is not
   // self-service, so their invitation is what reopens the door for them.
   if (!settingValue(client, 'features.supplierSelfRegistration')
     && !(await hasSupplierInvitation(client.clientId, email))) {
-    return next(ApiError.forbidden('This workspace admits suppliers by invitation only'));
+    return mail('registrationRefused', { workspaceName: client.companyName, reason: 'this workspace admits suppliers by invitation only.' });
+  }
+
+  // Still waiting for its link: send a fresh one, keeping the original deadline
+  // and the original submission. Taking the new password or details would let
+  // whoever registers an address first be overwritten by — or overwrite —
+  // whoever registers it next, with nobody having proved the mailbox yet.
+  const pending = await withoutTenantScope(() => prisma.vendor.findFirst({
+    where: { email, emailVerificationToken: { not: null } },
+    omit: { emailVerificationExpires: false },
+  }));
+  if (pending && pending.clientId === client.clientId) {
+    const { rawToken, fields } = issueEmailVerification(pending.emailVerificationExpires);
+    await withoutTenantScope(() => prisma.vendor.update({ where: { pk: pending.pk }, data: fields }));
+    return mail('registrationConfirm', {
+      companyName: pending.companyName,
+      workspaceName: client.companyName,
+      confirmUrl: `${frontendUrl()}/confirm-email?token=${rawToken}`,
+      expiresInHours: Math.max(1, Math.round((pending.emailVerificationExpires - Date.now()) / 3600000)),
+    });
   }
 
   // vendorId/email are global login identities; gstin is checked within this
   // workspace only — a supplier trading with two buyers registers under the
   // same real GSTIN in each (issue #67, ADR-0039).
-  const conflict = await identityConflict({ vendorId, email, gstin, clientId: client.clientId });
+  const conflict = await identityConflict({ vendorId: requestedId, email, gstin, clientId: client.clientId });
+  if (conflict === 'email') {
+    return mail('registrationExisting', {
+      signInUrl: `${frontendUrl()}/sign-in`,
+      resetUrl: `${frontendUrl()}/forgot-password`,
+    });
+  }
   if (conflict) {
-    return next(ApiError.conflict('Vendor with this ID, email, or GSTIN already exists'));
+    return mail('registrationRefused', {
+      workspaceName: client.companyName,
+      reason: conflict === 'gstin'
+        ? 'a supplier with this GSTIN is already registered.'
+        : 'the supplier ID that was asked for is already taken.',
+    });
   }
 
-  await assertCanCreate(client, 'vendors');
-
-  if (!vendorId) {
-    vendorId = await generateVendorId();
-  }
+  const vendorId = requestedId || await generateVendorId();
 
   // Freshly self-registered vendors start as a Draft until they complete
   // and submit the full onboarding form.
   const defaultStatus = vendorId.startsWith('mock_vendor_') ? 'Pending' : 'Draft';
 
   const { password: hashedPassword, passwordChangedAt } = await hashPassword(password);
+  const { rawToken, fields } = issueEmailVerification();
 
   // Self-registration only ever produces a supplier. Staff accounts come from
   // an invitation or from tenant provisioning — ADMIN_BOOTSTRAP_EMAILS, which
@@ -111,26 +155,82 @@ const register = asyncHandler(async (req, res, next) => {
       gstin,
       pan,
       email,
-      phone,
-      address,
-      city,
-      state,
-      postalCode,
-      bankName,
-      accountNumber,
-      ifscCode,
-      accountName,
-      bankBranch,
+      ...stripUndefined({ phone, address, city, state, postalCode, bankName, accountNumber, ifscCode, accountName, bankBranch }),
       status: defaultStatus,
-      role: ROLES.VENDOR
+      role: ROLES.VENDOR,
+      ...fields,
     },
   }));
 
-  res.status(201).json({
-    success: true,
-    token: signToken(vendor),
-    vendor: formatVendorResponse(vendor)
+  await mail('registrationConfirm', {
+    companyName: vendor.companyName,
+    workspaceName: client.companyName,
+    confirmUrl: `${frontendUrl()}/confirm-email?token=${rawToken}`,
+    expiresInHours: EMAIL_VERIFICATION_TTL_MS / 3600000,
   });
+};
+
+// @desc    Register a new vendor
+// @route   POST /api/auth/register
+// @access  Public
+//
+// Always answers 202 with the same body and does its work afterwards: the
+// account is created pending, and cannot sign in until the emailed link is
+// followed (confirmEmail). No session is issued here.
+const register = asyncHandler(async (req, res, next) => {
+  // Which workspace is this supplier registering into? (Subdomain in Phase 6;
+  // header/DEFAULT_CLIENT_SLUG/legacy until then.) These answer for the
+  // address being visited, not for the email being registered.
+  const client = await resolveClientForRequest(req);
+  if (!client) {
+    return next(ApiError.notFound('Unknown workspace'));
+  }
+  if (!isClientOperational(client)) {
+    return next(ApiError.forbidden('This workspace is not accepting registrations'));
+  }
+
+  // Before any lookup of the submitted identity, so a workspace at its plan
+  // limit answers every caller the same way.
+  await assertCanCreate(client, 'vendors');
+
+  res.status(202).json(REGISTRATION_ACCEPTED);
+  runInBackground('register', () => processRegistration(client, req.body));
+});
+
+// @desc    Confirm a self-registration from the emailed link
+// @route   POST /api/auth/confirm-email
+// @access  Public
+//
+// The token alone is not enough: the password chosen at registration is asked
+// for too. Without it, whoever registers an address they do not own could wait
+// for the owner to click an emailed link and be handed the account.
+const confirmEmail = asyncHandler(async (req, res, next) => {
+  const { token, password } = req.body;
+
+  const vendor = await withoutTenantScope(() => prisma.vendor.findFirst({
+    where: { emailVerificationToken: hashResetToken(token), emailVerificationExpires: { gt: new Date() } },
+    omit: { password: false },
+  }));
+
+  // One answer for an unknown token, an expired one and a wrong password.
+  const refusal = ApiError.badRequest(
+    'This confirmation link is invalid or has expired, or the password does not match the one chosen at registration.',
+    { reason: 'invalid_confirmation' },
+  );
+  if (!vendor) {
+    await burnPasswordCheck(password);
+    return next(refusal);
+  }
+  if (!(await comparePassword(password, vendor.password))) {
+    return next(refusal);
+  }
+
+  await withoutTenantScope(() => prisma.vendor.update({
+    where: { pk: vendor.pk },
+    data: { emailVerificationToken: null, emailVerificationExpires: null },
+  }));
+
+  res.json({ success: true, message: 'Email confirmed. You can now sign in.' });
 });
 
 // The public face of a tenant: who a visitor is about to sign in to, and what
@@ -185,7 +285,7 @@ const login = asyncHandler(async (req, res, next) => {
 
   const vendor = user ? null : await withoutTenantScope(() => prisma.vendor.findFirst({
     where: { OR: [{ email: identifier.toLowerCase() }, { vendorId: identifier }] },
-    omit: { password: false },
+    omit: { password: false, emailVerificationToken: false },
   }));
 
   const account = user || vendor;
@@ -214,6 +314,15 @@ const login = asyncHandler(async (req, res, next) => {
 
   if (!canAuthenticate(account, user ? 'user' : 'vendor')) {
     return next(ApiError.forbidden('This account is not active'));
+  }
+
+  // A self-registration that has not followed its emailed link. Said only after
+  // the password was right, so it does not tell a stranger the account exists.
+  if (vendor?.emailVerificationToken) {
+    return next(ApiError.forbidden(
+      'Confirm your email address to sign in. The link was sent when you registered.',
+      { reason: 'email_unconfirmed' },
+    ));
   }
 
   const client = await withoutTenantScope(() => prisma.client.findFirst({ where: { clientId: account.clientId } }));
@@ -320,6 +429,9 @@ const resetPassword = asyncHandler(async (req, res, next) => {
 
   // Single use: the token fields are cleared in the same update as the password.
   const fields = await consumeResetToken(password);
+  // A reset link only reaches the mailbox's owner, which is what confirming a
+  // registration proves — so it confirms a pending one too.
+  if (kind === 'vendor') Object.assign(fields, { emailVerificationToken: null, emailVerificationExpires: null });
   await withoutTenantScope(() => prisma[kind].update({ where: { pk: account.pk }, data: fields }));
 
   res.json({ success: true, message: 'Password has been reset. You can now sign in.' });
@@ -363,6 +475,7 @@ const changePassword = asyncHandler(async (req, res, next) => {
 
 module.exports = {
   register,
+  confirmEmail,
   login,
   getMe,
   getWorkspace,

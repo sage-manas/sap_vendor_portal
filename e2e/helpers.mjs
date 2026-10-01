@@ -1,4 +1,6 @@
+import fs from 'node:fs';
 import { expect } from '@playwright/test';
+import { MAIL_FILE } from './mail-file.mjs';
 
 // The accounts backend/scripts/seed-demo.js creates. Its own output prints
 // these; they are repeated here so a spec reads as a story about people
@@ -92,4 +94,23 @@ export const createTender = async (buyer, { description, vendorIds, quantity = 1
     invitedVendors: vendorIds.map((id) => ({ id })),
   }));
   return rfq;
+};
+
+/**
+ * The token in the confirmation email sent to an address when it registered.
+ *
+ * The API writes its mail to a file in this suite (MAIL_TRANSPORT=file), and
+ * sends it after answering the registration, so this waits for it to appear.
+ */
+export const confirmationTokenFor = async (email, { timeoutMs = 15_000 } = {}) => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const lines = fs.existsSync(MAIL_FILE) ? fs.readFileSync(MAIL_FILE, 'utf8').split('\n').filter(Boolean) : [];
+    const mail = lines.map((line) => JSON.parse(line)).reverse()
+      .find((sent) => sent.to === email.toLowerCase() && sent.template === 'registrationConfirm');
+    const token = mail && /token=([a-f0-9]+)/i.exec(mail.text)?.[1];
+    if (token) return token;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`No registration confirmation email for ${email} within ${timeoutMs}ms`);
 };

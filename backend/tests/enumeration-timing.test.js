@@ -17,17 +17,19 @@ describe('forgot-password answers a real and an unknown address alike, and as qu
   let sendMail;
 
   // A mail server that takes a second. If the response waited for it the two
-  // answers would differ by about that much.
-  beforeEach(() => {
+  // answers would differ by about that much. Installed by the test once its own
+  // set-up (registering a supplier sends mail too) is done.
+  const slowMailServer = () => {
     mailer.clearMails();
     sendMail = jest.spyOn(mailer, 'sendMail').mockImplementation(
       () => new Promise((resolve) => setTimeout(() => resolve({}), 1000)),
     );
-  });
+  };
 
   afterEach(async () => {
     await drainBackground();
-    sendMail.mockRestore();
+    if (sendMail) sendMail.mockRestore();
+    sendMail = null;
   });
 
   const timed = async (fn) => {
@@ -38,6 +40,7 @@ describe('forgot-password answers a real and an unknown address alike, and as qu
 
   it('does not wait for the mail server before answering a tenant account', async () => {
     await registerVendor(app);
+    slowMailServer();
 
     const real = await timed(() => request(app).post('/api/auth/forgot-password').send({ email: baseVendor.email }));
     const unknown = await timed(() => request(app).post('/api/auth/forgot-password').send({ email: 'nobody@example.com' }));
@@ -54,6 +57,7 @@ describe('forgot-password answers a real and an unknown address alike, and as qu
 
   it('does not wait for the mail server before answering an operator account', async () => {
     const { operator } = await createPlatformUser({ email: 'operator-timing@example.com' });
+    slowMailServer();
 
     const real = await timed(() => request(app).post('/api/platform/auth/forgot-password').send({ email: operator.email }));
     const unknown = await timed(() => request(app).post('/api/platform/auth/forgot-password').send({ email: 'nobody@example.com' }));
