@@ -50,6 +50,18 @@ ${msg}
     process.exit(1);
   }
 
+  // CLAMAV_REQUIRED=true means "no scan, no upload". With no scanner named it
+  // would refuse every upload, which is a misconfiguration to fail on at boot
+  // rather than discover as a 503 on the first supplier document.
+  if (String(process.env.CLAMAV_REQUIRED).toLowerCase() === 'true' && !process.env.CLAMAV_HOST) {
+    const msg = '❌ CLAMAV_REQUIRED=true but CLAMAV_HOST is not set — every upload would be refused';
+    logger.error(msg);
+    console.error(`
+${msg}
+`);
+    process.exit(1);
+  }
+
   // Removed in Phase 2 (ADR-0009): it granted an admin role from a public
   // endpoint. Fail loudly rather than silently ignoring a stale deployment
   // config that an operator still believes is doing something.

@@ -41,6 +41,9 @@ const fileFilter = (req, file, cb) => {
 
 const upload = multer({
   storage,
+  // busboy reads a part's filename as latin1 unless told otherwise, so every
+  // non-ASCII name (browsers send UTF-8) was stored as mojibake.
+  defParamCharset: 'utf8',
   fileFilter,
   limits: {
     fileSize: 10 * 1024 * 1024 // 10MB general limit (specific image limits checked in controller/frontend)
