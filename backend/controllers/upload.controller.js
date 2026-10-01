@@ -10,7 +10,7 @@ const { refusalFor } = require('../services/virusScan.service');
 const { requireVendorScope, vendorScope, scopedWhere } = require('../utils/requestScope');
 
 // multer has already written the file by the time a controller runs, so every
-// refusal below has to take it back off the disk — a request nothing will ever
+// refusal below has to take it back off the disk â€” a request nothing will ever
 // create a Document row for must not leave a file behind.
 const discard = (file) => {
   try {
@@ -146,7 +146,7 @@ const listDocuments = asyncHandler(async (req, res, next) => {
 const deleteDocument = asyncHandler(async (req, res, next) => {
   // A supplier reaches only their own documents, and someone else's is
   // indistinguishable from one that does not exist. Tenant staff reach any
-  // document in their tenant — the tenant extension has already scoped the read.
+  // document in their tenant â€” the tenant extension has already scoped the read.
   const doc = await prisma.document.findFirst({ where: scopedWhere(req, { pk: req.params.id }) });
   if (!doc) {
     return next(ApiError.notFound('Document not found'));
