@@ -30,8 +30,12 @@ const setStorageLimit = (mb) => withoutTenantScope(() => rawPrisma.client.update
 const uploadDir = path.join(__dirname, '..', 'uploads');
 
 // A buffer of an exact byte size, so the MB math in a test is exact rather
-// than depending on how large some fixture file happens to be.
-const bufferOfBytes = (bytes) => Buffer.alloc(bytes, 'x');
+// than depending on how large some fixture file happens to be. It opens with a
+// PDF header: uploads are content-checked now, and these are all named .pdf.
+const bufferOfBytes = (bytes) => {
+  const header = Buffer.from('%PDF-1.4\n');
+  return Buffer.concat([header, Buffer.alloc(Math.max(0, bytes - header.length), 'x')]).subarray(0, Math.max(bytes, header.length));
+};
 
 const upload = (token, { bytes = 1024, filename = 'doc.pdf' } = {}) =>
   request(app)
