@@ -237,7 +237,11 @@ export const renderWithPortal = (ui, options = {}) => {
     signedOut = false,
   } = options;
 
-  resetNavigation(route, params);
+  // A route may carry a query string (`/confirm-email?token=abc`): the pathname
+  // is what resetNavigation takes, and the rest is what useSearchParams reads.
+  const [pathname, query = ''] = route.split('?');
+  resetNavigation(pathname, params);
+  navigation.searchParams = new URLSearchParams(query);
 
   if (!signedOut) {
     // Both clients read their token from localStorage before they will ask who

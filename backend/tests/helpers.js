@@ -6,6 +6,8 @@ const { signToken } = require('../utils/authToken');
 const { encrypt } = require('../utils/secretBox');
 const totp = require('../utils/totp');
 const { ROLES } = require('../config/roles');
+const mailer = require('../utils/mailer');
+const { drainBackground } = require('../utils/background');
 
 const baseVendor = {
   vendorId: 'vendor_test_001',
@@ -42,24 +44,59 @@ const seedClient = async ({ clientId = 'CLT-0001', slug = 'legacy', companyName 
 const onboardVendor = (vendorId, { clientId = 'CLT-0001', status = 'Approved' } = {}) =>
   runWithTenant(clientId, () => prisma.vendor.updateMany({ where: { vendorId }, data: { status } }));
 
-// Registers a vendor through the real API and returns { token, vendor }.
+// The emailed confirmation token for an address, once the (background) mail has
+// been sent. Registration answers before it does its work, so wait for it.
+const confirmationTokenFor = async (email) => {
+  await drainBackground();
+  const mail = mailer.sentMails().reverse().find((sent) => sent.to === email.toLowerCase() && sent.template === 'registrationConfirm');
+  const match = mail && /token=([a-f0-9]+)/i.exec(mail.text);
+  if (!match) throw new Error(`No registration confirmation was emailed to ${email}`);
+  return match[1];
+};
+
+// Registers a vendor through the real API — registration, the emailed link,
+// confirmation, sign-in — and returns { token, vendor }. Registering only
+// produces a pending account (finding 1.4), so a helper that skipped the
+// confirmation would hand tests an account the API will not let sign in.
 // `clientSlug` picks the workspace (see utils/resolveClient.js).
 const registerVendor = async (app, overrides = {}, { clientSlug = 'legacy', onboarded = false } = {}) => {
   const clientId = overrides.clientId || 'CLT-0001';
   await seedClient({ slug: clientSlug, clientId });
   const payload = { ...baseVendor, ...overrides };
   delete payload.clientId;
-  const res = await request(app)
+  const registered = await request(app)
     .post('/api/auth/register')
     .set('x-client-slug', clientSlug)
     .send(payload);
-  if (res.status !== 201) {
-    throw new Error(`Test vendor registration failed: ${JSON.stringify(res.body)}`);
+  if (registered.status !== 202) {
+    throw new Error(`Test vendor registration failed: ${JSON.stringify(registered.body)}`);
   }
+
+  const token = await confirmationTokenFor(payload.email);
+  const confirmed = await request(app)
+    .post('/api/auth/confirm-email')
+    .set('x-client-slug', clientSlug)
+    .send({ token, password: payload.password });
+  if (confirmed.status !== 200) {
+    throw new Error(`Test vendor confirmation failed: ${JSON.stringify(confirmed.body)}`);
+  }
+
+  const login = await request(app)
+    .post('/api/auth/login')
+    .set('x-client-slug', clientSlug)
+    .send({ vendorIdOrEmail: payload.email, password: payload.password });
+  if (login.status !== 200) {
+    throw new Error(`Test vendor sign-in failed: ${JSON.stringify(login.body)}`);
+  }
+
+  // Set-up mail is not the test's business: suites that count what was sent
+  // after registering a supplier would otherwise see the confirmation.
+  mailer.removeMailsWhere((sent) => sent.to === payload.email.toLowerCase() && sent.template === 'registrationConfirm');
+
   if (onboarded) {
-    await onboardVendor(res.body.vendor.vendorId, { clientId });
+    await onboardVendor(login.body.vendor.vendorId, { clientId });
   }
-  return { token: res.body.token, vendor: res.body.vendor, payload };
+  return { token: login.body.token, vendor: login.body.vendor, payload };
 };
 
 // What VENDOR_CR needs that sign-up never asks for: registerSchema collects
@@ -167,6 +204,7 @@ const asTenant = (fn, clientId = 'CLT-0001') => runWithTenant(clientId, fn);
 const runDueJobs = (...args) => require('../jobs/worker').tick(...args);
 
 module.exports = {
+  confirmationTokenFor,
   baseVendor,
   registerVendor,
   completeProfile,

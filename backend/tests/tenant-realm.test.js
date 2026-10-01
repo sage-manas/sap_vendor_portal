@@ -4,6 +4,7 @@ const { rawPrisma } = require('../db/prisma');
 const { withoutTenantScope } = require('../utils/tenantContext');
 const { realmFromRequest } = require('../utils/resolveClient');
 const { registerVendor, seedClient, baseVendor } = require('./helpers');
+const { drainBackground } = require('../utils/background');
 
 // The supplier plane under tenancy: which workspace a signed-out visitor is
 // addressing, and what that answer is allowed to decide.
@@ -127,8 +128,10 @@ describe('registration is addressed to one workspace', () => {
       .set('host', 'northwind.vendorconnect.io')
       .send(baseVendor);
 
-    expect(res.status).toBe(201);
-    expect(res.body.vendor.clientId).toBe('CLT-0002');
+    expect(res.status).toBe(202);
+    await drainBackground();
+    const created = await withoutTenantScope(() => rawPrisma.vendor.findFirst({ where: { email: baseVendor.email } }));
+    expect(created.clientId).toBe('CLT-0002');
   });
 
   it('answers 404 for a hostname no tenant owns', async () => {

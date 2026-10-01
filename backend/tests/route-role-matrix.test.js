@@ -22,6 +22,7 @@ const PUBLIC_ROUTES = new Set([
   'GET /test-error',
   'GET /auth/workspace',
   'POST /auth/register',
+  'POST /auth/confirm-email',
   'POST /auth/login',
   'POST /auth/forgot-password',
   'POST /auth/reset-password',
