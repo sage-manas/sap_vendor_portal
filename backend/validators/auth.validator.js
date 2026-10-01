@@ -19,7 +19,7 @@ const passwordField = z.string()
   .regex(/[A-Z]/, { message: "Password must include an uppercase letter" })
   .regex(/[0-9]/, { message: "Password must include a number" });
 
-const registerSchema = z.object({
+const registerSchema = z.strictObject({
   // Optional: if omitted, the backend assigns a vendorId. Never trusted as
   // the sole source of a "real" id — only honored so existing test/dev
   // fixtures that supply one keep working.
@@ -44,26 +44,26 @@ const registerSchema = z.object({
   bankBranch: z.string().optional(),
 });
 
-const loginSchema = z.object({
+const loginSchema = z.strictObject({
   vendorIdOrEmail: z.string().min(1, { message: "Vendor ID or Email is required" }),
   password: z.string().min(1, { message: "Password is required" })
 });
 
-const forgotPasswordSchema = z.object({
+const forgotPasswordSchema = z.strictObject({
   email: z.string().email({ message: "Invalid email format" })
 });
 
-const resetPasswordSchema = z.object({
+const resetPasswordSchema = z.strictObject({
   token: z.string().min(1, { message: "Reset token is required" }),
   password: passwordField
 });
 
-const changePasswordSchema = z.object({
+const changePasswordSchema = z.strictObject({
   currentPassword: z.string().min(1, { message: "Current password is required" }),
   newPassword: passwordField
 });
 
-const acceptInvitationSchema = z.object({
+const acceptInvitationSchema = z.strictObject({
   token: z.string().min(1, { message: "Invitation token is required" }),
   password: passwordField,
   name: z.string().min(2).max(120).optional()
@@ -74,7 +74,7 @@ const confirmEmailSchema = z.strictObject({
   password: z.string().min(1, { message: "Password is required" })
 });
 
-const platformLoginSchema = z.object({
+const platformLoginSchema = z.strictObject({
   email: z.string().email({ message: "Invalid email format" }),
   password: z.string().min(1, { message: "Password is required" })
 });

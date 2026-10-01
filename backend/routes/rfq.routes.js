@@ -15,6 +15,7 @@ const {
 } = require('../controllers/rfq.controller');
 
 const validate = require('../middleware/validate');
+const { noBody } = require('../validators/common.validator');
 const validateQuery = require('../middleware/validateQuery');
 const { requirePermission } = require('../middleware/auth');
 const { PERMISSIONS } = require('../config/permissions');
@@ -22,7 +23,8 @@ const {
   rfqCreateSchema,
   bidSchema,
   reissueRfqSchema,
-  quotationPriceUpdateSchema
+  quotationPriceUpdateSchema,
+  awardSchema
 } = require('../validators/rfq.validator');
 const { paginationSchema } = require('../validators/pagination.validator');
 
@@ -32,12 +34,12 @@ router.post('/', requirePermission(PERMISSIONS.RFQ_CREATE), validate(rfqCreateSc
 router.get('/sap-status', requirePermission(PERMISSIONS.RFQ_READ), getSapRfqStatus);
 router.get('/sap-quotations', requirePermission(PERMISSIONS.RFQ_READ), getSapQuotationStatus);
 router.get('/:id', requirePermission(PERMISSIONS.RFQ_READ), getRFQById);
-router.put('/:id/cancel', requirePermission(PERMISSIONS.RFQ_MANAGE), cancelRFQ);
+router.put('/:id/cancel', requirePermission(PERMISSIONS.RFQ_MANAGE), validate(noBody), cancelRFQ);
 router.put('/:id/reissue', requirePermission(PERMISSIONS.RFQ_MANAGE), validate(reissueRfqSchema), reissueRFQ);
 router.post('/:id/bid', requirePermission(PERMISSIONS.RFQ_BID), validate(bidSchema), submitBid);
 router.post('/:id/sap-quote-price', requirePermission(PERMISSIONS.RFQ_BID), validate(quotationPriceUpdateSchema), updateSapQuotationPrice);
 router.get('/:id/evaluate', requirePermission(PERMISSIONS.RFQ_EVALUATE), getEvaluationMatrix);
-router.post('/:id/award', requirePermission(PERMISSIONS.RFQ_AWARD), awardBid);
+router.post('/:id/award', requirePermission(PERMISSIONS.RFQ_AWARD), validate(awardSchema), awardBid);
 router.get('/:id/export', requirePermission(PERMISSIONS.RFQ_READ), exportAwardedPo);
 
 module.exports = router;

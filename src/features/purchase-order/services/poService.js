@@ -28,7 +28,10 @@ export const poService = {
   },
 
   async submitASN(poId, asnData) {
-    return apiClient.post(`/pos/${poId}/asn`, asnData);
+    // The order is named by the URL; the body refuses keys the API does not
+    // declare, and callers hand over the same object that carries `poId`.
+    const { poId: _named, ...body } = asnData;
+    return apiClient.post(`/pos/${poId}/asn`, body);
   },
 
   async getASNs() {

@@ -61,7 +61,6 @@ describe('Vendor.gstin is unique per tenant, not platform-wide (issue #67)', () 
       .set('x-client-slug', 'rival')
       .send({
         ...require('./helpers').baseVendor,
-        clientId: 'CLT-0002',
         vendorId: 'vendor_gstin_f', email: 'gstin-shared-email@example.com', gstin: '29AABCF0000F1Z1',
       });
 

@@ -1,4 +1,6 @@
 const router = require('express').Router();
+const validate = require('../middleware/validate');
+const { createPaymentSchema } = require('../validators/payment.validator');
 const {
   getPayments,
   getSapPaymentStatus,
@@ -12,7 +14,7 @@ const validateQuery = require('../middleware/validateQuery');
 const { paginationSchema } = require('../validators/pagination.validator');
 
 router.get('/', requirePermission(PERMISSIONS.PAYMENT_READ), validateQuery(paginationSchema), getPayments);
-router.post('/', requirePermission(PERMISSIONS.PAYMENT_CREATE), createPayment);
+router.post('/', requirePermission(PERMISSIONS.PAYMENT_CREATE), validate(createPaymentSchema), createPayment);
 // Ahead of '/:id', or Express would read "sap-status" as a payment id.
 router.get('/sap-status', requirePermission(PERMISSIONS.PAYMENT_READ), getSapPaymentStatus);
 router.get('/tds-summary', requirePermission(PERMISSIONS.PAYMENT_READ), getTdsSummary);

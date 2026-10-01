@@ -27,7 +27,7 @@ const assetSubNumber = z.string()
   .regex(/^\d+$/, 'An asset sub-number is digits only (ANLN2)')
   .default('0000');
 
-const assetPoItemSchema = z.object({
+const assetPoItemSchema = z.strictObject({
   // SHORT_TEXT / TXZ01 — SAP truncates at 40 characters, so this refuses rather
   // than letting a description be silently cut in half in the customer's books.
   description: z.string().trim().min(1, 'Each line needs a description').max(40, 'A line description is at most 40 characters (SAP TXZ01)'),
@@ -43,7 +43,7 @@ const assetPoItemSchema = z.object({
   assetSubNumber,
 });
 
-const assetPoSchema = z.object({
+const assetPoSchema = z.strictObject({
   vendorId: z.string().trim().min(1, 'A vendor is required'),
 
   // Organisational scope. No defaults anywhere here — issue #62's whole point

@@ -76,6 +76,9 @@ describe('raising an advance shipping notice', () => {
       shipDate: '2026-02-01',
       estimatedDeliveryDate: '2026-02-05',
     });
+    // The order is named by the URL; the API refuses a body key it does not
+    // declare, so `poId` must not ride along in the body too.
+    expect(body).not.toHaveProperty('poId');
     // A part shipment is the interesting case: line 20 ships 150 of 200, and
     // the quantity the supplier typed must survive rather than the ordered
     // quantity being sent back.

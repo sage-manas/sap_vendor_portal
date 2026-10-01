@@ -203,8 +203,24 @@ const asTenant = (fn, clientId = 'CLT-0001') => runWithTenant(clientId, fn);
 // running gets there first.
 const runDueJobs = (...args) => require('../jobs/worker').tick(...args);
 
+// What the supplier form actually PUTs: the GET /vendors/profile response
+// narrowed to the columns the API declares. PUT /vendors/profile refuses any
+// other key, so a test that "sends back what the API returned" must narrow it
+// the way the form does. The list is read from the frontend file — one source.
+const PROFILE_WRITABLE_FIELDS = (() => {
+  const source = require('fs').readFileSync(
+    require('path').join(__dirname, '../../src/features/profile/profileFields.js'), 'utf8');
+  const list = source.match(/PROFILE_WRITABLE_FIELDS = \[([\s\S]*?)\];/)[1];
+  return [...list.matchAll(/'([^']+)'/g)].map((match) => match[1]);
+})();
+
+const profileFormPayload = (profile) =>
+  Object.fromEntries(PROFILE_WRITABLE_FIELDS.filter((field) => field in profile).map((field) => [field, profile[field]]));
+
 module.exports = {
   confirmationTokenFor,
+  PROFILE_WRITABLE_FIELDS,
+  profileFormPayload,
   baseVendor,
   registerVendor,
   completeProfile,
