@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const logger = require('../utils/logger');
+const { redactDeep, redactString } = require('../utils/redact');
 
 const requestLogger = (req, res, next) => {
   // Attach requestId for tracking correlation
@@ -20,7 +21,7 @@ const requestLogger = (req, res, next) => {
   logger.info(`Incoming request`, {
     requestId: req.requestId,
     method: req.method,
-    url: req.originalUrl || req.url,
+    url: redactString(req.originalUrl || req.url),
     ip: req.ip || req.socket.remoteAddress
   });
 
@@ -38,16 +39,18 @@ const requestLogger = (req, res, next) => {
       // and pre-auth requests, which is the correct, honest answer.
       clientId: req.clientId,
       method: req.method,
-      url: req.originalUrl || req.url,
+      url: redactString(req.originalUrl || req.url),
       statusCode,
       responseTimeMs: Number(responseTimeMs),
       contentLength: Number(contentLength),
       ip: req.ip || req.socket.remoteAddress
     };
 
-    // Log request body on warnings/errors for inspection (Sanitizer handles redact)
+    // Log request body on warnings/errors for inspection, redacted here as well
+    // as in the logger's own format (utils/redact.js): the body is the one
+    // thing in this file that routinely carries bank and tax identifiers.
     if (statusCode >= 400 && req.body && Object.keys(req.body).length > 0) {
-      logData.body = req.body;
+      logData.body = redactDeep(req.body);
     }
 
     if (statusCode >= 500) {

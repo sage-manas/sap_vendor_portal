@@ -1,54 +1,14 @@
 const winston = require('winston');
 const DailyRotateFile = require('winston-daily-rotate-file');
 const path = require('path');
+const { redactDeep } = require('./redact');
 
-// Helper function to sanitize sensitive properties from metadata
-const sanitizeMetadata = (info) => {
-  const sensitiveKeys = [
-    'password', 'token', 'secret', 'clerk', 'authorization', 'cookie', 
-    'mongo', 'key', 'mongoose', 'db', 'uri'
-  ];
-  
-  const cleanObj = (obj) => {
-    if (!obj || typeof obj !== 'object') return obj;
-    const clean = Array.isArray(obj) ? [] : {};
-    for (const key in obj) {
-      if (Object.prototype.hasOwnProperty.call(obj, key)) {
-        const lowerKey = key.toLowerCase();
-        const matchesSensitive = sensitiveKeys.some(s => lowerKey.includes(s));
-        if (matchesSensitive) {
-          clean[key] = '[REDACTED]';
-        } else if (typeof obj[key] === 'object') {
-          clean[key] = cleanObj(obj[key]);
-        } else {
-          clean[key] = obj[key];
-        }
-      }
-    }
-    return clean;
-  };
-
-  const newInfo = { ...info };
-  // Sanitize req body if logged
-  if (newInfo.body && typeof newInfo.body === 'object') {
-    newInfo.body = cleanObj(newInfo.body);
-  }
-  
-  // General metadata sanitization
-  for (const key in newInfo) {
-    if (Object.prototype.hasOwnProperty.call(newInfo, key) && typeof newInfo[key] === 'object') {
-      newInfo[key] = cleanObj(newInfo[key]);
-    }
-  }
-  
-  return newInfo;
-};
+// What may not reach a log is decided in utils/redact.js, shared with the
+// request logger and the SAP communication log. Applied in place so winston's
+// own symbol-keyed fields (level, message, splat) survive.
+const sanitizeFormat = winston.format((info) => Object.assign(info, redactDeep({ ...info })));
 
 // Formats
-const sanitizeFormat = winston.format((info) => {
-  return sanitizeMetadata(info);
-});
-
 const customFormat = winston.format.combine(
   winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss.SSS' }),
   sanitizeFormat(),
