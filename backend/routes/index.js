@@ -69,6 +69,10 @@ router.use('/pos', protectOnboarded, require('./po.routes'));
 router.use('/grns', protectOnboarded, require('./grn.routes'));
 router.use('/invoices', protectOnboarded, require('./invoice.routes'));
 router.use('/payments', protectOnboarded, require('./payment.routes'));
+// Local-driver signed links carry their own credential (a short-lived signature
+// over one file in one tenant), so this one route sits outside `protectTenant`.
+// It must precede the protected /uploads router below.
+router.get('/uploads/signed/:id', require('../controllers/upload.controller').downloadSigned);
 router.use('/uploads', protectTenant, require('./upload.routes'));
 router.use('/reports', protectOnboarded, require('./report.routes'));
 router.use('/asns', protectOnboarded, require('./asn.routes'));

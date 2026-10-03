@@ -19,6 +19,7 @@ const removeRejectedUpload = (req, res, next) => {
 
 router.post('/', requirePermission(PERMISSIONS.DOCUMENT_WRITE), upload.single('file'), removeRejectedUpload, validate(uploadFieldsSchema), uploadController.uploadFile);
 router.get('/', requirePermission(PERMISSIONS.DOCUMENT_READ), uploadController.listDocuments);
+router.get('/:id/link', requirePermission(PERMISSIONS.DOCUMENT_READ), uploadController.documentLink);
 router.get('/:id', requirePermission(PERMISSIONS.DOCUMENT_READ), uploadController.downloadFile);
 router.delete('/:id', requirePermission(PERMISSIONS.DOCUMENT_DELETE), validate(noBody), uploadController.deleteDocument);
 
