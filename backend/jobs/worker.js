@@ -38,7 +38,9 @@ const processJob = async (job, { handlerFor = defaultHandlerFor } = {}) => {
 
   try {
     const outcome = await runWithTenant(job.clientId, async () => {
-      const adapter = await getSapAdapterForClient(job.clientId);
+      // A kind that only touches our own database must not depend on the
+      // tenant's SAP connection being healthy (see needsAdapter in kinds.js).
+      const adapter = spec.needsAdapter === false ? null : await getSapAdapterForClient(job.clientId);
       const handler = handlerFor(job.kind);
       return handler({ job, adapter });
     });

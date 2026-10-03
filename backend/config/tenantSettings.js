@@ -44,6 +44,11 @@ const GROUPS = [
   { key: 'thresholds', label: 'Thresholds', caption: 'The numbers the workspace overview measures against.' },
   { key: 'notifications', label: 'Notifications', caption: 'Which decisions send the supplier an email.' },
   {
+    key: 'retention',
+    label: 'Data retention',
+    caption: 'How long this workspace keeps its operational logs before they are deleted. The audit trail is a compliance record and is never purged.',
+  },
+  {
     key: 'sapVendorCreate',
     label: 'SAP vendor creation',
     caption: 'System-controlled values SAP expects on every vendor master record — set once here, never asked of a supplier. These must match the target SAP system\'s own customizing (account group, company code, purchasing organization and so on); get them from whoever administers it.',
@@ -211,7 +216,41 @@ const SETTINGS = [
     hint: 'Pricing/calculation schema group for the vendor. Unverified — confirm with SAP/ABAP.',
     readBy: 'sap/mappings/vendor-create.map.js via s4odata.driver.js vendorCreate',
   },
+
+  // --- Retention (issue #128) ----------------------------------------------
+  {
+    key: 'retention.sapLogDays',
+    path: 'settings.retention.sapLogDays',
+    group: 'retention',
+    type: 'number',
+    min: 7,
+    max: 3650,
+    default: 90,
+    label: 'SAP log retention (days)',
+    hint: 'SAP communication log rows older than this are deleted daily. They hold request and response payloads, so keep this as short as support needs. 7 to 3650.',
+    readBy: 'jobs/retention.js (purgeSapLogs)',
+  },
+  {
+    key: 'retention.finishedJobDays',
+    path: 'settings.retention.finishedJobDays',
+    group: 'retention',
+    type: 'number',
+    min: 1,
+    max: 365,
+    default: 14,
+    label: 'Finished job retention (days)',
+    hint: 'Completed, failed and abandoned background SAP jobs older than this are deleted daily. Jobs still waiting or running are never deleted. 1 to 365.',
+    readBy: 'jobs/retention.js (purgeFinishedJobs)',
+  },
 ];
+
+// A setting may narrow its type further: a retention of 0 days would be "delete
+// everything", which is not a policy.
+const rangeProblem = (setting, value) => {
+  if (setting.min !== undefined && value < setting.min) return `must be at least ${setting.min}`;
+  if (setting.max !== undefined && value > setting.max) return `must be at most ${setting.max}`;
+  return '';
+};
 
 const BY_KEY = new Map(SETTINGS.map((setting) => [setting.key, setting]));
 
@@ -273,7 +312,7 @@ const applySettings = (client, patch = {}) => {
     }
     const type = TYPES[setting.type];
     const value = type.coerce(raw);
-    const problem = type.check(value);
+    const problem = type.check(value) || rangeProblem(setting, value);
     if (problem) {
       errors[key] = problem;
       continue;

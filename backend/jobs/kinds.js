@@ -68,6 +68,25 @@ const SAP_JOB_KINDS = {
     defaultMaxAttempts: 5,
     recurring: true,
   },
+
+  // Retention (issue #128; jobs/retention.js). Daily, per tenant, with the
+  // period read from the tenant's own settings. `needsAdapter: false` — they
+  // only touch our own database, so a tenant whose SAP connection is down or
+  // unconfigured still gets its logs purged.
+  purgeSapLogs: {
+    label: 'Purge SAP logs',
+    defaultIntervalMs: 24 * 60 * 60 * 1000,
+    defaultMaxAttempts: 3,
+    recurring: true,
+    needsAdapter: false,
+  },
+  purgeFinishedJobs: {
+    label: 'Purge finished jobs',
+    defaultIntervalMs: 24 * 60 * 60 * 1000,
+    defaultMaxAttempts: 3,
+    recurring: true,
+    needsAdapter: false,
+  },
 };
 
 const jobKind = (key) => {
