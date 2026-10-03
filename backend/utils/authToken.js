@@ -50,11 +50,13 @@ const signToken = (account, { mfa = false } = {}) => {
       ...(accountType === ACCOUNT_TYPES.VENDOR ? { vendorId: account.vendorId, id: account.pk } : {}),
     },
     secret(),
-    { expiresIn: process.env.JWT_EXPIRES_IN || '30d' }
+    { algorithm: 'HS256', expiresIn: process.env.JWT_EXPIRES_IN || '30d' }
   );
 };
 
-const verifyToken = (token) => jwt.verify(token, secret());
+// Pinned to the one algorithm signToken uses, so a token never gets to choose
+// how it is verified.
+const verifyToken = (token) => jwt.verify(token, secret(), { algorithms: ['HS256'] });
 
 // Tokens minted before Phase 2 carry `id`/`vendorId` and no `accountType`.
 // They can only ever have been supplier or (pre-migration) admin vendors, so

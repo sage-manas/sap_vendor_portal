@@ -1,5 +1,6 @@
 const { prisma } = require('../db/prisma');
 const logger = require('./logger');
+const { redactDeep, redactString } = require('./redact');
 const { transaction } = require('../config/sapTransactions');
 
 // Writes to the SAP communication log.
@@ -19,6 +20,21 @@ const { transaction } = require('../config/sapTransactions');
  * @param {string} [entry.documentRef]
  * @param {string} [entry.errorMessage]
  */
+// The log is read by tenant staff and kept for months; bank account numbers,
+// IFSC, PAN, GSTIN and UTRs in it are shown as their last four characters
+// (utils/redact.js). A payload may arrive as an object, as JSON text or as
+// plain text, and each is handled.
+const serialisePayload = (payload) => {
+  if (typeof payload === 'string') {
+    try {
+      return JSON.stringify(redactDeep(JSON.parse(payload)), null, 2);
+    } catch {
+      return redactString(payload);
+    }
+  }
+  return typeof payload === 'object' ? JSON.stringify(redactDeep(payload), null, 2) : payload;
+};
+
 const recordSapCall = async ({ transaction: key, vendorId, payload, status = 'SUCCESS', documentRef = '', errorMessage }) => {
   const { code, type, direction } = transaction(key);
 
@@ -29,9 +45,9 @@ const recordSapCall = async ({ transaction: key, vendorId, payload, status = 'SU
         type,
         direction,
         name: code,
-        payload: typeof payload === 'object' ? JSON.stringify(payload, null, 2) : payload,
+        payload: serialisePayload(payload),
         status,
-        errorMessage,
+        errorMessage: redactString(errorMessage),
         documentRef,
       },
     });

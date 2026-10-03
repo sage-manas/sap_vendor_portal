@@ -1,6 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "shadcn/tailwind.css";
+@import "./shadcn-variants.css";
 
 /* The app toggles a `.dark` class on <html> (see theme-context.js) instead of
    relying on OS color-scheme, so `dark:` utilities must key off that class. */

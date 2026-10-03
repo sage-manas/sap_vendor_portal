@@ -1,5 +1,5 @@
 const express = require('express');
-const { internalKey } = require('../utils/internalAuth');
+const { isInternalKey } = require('../utils/internalAuth');
 const { vendorRoom, procurementRoom } = require('../utils/socketEmitter');
 const logger = require('../utils/logger');
 
@@ -29,7 +29,7 @@ module.exports = (io) => {
   router.use(restrictToLoopback);
 
   router.post('/emit', (req, res) => {
-    if (req.headers['x-internal-key'] !== internalKey()) return res.status(404).end();
+    if (!isInternalKey(req.headers['x-internal-key'])) return res.status(404).end();
 
     const { room, event, data } = req.body || {};
     if (!room?.clientId || !event) {

@@ -160,7 +160,8 @@ NODE_ENV=production
 DATABASE_URL=postgresql://<user>:<password>@localhost:5432/sap_vendor_portal?schema=public
 FRONTEND_URL=https://your-domain.com
 ALLOWED_ORIGINS=https://your-domain.com
-JWT_SECRET=<strong secret>
+JWT_SECRET=<random, 32+ characters: openssl rand -hex 32>
+INTERNAL_KEY=<a different random value, 32+ characters; the API and the job worker must share it>
 JWT_EXPIRES_IN=30d
 MASTER_KEY=<strong key/passphrase>
 MAIL_TRANSPORT=smtp
@@ -194,6 +195,7 @@ Different FRONTEND_URL
 Different ALLOWED_ORIGINS
 Different DATABASE_URL or database name
 Different JWT_SECRET
+Different INTERNAL_KEY
 Different MASTER_KEY
 Different NEXT_PUBLIC_API_URL
 ```
@@ -363,6 +365,7 @@ Do not send these over normal chat/email:
 
 ```text
 JWT_SECRET
+INTERNAL_KEY
 MASTER_KEY
 SMTP_PASSWORD
 PostgreSQL password

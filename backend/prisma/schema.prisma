@@ -1078,7 +1078,7 @@ model Document {
 }
 
 // ---------------------------------------------------------------------------
-// SapLog — 30-day TTL replicated via pg_cron / app cron, not a schema feature
+// SapLog — retention is the recurring purgeSapLogs job (jobs/retention.js), not a schema feature
 // ---------------------------------------------------------------------------
 
 model SapLog {

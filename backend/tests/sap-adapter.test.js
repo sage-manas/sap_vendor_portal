@@ -505,6 +505,10 @@ describe('the SAP field codec (sap/mappings/fields.js, applied by the wrapper)',
 
 describe('s4_odata vendorCreate (VENDOR_CR)', () => {
   it('is a plain POST built from the mapping table, and fails honestly with no reachable gateway', async () => {
+    // A loopback gateway is exactly what the SAP network guard refuses unless
+    // an on-premises address is allow-listed; this test needs the connection
+    // itself to be refused, so it lists the address (sap/networkGuard.js).
+    process.env.SAP_ALLOWED_PRIVATE_HOSTS = '127.0.0.1';
     const adapter = buildTransientAdapter({
       clientId: 'CLT-0001', driver: 's4_odata', secrets: {},
       config: { baseUrl: 'http://127.0.0.1:1', timeoutMs: 200 },
@@ -513,6 +517,7 @@ describe('s4_odata vendorCreate (VENDOR_CR)', () => {
 
     await expect(runWithTenant('CLT-0001', () => adapter.vendorCreate({ vendor, settings: { accountGroup: 'LIEF' } })))
       .rejects.toMatchObject({ code: 'sap_call_failed' });
+    delete process.env.SAP_ALLOWED_PRIVATE_HOSTS;
   });
 });
 

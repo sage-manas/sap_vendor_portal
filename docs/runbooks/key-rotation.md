@@ -21,6 +21,14 @@ Do this if the secret is suspected to have leaked. Do not do it casually —
 "we rotate secrets quarterly" is not a reason to log out every tenant on this
 codebase's current design.
 
+## `INTERNAL_KEY`
+
+Authenticates the job worker's loopback calls to the API (`/internal/emit`),
+nothing else. Rotating it costs nothing visible to users: set the new value on
+**both** `vendorconnect-api` and `vendorconnect-jobs` and restart both. Between
+the two restarts realtime toasts from jobs are dropped (the worker logs a
+warning); jobs themselves are unaffected.
+
 ## `MASTER_KEY`
 
 Encrypts secrets at rest: platform operator MFA secrets (`utils/secretBox.js`,

@@ -19,6 +19,9 @@ const HANDLERS = {
   sweepInvoices: require('./sweepInvoices'),
   sweepPayments: require('./sweepPayments'),
   sweepQuotations: require('./sweepQuotations'),
+  // Retention (issue #128).
+  purgeSapLogs: require('./purgeSapLogs'),
+  purgeFinishedJobs: require('./purgeFinishedJobs'),
 };
 
 const handlerFor = (kind) => {

@@ -1,0 +1,34 @@
+name: Dependency audit
+
+# Fails on any known high or critical advisory in either package. Runs on
+# every PR and push like the tests do, and weekly: an advisory published after
+# the last merge should turn this red without waiting for the next PR.
+on:
+  pull_request:
+  push:
+    branches: [master]
+  schedule:
+    - cron: '17 5 * * 1'
+
+jobs:
+  npm-audit:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [frontend, backend]
+        include:
+          - package: frontend
+            directory: .
+          - package: backend
+            directory: backend
+    defaults:
+      run:
+        working-directory: ${{ matrix.directory }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # The lockfile is what gets audited; no install is needed.
+      - run: npm audit --package-lock-only --audit-level=high
