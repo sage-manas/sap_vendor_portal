@@ -6,6 +6,9 @@ const logger = require('../utils/logger');
 const { assertCanCreate } = require('../utils/usage');
 const { checkUpload, mimeForFileName, contentDisposition } = require('../utils/fileType');
 const { refusalFor } = require('../services/virusScan.service');
+const { activeStorage, storageFor, ttlSeconds } = require('../storage');
+const { verify } = require('../storage/signing');
+const { getTenantId, runWithTenant } = require('../utils/tenantContext');
 
 const { requireVendorScope, vendorScope, scopedWhere } = require('../utils/requestScope');
 
@@ -18,6 +21,18 @@ const discard = (file) => {
   } catch (error) {
     logger.error(`[upload] could not remove ${file.path}: ${error.message}`);
   }
+};
+
+// Served under a type derived from the stored file name, not `doc.mimeType`:
+// rows written before uploads were content-checked carry whatever the client
+// claimed. nosniff and `attachment` stay, so a browser saves the bytes rather
+// than deciding for itself what they are.
+const sendFile = async (res, doc) => {
+  const stream = await storageFor(doc.storageDriver).open(doc);
+  res.setHeader('Content-Type', mimeForFileName(doc.fileName));
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Disposition', contentDisposition(doc.originalName));
+  stream.pipe(res);
 };
 
 // @desc    Upload file and save document details
@@ -58,7 +73,8 @@ const uploadFile = asyncHandler(async (req, res, next) => {
     return next(error);
   }
 
-  // Optional ClamAV scan (CLAMAV_HOST); a no-op when not configured.
+  // Optional ClamAV scan (CLAMAV_HOST); a no-op when not configured. Runs on
+  // the staged file, before anything is sent to the object store.
   const refusal = await refusalFor(file.path);
   if (refusal) {
     discard(file);
@@ -66,6 +82,23 @@ const uploadFile = asyncHandler(async (req, res, next) => {
   }
 
   const { linkedTo } = req.body;
+  const storage = activeStorage();
+
+  // Hand the validated file to the store. For the local driver it is already in
+  // place; for object storage this is the upload, after which the staged copy
+  // is removed whatever happens next.
+  let stored;
+  try {
+    stored = await storage.put({
+      filePath: file.path,
+      key: storage.newKey?.({ clientId: getTenantId(), vendorId }),
+      contentType: verdict.mime,
+      size: file.size,
+    });
+  } catch (error) {
+    discard(file);
+    throw error;
+  }
 
   let doc;
   try {
@@ -77,14 +110,20 @@ const uploadFile = asyncHandler(async (req, res, next) => {
         // The type the server proved, never the one the client declared.
         mimeType: verdict.mime,
         size: file.size,
-        filePath: file.path,
+        storageDriver: storage.name,
+        storageKey: stored.storageKey,
+        filePath: stored.keepStaged ? file.path : '',
         linkedTo: linkedTo || 'Profile'
       },
     });
   } catch (error) {
+    // The object is in the store and nothing points at it: take it back out.
+    await storage.remove({ storageKey: stored.storageKey, filePath: file.path });
     discard(file);
     throw error;
   }
+
+  if (!stored.keepStaged) discard(file);
 
   res.status(201).json({
     documentId: doc.pk,
@@ -109,20 +148,43 @@ const downloadFile = asyncHandler(async (req, res, next) => {
     return next(ApiError.notFound('Document not found'));
   }
 
-  if (!fs.existsSync(doc.filePath)) {
-    return next(ApiError.notFound('Physical file does not exist on disk'));
+  await sendFile(res, doc);
+});
+
+// @desc    A short-lived link that downloads the file without the session token
+// @route   GET /api/uploads/:id/link
+// @access  document:read
+//
+// The same visibility rule as the download above decides who gets one. The link
+// is then the credential: object storage serves the bytes directly, so the API
+// never carries them, and it stops working after SIGNED_URL_TTL_SECONDS.
+const documentLink = asyncHandler(async (req, res, next) => {
+  const doc = await prisma.document.findFirst({ where: scopedWhere(req, { pk: req.params.id }) });
+  if (!doc) {
+    return next(ApiError.notFound('Document not found'));
   }
 
-  // Served under a type derived from the stored file name, not `doc.mimeType`:
-  // rows written before uploads were content-checked carry whatever the client
-  // claimed. nosniff and `attachment` stay, so a browser saves the bytes rather
-  // than deciding for itself what they are.
-  res.setHeader('Content-Type', mimeForFileName(doc.fileName));
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Content-Disposition', contentDisposition(doc.originalName));
+  const link = await storageFor(doc.storageDriver).link(doc, { ttlSeconds: ttlSeconds(), clientId: getTenantId() });
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(link);
+});
 
-  const fileStream = fs.createReadStream(doc.filePath);
-  fileStream.pipe(res);
+// @desc    Serve a file for a link the local driver signed
+// @route   GET /api/uploads/signed/:id?c=&exp=&sig=
+// @access  by signature only (object storage does this itself)
+const downloadSigned = asyncHandler(async (req, res, next) => {
+  const { c: clientId, exp, sig } = req.query;
+  if (!verify({ clientId, documentId: req.params.id, exp, sig })) {
+    return next(ApiError.forbidden('This link is invalid or has expired'));
+  }
+
+  // The tenant is the one the signature covers, not one the caller names freely.
+  await runWithTenant(clientId, async () => {
+    const doc = await prisma.document.findFirst({ where: { pk: req.params.id } });
+    if (!doc || doc.storageDriver !== 'local') return next(ApiError.notFound('Document not found'));
+    res.setHeader('Cache-Control', 'no-store');
+    return sendFile(res, doc);
+  });
 });
 
 // @desc    List all documents for a vendor
@@ -155,7 +217,7 @@ const deleteDocument = asyncHandler(async (req, res, next) => {
   // The row goes first: if that fails the file is still there for the record
   // that points at it. The reverse order lost the file and kept the row.
   await prisma.document.delete({ where: { pk: doc.pk } });
-  fs.rmSync(doc.filePath, { force: true });
+  await storageFor(doc.storageDriver).remove(doc);
 
   res.json({ message: 'Document deleted successfully' });
 });
@@ -163,6 +225,8 @@ const deleteDocument = asyncHandler(async (req, res, next) => {
 module.exports = {
   uploadFile,
   downloadFile,
+  documentLink,
+  downloadSigned,
   listDocuments,
   deleteDocument
 };

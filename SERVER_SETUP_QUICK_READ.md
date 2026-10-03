@@ -74,7 +74,16 @@ SMTP_PORT=<smtp port>
 SMTP_USER=<smtp user>
 SMTP_PASSWORD=<smtp password>
 MAIL_FROM=<sender email>
+STORAGE_DRIVER=s3
+S3_BUCKET=<private bucket name>
+S3_REGION=<region, e.g. ap-south-1>
+S3_ACCESS_KEY_ID=<access key for a user limited to that bucket>
+S3_SECRET_ACCESS_KEY=<its secret>
 ```
+
+Uploaded documents (bank proofs, PAN, GST certificates) live in that bucket, not
+on this server. `S3_ENDPOINT` and `S3_FORCE_PATH_STYLE=true` are for a provider
+other than AWS. See `docs/runbooks/object-storage.md`.
 
 Use `backend/.env.example` as the full reference.
 

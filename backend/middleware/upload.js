@@ -1,26 +1,17 @@
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
+const { activeStorage } = require('../storage');
 
-// Ensure upload directory exists inside backend
-const uploadDirBase = path.join(__dirname, '../uploads');
-if (!fs.existsSync(uploadDirBase)) {
-  fs.mkdirSync(uploadDirBase, { recursive: true });
-}
-
+// Multer only stages the upload on disk so it can be inspected (content type,
+// size, optional virus scan). Where it is staged, and whether that is also its
+// final home, is the active storage driver's decision (storage/): the local
+// driver keeps it, object storage uploads it and removes the staged copy.
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    // Dynamically store by vendor ID
     // The authenticated principal decides the folder — never a request header.
-    // Sanitised because a tenant user may name the supplier in the body.
+    // Sanitised by the driver because a tenant user may name the supplier in the body.
     const rawVendorId = req.scopeVendorId || req.body?.vendorId || 'shared';
-    const vendorId = String(rawVendorId).replace(/[^a-zA-Z0-9_-]/g, '_');
-    const finalDir = path.join(uploadDirBase, vendorId);
-    
-    if (!fs.existsSync(finalDir)) {
-      fs.mkdirSync(finalDir, { recursive: true });
-    }
-    cb(null, finalDir);
+    cb(null, activeStorage().stagingDir(rawVendorId));
   },
   filename: (req, file, cb) => {
     const sanitized = file.originalname.replace(/[^a-zA-Z0-9.\-_]/g, '_');
@@ -31,7 +22,7 @@ const storage = multer.diskStorage({
 const fileFilter = (req, file, cb) => {
   const allowedExtensions = ['.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png', '.xlsx'];
   const ext = path.extname(file.originalname).toLowerCase();
-  
+
   if (allowedExtensions.includes(ext)) {
     cb(null, true);
   } else {

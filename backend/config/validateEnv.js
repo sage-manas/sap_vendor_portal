@@ -50,6 +50,17 @@ ${msg}
     process.exit(1);
   }
 
+  // Where uploads live (backend/storage/): a typo'd driver, S3 without a bucket,
+  // KMS encryption without a key, or production on the server's own disk by
+  // accident, all fail at boot instead of on the first supplier document.
+  const storageProblems = require('../storage/config').problems();
+  if (storageProblems.length > 0) {
+    const msg = `❌ Storage is misconfigured: ${storageProblems.join('; ')}`;
+    logger.error(msg);
+    console.error(`\n${msg}\n`);
+    process.exit(1);
+  }
+
   // CLAMAV_REQUIRED=true means "no scan, no upload". With no scanner named it
   // would refuse every upload, which is a misconfiguration to fail on at boot
   // rather than discover as a 503 on the first supplier document.

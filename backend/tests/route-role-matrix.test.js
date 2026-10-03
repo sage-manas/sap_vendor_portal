@@ -31,6 +31,10 @@ const PUBLIC_ROUTES = new Set([
   'POST /platform/auth/login',
   'POST /platform/auth/forgot-password',
   'POST /platform/auth/reset-password',
+  // A link the local storage driver signed for one file in one tenant, valid for
+  // a couple of minutes: the signature is the credential, as with an S3
+  // presigned URL (controllers/upload.controller.js, storage/signing.js).
+  'GET /uploads/signed/:id',
 ]);
 
 const { collectRoutes } = require('./routeTable');

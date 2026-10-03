@@ -112,6 +112,7 @@ describe('supplier-reachable GET /:id routes are scoped to the owning supplier',
     'GET /invoices/:id': { path: () => `/invoices/${docs.invoice.id}`, owner: 200 },
     'GET /payments/:id': { path: () => `/payments/${docs.payment.id}`, owner: 200 },
     'GET /uploads/:id': { path: () => `/uploads/${docs.documentId}`, owner: 200 },
+    'GET /uploads/:id/link': { path: () => `/uploads/${docs.documentId}/link`, owner: 200 },
     'GET /reports/invoice/:id': { path: () => `/reports/invoice/${docs.invoice.id}`, owner: 200 },
   };
 
