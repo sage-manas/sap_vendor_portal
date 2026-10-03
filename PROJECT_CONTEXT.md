@@ -111,7 +111,7 @@ sap_vendor_portal/
 
 Frontend talks to backend via `NEXT_PUBLIC_API_URL` (default `http://localhost:5000/api`). Socket connects to the same host with `/api` stripped.
 
-**CI:** `.github/workflows/test.yml` runs both suites on PRs and pushes to `master`.
+**CI:** `.github/workflows/test.yml` runs both suites on PRs and pushes to `master`. `.github/workflows/audit.yml` runs `npm audit --audit-level=high` against both lockfiles on every PR, push and weekly, and `.github/dependabot.yml` opens weekly update PRs (Next and Prisma majors are ignored on purpose: those are deliberate migrations). The root `package.json` lists only what the Next app imports; the API's runtime dependencies live in `backend/package.json` only (`backend/tests/dependency-hygiene.test.js`). `backend/package.json` carries one `overrides` entry, `deepmerge-ts`, because the Prisma 6 CLI pins a 7.x with an advisory; drop it when Prisma is next upgraded.
 
 ---
 
