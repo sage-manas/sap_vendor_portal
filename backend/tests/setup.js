@@ -20,6 +20,12 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 require('../config/testDatabase').assertSafeToWipe(process.env.DATABASE_URL, 'The Jest suite');
 
 const { rawPrisma } = require('../db/prisma');
+
+// The SAP network guard (sap/networkGuard.js) resolves hostnames, and the suite
+// stubs `fetch` for hostnames like "sandbox" that exist nowhere. Resolve every
+// name to a documentation-range address (RFC 5737) so no test depends on DNS;
+// sap-target-guard.test.js installs its own resolvers to exercise the guard.
+require('../sap/networkGuard').setResolver(async () => [{ address: '203.0.113.10', family: 4 }]);
 const logger = require('../utils/logger');
 
 // Postgres replaces mongodb-memory-server: a real instance (this repo's

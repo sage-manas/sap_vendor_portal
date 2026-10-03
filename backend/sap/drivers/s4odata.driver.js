@@ -4,6 +4,7 @@ const { buildVendorCreatePayload } = require('../mappings/vendor-create.map');
 const { matchInvoiceDocument } = require('../mappings/invoice-match');
 const { decodeFromSap } = require('../mappings/fields');
 const { requireProductionCredentials } = require('./requireProductionCredentials');
+const { assertSafeTarget, literalTargetProblem } = require('../networkGuard');
 
 // S/4HANA via the OData APIs (API_BUSINESS_PARTNER, API_PURCHASEORDER_PROCESS_SRV,
 // API_INBOUND_DELIVERY_SRV, API_MATERIAL_DOCUMENT_SRV, API_SUPPLIERINVOICE_PROCESS_SRV, …).
@@ -64,11 +65,16 @@ const baseHeaders = (config, secrets) => {
 // so the unset date reads as 0 — which every caller already treats as null.
 const parseSapJson = (text) => JSON.parse(text.replace(/((?<!\\)"\s*:\s*-?)0+(?=\d)/g, '$1'));
 
+// Every SAP request goes through here or getWithBody, which is where the
+// destination is checked (sap/networkGuard.js, finding 1.10). Redirects are not
+// followed: a gateway — or whoever answers in its place — must not be able to
+// bounce a validated request on to an address the guard would have refused.
 const abortableFetch = async (url, options, timeoutMs) => {
+  await assertSafeTarget(url);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
+    return await fetch(url, { ...options, redirect: 'manual', signal: controller.signal });
   } finally {
     clearTimeout(timer);
   }
@@ -82,8 +88,9 @@ const abortableFetch = async (url, options, timeoutMs) => {
 // ("Request with GET/HEAD method cannot have body"), so this one call has to
 // go around fetch and use Node's http/https module directly, which has no
 // such restriction.
-const getWithBody = (url, { headers = {}, body, timeoutMs = 10000 } = {}) =>
-  new Promise((resolve, reject) => {
+const getWithBody = async (url, { headers = {}, body, timeoutMs = 10000 } = {}) => {
+  const [target] = await assertSafeTarget(url);
+  return new Promise((resolve, reject) => {
     const transport = url.startsWith('https:') ? require('https') : require('http');
     const payload = body !== undefined ? JSON.stringify(body) : undefined;
     const req = transport.request(url, {
@@ -93,6 +100,11 @@ const getWithBody = (url, { headers = {}, body, timeoutMs = 10000 } = {}) =>
         ...(payload !== undefined ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
       },
       timeout: timeoutMs,
+      // Connect to the address that was validated, not whatever the name
+      // resolves to a moment later.
+      lookup: (_host, _options, callback) => (
+        _options?.all ? callback(null, [target]) : callback(null, target.address, target.family)
+      ),
     }, (res) => {
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
@@ -111,6 +123,7 @@ const getWithBody = (url, { headers = {}, body, timeoutMs = 10000 } = {}) =>
     if (payload !== undefined) req.write(payload);
     req.end();
   });
+};
 
 // The Z REST endpoints return dates as bare YYYYMMDD numbers/strings
 // (GR_DATE, CLEARING_DATE, ...), not ISO strings.
@@ -1883,6 +1896,7 @@ const validateConfig = (config = {}, { environment, secrets = {} } = {}) => {
   const scheme = schemeOf(config.baseUrl);
   if (!config.baseUrl) errors.baseUrl = 'A gateway base URL is required';
   else if (!scheme) errors.baseUrl = 'Must be an http(s) URL';
+  else if (literalTargetProblem(config.baseUrl)) errors.baseUrl = literalTargetProblem(config.baseUrl);
   else if (environment === 'production' && scheme === 'http') {
     errors.baseUrl = "A production connection must use https:// — plain http sends the technical user's password and vendors' bank details unencrypted";
   }
