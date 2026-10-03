@@ -23,6 +23,18 @@ codebase's current design.
 
 ## `MASTER_KEY`
 
+**It now also protects supplier bank data.** Since finding 2.4, supplier PAN,
+bank account numbers (live and in a pending change request) and the PAN on TDS
+payments are encrypted under it as well (`db/fieldEncryptionExtension.js`).
+Three consequences:
+
+- Losing the key loses that data. Keep it in the same secret store as the other
+  production secrets, and **never only on the server it protects**.
+- A restored database needs the key it was written under. A backup restored with
+  a different key reads fine until a supplier record is opened, then fails.
+- Rotating it without re-encrypting breaks every supplier read. Use the script
+  below.
+
 Encrypts secrets at rest: platform operator MFA secrets (`utils/secretBox.js`,
 `v1:` prefix) and, per SAP connection, a random per-client data key that in
 turn encrypts SAP credentials (`v2:` prefix, envelope encryption, ADR-0019).
@@ -43,6 +55,18 @@ There is no rotation script in this repo yet. Until one exists, rotating
    decrypts with the old key and re-encrypts with the new one. For
    `SapConnection` this only needs to re-wrap `wrappedDataKey`, per the
    envelope design above — the credential ciphertext underneath is untouched.
+   For supplier PAN / bank fields the script exists:
+
+   ```bash
+   cd backend
+   MASTER_KEY=<new> MASTER_KEY_OLD=<old> node scripts/encrypt-existing-fields.js --dry-run --rotate-from-env MASTER_KEY_OLD
+   MASTER_KEY=<new> MASTER_KEY_OLD=<old> node scripts/encrypt-existing-fields.js --rotate-from-env MASTER_KEY_OLD
+   ```
+
+   It re-encrypts each value readable only under the old key, skips what is
+   already current, and reports (`failed`, exit code 1) anything readable under
+   neither. Take a backup first. The same script, run without the flag, is also
+   what encrypts a database from before 2.4.
 3. Verify: decrypt one of each type with the new key before removing the old
    one from the environment.
 4. Remove `MASTER_KEY_OLD` and redeploy.
