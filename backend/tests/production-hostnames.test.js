@@ -89,7 +89,11 @@ describe('sign-in through production-shaped hostnames', () => {
   const at = (host) => (req) => req.set('Host', host);
   // Registration's confirmation mail is sent after the response, and production
   // would pick the SMTP transport: keep it in memory so the test can read it.
-  const prod = (fn) => withEnv({ PORTAL_BASE_DOMAIN: BASE, NODE_ENV: 'production', MAIL_TRANSPORT: 'memory' }, fn);
+  // Supplier PAN and bank details are encrypted under MASTER_KEY, which
+  // production requires (config/validateEnv.js) and will not invent.
+  const prod = (fn) => withEnv({
+    PORTAL_BASE_DOMAIN: BASE, NODE_ENV: 'production', MAIL_TRANSPORT: 'memory', MASTER_KEY: 'production-shaped-hostnames-test-key',
+  }, fn);
   const payload = { ...baseVendor, email: 'acme-supplier@example.com', vendorId: 'vendor_acme_1', gstin: '27AABCA1234F1Z5', pan: 'AABCA1234F' };
 
   beforeEach(() => seedClient({ clientId: 'CLT-0002', slug: 'acme', companyName: 'Acme Ltd' }));
