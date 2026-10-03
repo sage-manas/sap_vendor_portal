@@ -38,6 +38,36 @@ ${msg}
     process.exit(1);
   }
 
+  // A short secret is guessable offline from any one token. 32 characters is
+  // the floor for an HS256 key; `openssl rand -hex 32` gives 64.
+  const MIN_SECRET_LENGTH = 32;
+  if (process.env.NODE_ENV === 'production' && process.env.JWT_SECRET.length < MIN_SECRET_LENGTH) {
+    const msg = `❌ Server crash in Production: JWT_SECRET must be at least ${MIN_SECRET_LENGTH} characters (generate one with: openssl rand -hex 32)`;
+    logger.error(msg);
+    console.error(`
+${msg}
+`);
+    process.exit(1);
+  }
+
+  // The loopback relay between the API and the job worker has its own key
+  // (utils/internalAuth.js), so that leaking one secret does not open both.
+  if (process.env.NODE_ENV === 'production') {
+    const key = process.env.INTERNAL_KEY || '';
+    const problem = !key ? 'is required'
+      : key.length < MIN_SECRET_LENGTH ? `must be at least ${MIN_SECRET_LENGTH} characters`
+        : key === process.env.JWT_SECRET ? 'must differ from JWT_SECRET'
+          : null;
+    if (problem) {
+      const msg = `❌ Server crash in Production: INTERNAL_KEY ${problem} — it authenticates the API/worker relay (generate one with: openssl rand -hex 32)`;
+      logger.error(msg);
+      console.error(`
+${msg}
+`);
+      process.exit(1);
+    }
+  }
+
   // utils/secretBox.js throws on a missing MASTER_KEY in production, but only
   // when something first touches an encrypted secret — an operator action,
   // long after boot. Checked here so it fails on the same startup that
