@@ -1,6 +1,8 @@
 # Security updates are always opened by GitHub for a vulnerable dependency; this
-# adds routine version updates so the audit job (.github/workflows/audit.yml)
-# is rarely the first thing to notice an old package.
+# adds routine version updates, minor and patch only. A major version is a
+# migration to plan (Next and Prisma are pinned on purpose; TypeScript, Vitest,
+# @types/node, dotenv and the GitHub actions have each shown up as failing
+# majors), so none is opened automatically.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -12,11 +14,7 @@ updates:
       minor-and-patch:
         update-types: [minor, patch]
     ignore:
-      # Next is pinned exactly and read against node_modules/next/dist/docs;
-      # a major bump is a deliberate migration, not a bot PR.
-      - dependency-name: next
-        update-types: [version-update:semver-major]
-      - dependency-name: eslint-config-next
+      - dependency-name: '*'
         update-types: [version-update:semver-major]
   - package-ecosystem: npm
     directory: /backend
@@ -27,12 +25,12 @@ updates:
       minor-and-patch:
         update-types: [minor, patch]
     ignore:
-      # Prisma 7 changes the client generator and driver model; migrate on purpose.
-      - dependency-name: prisma
-        update-types: [version-update:semver-major]
-      - dependency-name: '@prisma/client'
+      - dependency-name: '*'
         update-types: [version-update:semver-major]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: '*'
+        update-types: [version-update:semver-major]
