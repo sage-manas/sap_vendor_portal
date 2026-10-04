@@ -10,6 +10,7 @@ touching the database directly, a shell on a host with `DATABASE_URL` set.
 - [backup-restore.md](backup-restore.md) — nightly encrypted backups, the monthly restore drill, a real restore, and the optional WAL/PITR setup.
 - [production-bootstrap.md](production-bootstrap.md) — seeding a brand-new production database with only the platform admin.
 - [email-deliverability.md](email-deliverability.md) — SMTP settings and the SPF/DKIM/DMARC checklist.
+- [object-storage.md](object-storage.md) — the S3-compatible bucket that holds uploaded documents: bucket settings, a least-privilege key, moving existing files, key rotation.
 - [sap-outage.md](sap-outage.md) — a tenant's SAP connection is failing or its circuit breaker has opened.
 
 None of these describe hosting infrastructure (there isn't any committed to

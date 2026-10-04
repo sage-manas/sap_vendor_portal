@@ -103,6 +103,7 @@ describe('boot configuration', () => {
     NODE_ENV: 'production', PORT: '5000', DATABASE_URL: 'x', FRONTEND_URL: 'https://a.example',
     PORTAL_BASE_DOMAIN: 'a.example', MASTER_KEY: 'k', JWT_SECRET: 'x'.repeat(40), INTERNAL_KEY: 'y'.repeat(40),
     CLAMAV_REQUIRED: '', ADMIN_BOOTSTRAP_EMAILS: '',
+    STORAGE_DRIVER: 's3', S3_BUCKET: 'vc-uploads',
   };
 
   const boots = (overrides) => {

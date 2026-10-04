@@ -1063,8 +1063,12 @@ model Document {
   originalName String
   mimeType     String
   size         Int
-  filePath     String
-  linkedTo     DocumentLinkType @default(Profile)
+  // Where the bytes live: `local` (filePath, on the API server disk) or `s3`
+  // (storageKey in the configured bucket). See backend/storage/.
+  storageDriver String           @default("local")
+  storageKey    String?
+  filePath      String           @default("")
+  linkedTo      DocumentLinkType @default(Profile)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

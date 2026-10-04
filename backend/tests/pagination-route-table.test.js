@@ -31,7 +31,7 @@ const NOT_A_LIST = new Set([
   'GET /rfqs/:id', 'GET /rfqs/:id/evaluate', 'GET /rfqs/:id/export',
   'GET /pos/:id', 'GET /pos/:id/invoice-plan', 'GET /pos/:id/asn',
   'GET /grns/:id', 'GET /invoices/:id', 'GET /payments/:id', 'GET /payments/tds-summary',
-  'GET /uploads/:id', 'GET /reports/statement', 'GET /reports/invoice/:id', 'GET /reports/metrics',
+  'GET /uploads/:id', 'GET /uploads/:id/link', 'GET /uploads/signed/:id', 'GET /reports/statement', 'GET /reports/invoice/:id', 'GET /reports/metrics',
   'GET /dashboard/summary',
 ]);
 

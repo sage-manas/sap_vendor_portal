@@ -4,6 +4,7 @@ import React, { use, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, ShieldCheck, ShieldAlert, Eye, EyeOff, FileText, ExternalLink } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { documentIdOf, openDocument } from '@/lib/open-document';
 import { useWorkspaceSession } from '@/lib/workspace-session';
 import { PageHeader, Notice, Status, Table, Loading, useResource, formatDate } from '@/components/console/primitives';
 import DeclineSupplier from '@/features/profile/components/DeclineSupplier';
@@ -83,17 +84,32 @@ function AccountNumber({ value }) {
 // alone when there is not.
 function DocumentRow({ label, document: file }) {
   const name = file?.originalName || (typeof file === 'string' ? file : null);
-  const href = file?.url || null;
+  const canOpen = Boolean(documentIdOf(file));
+  const [error, setError] = useState('');
+
+  // The file sits behind the session, so it opens through a signed link the API
+  // issues on demand (lib/open-document.js), not a bare href.
+  const open = async () => {
+    setError('');
+    try {
+      await openDocument(file);
+    } catch (err) {
+      setError(err.message || 'Could not open this document.');
+    }
+  };
 
   return (
     <div className="flex items-center justify-between gap-3 border-b border-border py-2 last:border-0">
       <span className="flex items-center gap-2 text-[13px] text-text-secondary">
         <FileText className="size-3.5 text-text-tertiary" /> {label}
       </span>
-      {href ? (
-        <a href={href} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 mono text-[12px] text-text-primary hover:underline">
-          {name || 'View'} <ExternalLink className="size-3" />
-        </a>
+      {canOpen ? (
+        <span className="flex flex-col items-end gap-0.5">
+          <button type="button" onClick={open} className="inline-flex items-center gap-1.5 mono text-[12px] text-text-primary hover:underline">
+            {name || 'View'} <ExternalLink className="size-3" />
+          </button>
+          {error && <span role="alert" className="text-[11px] text-rose-400">{error}</span>}
+        </span>
       ) : (
         <span className="mono text-[12px] text-text-tertiary">{name || 'Not provided'}</span>
       )}
