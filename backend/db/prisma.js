@@ -1,6 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const { createTenantExtension } = require('./tenantExtension');
 const { appendOnlyExtension } = require('./appendOnlyExtension');
+const { fieldEncryptionExtension } = require('./fieldEncryptionExtension');
 
 // Single Prisma instance for the whole process, extended with tenant scoping
 // and append-only enforcement. Controllers import `{ prisma }` and call
@@ -16,7 +17,7 @@ const { appendOnlyExtension } = require('./appendOnlyExtension');
 // `res.json(vendor)` would leak a bcrypt hash. A call site that genuinely
 // needs one of these (login, changePassword, the SAP driver factory) opts
 // back in per-query with `omit: { vendor: { password: false } }` etc.
-const rawPrisma = new PrismaClient({
+const baseClient = new PrismaClient({
   omit: {
     vendor: {
       password: true,
@@ -41,6 +42,11 @@ const rawPrisma = new PrismaClient({
     },
   },
 });
+// Bank account numbers and PANs are encrypted at rest (db/fieldEncryptionExtension.js).
+// It sits on the base client, beneath both exports, so `rawPrisma` (platform
+// code, scripts) and `prisma` (tenant requests) both seal on write and open on
+// read, and a row reached through a relation is opened too.
+const rawPrisma = baseClient.$extends(fieldEncryptionExtension);
 const prisma = rawPrisma.$extends(createTenantExtension(rawPrisma)).$extends(appendOnlyExtension);
 
 module.exports = { prisma, rawPrisma };

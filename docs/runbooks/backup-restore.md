@@ -58,6 +58,12 @@ sudo systemctl start vendorconnect-backup.service && journalctl -u vendorconnect
 complete backup is older than 26 hours or has never run; wire it into the uptime
 check or a cron mail. A backup that stops silently is the usual failure.
 
+> **The backup is useless without `MASTER_KEY`.** Supplier PAN and bank account
+> numbers are encrypted in the database under it (finding 2.4), as are MFA and
+> SAP secrets. The backup encryption key (below) and `MASTER_KEY` are different
+> things: store both, separately, off the server. The restore drill should open a
+> supplier record, not only count rows.
+
 ## 2. Monthly restore drill (the one that counts)
 
 A backup nobody has restored is a hope. Put a recurring reminder in the team

@@ -22,6 +22,12 @@ const crypto = require('crypto');
 const VERSION = 'v1';
 const ENVELOPE_VERSION = 'v2';
 
+// Accepts either 32 raw bytes as base64/hex, or any passphrase (hashed to 32).
+const deriveKey = (raw) => {
+  const decoded = /^[0-9a-f]{64}$/i.test(raw) ? Buffer.from(raw, 'hex') : Buffer.from(raw, 'base64');
+  return decoded.length === 32 ? decoded : crypto.createHash('sha256').update(raw).digest();
+};
+
 const masterKey = () => {
   const raw = process.env.MASTER_KEY || process.env.SECRET_MASTER_KEY;
 
@@ -35,9 +41,7 @@ const masterKey = () => {
     return crypto.createHash('sha256').update(`dev-master-key:${process.env.JWT_SECRET || 'secret'}`).digest();
   }
 
-  // Accept either 32 raw bytes as base64/hex, or any passphrase (hashed to 32).
-  const decoded = /^[0-9a-f]{64}$/i.test(raw) ? Buffer.from(raw, 'hex') : Buffer.from(raw, 'base64');
-  return decoded.length === 32 ? decoded : crypto.createHash('sha256').update(raw).digest();
+  return deriveKey(raw);
 };
 
 // The primitive both versions share. `version` only labels the output — it is
@@ -69,6 +73,11 @@ const encrypt = (plaintext) => {
 };
 
 const decrypt = (envelope) => (envelope ? open(masterKey(), VERSION, envelope) : null);
+
+// Opens a `v1:` blob under a master key the caller names, not the current one.
+// For a key rotation only (scripts/encrypt-existing-fields.js), where the old
+// key is passed in explicitly and never becomes the process key.
+const decryptUnder = (rawKey, envelope) => (envelope ? open(deriveKey(rawKey), VERSION, envelope) : null);
 
 const isEncrypted = (value) =>
   typeof value === 'string' && (value.startsWith(`${VERSION}:`) || value.startsWith(`${ENVELOPE_VERSION}:`));
@@ -102,6 +111,7 @@ const decryptWithDataKey = (dataKey, envelope) =>
 module.exports = {
   encrypt,
   decrypt,
+  decryptUnder,
   isEncrypted,
   generateDataKey,
   wrapDataKey,
