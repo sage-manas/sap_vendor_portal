@@ -553,6 +553,38 @@ describe('POST /api/rfqs/:id/award', () => {
     const res = await asBuyer(request(app).post(`/api/rfqs/${rfq.id}/award`)).send({ vendorId: 'ghost_vendor' });
     expect(res.status).toBe(404);
   });
+
+  // Issue #137. The bid already carries the tax code submitBid derived from
+  // the supplier's stated GST rate (gstRateToCode), and the award is the one
+  // write that could carry it onto the order — it read the bid for prices and
+  // dropped this. Every ordinary line then read `—` in the PO detail view's
+  // "GST Tax Code" column, which #113 had just made honest; only a
+  // portal-raised asset PO (its own write path) ever had a real one.
+  //
+  // A non-18% rate on purpose: 'G1' is both the 18% code and
+  // DEFAULT_GST_CODE, so asserting on it would pass against a hardcoded
+  // default just as happily as against a real carry-forward.
+  it('carries the winning bid\'s GST tax code onto every purchase order line', async () => {
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload())).body;
+    await asVendor(request(app).post(`/api/rfqs/${rfq.id}/bid`)).send(bidPayload({ gstRate: '12%' }));
+
+    const res = await asBuyer(request(app).post(`/api/rfqs/${rfq.id}/award`)).send({ vendorId: 'vendor_test_001' });
+    expect(res.status).toBe(200);
+
+    // Both lines, not just the first: RfqBid.taxCode is bid-level, so the
+    // whole order takes the one value.
+    expect(res.body.po.items).toHaveLength(2);
+    for (const item of res.body.po.items) {
+      expect(item.taxCode).toBe('G2');
+    }
+
+    // And it is persisted, not just reflected back in the award response.
+    const stored = await asTenant(() => prisma.purchaseOrderItem.findMany({
+      where: { po: { id: res.body.po.id } },
+      orderBy: { line: 'asc' },
+    }));
+    expect(stored.map((item) => item.taxCode)).toEqual(['G2', 'G2']);
+  });
 });
 
 describe('GET /api/rfqs/:id/export (Phase 5.2 export bridge)', () => {

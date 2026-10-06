@@ -620,6 +620,20 @@ const awardBid = asyncHandler(async (req, res, next) => {
       // Real per-line data the RFQ already carried, not a guess (issue #62)
       // — a multi-line PO can ship from more than one plant.
       plant: item.plant || null,
+      // SAP's MWSKZ, carried from the bid that won (issue #137). submitBid
+      // already derived this from the supplier's stated GST rate
+      // (gstRateToCode), and this write — the one place an RFQ becomes a
+      // purchase order — read the bid for its per-line prices and dropped
+      // it, so every ordinary line's tax code stayed null. `RfqBid.taxCode`
+      // is bid-level, not per-line, so every line of the awarded order takes
+      // the same value; there is nothing per-line to look up.
+      //
+      // `|| null` rather than a default code: a bid with no tax code on file
+      // (nothing submits one that way today, but the column is nullable)
+      // means the rate was never stated, and DEFAULT_GST_CODE here would put
+      // an 18% code on a line nobody quoted 18% for — the same fabrication
+      // #113 removed from the display side.
+      taxCode: winningBid.taxCode || null,
     };
   });
 
