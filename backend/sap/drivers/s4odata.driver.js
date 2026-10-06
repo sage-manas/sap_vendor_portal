@@ -5,6 +5,7 @@ const { matchInvoiceDocument } = require('../mappings/invoice-match');
 const { decodeFromSap } = require('../mappings/fields');
 const { requireProductionCredentials } = require('./requireProductionCredentials');
 const { assertSafeTarget, literalTargetProblem } = require('../networkGuard');
+const { timeoutFor, timeoutConfigFields } = require('../timeouts');
 
 // S/4HANA via the OData APIs (API_BUSINESS_PARTNER, API_PURCHASEORDER_PROCESS_SRV,
 // API_INBOUND_DELIVERY_SRV, API_MATERIAL_DOCUMENT_SRV, API_SUPPLIERINVOICE_PROCESS_SRV, …).
@@ -152,7 +153,7 @@ const createODataClient = ({ config }) => {
     if (session.token && Date.now() - session.fetchedAt < sessionTtlMs) return session;
 
     const headers = { ...baseHeaders(config, secrets), 'X-CSRF-Token': 'Fetch' };
-    const response = await abortableFetch(serviceUrl + '/', { headers }, Number(config.timeoutMs) || 10000);
+    const response = await abortableFetch(serviceUrl + '/', { headers }, timeoutFor(null, config));
     const token = response.headers.get('x-csrf-token');
     if (!token) {
       throw new Error(`SAP gateway at ${serviceUrl} did not return an X-CSRF-Token on priming GET (status ${response.status}) — check the service is active in /IWFND/MAINT_SERVICE and reachable with these credentials`);
@@ -181,7 +182,7 @@ const createODataClient = ({ config }) => {
     const response = await abortableFetch(
       url,
       { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined },
-      Number(config.timeoutMs) || 10000,
+      timeoutFor(null, config),
     );
 
     // A CSRF token can expire between the priming GET and the write. One
@@ -368,7 +369,7 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
 
     const base = String(config.baseUrl || '').replace(/\/$/, '');
     const url = `${base}${path}${config.sapClient ? `?sap-client=${encodeURIComponent(config.sapClient)}` : ''}`;
-    const response = await abortableFetch(url, { headers: baseHeaders(config, secrets) }, Number(config.timeoutMs) || 10000);
+    const response = await abortableFetch(url, { headers: baseHeaders(config, secrets) }, timeoutFor('vendorRegionCatalogue', config));
     const text = await response.text();
     let rows;
     try { rows = text ? JSON.parse(text) : []; } catch { rows = null; }
@@ -441,7 +442,7 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
     const response = await getWithBody(url, {
       headers,
       body: { vendor: vendor.sapVendorCode },
-      timeoutMs: Number(config.timeoutMs) || 10000,
+      timeoutMs: timeoutFor('vendorMiroDisplay', config),
     });
 
     let parsed;
@@ -508,7 +509,7 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
     const response = await getWithBody(url, {
       headers: baseHeaders(config, secrets),
       body: { vendor: vendor.sapVendorCode },
-      timeoutMs: Number(config.poGrnTimeoutMs) || 120000,
+      timeoutMs: timeoutFor('vendorPoGrnDisplay', config),
     });
 
     let rows;
@@ -666,7 +667,7 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
       if (config.sapClient) headers['sap-client'] = String(config.sapClient);
 
       try {
-        const response = await abortableFetch(url, { headers }, Number(config.timeoutMs) || 10000);
+        const response = await abortableFetch(url, { headers }, timeoutFor('testConnection', config));
         return {
           data: {
             ok: response.ok,
@@ -718,7 +719,7 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
       const response = await abortableFetch(
         url,
         { method: 'POST', headers, body: JSON.stringify(payload) },
-        Number(config.timeoutMs) || 10000,
+        timeoutFor('vendorCreate', config),
       );
 
       const text = await response.text();
@@ -795,7 +796,7 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
       const query = `belnr=${encodeURIComponent(invoiceDocNo)}&gjahr=${encodeURIComponent(fiscalYear)}`;
       const url = `${base}${path}?${config.sapClient ? `sap-client=${encodeURIComponent(config.sapClient)}&` : ''}${query}`;
 
-      const response = await abortableFetch(url, { headers: baseHeaders(config, secrets) }, Number(config.timeoutMs) || 10000);
+      const response = await abortableFetch(url, { headers: baseHeaders(config, secrets) }, timeoutFor('invoicePaymentDetail', config));
       if (response.status === 404) return { data: { found: false } };
 
       const text = await response.text();
@@ -847,7 +848,7 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
         const path = config.paymentLedgerPath;
         const url = `${base}${path}?${config.sapClient ? `sap-client=${encodeURIComponent(config.sapClient)}&` : ''}LIFNR=${encodeURIComponent(vendor.sapVendorCode)}`;
 
-        const response = await abortableFetch(url, { headers: baseHeaders(config, secrets) }, Number(config.timeoutMs) || 10000);
+        const response = await abortableFetch(url, { headers: baseHeaders(config, secrets) }, timeoutFor('vendorPaymentDisplay', config));
         if (response.status === 404) return { data: { payments: [] } };
 
         const text = await response.text();
@@ -943,7 +944,7 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
       const path = config.rfqDisplayPath || '/ZME43/ME43';
       const url = `${base}${path}?${config.sapClient ? `sap-client=${encodeURIComponent(config.sapClient)}&` : ''}LIFNR=${encodeURIComponent(lifnr)}`;
 
-      const response = await abortableFetch(url, { headers: baseHeaders(config, secrets) }, Number(config.timeoutMs) || 10000);
+      const response = await abortableFetch(url, { headers: baseHeaders(config, secrets) }, timeoutFor('vendorRfqDisplay', config));
       if (response.status === 404) return { data: { documents: [] } };
 
       const text = await response.text();
@@ -1009,7 +1010,7 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
       const response = await getWithBody(url, {
         headers: baseHeaders(config, secrets),
         body: { PO: rfqNumber },
-        timeoutMs: Number(config.timeoutMs) || 10000,
+        timeoutMs: timeoutFor('vendorRfqDetail', config),
       });
 
       if (response.status === 404) return { data: null };
@@ -1086,7 +1087,7 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
       const path = config.quotationDisplayPath || '/ZCL_ME48/vendor';
       const url = `${base}${path}?${config.sapClient ? `sap-client=${encodeURIComponent(config.sapClient)}&` : ''}LIFNR=${encodeURIComponent(lifnr)}`;
 
-      const response = await abortableFetch(url, { headers: baseHeaders(config, secrets) }, Number(config.timeoutMs) || 10000);
+      const response = await abortableFetch(url, { headers: baseHeaders(config, secrets) }, timeoutFor('vendorQuotationDisplay', config));
       if (response.status === 404) return { data: { documents: [] } };
 
       const text = await response.text();
@@ -1142,7 +1143,7 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
       const response = await abortableFetch(
         url,
         { method: 'POST', headers, body: JSON.stringify(payload) },
-        Number(config.timeoutMs) || 10000,
+        timeoutFor('quotationUpdatePrice', config),
       );
 
       const text = await response.text();
@@ -1250,7 +1251,7 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
         const response = await getWithBody(url, {
           headers: baseHeaders(config, secrets),
           body: { inv_planno: planNumber },
-          timeoutMs: Number(config.timeoutMs) || 10000,
+          timeoutMs: timeoutFor('poInvoicePlanDisplay', config),
         });
 
         let json;
@@ -1336,7 +1337,7 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
         body: { PO: String(po.sapPoNumber) },
         // One order, not a vendor's whole history — this does not need the
         // minutes-long ceiling poGrnTimeoutMs exists for.
-        timeoutMs: Number(config.timeoutMs) || 10000,
+        timeoutMs: timeoutFor('poInvoicePlanNumbers', config),
       });
 
       let json;
@@ -1468,7 +1469,7 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
       const response = await abortableFetch(
         url,
         { method: 'POST', headers, body: JSON.stringify(payload) },
-        Number(config.timeoutMs) || 10000,
+        timeoutFor('poInvoicePlanUpdate', config),
       );
 
       const text = await response.text();
@@ -1649,7 +1650,7 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
       const response = await abortableFetch(
         url,
         { method: 'POST', headers, body: JSON.stringify(payload) },
-        Number(config.timeoutMs) || 10000,
+        timeoutFor('poAssetCreate', config),
       );
 
       const text = await response.text();
@@ -1958,7 +1959,16 @@ module.exports = {
     { name: 'invoicePlanBillingRule', label: 'Invoicing plan billing rule (BILL_RULE)', type: 'text', default: '1' },
     { name: 'invoicePlanUnblockedCode', label: 'Billing block code meaning "not blocked" (FAKSP) — this sandbox uses 99, not blank', type: 'text', default: '99' },
     { name: 'invoicePlanBlockCode', label: 'Billing block code to send for a blocked date (FAKSP) — unverified, no blocked row has been observed live', type: 'text', default: '01' },
-    { name: 'poGrnTimeoutMs', label: 'PO/GRN detail request timeout (ms) — this endpoint is very slow (22–84s observed for 173 orders)', type: 'number', default: 120000 },
+    // Kept so a connection that already sets it keeps working. The measured
+    // 120s default for this endpoint now lives in sap/timeouts.js alongside
+    // the observation behind it, and `vendorPoGrnDisplayTimeoutMs` (generated
+    // below) is the one to set on a new connection.
+    { name: 'poGrnTimeoutMs', label: 'PO/GRN detail request timeout (ms) — superseded by vendorPoGrnDisplayTimeoutMs; still honoured where already set', type: 'number' },
     { name: 'fields.poAcknowledgeField', label: 'PO field to set on supplier acknowledgement (extension field, optional)', type: 'text' },
+    // One override per SAP method, generated from the contract so a method
+    // added there is tunable the day it exists (sap/timeouts.js). Empty means
+    // "use the shared Request timeout above", which is what every unmeasured
+    // endpoint did before this and still does.
+    ...timeoutConfigFields(),
   ],
 };

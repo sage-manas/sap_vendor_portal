@@ -19,6 +19,13 @@ const PUBLIC_ROUTES = new Set([
   'GET /health',
   'GET /status',
   'GET /meta/sap-fields',
+  // Finding 4.4. The list of Indian states a GST registration can belong to.
+  // Public for the same reason /meta/sap-fields is -- it is static reference
+  // data with nothing tenant-specific in it, and a form needs it before it
+  // can be filled in. It is also read by the platform console, which holds a
+  // platform token rather than a tenant one, so a tenant-plane gate here
+  // would lock out its intended caller.
+  'GET /meta/indian-states',
   'GET /test-error',
   'GET /auth/workspace',
   'POST /auth/register',

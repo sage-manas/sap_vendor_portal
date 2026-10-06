@@ -9,8 +9,8 @@
 // A test that needs rows spreads over the relevant key:
 //   api: { ...EMPTY_SUPPLIER_API, 'GET /rfqs': { rfqs: [oneRfq] } }
 
-// A paginated ledger response, the shape GET /pos, /grns, /invoices and
-// /payments answer with. (GET /asns is the odd one out: a bare array.)
+// A paginated ledger response, the shape GET /pos, /grns, /invoices,
+// /payments and -- as of finding 4.1 -- /asns all answer with.
 export const listOf = (key, rows) => ({
   [key]: rows,
   pagination: { total: rows.length, page: 1, limit: 20, pages: rows.length ? 1 : 0 },
@@ -59,8 +59,7 @@ export const EMPTY_SUPPLIER_API = {
   'GET /pos': emptyList('pos'),
   'GET /invoices': emptyList('invoices'),
   'GET /payments': emptyList('payments'),
-  // GET /asns answers a bare array, not { asns, pagination } like the others.
-  'GET /asns': [],
+  'GET /asns': emptyList('asns'),
   'GET /grns': emptyList('grns'),
   'GET /logs': [],
   'GET /vendors/performance': {
@@ -131,6 +130,7 @@ export const EMPTY_WORKSPACE_API = {
   'GET /pos': emptyList('pos'),
   'GET /invoices': emptyList('invoices'),
   'GET /payments': emptyList('payments'),
+  'GET /asns': emptyList('asns'),
   'GET /users': { users: [] },
   'GET /users/roles': { roles: [] },
   'GET /users/invitations': { invitations: [] },

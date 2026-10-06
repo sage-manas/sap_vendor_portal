@@ -7,25 +7,21 @@ import { poService } from '../services/poService';
 const canFetchVendorData = () =>
   typeof window !== 'undefined' && localStorage.getItem('jwt_token') && !hasOwnChrome(window.location.pathname);
 
-const generateInboundDeliveryCode = () => {
-  return `1800${Math.floor(100000 + Math.random() * 900000)}`;
-};
-
-const generateGrnId = () => {
-  return `GRN-${Math.floor(5000000 + Math.random() * 4900000)}`;
-};
-
-const generateSapMigoDoc = () => {
-  return `50002${Math.floor(10000 + Math.random() * 90000)}`;
-};
-
-const calculateRejectedQuantity = (received) => {
-  return Math.random() > 0.85 ? Math.min(2, Math.floor(received * 0.1)) : 0;
-};
-
-const generatePoId = () => {
-  return `PO-45000${Math.floor(10000 + Math.random() * 90000)}`;
-};
+// Issue #121. Five unreferenced helpers used to sit here, inventing an
+// inbound-delivery code, a GRN id, an MBLNR in the 50002… range, a PO number
+// in the 45… range, and — the one that was not even an identifier — a
+// `Math.random() > 0.85` rejected quantity, deciding at random that 15% of
+// goods receipts had rejected items.
+//
+// They are gone rather than left dead because this is the precise pattern the
+// project spent a phase removing (PROJECT_CONTEXT.md §5.6: PO creation used to
+// mint `'4500' + six random digits`; DashboardView.jsx records the same removal
+// of an invented UTR). An identifier in this application either came from SAP
+// or does not exist yet and reads as absent. A working fabricator beside the
+// real refreshPOs/refreshGRNs below is one import away from putting a string
+// indistinguishable from a real SAP document number back on screen — see
+// src/features/purchase-order/no-fabricated-identifiers.test.js, which is the
+// guard, not this comment.
 
 export function usePOs(profile) {
   const [pos, setPos] = useState([]);
@@ -80,9 +76,14 @@ export function usePOs(profile) {
     if (!canFetchVendorData()) return;
     try {
       const data = await poService.getASNs();
+      // `{ asns, pagination }` as of finding 4.1; a bare array before that.
+      // Both shapes are read because a browser holding a cached bundle can
+      // outlive a deploy, and the supplier's shipments list going blank for
+      // one reload is avoidable with one expression.
       if (data) {
-        setAsns(data);
-        persistLocally('sap_vendor_portal_asns', data);
+        const asnList = Array.isArray(data) ? data : (data.asns || []);
+        setAsns(asnList);
+        persistLocally('sap_vendor_portal_asns', asnList);
       }
     } catch (e) {
       console.error('Failed to fetch ASNs', e);

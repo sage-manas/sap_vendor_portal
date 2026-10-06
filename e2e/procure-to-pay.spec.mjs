@@ -96,9 +96,9 @@ test.describe('procure to pay, on the mock SAP driver', () => {
 
     // [UI · supplier] The shipment shows on the order once raised.
     await page.goto('/pos');
-    // GET /asns answers a bare array, unlike the other ledgers' { rows, pagination }.
+    // GET /asns answers { asns, pagination }.
     await expect
-      .poll(async () => (await supplier.get('/asns')).body?.length ?? 0, { timeout: 20_000 })
+      .poll(async () => (await supplier.get('/asns')).body?.asns?.length ?? 0, { timeout: 20_000 })
       .toBeGreaterThan(0);
 
     // ---------------------------------------------------------------- 6. GRN

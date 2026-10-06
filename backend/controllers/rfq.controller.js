@@ -16,6 +16,7 @@ const {
   DEFAULT_VENDOR_RATING, DEFAULT_LEAD_TIME_DAYS,
 } = require('../config/scoring');
 const { gstRateToCode } = require('../config/gstCodes');
+const { settingValue } = require('../config/tenantSettings');
 const logger = require('../utils/logger');
 
 // The full nested shape a controller/frontend expects an RFQ in, matching
@@ -214,7 +215,10 @@ const getRFQById = asyncHandler(async (req, res, next) => {
 // @route   POST /api/rfqs
 // @access  Public
 const createRFQ = asyncHandler(async (req, res, next) => {
-  const { description, deadlineDate, rfqType, items, invitedVendors, paymentTerms, deliveryLocation } = req.body;
+  const {
+    description, deadlineDate, rfqType, items, invitedVendors, paymentTerms, deliveryLocation,
+    purchasingOrg, companyCode, purchasingGroup,
+  } = req.body;
 
   if (!description || !deadlineDate || !items || !items.length) {
     return next(ApiError.badRequest('Description, deadlineDate, and items are required'));
@@ -237,7 +241,24 @@ const createRFQ = asyncHandler(async (req, res, next) => {
       deadlineDate: new Date(deadlineDate),
       rfqType: rfqType || 'AN',
       paymentTerms: paymentTerms || 'NET 30 Days',
-      deliveryLocation: deliveryLocation || 'Plant 1000',
+      // Issue #125: 'Plant 1000' was the same invention as the '1000' org
+      // defaults -- a delivery address nobody stated, printed to suppliers as
+      // though someone had.
+      deliveryLocation: deliveryLocation || null,
+      // Organisational scope, in order of decreasing authority: what the
+      // buyer stated on this RFQ, then what the workspace is configured to
+      // source under, then nothing. Never '1000' (issue #125) -- that was
+      // SAP's IDES demo value, and since awardBid copies this scope onto the
+      // purchase order it creates, it defeated issue #62's rule on the PO by
+      // arriving through the RFQ.
+      //
+      // `|| null` rather than `?? null` on purpose: the tenant setting's
+      // "unset" is the empty string (config/tenantSettings.js uses '' as the
+      // default for every text setting), and '' must read as absent, not as
+      // a company code of zero characters.
+      purchasingOrg: purchasingOrg || settingValue(req.client, 'sourcing.purchasingOrg') || null,
+      companyCode: companyCode || settingValue(req.client, 'sourcing.companyCode') || null,
+      purchasingGroup: purchasingGroup || settingValue(req.client, 'sourcing.purchasingGroup') || null,
       items: {
         create: items.map((item) => ({
           clientId,
@@ -247,7 +268,11 @@ const createRFQ = asyncHandler(async (req, res, next) => {
           quantity: item.quantity,
           uom: item.uom || 'EA',
           targetPrice: item.targetPrice,
-          plant: item.plant || '1000',
+          // null, not '1000' (issue #125). awardBid copies this onto
+          // PurchaseOrderItem.plant, whose own comment says "null means
+          // genuinely unknown, not '1000'" -- so inventing one here defeated
+          // that the moment the RFQ was awarded.
+          plant: item.plant || null,
           deliveryDate: item.deliveryDate ? new Date(item.deliveryDate) : null,
         })),
       },
@@ -620,6 +645,20 @@ const awardBid = asyncHandler(async (req, res, next) => {
       // Real per-line data the RFQ already carried, not a guess (issue #62)
       // — a multi-line PO can ship from more than one plant.
       plant: item.plant || null,
+      // SAP's MWSKZ, carried from the bid that won (issue #137). submitBid
+      // already derived this from the supplier's stated GST rate
+      // (gstRateToCode), and this write — the one place an RFQ becomes a
+      // purchase order — read the bid for its per-line prices and dropped
+      // it, so every ordinary line's tax code stayed null. `RfqBid.taxCode`
+      // is bid-level, not per-line, so every line of the awarded order takes
+      // the same value; there is nothing per-line to look up.
+      //
+      // `|| null` rather than a default code: a bid with no tax code on file
+      // (nothing submits one that way today, but the column is nullable)
+      // means the rate was never stated, and DEFAULT_GST_CODE here would put
+      // an 18% code on a line nobody quoted 18% for — the same fabrication
+      // #113 removed from the display side.
+      taxCode: winningBid.taxCode || null,
     };
   });
 

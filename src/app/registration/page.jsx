@@ -21,6 +21,7 @@ export default function RegistrationPage() {
       handleCompanySubmit={handleCompanySubmit}
       saveDraft={profileHook.saveDraft}
       submitRegistration={profileHook.submitRegistration}
+      requestBankChange={profileHook.requestBankChange}
     />
   );
 }

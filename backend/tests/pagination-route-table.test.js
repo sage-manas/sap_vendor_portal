@@ -22,6 +22,10 @@ const isPaginated = (route) => route.handlers.some((handler) => handler.schema =
 // catalogue.
 const NOT_A_LIST = new Set([
   'GET /health', 'GET /test-error', 'GET /status', 'GET /meta/sap-fields',
+  // A fixed 37-row reference list (config/indianStates.js, finding 4.4), not
+  // a collection that grows with a tenant's data -- the same reason
+  // /meta/sap-fields is here.
+  'GET /meta/indian-states',
   'GET /auth/workspace', 'GET /auth/me', 'GET /auth/invitations/:token',
   'GET /platform/auth/me', 'GET /platform/health',
   'GET /platform/tenants/:clientId', 'GET /platform/tenants/:clientId/export', 'GET /platform/tenants/:clientId/sap',
@@ -55,7 +59,6 @@ const UNPAGINATED_ISSUE_186 = new Set([
   'GET /uploads',
   'GET /users',
   'GET /users/invitations',
-  'GET /asns',
   'GET /rfqs/sap-status',
   'GET /rfqs/sap-quotations',
   'GET /payments/sap-status',
@@ -91,8 +94,13 @@ describe('every GET route is paginated or a reviewed exception', () => {
     expect(all.filter((route, index) => all.indexOf(route) !== index)).toEqual([]);
   });
 
-  it('the paginated routes are the six main tenant lists and three platform lists', () => {
+  it('the paginated routes are the seven main tenant lists and three platform lists', () => {
     expect(getRoutes.filter(isPaginated).map(key).sort()).toEqual([
+      // /asns joined this list with finding 4.1, which made it tenant-wide:
+      // it was one of issue #186's unpaginated routes, and a list that
+      // answers with every supplier's shipments rather than one supplier's
+      // is not a response to leave unbounded.
+      'GET /asns',
       'GET /grns', 'GET /invoices', 'GET /payments', 'GET /platform/jobs',
       'GET /platform/tenants', 'GET /platform/tenants/:clientId/sap/audit',
       'GET /pos', 'GET /rfqs', 'GET /vendors',

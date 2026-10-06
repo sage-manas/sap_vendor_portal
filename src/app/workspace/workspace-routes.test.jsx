@@ -11,6 +11,7 @@ import WorkspaceAuditPage from '@/app/workspace/audit/page';
 import WorkspaceSettingsPage from '@/app/workspace/settings/page';
 import WorkspaceInvoicesPage from '@/app/workspace/invoices/page';
 import WorkspacePaymentsPage from '@/app/workspace/payments/page';
+import WorkspaceShipmentsPage from '@/app/workspace/shipments/page';
 import WorkspacePurchaseOrdersPage from '@/app/workspace/purchase-orders/page';
 import WorkspaceNewAssetPoPage from '@/app/workspace/purchase-orders/new-asset/page';
 
@@ -29,6 +30,7 @@ const ROUTES = [
   ['/workspace/settings', WorkspaceSettingsPage, 'Settings'],
   ['/workspace/invoices', WorkspaceInvoicesPage, 'Invoices'],
   ['/workspace/payments', WorkspacePaymentsPage, 'Payments'],
+  ['/workspace/shipments', WorkspaceShipmentsPage, 'Shipments'],
   ['/workspace/purchase-orders', WorkspacePurchaseOrdersPage, 'Purchase Orders'],
   ['/workspace/purchase-orders/new-asset', WorkspaceNewAssetPoPage, 'New asset purchase order'],
 ];
