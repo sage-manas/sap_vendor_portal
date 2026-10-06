@@ -6,6 +6,7 @@ const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
 const { sendMail } = require('../utils/mailer');
 const { frontendUrl } = require('../config/emailTemplates');
 const { ROLES } = require('../config/roles');
+const { canonicalStateName } = require('../config/indianStates');
 
 // Creating a tenant is two writes that must agree: the Client, and the first
 // client_admin inside it. Both live here so the console, the seed scripts and
@@ -121,7 +122,7 @@ const issueClientAdmin = async ({ client, email, name, invitedBy }) => {
  * with no way in is worse than no tenant, and there is no transaction to lean
  * on across the two calls (issueClientAdmin sends an email in between).
  */
-const provisionTenant = async ({ companyName, slug, plan, limits, branding, featureFlags, admin, createdBy }) => {
+const provisionTenant = async ({ companyName, slug, plan, limits, branding, featureFlags, gstin, state, admin, createdBy }) => {
   const normalizedSlug = await assertSlugAvailable(slug);
   const adminEmail = await assertEmailAvailable(admin?.email);
 
@@ -144,6 +145,14 @@ const provisionTenant = async ({ companyName, slug, plan, limits, branding, feat
         ...(branding.primaryColor != null && { brandingColor: branding.primaryColor }),
       }),
       ...(featureFlags && { featureFlags }),
+      // The tenant's own GST registration (finding 4.4). Optional at
+      // provisioning — an operator often does not have the customer's
+      // registration yet, and null is a workable state that simply leaves
+      // place of supply underivable until one is set. The state is stored in
+      // the registry's own spelling so it compares equal to a supplier's
+      // (config/indianStates.js, and gst.service.js's isIntraState).
+      ...(gstin && { gstin }),
+      ...(state && { state: canonicalStateName(state) }),
       createdBy,
     },
   }));

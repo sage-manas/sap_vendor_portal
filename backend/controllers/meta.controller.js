@@ -1,5 +1,6 @@
 const { SAP_FIELDS, UOM_TO_ISO } = require('../sap/mappings/fields');
 const asyncHandler = require('../utils/asyncHandler');
+const { INDIAN_STATES } = require('../config/indianStates');
 
 // @desc    SAP field limits and the unit-of-measure catalogue, so a form's
 //          maxLength/unit dropdown is read from the same registry the backend
@@ -26,4 +27,24 @@ const getSapFields = asyncHandler(async (req, res) => {
   res.json({ fields, units });
 });
 
-module.exports = { getSapFields };
+// @desc    The Indian states and union territories a GST registration can
+//          belong to — the vocabulary both a supplier's own state and a
+//          tenant's `Client.state` are drawn from (finding 4.4).
+//
+//          Served rather than duplicated in the frontend for the same reason
+//          getSapFields is: services/gst.service.js decides CGST+SGST versus
+//          IGST by comparing the two states as strings, so a second copy that
+//          drifts on one spelling splits every invoice between those two
+//          parties the wrong way, silently. config/indianStates.js is the one
+//          registry; this is how a form reads it.
+// @route   GET /api/meta/indian-states
+// @access  Public — a list of state names, not sensitive.
+const getIndianStates = asyncHandler(async (req, res) => {
+  // `gstCode` is deliberately not exposed: it exists to cross-check a GSTIN
+  // against a state on the server, and a form has no use for it.
+  res.json({
+    states: INDIAN_STATES.map(({ code, name }) => ({ code, name })),
+  });
+});
+
+module.exports = { getSapFields, getIndianStates };

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowLeft, Download, Mail, PlugZap } from 'lucide-react';
 import { platformApi } from '@/lib/platform-client';
 import { usePlatformSession } from '@/lib/platform-session';
+import { useIndianStates } from '@/lib/indianStates';
 import { PageHeader, Notice, Field, Status, Table, Loading, useResource, formatDate } from '@/components/console/primitives';
 
 // One tenant: its configuration, who administers it, how much of it exists,
@@ -28,6 +29,8 @@ export default function TenantDetailPage({ params }) {
   const { clientId } = use(params);
   const { can } = usePlatformSession();
   const { data, error, loading, reload } = useResource(() => platformApi.getTenant(clientId), clientId);
+  // The state registry the server enforces, not a copy (src/lib/indianStates.js).
+  const states = useIndianStates();
 
   const [message, setMessage] = useState('');
   const [failure, setFailure] = useState('');
@@ -74,6 +77,13 @@ export default function TenantDetailPage({ params }) {
           rfqsPerMonth: Number(edit.rfqsPerMonth),
           storageMb: Number(edit.storageMb),
         },
+        // The tenant's own GST registration (finding 4.4). Sent uppercased
+        // because a GSTIN is one — the server's regex is case-insensitive, so
+        // this is about what gets stored and shown, not about passing
+        // validation. '' is sent as-is and the server stores null, which is
+        // how an operator clears a registration entered in error.
+        gstin: edit.gstin.trim().toUpperCase(),
+        state: edit.state,
       });
       setEdit(null);
       return { message: 'Configuration updated.' };
@@ -130,6 +140,8 @@ export default function TenantDetailPage({ params }) {
                 vendors: tenant.limits?.vendors ?? '',
                 rfqsPerMonth: tenant.limits?.rfqsPerMonth ?? '',
                 storageMb: tenant.limits?.storageMb ?? '',
+                gstin: tenant.gstin ?? '',
+                state: tenant.state ?? '',
               })}>Edit</button>
             )}
           </div>
@@ -145,6 +157,50 @@ export default function TenantDetailPage({ params }) {
                 onChange={(e) => setEdit({ ...edit, rfqsPerMonth: e.target.value })} />
               <Field label="Storage (MB)" type="number" min="1" value={edit.storageMb}
                 onChange={(e) => setEdit({ ...edit, storageMb: e.target.value })} />
+
+              {/* The tenant's own GST registration (finding 4.4). Both columns
+                  existed and nothing could set them, so gst.service.js never
+                  had a place of supply to derive and every invoice's tax was
+                  split as "state unknown". */}
+              <Field
+                label="GSTIN"
+                value={edit.gstin}
+                maxLength={15}
+                placeholder="27AABCU9603R1ZM"
+                aria-label="GSTIN"
+                className="w-full mono"
+                hint="The buying organisation's own GST registration. Its first two digits must match the state."
+                onChange={(e) => setEdit({ ...edit, gstin: e.target.value })}
+              />
+
+              {/* A select, not a text box, and deliberately so: isIntraState
+                  compares this against the supplier's own state as a string,
+                  and the supplier picked theirs from this same list. A typed
+                  'MH' matches no supplier state and the resulting mis-split is
+                  silent, so the server refuses anything off-registry — this
+                  makes that constraint visible instead of a 400. */}
+              <Field
+                label="State (place of supply)"
+                error={states.failed ? 'Could not load the state list, so this field cannot be edited right now.' : ''}
+                hint="Determines whether an invoice is split CGST+SGST or IGST."
+              >
+                <select
+                  className="w-full"
+                  aria-label="State (place of supply)"
+                  value={edit.state}
+                  disabled={states.loading || states.failed}
+                  onChange={(e) => setEdit({ ...edit, state: e.target.value })}
+                >
+                  {/* Clearing the field is a real action — an operator who
+                      entered the wrong registration needs to take it back
+                      out, and the server stores '' as null. */}
+                  <option value="">Not set</option>
+                  {states.states.map((option) => (
+                    <option key={option.code} value={option.name}>{option.name}</option>
+                  ))}
+                </select>
+              </Field>
+
               <div className="flex items-end gap-2">
                 <button type="submit" className="btn btn-v h-9" disabled={busy}>Save</button>
                 <button type="button" className="btn btn-o h-9" onClick={() => setEdit(null)} disabled={busy}>Cancel</button>
@@ -158,6 +214,11 @@ export default function TenantDetailPage({ params }) {
                 ['Supplier limit', tenant.limits?.vendors],
                 ['RFQs per month', tenant.limits?.rfqsPerMonth],
                 ['Storage (MB)', tenant.limits?.storageMb],
+                // Finding 4.4 — both render '—' when unset, which is the
+                // honest reading: no registration on file, so no place of
+                // supply can be derived for this tenant's invoices.
+                ['GSTIN', tenant.gstin],
+                ['State (place of supply)', tenant.state],
                 ['Activated', formatDate(tenant.activatedAt)],
                 ['Suspended', formatDate(tenant.suspendedAt)],
                 ['Terminated', formatDate(tenant.terminatedAt)],
