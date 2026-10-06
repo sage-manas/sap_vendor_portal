@@ -51,6 +51,7 @@ router.get('/status', require('../controllers/status.controller').status);
 // sensitive, so public rather than gated behind `protect` (Phase 2 of
 // docs/04-sap-runtime-engineering-plan.md).
 router.get('/meta/sap-fields', require('../controllers/meta.controller').getSapFields);
+router.get('/meta/indian-states', require('../controllers/meta.controller').getIndianStates);
 
 // Auth routes. The public arms establish identity; /me and /change-password
 // carry their own guard.

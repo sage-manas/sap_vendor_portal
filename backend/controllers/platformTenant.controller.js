@@ -12,6 +12,7 @@ const {
 } = require('../services/tenantProvisioning.service');
 const { getBillingProvider } = require('../services/billing.service');
 const { usageAgainstLimits } = require('../utils/usage');
+const { canonicalStateName, gstinMatchesState } = require('../config/indianStates');
 
 // Tenant administration for the platform console.
 //
@@ -32,6 +33,12 @@ const formatClient = (client) => ({
   status: client.status,
   plan: client.plan,
   branding: { logo: client.brandingLogo ?? null, primaryColor: client.brandingColor ?? null },
+  // The tenant's own GST registration (finding 4.4). Exposed so the console
+  // can show what is set and so an operator can tell "not configured" from
+  // "configured and wrong" — null is the honest answer for the former, and
+  // the one gst.service.js reads as "place of supply unknown".
+  gstin: client.gstin ?? null,
+  state: client.state ?? null,
   featureFlags: client.featureFlags || {},
   limits: {
     vendors: client.limitVendors,
@@ -128,10 +135,10 @@ const getTenant = asyncHandler(async (req, res) => {
 // @route   POST /api/platform/tenants
 // @access  tenant:manage
 const createTenant = asyncHandler(async (req, res) => {
-  const { companyName, slug, plan, limits, branding, featureFlags, admin } = req.body;
+  const { companyName, slug, plan, limits, branding, featureFlags, gstin, state, admin } = req.body;
 
   const { client, clientAdmin } = await provisionTenant({
-    companyName, slug, plan, limits, branding, featureFlags, admin,
+    companyName, slug, plan, limits, branding, featureFlags, gstin, state, admin,
     createdBy: req.auth.email,
   });
 
@@ -182,7 +189,7 @@ const applyBrandingPatch = (client, patch = {}) => ({
 // @desc    Edit a tenant's configuration
 // @route   PUT /api/platform/tenants/:clientId
 // @access  tenant:manage
-const updateTenant = asyncHandler(async (req, res) => {
+const updateTenant = asyncHandler(async (req, res, next) => {
   const client = await findClientOr404(req.params.clientId);
 
   const data = {};
@@ -210,6 +217,40 @@ const updateTenant = asyncHandler(async (req, res) => {
     const next = { ...(client.featureFlags || {}), ...req.body.featureFlags };
     changed.featureFlags = { from: client.featureFlags, to: next };
     data.featureFlags = next;
+  }
+
+  // The tenant's own GST registration (finding 4.4). These were real columns
+  // nothing could set, so services/gst.service.js never had a place of supply
+  // to derive and every invoice's tax split read "state unknown".
+  //
+  // The state is stored in the registry's own spelling, not as typed:
+  // isIntraState compares it to the supplier's state as a lower-cased string,
+  // and 'maharashtra' stored against 'Maharashtra' would compare equal today
+  // only by luck of that normalisation. Canonicalising here means the stored
+  // value is byte-identical to what a supplier picked (config/indianStates.js).
+  if (req.body.gstin !== undefined) {
+    const gstin = req.body.gstin || null;
+    changed.gstin = { from: client.gstin, to: gstin };
+    data.gstin = gstin;
+  }
+  if (req.body.state !== undefined) {
+    const state = req.body.state ? canonicalStateName(req.body.state) : null;
+    changed.state = { from: client.state, to: state };
+    data.state = state;
+  }
+
+  // A PUT that changes only one of the pair is checked against what the other
+  // already is — the schema's own cross-check can only see the request body,
+  // so without this an operator could set a Maharashtra GSTIN today and move
+  // the state to Karnataka tomorrow and end up with a contradiction neither
+  // request could see.
+  const effectiveGstin = data.gstin !== undefined ? data.gstin : client.gstin;
+  const effectiveState = data.state !== undefined ? data.state : client.state;
+  if (!gstinMatchesState(effectiveGstin, effectiveState)) {
+    return next(ApiError.badRequest(
+      `GSTIN ${effectiveGstin} is registered in a different state from ${effectiveState} — set both together if the registration has moved`,
+      { reason: 'gstin_state_mismatch' },
+    ));
   }
 
   if (!Object.keys(changed).length) {

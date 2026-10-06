@@ -22,6 +22,10 @@ const isPaginated = (route) => route.handlers.some((handler) => handler.schema =
 // catalogue.
 const NOT_A_LIST = new Set([
   'GET /health', 'GET /test-error', 'GET /status', 'GET /meta/sap-fields',
+  // A fixed 37-row reference list (config/indianStates.js, finding 4.4), not
+  // a collection that grows with a tenant's data -- the same reason
+  // /meta/sap-fields is here.
+  'GET /meta/indian-states',
   'GET /auth/workspace', 'GET /auth/me', 'GET /auth/invitations/:token',
   'GET /platform/auth/me', 'GET /platform/health',
   'GET /platform/tenants/:clientId', 'GET /platform/tenants/:clientId/export', 'GET /platform/tenants/:clientId/sap',
