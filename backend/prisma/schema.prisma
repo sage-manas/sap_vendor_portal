@@ -350,9 +350,18 @@ model RFQ {
   deadlineDate     DateTime?
   rfqType          RfqType  @default(AN)
   paymentTerms     String?
-  purchasingOrg    String   @default("1000")
+  // Organisational scope (issue #125). No defaults -- these used to default to
+  // '1000', SAP's IDES demo value, so every RFQ read "Org: 1000" whether or
+  // not anyone chose it. Because awardBid carries this scope onto the purchase
+  // order it creates, the default the PO refuses to invent for itself (issue
+  // #62, see PurchaseOrder below) arrived via the RFQ anyway. Nullable now, on
+  // exactly the principle #62 established: a value here means a real one was
+  // supplied -- by the buyer on the RFQ, or from the workspace's own
+  // `sourcing` setting (config/tenantSettings.js) -- never that one was
+  // assumed.
+  purchasingOrg    String?
   purchasingGroup  String?
-  companyCode      String   @default("1000")
+  companyCode      String?
   currency         String   @default("INR")
   deliveryLocation String?
   createdDate      DateTime @default(now())
@@ -406,7 +415,11 @@ model RfqItem {
   quantity     Decimal   @db.Decimal(13, 3)
   uom          String    @default("EA")
   targetPrice  Decimal?  @db.Decimal(14, 2)
-  plant        String    @default("1000")
+  // Same change, same issue (#125), and the one that actually reached a
+  // purchase order: awardBid copies this onto PurchaseOrderItem.plant, which
+  // is documented "No default: null means genuinely unknown, not '1000'" --
+  // so a '1000' invented here defeated that the moment an RFQ was awarded.
+  plant        String?
   deliveryDate DateTime?
 
   @@unique([rfqPk, line])

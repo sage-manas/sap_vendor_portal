@@ -16,6 +16,7 @@ const {
   DEFAULT_VENDOR_RATING, DEFAULT_LEAD_TIME_DAYS,
 } = require('../config/scoring');
 const { gstRateToCode } = require('../config/gstCodes');
+const { settingValue } = require('../config/tenantSettings');
 const logger = require('../utils/logger');
 
 // The full nested shape a controller/frontend expects an RFQ in, matching
@@ -214,7 +215,10 @@ const getRFQById = asyncHandler(async (req, res, next) => {
 // @route   POST /api/rfqs
 // @access  Public
 const createRFQ = asyncHandler(async (req, res, next) => {
-  const { description, deadlineDate, rfqType, items, invitedVendors, paymentTerms, deliveryLocation } = req.body;
+  const {
+    description, deadlineDate, rfqType, items, invitedVendors, paymentTerms, deliveryLocation,
+    purchasingOrg, companyCode, purchasingGroup,
+  } = req.body;
 
   if (!description || !deadlineDate || !items || !items.length) {
     return next(ApiError.badRequest('Description, deadlineDate, and items are required'));
@@ -237,7 +241,24 @@ const createRFQ = asyncHandler(async (req, res, next) => {
       deadlineDate: new Date(deadlineDate),
       rfqType: rfqType || 'AN',
       paymentTerms: paymentTerms || 'NET 30 Days',
-      deliveryLocation: deliveryLocation || 'Plant 1000',
+      // Issue #125: 'Plant 1000' was the same invention as the '1000' org
+      // defaults -- a delivery address nobody stated, printed to suppliers as
+      // though someone had.
+      deliveryLocation: deliveryLocation || null,
+      // Organisational scope, in order of decreasing authority: what the
+      // buyer stated on this RFQ, then what the workspace is configured to
+      // source under, then nothing. Never '1000' (issue #125) -- that was
+      // SAP's IDES demo value, and since awardBid copies this scope onto the
+      // purchase order it creates, it defeated issue #62's rule on the PO by
+      // arriving through the RFQ.
+      //
+      // `|| null` rather than `?? null` on purpose: the tenant setting's
+      // "unset" is the empty string (config/tenantSettings.js uses '' as the
+      // default for every text setting), and '' must read as absent, not as
+      // a company code of zero characters.
+      purchasingOrg: purchasingOrg || settingValue(req.client, 'sourcing.purchasingOrg') || null,
+      companyCode: companyCode || settingValue(req.client, 'sourcing.companyCode') || null,
+      purchasingGroup: purchasingGroup || settingValue(req.client, 'sourcing.purchasingGroup') || null,
       items: {
         create: items.map((item) => ({
           clientId,
@@ -247,7 +268,11 @@ const createRFQ = asyncHandler(async (req, res, next) => {
           quantity: item.quantity,
           uom: item.uom || 'EA',
           targetPrice: item.targetPrice,
-          plant: item.plant || '1000',
+          // null, not '1000' (issue #125). awardBid copies this onto
+          // PurchaseOrderItem.plant, whose own comment says "null means
+          // genuinely unknown, not '1000'" -- so inventing one here defeated
+          // that the moment the RFQ was awarded.
+          plant: item.plant || null,
           deliveryDate: item.deliveryDate ? new Date(item.deliveryDate) : null,
         })),
       },

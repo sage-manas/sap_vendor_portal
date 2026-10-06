@@ -49,6 +49,11 @@ const GROUPS = [
     caption: 'How long this workspace keeps its operational logs before they are deleted. The audit trail is a compliance record and is never purged.',
   },
   {
+    key: 'sourcing',
+    label: 'Sourcing',
+    caption: 'The organisational scope this workspace raises requests for quotation under, and which an awarded purchase order inherits. Empty means a buyer states it per RFQ — never that a value is assumed (issue #125). These are SAP\'s own EKORG/BUKRS/EKGRP; get them from whoever administers it.',
+  },
+  {
     key: 'sapVendorCreate',
     label: 'SAP vendor creation',
     caption: 'System-controlled values SAP expects on every vendor master record — set once here, never asked of a supplier. These must match the target SAP system\'s own customizing (account group, company code, purchasing organization and so on); get them from whoever administers it.',
@@ -241,6 +246,49 @@ const SETTINGS = [
     label: 'Finished job retention (days)',
     hint: 'Completed, failed and abandoned background SAP jobs older than this are deleted daily. Jobs still waiting or running are never deleted. 1 to 365.',
     readBy: 'jobs/retention.js (purgeFinishedJobs)',
+  },
+  // Issue #125. RFQ.purchasingOrg and RFQ.companyCode used to default to
+  // '1000' in the schema -- SAP's IDES demo value, and not this project's
+  // sandbox, which uses SSDN. So every RFQ in a supplier's list read
+  // "Org: 1000" whether or not anyone had chosen it, and because an award
+  // carries the RFQ's scope onto the purchase order it creates, the default
+  // the PO refuses to invent for itself (issue #62) arrived via the RFQ
+  // anyway.
+  //
+  // The tenant is the natural owner of the answer -- one real purchasing
+  // organisation per workspace, stated once -- rather than a literal repeated
+  // per document. Empty by default, deliberately: an unset value means a
+  // buyer states it on the RFQ, and an RFQ with neither reads as '--'. That is
+  // the honest outcome, and the one thing the old default could never give.
+  {
+    key: 'sourcing.purchasingOrg',
+    path: 'settings.sourcing.purchasingOrg',
+    group: 'sourcing',
+    type: 'text',
+    default: '',
+    label: 'Purchasing organization',
+    hint: 'SAP EKORG this workspace sources under (e.g. SSDN). Empty means each RFQ states its own.',
+    readBy: 'POST /api/rfqs (controllers/rfq.controller.js createRFQ)',
+  },
+  {
+    key: 'sourcing.companyCode',
+    path: 'settings.sourcing.companyCode',
+    group: 'sourcing',
+    type: 'text',
+    default: '',
+    label: 'Company code',
+    hint: 'SAP BUKRS an RFQ is raised under (e.g. SSDN). Empty means each RFQ states its own.',
+    readBy: 'POST /api/rfqs (controllers/rfq.controller.js createRFQ)',
+  },
+  {
+    key: 'sourcing.purchasingGroup',
+    path: 'settings.sourcing.purchasingGroup',
+    group: 'sourcing',
+    type: 'text',
+    default: '',
+    label: 'Purchasing group',
+    hint: 'SAP EKGRP. Empty means each RFQ states its own, or leaves it unset.',
+    readBy: 'POST /api/rfqs (controllers/rfq.controller.js createRFQ)',
   },
 ];
 
