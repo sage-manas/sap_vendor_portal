@@ -18,6 +18,20 @@ const rfqCreateSchema = z.strictObject({
   rfqType: z.enum(['AN', 'AB']).optional(),
   paymentTerms: z.string().optional(),
   deliveryLocation: z.string().optional(),
+  // Organisational scope (issue #125). Optional, with no default anywhere
+  // here -- the same rule validators/assetPo.validator.js already states for
+  // a purchase order: "a value on a purchase order means a real one was
+  // supplied, never that '1000' was assumed". A buyer states these, or the
+  // workspace's `sourcing` setting supplies them, or the RFQ genuinely has
+  // none and reads as unset.
+  //
+  // The widths are SAP's own: EKORG and BUKRS are CHAR(4), EKGRP CHAR(3).
+  // Stated here rather than through sap/mappings/fields.js because that
+  // registry declares only the six fields a form reads a maxLength from
+  // (SAP_FIELD_KEYS), and these three are not among them.
+  purchasingOrg: z.string().max(4).optional(),
+  companyCode: z.string().max(4).optional(),
+  purchasingGroup: z.string().max(3).optional(),
   items: z.array(rfqItemSchema).min(1),
   invitedVendors: z.array(
     z.strictObject({

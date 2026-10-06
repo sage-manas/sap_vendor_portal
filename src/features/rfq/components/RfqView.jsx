@@ -489,7 +489,10 @@ export default function RfqView({
                       </div>
                       <p className="text-xs font-bold text-text-primary truncate" title={rfq.description}>{rfq.description}</p>
                       <div className="flex items-center justify-between mt-2 text-[10px] text-text-tertiary font-mono">
-                        <span>Org: {rfq.purchasingOrg}</span>
+                        {/* '--' when nobody chose one (issue #125). This used to
+                            read "Org: 1000" on every RFQ in the list, chosen or not,
+                            because the column defaulted to SAP's IDES demo value. */}
+                        <span>Org: {rfq.purchasingOrg || '—'}</span>
                         <span className="whitespace-nowrap">Date: {formatDate(rfq.createdDate)}</span>
                       </div>
                     </button>
@@ -540,7 +543,7 @@ export default function RfqView({
                           {activeRfq.id} · {activeRfq.description}{activeRfq.rfqType ? ` · Type ${activeRfq.rfqType}` : ''}
                         </h3>
                         <p className="text-[10px] text-text-secondary font-mono mt-0.5 whitespace-nowrap">
-                          Vendor: {currentVendorCode} &bull; Created: {formatDate(activeRfq.createdDate)} &bull; Org: {activeRfq.purchasingOrg}
+                          Vendor: {currentVendorCode} &bull; Created: {formatDate(activeRfq.createdDate)} &bull; Org: {activeRfq.purchasingOrg || '—'}
                         </p>
                       </div>
                     </div>
