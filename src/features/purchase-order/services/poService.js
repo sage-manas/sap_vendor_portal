@@ -34,8 +34,13 @@ export const poService = {
     return apiClient.post(`/pos/${poId}/asn`, body);
   },
 
-  async getASNs() {
-    return apiClient.get('/asns').catch(() => null);
+  // Answers `{ asns, pagination }` as of finding 4.1. It used to be a bare
+  // array of every row — the only list endpoint shaped that way, which
+  // src/test/fixtures.js noted in a comment, and one of those issue #186
+  // lists. Takes `params` like getPOs now that there are pages to ask for.
+  async getASNs(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return apiClient.get(`/asns${qs ? `?${qs}` : ''}`).catch(() => null);
   },
 
   async getGRNs() {

@@ -300,10 +300,47 @@ const getASNForPO = asyncHandler(async (req, res, next) => {
 // @desc    Get all ASNs for current vendor
 // @route   GET /api/asns
 // @access  Public
+// Finding 4.1. This used to open with `requireVendorScope(req)`, which throws
+// 400 "vendorId is required" for any caller that is not a supplier — so the
+// buying organisation, whose goods these shipments are inbound to, could not
+// see them at all. Every other document type already answers tenant-wide to
+// staff and own-rows-only to a supplier, by letting `withVendorScope` decide
+// (utils/requestScope.js, and tests/tenant-wide-visibility.test.js, which
+// records that contract). An ASN was the one exception, and not deliberately:
+// nothing about a shipment is more private than the purchase order it ships
+// against or the invoice that follows it.
+//
+// Also now paginated, and now answering `{ asns, pagination }` like every
+// other list. It previously returned every row as a bare array — the odd one
+// out, as src/test/fixtures.js noted in a comment, and one of the endpoints
+// issue #186 lists. Tenant-wide makes that unbounded response a real problem
+// rather than a latent one: a supplier has their own shipments, a workspace
+// has all of them.
 const getASNs = asyncHandler(async (req, res, next) => {
-  const vendorId = requireVendorScope(req);
-  const asns = await prisma.aSN.findMany({ where: { vendorId }, include: { items: true }, orderBy: { createdAt: 'desc' } });
-  res.json(asns);
+  const { status, page, limit } = req.query;
+
+  // Supplier plane: pinned to their own vendorId, whatever the request says.
+  // Tenant plane: the whole tenant, unless they narrow it with ?vendorId=.
+  const where = withVendorScope(req);
+  if (status) {
+    where.status = status;
+  }
+
+  const skip = (page - 1) * limit;
+  const [asns, total] = await Promise.all([
+    prisma.aSN.findMany({ where, include: { items: true }, orderBy: { createdAt: 'desc' }, skip, take: limit }),
+    prisma.aSN.count({ where }),
+  ]);
+
+  res.json({
+    asns,
+    pagination: {
+      total,
+      page,
+      limit,
+      pages: Math.ceil(total / limit),
+    },
+  });
 });
 
 // --- Asset purchase orders (the one document the portal creates in SAP) ----

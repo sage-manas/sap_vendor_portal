@@ -80,9 +80,14 @@ export function usePOs(profile) {
     if (!canFetchVendorData()) return;
     try {
       const data = await poService.getASNs();
+      // `{ asns, pagination }` as of finding 4.1; a bare array before that.
+      // Both shapes are read because a browser holding a cached bundle can
+      // outlive a deploy, and the supplier's shipments list going blank for
+      // one reload is avoidable with one expression.
       if (data) {
-        setAsns(data);
-        persistLocally('sap_vendor_portal_asns', data);
+        const asnList = Array.isArray(data) ? data : (data.asns || []);
+        setAsns(asnList);
+        persistLocally('sap_vendor_portal_asns', asnList);
       }
     } catch (e) {
       console.error('Failed to fetch ASNs', e);

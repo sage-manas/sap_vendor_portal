@@ -36,6 +36,16 @@ export const WORKSPACE_NAV = [
     permission: 'po:read',
   },
   {
+    // Finding 4.1. The buying organisation holds asn:read already — the
+    // endpoint simply refused them, so there was nothing to navigate to.
+    // Sits between orders and invoices because that is where a shipment sits
+    // in the flow: ordered, dispatched, received, invoiced.
+    href: '/workspace/shipments',
+    label: 'Shipments',
+    description: 'What suppliers have dispatched, and when it is due',
+    permission: 'asn:read',
+  },
+  {
     href: '/workspace/invoices',
     label: 'Invoices',
     description: 'Every invoice submitted, across every supplier',
