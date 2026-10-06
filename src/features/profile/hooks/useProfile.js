@@ -157,11 +157,46 @@ export function useProfile() {
     }
   };
 
+  // Finding 4.2. An approved supplier asking for their payout account to be
+  // changed, which the server turns into a `pendingBankChange` for the tenant
+  // to review (issue #53) rather than writing to the live columns.
+  //
+  // Deliberately not `saveDraft`, which the registration flow uses, for two
+  // reasons that both matter here:
+  //
+  //  - it sets `status: 'Draft'` on the local profile. The API refuses a
+  //    client-supplied status (it is not in PROFILE_WRITABLE_FIELDS), so this
+  //    corrupts only local state — but for an approved supplier that is still
+  //    enough to drop them out of the approved view until the next reload.
+  //  - it swallows every error in an empty catch. A bank-change request that
+  //    silently failed would leave a supplier believing their payments were
+  //    about to move.
+  //
+  // Sends only the five bank fields: a PUT carrying the whole profile would
+  // re-send every other column too, and `updateProfile` audits an identity
+  // change, so a request about a bank account should not look like one about
+  // a company name. Re-reads the profile afterwards rather than guessing at
+  // the new state — whether a change is pending is the server's answer, which
+  // is the whole point of #53.
+  const requestBankChange = async (bankFields) => {
+    setError(null);
+    try {
+      await profileService.updateProfile({ ...bankFields, vendorId: profile.vendorId });
+      await loadProfile();
+      return { success: true };
+    } catch (err) {
+      const message = err?.message || 'Your request could not be sent.';
+      setError(message);
+      return { success: false, error: message };
+    }
+  };
+
   return {
     profile,
     loading,
     error,
     saveDraft,
-    submitRegistration
+    submitRegistration,
+    requestBankChange
   };
 }
