@@ -1,0 +1,14 @@
+# Reviewed gitleaks findings, one fingerprint per line (commit:file:rule:line).
+# Add a line here only with a comment saying why it is not a secret.
+
+# Test fixture: the literal inputs a redaction test feeds to the redactor.
+2d58b8175d0fdf1aaeb33e4138636d40b8e3e050:backend/tests/redaction.test.js:generic-api-key:53
+# Test fixtures: throwaway passwords in an auth-flow script (not real accounts).
+8a31d96e4641984339a1dec18ba7bb082fec9633:backend/scripts/verify-auth-flow.js:generic-api-key:135
+8a31d96e4641984339a1dec18ba7bb082fec9633:backend/scripts/verify-auth-flow.js:generic-api-key:140
+# RFC 6238 Appendix B published TOTP test seed.
+dd3c36709bc6fd92503c34d3d580e2489b4623f6:backend/tests/crypto-primitives.test.js:generic-api-key:11
+# A localhost password-reset token in a dev log that was committed by mistake
+# (20a49be, since untracked). Single-use, long expired, localhost-only, and the
+# dev database it belonged to is not production. Not a live credential.
+20a49bebdf4d687e4fba09d854516b5be08253fc:backend/logs/combined-2026-07-22.log:generic-api-key:105

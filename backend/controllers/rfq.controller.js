@@ -794,6 +794,7 @@ const exportAwardedPo = asyncHandler(async (req, res, next) => {
 
   res.setHeader('Content-Type', exporter.contentType);
   res.setHeader('Content-Disposition', `attachment; filename="${po.id}.${exporter.extension}"`);
+  // nosemgrep: javascript.express.security.audit.xss.direct-response-write.direct-response-write -- a file download: fixed exporter content type and attachment disposition, never rendered as HTML
   res.send(body);
 });
 

@@ -44,11 +44,13 @@ const masterKey = () => {
   return deriveKey(raw);
 };
 
+const TAG_BYTES = 16;
+
 // The primitive both versions share. `version` only labels the output — it is
 // the caller's choice of key that makes a blob v1 or v2.
 const seal = (key, version, plaintext) => {
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv, { authTagLength: TAG_BYTES });
   const ciphertext = Buffer.concat([cipher.update(String(plaintext), 'utf8'), cipher.final()]);
 
   return [version, iv.toString('base64url'), cipher.getAuthTag().toString('base64url'), ciphertext.toString('base64url')].join(':');
@@ -60,7 +62,9 @@ const open = (key, version, envelope) => {
     throw new Error('Cannot decrypt: unrecognised ciphertext envelope');
   }
 
-  const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'base64url'));
+  // The tag length is pinned: without it Node accepts a GCM tag of 4 to 16 bytes,
+  // and a truncated tag is a much easier forgery.
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'base64url'), { authTagLength: TAG_BYTES });
   decipher.setAuthTag(Buffer.from(tag, 'base64url'));
   // Throws if the ciphertext or the key is wrong — tampering is a failure, not
   // a silently different plaintext.
