@@ -44,7 +44,12 @@ export default defineConfig({
   },
   test: {
     // Backend tests are run separately with Jest (backend/tests)
-    include: ['src/**/*.test.{js,jsx}'],
+    // `scripts/` is here for one reason: scripts/load-test.safety.test.js
+    // guards the property that makes the k6 load test safe to hand to an
+    // operator (it is read-only, and SAP reads stay behind a flag). The script
+    // itself cannot be executed under vitest -- it imports k6/http -- so the
+    // test reads its source, which means it has to live beside it.
+    include: ['src/**/*.test.{js,jsx}', 'scripts/**/*.test.{js,mjs}'],
     // jsdom for everything, not only the component tests: the pure-function
     // suites under src/lib run identically under it, and one environment means
     // a new test file does not have to remember to declare one. Vitest still
