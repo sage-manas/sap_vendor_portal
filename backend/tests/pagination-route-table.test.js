@@ -59,7 +59,6 @@ const UNPAGINATED_ISSUE_186 = new Set([
   'GET /uploads',
   'GET /users',
   'GET /users/invitations',
-  'GET /asns',
   'GET /rfqs/sap-status',
   'GET /rfqs/sap-quotations',
   'GET /payments/sap-status',
@@ -95,8 +94,13 @@ describe('every GET route is paginated or a reviewed exception', () => {
     expect(all.filter((route, index) => all.indexOf(route) !== index)).toEqual([]);
   });
 
-  it('the paginated routes are the six main tenant lists and three platform lists', () => {
+  it('the paginated routes are the seven main tenant lists and three platform lists', () => {
     expect(getRoutes.filter(isPaginated).map(key).sort()).toEqual([
+      // /asns joined this list with finding 4.1, which made it tenant-wide:
+      // it was one of issue #186's unpaginated routes, and a list that
+      // answers with every supplier's shipments rather than one supplier's
+      // is not a response to leave unbounded.
+      'GET /asns',
       'GET /grns', 'GET /invoices', 'GET /payments', 'GET /platform/jobs',
       'GET /platform/tenants', 'GET /platform/tenants/:clientId/sap/audit',
       'GET /pos', 'GET /rfqs', 'GET /vendors',

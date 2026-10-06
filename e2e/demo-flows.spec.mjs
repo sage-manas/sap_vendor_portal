@@ -193,7 +193,7 @@ test.describe('demo flows, through the UI', () => {
     await page.getByRole('button', { name: 'Submit Inbound Delivery' }).click();
 
     await expect.poll(async () => {
-      const asns = (await supplier.get('/asns')).body ?? [];
+      const asns = (await supplier.get('/asns')).body?.asns ?? [];
       return asns.find((asn) => asn.poId === po.id) ?? null;
     }, { timeout: 20_000 }).toMatchObject({ carrierName: 'Safexpress', vehicleNumber: 'MH-14-KL-2211', trackingNumber: null });
 
