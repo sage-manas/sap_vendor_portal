@@ -9,6 +9,7 @@ const { markFailed, markOrphaned } = require('./syncState');
 const { SAP_JOB_KINDS } = require('./kinds');
 const { rawPrisma } = require('../db/prisma');
 const { withoutTenantScope } = require('../utils/tenantContext');
+const { report } = require('../observability/sentry');
 
 // Sync-state bookkeeping (Phase 3) is best-effort side-channel work, not the
 // job's own result — a job kind Phase 4 adds without a document mapping
@@ -206,6 +207,12 @@ const run = async ({ standalone = false } = {}) => {
       await tick();
     } catch (error) {
       logger.error(`[jobs] tick errored: ${error.message}`);
+      // A throw here is the whole tick failing -- reapStale, the schedule
+      // materialisation, or claim() itself -- not one job's handler, which
+      // processJob already records on the job row. Nothing else notices this
+      // one: the loop just tries again in TICK_MS and the queue quietly
+      // stops draining.
+      report(error, { route: 'jobs tick', workerId: WORKER_ID });
     }
     if (!running) return;
     const timer = setTimeout(loop, TICK_MS);
@@ -232,6 +239,12 @@ module.exports = { processJob, tick, materialiseSchedules, run, stop, isRunning,
 // or anywhere else — never starts a live loop by accident.
 if (require.main === module) {
   if (process.env.JOBS_ENABLED === 'true') {
+    // This is a separate PM2 process from the API, so its crashes are
+    // invisible in the API's logs and its exceptions reach nobody at all
+    // (go-live item 3.x). Tagged `jobs` so an operator can tell a worker
+    // failure from a request failure in Sentry without reading the stack.
+    // A no-op unless SENTRY_DSN is set.
+    require('../observability/sentry').initSentry({ serviceName: 'jobs' });
     run({ standalone: true });
   } else {
     logger.warn('[jobs] JOBS_ENABLED is not "true" — worker process exiting without starting the loop.');

@@ -3,6 +3,10 @@ const path = require('path');
 dotenv.config({ path: path.join(__dirname, '.env') }); // Load environment variables first
 
 const logger = require('./utils/logger');
+// Before validateEnv and before the mailer assertion below, both of which can
+// refuse to boot -- a crash during startup is exactly the kind nobody sees in
+// a log file, so reporting has to be live first (go-live item 3.x).
+require('./observability/sentry').initSentry({ serviceName: 'api' });
 const validateEnv = require('./config/validateEnv');
 validateEnv(); // Validate environment before startup
 
