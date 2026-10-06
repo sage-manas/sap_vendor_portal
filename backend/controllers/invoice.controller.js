@@ -8,6 +8,7 @@ const { matchInvoiceDocument, AmbiguousInvoiceMatchError } = require('../sap/map
 const { INVOICE_INCLUDE, formatInvoice } = require('../db/invoiceHelpers');
 const { flattenPaymentItems } = require('../db/paymentHelpers');
 const { mapWithConcurrency } = require('../utils/concurrencyPool');
+const { withVendorNames } = require('../utils/vendorNames');
 
 // At most this many invoicePaymentDetail calls run at once (issue #71) — an
 // unbounded Promise.all turned "one call per matched invoice" into a burst of
@@ -41,7 +42,9 @@ const getInvoices = asyncHandler(async (req, res, next) => {
   ]);
 
   res.json({
-    invoices: invoices.map(formatInvoice),
+    // Finding 4.3 — see the same note on getPOs. Finance reads this list
+    // across every supplier, so a row names the company, not only the code.
+    invoices: await withVendorNames(invoices.map(formatInvoice)),
     pagination: {
       total,
       page: Number(page),
