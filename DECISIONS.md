@@ -5,6 +5,70 @@ Each entry: the call, why, and what it costs.
 
 ---
 
+## ADR-0043 — One supplier login per buyer relationship, confirmed for go-live
+
+**Go-live readiness · 2026-10-06 · Accepted**
+
+**Context.** ADR-0039 fixed #67 by making `Vendor.gstin` unique per tenant, so one real
+company can be onboarded by any number of buyer tenants. It deliberately left `vendorId` and
+`email` globally unique, and recorded the consequence rather than hiding it: a supplier who
+trades with two tenants needs **two accounts with two different email addresses**, because the
+pre-tenancy login lookup resolves on those two fields and cannot de-duplicate a non-unique key
+without guessing which account the caller meant.
+
+That ADR also named the better design and the condition for building it — *"the identity/
+master-data split is the right design once a supplier's shared login across tenants is an
+actual requirement, not just a theoretical one"* — and asked for the question to be put again
+rather than rediscovered. The go-live readiness review put it (item 4.5).
+
+**Decision.** Keep Option A. One `Vendor` row, and one login, per (tenant, supplier)
+relationship, for go-live. No code changes; this record is the answer, so the next reader
+finds a decision rather than an open question.
+
+Three things make this the right call *now* rather than merely the cheaper one:
+
+- **The trigger ADR-0039 named has still not fired.** No tenant has asked for one login
+  across buyers. The defect reported was the GSTIN collision, which is fixed; the email
+  limitation has never been reported by anyone.
+- **It collides with work already scheduled.** Option B — a global supplier *identity*
+  separate from N tenant-scoped vendor master-data records — touches the login path,
+  `signToken`, socket authentication, and every handler that assumes `req.vendorId` names
+  exactly one tenant-scoped row. Findings 1.1/1.2 are about to replace the session model
+  wholesale (httpOnly cookie, short access token, rotating refresh token in a new session
+  table, socket auth moved onto the cookie). Rewriting what a token *identifies* at the same
+  time as rewriting how it is *carried* means two large changes to the same code with no
+  intermediate state that is reviewable on its own.
+- **The ordering is strictly better the other way round.** A session model that is already
+  cookie-based, revocable and server-side is a considerably easier place to add
+  "which of this identity's tenant relationships is this session acting in" than a 30-day
+  JWT in `localStorage` is. Doing identity first means doing it twice.
+
+**Consequences.**
+
+What a supplier trading with two tenants does today: registers twice, with a different email
+per tenant. Same GSTIN and PAN on both (ADR-0039), separate approval lifecycles, separate
+credentials, separate sessions. For the pilot tenant this is not hypothetical-but-fine, it is
+simply unused — CLT-0001 is the only tenant with suppliers.
+
+What this costs when the trigger does fire: a supplier who already holds two accounts will
+need them merged, and a merge has to decide which account's `vendorId` survives, since that
+string is referenced by every PO, invoice, ASN, GRN and payment row in both tenants. That
+migration gets harder the more such suppliers exist — which is the real reason to keep asking
+the question rather than letting this ADR stand indefinitely.
+
+**Revisit when** any of these is true, and treat the first as the decisive one:
+
+1. A real supplier asks to use one login across two buyer tenants, or a tenant asks on their
+   behalf.
+2. More than a handful of suppliers hold duplicate accounts distinguishable only by email —
+   the point at which the merge migration stops being trivial.
+3. Findings 1.1/1.2 have shipped, which removes the sequencing objection above entirely.
+
+Until then, `vendorId` and `email` stay globally unique and the login path keeps resolving on
+them, exactly as ADR-0002 and ADR-0039 describe.
+
+---
+
 ## ADR-0042 — Asset PO creation is a narrow, confirmed exception to "the portal creates no purchase orders in SAP"
 
 **SAP integration · 2026-09-17 · Accepted**
@@ -227,6 +291,10 @@ scratch: **the identity/master-data split is the right design once a supplier's 
 across tenants is an actual requirement, not just a theoretical one** — the same trigger
 ADR-0002 named, now more precisely aimed at `email` specifically rather than at
 `vendorId`/`email`/`gstin` together.
+
+That question was put again at the go-live readiness review and answered: **ADR-0043** keeps
+Option A for go-live and records the conditions that should reopen it, so this paragraph is no
+longer the newest word on the subject.
 
 **Consequences.** The same GSTIN can be onboarded by any number of tenants — each gets its own
 `Vendor` row, its own status/approval lifecycle, its own login. Tenant isolation is unaffected:
