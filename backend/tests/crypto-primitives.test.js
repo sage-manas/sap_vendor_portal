@@ -73,6 +73,16 @@ describe('secretBox', () => {
     expect(() => decrypt('plaintext-that-was-never-encrypted')).toThrow(/unrecognised ciphertext envelope/);
   });
 
+  // Without a pinned tag length Node accepts any GCM tag of 4-16 bytes, so a
+  // forger needs to match only the first 4 bytes of the real tag (about 2^32
+  // attempts) rather than all 16. Found by Semgrep (gcm-no-tag-length).
+  it('refuses an envelope whose authentication tag has been truncated', () => {
+    const [version, iv, tag, ciphertext] = encrypt('sensitive').split(':');
+    const truncated = Buffer.from(tag, 'base64url').subarray(0, 4).toString('base64url');
+
+    expect(() => decrypt([version, iv, truncated, ciphertext].join(':'))).toThrow();
+  });
+
   it('treats an absent secret as absent, not as an error', () => {
     expect(encrypt(null)).toBeNull();
     expect(encrypt('')).toBeNull();

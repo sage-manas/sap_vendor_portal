@@ -1,0 +1,61 @@
+name: Security scans
+
+# Static analysis and secret scanning. Complements audit.yml (known-vulnerable
+# dependencies) and the route-table / header / socket tests (structural
+# guardrails). Runs on every PR and push, and weekly so a newly published rule
+# can turn master red without waiting for the next change.
+on:
+  pull_request:
+  push:
+    branches: [master]
+  schedule:
+    - cron: '41 5 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep:latest
+    steps:
+      - uses: actions/checkout@v7
+      # Any finding fails the job. A reviewed false positive is silenced at the
+      # line with `// nosemgrep: <rule-id> -- <reason>`, so the reasoning is
+      # visible in the diff. Tests and vendored agent tooling are not shipped.
+      - name: Semgrep
+        run: >-
+          semgrep scan --error --metrics=off
+          --config p/javascript --config p/typescript --config p/nodejs --config p/secrets
+          --exclude node_modules --exclude .next --exclude backend/tests --exclude '*.test.*'
+          --exclude .cursor --exclude .gemini --exclude .claude --exclude .agents
+          .
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history: a secret removed in a later commit is still a secret.
+          fetch-depth: 0
+      # The CLI from its official image rather than gitleaks-action, which
+      # needs a paid licence for organisation repositories. Reviewed false
+      # positives live in .gitleaksignore, one fingerprint per line.
+      - name: Gitleaks
+        run: docker run --rm -v "$PWD":/repo zricethezav/gitleaks:latest git /repo --no-banner --redact --exit-code 1
+
+  codeql:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:javascript-typescript
