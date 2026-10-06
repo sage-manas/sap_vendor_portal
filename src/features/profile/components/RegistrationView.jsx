@@ -21,6 +21,7 @@ import {
 import { Button } from '@/components/ui/button';
 import FileUploadZone from '@/components/shared/FileUploadZone';
 import FieldCard from '@/components/ui/FieldCard';
+import { BankChangeRequest } from './BankChangeRequest';
 
 // --- INDIAN STATES CONSTANT ---
 const INDIAN_STATES = [
@@ -516,7 +517,8 @@ export default function RegistrationView({
   setCompanyForm,
   handleCompanySubmit,
   saveDraft,
-  submitRegistration
+  submitRegistration,
+  requestBankChange
 }) {
   const isApproved = state.profile.status === 'Approved';
   const isPending = state.profile.status === 'Pending Approval' || state.profile.status === 'Under Review';
@@ -1428,9 +1430,6 @@ export default function RegistrationView({
                 { label: 'TDS Section', val: state.profile.tdsSection || 'Not Mapped' },
                 { label: 'Finance contact email', val: state.profile.email },
                 { label: 'Phone number', val: state.profile.phone },
-                { label: 'Bank', val: state.profile.bankName },
-                { label: 'Bank branch', val: state.profile.bankBranch || 'Not Mapped' },
-                { label: 'Bank account', val: `••••${state.profile.accountNumber?.slice(-4)} (${state.profile.ifscCode})`, isMono: true },
                 { label: 'Business address', val: `${state.profile.address}, ${state.profile.city}, ${state.profile.region || state.profile.state}, ${state.profile.country || ''} - ${state.profile.postalCode}` },
                 { label: 'Cancelled Cheque Copy Document', val: documentName(state.profile.cancelledCheque), isFile: true },
                 { label: 'PAN Card Copy Document', val: documentName(state.profile.panCardCopy), isFile: true },
@@ -1450,6 +1449,13 @@ export default function RegistrationView({
               ))}
             </div>
           </div>
+
+          {/* Finding 4.2. The payout account used to be three read-only rows
+              in the list above, with no way to ask for a change -- so the
+              only route was emailing someone, on the one field issue #53
+              built a whole review flow around. This card owns those rows now
+              and adds the request. */}
+          <BankChangeRequest profile={state.profile} onSubmit={requestBankChange} />
         </div>
       )}
     </div>
