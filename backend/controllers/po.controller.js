@@ -10,6 +10,7 @@ const { lineNetValue } = require('../utils/lineValue');
 const { TtlCache } = require('../utils/ttlCache');
 
 const { requireVendorScope, withVendorScope, scopedWhere } = require('../utils/requestScope');
+const { withVendorNames } = require('../utils/vendorNames');
 const {
   buildPlan,
   summarizePlan,
@@ -55,7 +56,11 @@ const getPOs = asyncHandler(async (req, res, next) => {
   ]);
 
   res.json({
-    pos: pos.map(formatPo),
+    // Finding 4.3 — the workspace list is tenant-wide, so a row has to say
+    // whose order it is in a name a buyer recognises, not just the internal
+    // vendorId it used to print under a "Supplier" heading. One batched
+    // lookup for the page, not one per row (utils/vendorNames.js).
+    pos: await withVendorNames(pos.map(formatPo)),
     pagination: {
       total,
       page: Number(page),

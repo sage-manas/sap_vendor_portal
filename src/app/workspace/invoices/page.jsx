@@ -36,7 +36,17 @@ export default function WorkspaceInvoicesPage() {
         <Table
           columns={[
             { key: 'invoiceNumber', header: 'Invoice', render: (row) => <span className="mono">{row.invoiceNumber || row.id}</span> },
-            { key: 'vendorId', header: 'Supplier' },
+            // Finding 4.3 — see the same note in the purchase-orders list.
+            {
+              key: 'vendorName',
+              header: 'Supplier',
+              render: (row) => (row.vendorName ? (
+                <span className="flex flex-col">
+                  <span>{row.vendorName}</span>
+                  <span className="mono text-[10px] text-text-tertiary">{row.vendorId}</span>
+                </span>
+              ) : <span className="mono">{row.vendorId}</span>),
+            },
             { key: 'poId', header: 'Order', render: (row) => <span className="mono">{row.poId}</span> },
             { key: 'totalAmount', header: 'Amount', render: (row) => <span className="mono">{money(row.totalAmount, row.currency)}</span> },
             { key: 'status', header: 'Status', render: (row) => <Status value={row.status} /> },

@@ -54,7 +54,24 @@ export default function WorkspacePurchaseOrdersPage() {
         <Table
           columns={[
             { key: 'id', header: 'Order', render: (row) => <span className="mono">{row.sapPoNumber || row.id}</span> },
-            { key: 'vendorId', header: 'Supplier' },
+            // Finding 4.3: this column used to render `vendorId`, the
+            // portal's internal supplier key — so a tenant-wide list of
+            // orders was identified by a string nobody in the buying
+            // organisation can resolve to a company. The code stays visible
+            // underneath, because it is what SAP and the detail route key on,
+            // and it falls back to being the only thing shown for an order
+            // discovered against a LIFNR this tenant never onboarded (where
+            // the API answers vendorName: null rather than guessing).
+            {
+              key: 'vendorName',
+              header: 'Supplier',
+              render: (row) => (row.vendorName ? (
+                <span className="flex flex-col">
+                  <span>{row.vendorName}</span>
+                  <span className="mono text-[10px] text-text-tertiary">{row.vendorId}</span>
+                </span>
+              ) : <span className="mono">{row.vendorId}</span>),
+            },
             { key: 'lines', header: 'Lines', render: (row) => (row.items || []).length },
             { key: 'value', header: 'Value', render: (row) => <span className="mono">{money(orderValue(row), row.currency)}</span> },
             { key: 'status', header: 'Status', render: (row) => <Status value={row.status} /> },
