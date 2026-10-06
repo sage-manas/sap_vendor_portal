@@ -1,5 +1,6 @@
 const { mapPrismaError } = require('../utils/prismaErrors');
 const logger = require('../utils/logger');
+const { report } = require('../observability/sentry');
 
 const errorHandler = (err, req, res, next) => {
   // A Prisma error reaching here means a controller let it propagate rather
@@ -53,6 +54,17 @@ const errorHandler = (err, req, res, next) => {
 
   if (statusCode >= 500) {
     logger.error(`Exception occurred: ${message}`, { ...logMeta, stack: err.stack });
+    // Only 5xx. A 4xx is this codebase refusing a request on purpose -- a
+    // validation failure, a 404, a 403 -- and reporting those would bury the
+    // one class of event that means something is actually broken. `report`
+    // is a no-op unless SENTRY_DSN is set, and never throws: a failure to
+    // report an error must not become a second error on the same request.
+    report(err, {
+      requestId: req.requestId,
+      clientId: req.clientId,
+      route: `${req.method} ${req.route?.path || req.originalUrl || req.url}`,
+      statusCode,
+    });
   } else {
     logger.warn(`Operational warning: ${message}`, logMeta);
   }

@@ -12,6 +12,7 @@ touching the database directly, a shell on a host with `DATABASE_URL` set.
 - [email-deliverability.md](email-deliverability.md) — SMTP settings and the SPF/DKIM/DMARC checklist.
 - [object-storage.md](object-storage.md) — the S3-compatible bucket that holds uploaded documents: bucket settings, a least-privilege key, moving existing files, key rotation.
 - [sap-outage.md](sap-outage.md) — a tenant's SAP connection is failing or its circuit breaker has opened.
+- [error-tracking.md](error-tracking.md) — enabling Sentry for the API, worker and browser, and what it does and does not send.
 
 None of these describe hosting infrastructure (there isn't any committed to
 this repo yet — see `SAAS_IMPLEMENTATION_PLAN.md` Phase 8 and the "only with a
