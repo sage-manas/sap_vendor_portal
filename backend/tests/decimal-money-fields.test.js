@@ -21,6 +21,8 @@ const { prisma } = require('../db/prisma');
 const { registerVendor, createAdminUser, runDueJobs } = require('./helpers');
 const { runWithTenant } = require('../utils/tenantContext');
 const { enqueue } = require('../jobs/queue');
+const { PO_INCLUDE, persistInvoicePlan } = require('../db/poHelpers');
+const { buildPlan } = require('../services/invoicePlan.service');
 
 const app = buildTestApp();
 const auth = (token) => (req) => req.set('Authorization', `Bearer ${token}`);
@@ -158,18 +160,24 @@ describe('money fields survive the Float → Decimal migration', () => {
       },
     }));
 
-    // Configure a partial plan with two milestones — the same shape
+    // Seed a partial plan with two milestones — the same shape
     // tests/invoice-plan.test.js's partialBody uses — so poInvoicePlanDisplay
     // (sap/drivers/mock.driver.js) has something to "discover" and echo back
-    // on sync.
-    const configureRes = await asBuyer(request(app).put('/api/pos/PO-DECIMAL-0003/items/10/invoice-plan')).send({
-      type: 'Partial',
-      milestones: [
-        { settlementDate: '2020-01-01', percentage: 40, description: 'On order' },
-        { settlementDate: '2099-01-01', percentage: 60, description: 'On commissioning' },
-      ],
+    // on sync. configureInvoicePlan (po:manage) is dates-only and never
+    // creates a plan from nothing, so this is seeded directly, the way
+    // syncInvoicePlan itself would adopt one SAP already holds.
+    await runWithTenant('CLT-0001', async () => {
+      const po = await prisma.purchaseOrder.findFirst({ where: { id: 'PO-DECIMAL-0003' }, include: PO_INCLUDE });
+      const item = po.items.find((i) => i.line === 10);
+      const built = buildPlan({
+        type: 'Partial',
+        milestones: [
+          { settlementDate: '2020-01-01', percentage: 40, description: 'On order' },
+          { settlementDate: '2099-01-01', percentage: 60, description: 'On commissioning' },
+        ],
+      }, { item, currency: po.currency || 'INR', existingPlan: null });
+      await persistInvoicePlan(item, { ...built, source: 'sap', syncedAt: new Date() });
     });
-    expect(configureRes.status).toBe(200);
 
     const syncRes = await asBuyer(request(app).post('/api/pos/PO-DECIMAL-0003/invoice-plan/sync'));
     expect(syncRes.status).toBe(200);

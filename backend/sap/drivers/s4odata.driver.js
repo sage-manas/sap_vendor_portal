@@ -544,44 +544,15 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
     return {
       data: {
         orders: rows.filter(inScope).filter(isPurchaseOrder).map((po) => {
-          const items = (po.PO_LINE_ITEMS || []).map((item) => ({
-            itemNumber: item.ITEM_NUMBER,
-            materialCode: item.MATERIAL_CODE,
-            description: item.DESCRIPTION,
-            orderedQuantity: Number(item.ORDERED_QUANTITY),
-            receivedQuantity: Number(item.RECEIVED_QUANTITY),
-            invoicedQuantity: Number(item.INVOICED_QUANTITY),
-            // decodeFromSap('MEINS', ...) is a display decode (falls back to
-            // the raw SAP code rather than throwing on an unmapped unit) —
-            // this is a read, and failing a whole PO/GRN listing over one
-            // unfamiliar unit code would be worse than showing it verbatim.
-            // What it must never do is silently become a *different* real
-            // unit — see the fixed default a few lines below in
-            // awaitGoodsReceipt for the bug this replaced.
-            uom: decodeFromSap('MEINS', item.UOM),
-            unitPrice: Number(item.UNIT_PRICE),
-            netAmount: Number(item.NET_AMOUNT),
-            grossAmount: Number(item.GROSS_AMOUNT),
-            grStatus: item.GR_EXPECTED || null,
-            plant: item.PLANT,
-
-            // FPLA-FPLNR. Blank means the line has no invoicing plan, which is
-            // the ordinary case and not a missing field, so blank stays null
-            // rather than becoming "". Added to this endpoint alongside
-            // ACC_ASSIGNMNT_CAT (both were once only on the single-order
-            // sibling zpo_grn/Detail), which is what lets the sweep learn a
-            // plan SAP owns without a second call per order.
-            invoicePlanNumber: String(item.INV_PLANNO || '').trim() || null,
-
-            // EKPO-KNTTP: 'A' asset, 'D' service, 'K' cost centre, blank an
-            // ordinary material line. Added to this endpoint after
-            // ACC_ASSIGNMNT_CAT was already available on zpo_grn/Detail, so
-            // unlike INV_PLANNO above this one is real here — which is what
-            // lets the sweep classify an order from the ledger read alone,
-            // without a second call per order.
-            accountAssignmentCategory: String(item.ACC_ASSIGNMNT_CAT || '').trim().toUpperCase() || null,
-
-            grns: (item.GRN || []).filter(isGoodsReceipt).map((gr) => ({
+          const items = (po.PO_LINE_ITEMS || []).map((item) => {
+            // RECEIVED_QUANTITY is not trustworthy on this endpoint — confirmed
+            // live, it echoes ORDERED_QUANTITY on every line, GRN[] empty or
+            // not (an ABAP bug; see docs/abap-requests). GR_EXPECTED
+            // corroborates: "Closed" iff GRN[] is non-empty, "Open" iff it
+            // isn't. So receipt quantity is summed from GRN[] itself below,
+            // the one field on this payload that actually reports what was
+            // received, rather than taken from this header-ish line field.
+            const grns = (item.GRN || []).filter(isGoodsReceipt).map((gr) => ({
               grNumber: gr.GR_NUMBER,
               // A GR document covers several PO lines, so GR_NUMBER repeats
               // across items (159 of 410 rows in the sandbox). The item
@@ -598,28 +569,70 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
               unitPrice: Number(gr.UNIT_PRICE),
               netAmount: Number(gr.NET_AMOUNT),
               location: gr.LOCATION || null,
-            })),
+            }));
 
-            // Service lines (TYPE ZSER) are confirmed by service entry sheet,
-            // not by a goods movement, so SAP returns them in the same GRN
-            // array with every receipt field blank and the SSES_* fields
-            // filled instead. Left in `grns` they render as empty receipts
-            // with no number, date or quantity, so they are split out here.
-            serviceEntries: (item.GRN || []).filter((gr) => !isGoodsReceipt(gr)).map((gr) => ({
-              entrySheetNumber: gr.SSES_NO,
-              fiscalYear: gr.SSES_YEAR,
-              netAmount: Number(gr.SNET_AMOUNT || gr.NET_AMOUNT),
-              accountCategory: gr.SACC_CAT || null,
-              itemCategory: gr.SITEM_CAT || null,
-            })),
-          }));
+            return {
+              itemNumber: item.ITEM_NUMBER,
+              materialCode: item.MATERIAL_CODE,
+              description: item.DESCRIPTION,
+              orderedQuantity: Number(item.ORDERED_QUANTITY),
+              receivedQuantity: grns.reduce((sum, gr) => sum + (gr.quantity || 0), 0),
+              invoicedQuantity: Number(item.INVOICED_QUANTITY),
+              // decodeFromSap('MEINS', ...) is a display decode (falls back to
+              // the raw SAP code rather than throwing on an unmapped unit) —
+              // this is a read, and failing a whole PO/GRN listing over one
+              // unfamiliar unit code would be worse than showing it verbatim.
+              // What it must never do is silently become a *different* real
+              // unit — see the fixed default a few lines below in
+              // awaitGoodsReceipt for the bug this replaced.
+              uom: decodeFromSap('MEINS', item.UOM),
+              unitPrice: Number(item.UNIT_PRICE),
+              netAmount: Number(item.NET_AMOUNT),
+              grossAmount: Number(item.GROSS_AMOUNT),
+              grStatus: item.GR_EXPECTED || null,
+              plant: item.PLANT,
 
-          // The header NET_AMOUNT/GROSS_AMOUNT this endpoint returns cannot
-          // be used. Against the live sandbox NET_AMOUNT is "0.00" for 115 of
-          // 173 orders, and GROSS_AMOUNT is non-decreasing across every one
-          // of the 172 row transitions — it is a running total that the ABAP
-          // handler never resets per PO, not this order's gross. Both are
-          // summed from the line items instead, which do reconcile.
+              // FPLA-FPLNR. Blank means the line has no invoicing plan, which is
+              // the ordinary case and not a missing field, so blank stays null
+              // rather than becoming "". Added to this endpoint alongside
+              // ACC_ASSIGNMNT_CAT (both were once only on the single-order
+              // sibling zpo_grn/Detail), which is what lets the sweep learn a
+              // plan SAP owns without a second call per order.
+              invoicePlanNumber: String(item.INV_PLANNO || '').trim() || null,
+
+              // EKPO-KNTTP: 'A' asset, 'D' service, 'K' cost centre, blank an
+              // ordinary material line. Added to this endpoint after
+              // ACC_ASSIGNMNT_CAT was already available on zpo_grn/Detail, so
+              // unlike INV_PLANNO above this one is real here — which is what
+              // lets the sweep classify an order from the ledger read alone,
+              // without a second call per order.
+              accountAssignmentCategory: String(item.ACC_ASSIGNMNT_CAT || '').trim().toUpperCase() || null,
+
+              grns,
+
+              // Service lines (TYPE ZSER) are confirmed by service entry sheet,
+              // not by a goods movement, so SAP returns them in the same GRN
+              // array with every receipt field blank and the SSES_* fields
+              // filled instead. Left in `grns` they render as empty receipts
+              // with no number, date or quantity, so they are split out here.
+              serviceEntries: (item.GRN || []).filter((gr) => !isGoodsReceipt(gr)).map((gr) => ({
+                entrySheetNumber: gr.SSES_NO,
+                fiscalYear: gr.SSES_YEAR,
+                netAmount: Number(gr.SNET_AMOUNT || gr.NET_AMOUNT),
+                accountCategory: gr.SACC_CAT || null,
+                itemCategory: gr.SITEM_CAT || null,
+              })),
+            };
+          });
+
+          // The header NET_AMOUNT/GROSS_AMOUNT were confirmed broken against
+          // an earlier sandbox capture — NET_AMOUNT "0.00" on most orders,
+          // GROSS_AMOUNT a running total across the whole vendor list rather
+          // than this order's own gross. ABAP has since fixed both at the
+          // source. Still summed from the line items here rather than
+          // switched back to reading the header directly: the sum is correct
+          // either way and doesn't re-introduce a dependency on the header
+          // fields staying right.
           const sumOf = (field) => items.reduce((total, item) => total + (item[field] || 0), 0);
 
           return {

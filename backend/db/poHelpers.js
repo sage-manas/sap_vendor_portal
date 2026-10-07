@@ -148,13 +148,6 @@ const persistInvoicePlan = async (item, plan) => {
   return prisma.invoicePlan.findFirst({ where: { pk: planRow.pk }, include: { lines: true } });
 };
 
-// Switches a line's plan off. Rather than delete the InvoicePlan row (which
-// would lose the billing history on its lines), enabled is set false — same
-// as the old `{ enabled: false }` replacement, which likewise discarded the
-// in-memory schedule but kept nothing else around to delete.
-const disableInvoicePlan = (item) =>
-  prisma.invoicePlan.update({ where: { pk: item.invoicePlan.pk }, data: { enabled: false } });
-
 // The one place PurchaseOrder.status is ever written (issue #60). Every event
 // that used to set it directly — acknowledge, ASN submission, a goods
 // receipt, an invoice clearing — instead updates the fact that actually
@@ -210,6 +203,5 @@ module.exports = {
   formatPoItem,
   formatPo,
   persistInvoicePlan,
-  disableInvoicePlan,
   syncPoStatus,
 };

@@ -2,7 +2,7 @@ const request = require('supertest');
 const buildTestApp = require('./testApp');
 const { registerVendor, createAdminUser } = require('./helpers');
 const { prisma } = require('../db/prisma');
-const { PO_INCLUDE } = require('../db/poHelpers');
+const { PO_INCLUDE, persistInvoicePlan } = require('../db/poHelpers');
 const { runWithTenant } = require('../utils/tenantContext');
 const plan = require('../services/invoicePlan.service');
 
@@ -142,15 +142,46 @@ describe('invoicing plan endpoints', () => {
     ],
   };
 
-  it('lets the buying organisation configure a plan and reports it on the order', async () => {
+  // configureInvoicePlan (po:manage) is dates-only, the same rule a
+  // supplier's own proposal is held to (assertDatesOnlyChange) — it never
+  // creates a plan from nothing. So a plan is seeded here the way
+  // syncInvoicePlan would adopt one SAP already holds, and the endpoint
+  // itself is only exercised moving its dates.
+  const seedPlan = async (poId, line, body) => runWithTenant('CLT-0001', async () => {
+    const po = await prisma.purchaseOrder.findFirst({ where: { id: poId }, include: PO_INCLUDE });
+    const item = po.items.find((i) => i.line === line);
+    const built = plan.buildPlan(body, { item, currency: po.currency || 'INR', existingPlan: null });
+    await persistInvoicePlan(item, { ...built, source: 'sap', syncedAt: new Date() });
+  });
+
+  it('refuses to create a plan where none exists — only SAP originates one', async () => {
+    const { vendor } = await registerVendor(app, { vendorId: 'vendor_plan_0', gstin: '27AAAAA1000A1Z1' }, { onboarded: true });
+    const { token: adminToken } = await createAdminUser({ email: 'plan-admin-0@example.com' });
+    await seedPO({ id: 'PO-PLAN-0', vendorId: vendor.vendorId });
+
+    const res = await configure(adminToken, 'PO-PLAN-0', 10, partialBody);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/no invoicing plan/);
+  });
+
+  it('lets the buying organisation move the dates on a plan SAP already holds', async () => {
     const { vendor } = await registerVendor(app, { vendorId: 'vendor_plan_1', gstin: '27AAAAA1001A1Z1' }, { onboarded: true });
     const { token: adminToken } = await createAdminUser({ email: 'plan-admin-1@example.com' });
     await seedPO({ id: 'PO-PLAN-1', vendorId: vendor.vendorId });
+    await seedPlan('PO-PLAN-1', 10, partialBody);
 
-    const saved = await configure(adminToken, 'PO-PLAN-1', 10, partialBody);
+    const movedDates = {
+      type: 'Partial',
+      milestones: [
+        { settlementDate: '2020-02-01', percentage: 40, description: 'On order' },
+        { settlementDate: '2099-02-01', percentage: 60, description: 'On commissioning' },
+      ],
+    };
+    const saved = await configure(adminToken, 'PO-PLAN-1', 10, movedDates);
     expect(saved.status).toBe(200);
     expect(saved.body.item.plan.type).toBe('Partial');
     expect(saved.body.item.plan.lines.map((l) => l.amount)).toEqual([20000, 30000]);
+    expect(saved.body.item.plan.lines.map((l) => l.settlementDate.slice(0, 10))).toEqual(['2020-02-01', '2099-02-01']);
     // The mock driver stands in for the ME22N write and hands back the FPLA number.
     expect(saved.body.item.plan.planNumber).toBeTruthy();
 
@@ -159,6 +190,20 @@ describe('invoicing plan endpoints', () => {
     expect(read.body.items).toHaveLength(1);
     // Only the first milestone has come due; the 2099 one has not.
     expect(read.body.billable.map((b) => b.planLineNumber)).toEqual([10]);
+  });
+
+  it('refuses to restructure the plan rather than just move its dates', async () => {
+    const { vendor } = await registerVendor(app, { vendorId: 'vendor_plan_1b', gstin: '27AAAAA1011A1Z1' }, { onboarded: true });
+    const { token: adminToken } = await createAdminUser({ email: 'plan-admin-1b@example.com' });
+    await seedPO({ id: 'PO-PLAN-1B', vendorId: vendor.vendorId });
+    await seedPlan('PO-PLAN-1B', 10, partialBody);
+
+    const res = await configure(adminToken, 'PO-PLAN-1B', 10, {
+      type: 'Partial',
+      milestones: [{ settlementDate: '2020-02-01', percentage: 100, description: 'One instalment instead' }],
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/instalments cannot be added or removed/);
   });
 
   it('does not let a supplier configure a plan on their own order', async () => {
@@ -184,7 +229,7 @@ describe('invoicing plan endpoints', () => {
     const { vendor } = await registerVendor(app, { vendorId: 'vendor_plan_4', gstin: '27AAAAA1004A1Z1' }, { onboarded: true });
     const { token: adminToken } = await createAdminUser({ email: 'plan-admin-4@example.com' });
     await seedPO({ id: 'PO-PLAN-4', vendorId: vendor.vendorId });
-    await configure(adminToken, 'PO-PLAN-4', 10, partialBody);
+    await seedPlan('PO-PLAN-4', 10, partialBody);
 
     const blocked = await request(app)
       .put('/api/pos/PO-PLAN-4/items/10/invoice-plan/lines/10/block')
@@ -197,11 +242,11 @@ describe('invoicing plan endpoints', () => {
     expect(blocked.body.item.summary.blockedLines).toBe(1);
   });
 
-  it('refuses to remove a plan that has already been billed against', async () => {
+  it('refuses to move an already-invoiced date, even inside an otherwise dates-only edit', async () => {
     const { vendor } = await registerVendor(app, { vendorId: 'vendor_plan_5', gstin: '27AAAAA1005A1Z1' }, { onboarded: true });
     const { token: adminToken } = await createAdminUser({ email: 'plan-admin-5@example.com' });
     await seedPO({ id: 'PO-PLAN-5', vendorId: vendor.vendorId });
-    await configure(adminToken, 'PO-PLAN-5', 10, partialBody);
+    await seedPlan('PO-PLAN-5', 10, partialBody);
 
     // A plan invoice is no longer raised through the API — MIRO is AP's
     // transaction, not a supplier's (PROJECT_CONTEXT.md §5.6). Seeded
@@ -223,12 +268,16 @@ describe('invoicing plan endpoints', () => {
       data: { status: 'Invoiced', invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber, invoicedAt: new Date() },
     }));
 
-    const removed = await request(app)
-      .delete('/api/pos/PO-PLAN-5/items/10/invoice-plan')
-      .set('Authorization', `Bearer ${adminToken}`);
+    const res = await configure(adminToken, 'PO-PLAN-5', 10, {
+      type: 'Partial',
+      milestones: [
+        { settlementDate: '2021-01-01', percentage: 40, description: 'On order' },
+        { settlementDate: '2099-02-01', percentage: 60, description: 'On commissioning' },
+      ],
+    });
 
-    expect(removed.status).toBe(400);
-    expect(removed.body.error).toMatch(/already been invoiced/);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/already been invoiced/);
   });
 });
 
@@ -250,11 +299,18 @@ describe('a supplier proposing a change to their own invoicing plan', () => {
     ],
   };
 
+  const seedPlan = async (poId, line, body) => runWithTenant('CLT-0001', async () => {
+    const po = await prisma.purchaseOrder.findFirst({ where: { id: poId }, include: PO_INCLUDE });
+    const item = po.items.find((i) => i.line === line);
+    const built = plan.buildPlan(body, { item, currency: po.currency || 'INR', existingPlan: null });
+    await persistInvoicePlan(item, { ...built, source: 'sap', syncedAt: new Date() });
+  });
+
   const setUp = async (n) => {
     const { token, vendor } = await registerVendor(app, { vendorId: `vendor_propose_${n}`, gstin: `27AAAAA20${n}0A1Z1` }, { onboarded: true });
     const { token: adminToken } = await createAdminUser({ email: `plan-propose-admin-${n}@example.com` });
     await seedPO({ id: `PO-PROPOSE-${n}`, vendorId: vendor.vendorId });
-    await configure(adminToken, `PO-PROPOSE-${n}`, 10, partialBody);
+    await seedPlan(`PO-PROPOSE-${n}`, 10, partialBody);
     return { token, adminToken, vendor };
   };
 
@@ -337,9 +393,8 @@ describe('a supplier proposing a change to their own invoicing plan', () => {
 
   it("does not let a supplier propose a change on another supplier's order", async () => {
     const { vendor: owner } = await registerVendor(app, { vendorId: 'vendor_propose_owner_6', gstin: '27AAAAA2061A1Z1', email: 'owner-6@example.com' }, { onboarded: true });
-    const { token: adminToken } = await createAdminUser({ email: 'plan-propose-admin-6@example.com' });
     await seedPO({ id: 'PO-PROPOSE-6', vendorId: owner.vendorId });
-    await configure(adminToken, 'PO-PROPOSE-6', 10, partialBody);
+    await seedPlan('PO-PROPOSE-6', 10, partialBody);
 
     const { token: strangerToken } = await registerVendor(app, { vendorId: 'vendor_propose_stranger_6', gstin: '27AAAAA2062A1Z1', email: 'stranger-6@example.com' }, { onboarded: true });
 
@@ -367,9 +422,14 @@ describe('a supplier proposing a change to their own invoicing plan', () => {
     expect(proposed.status).toBe(200);
     expect(proposed.body.item.plan.pendingChange).toBeTruthy();
 
+    // The buyer's own edit is dates-only too — it still discards the pending
+    // proposal, same as a full restructure would have.
     const reconfigured = await configure(adminToken, 'PO-PROPOSE-8', 10, {
       type: 'Partial',
-      milestones: [{ settlementDate: '2021-01-01', percentage: 100, description: 'Buyer decided differently' }],
+      milestones: [
+        { settlementDate: '2021-01-01', percentage: 40, description: 'On order' },
+        { settlementDate: '2021-06-01', percentage: 60, description: 'On commissioning' },
+      ],
     });
     expect(reconfigured.status).toBe(200);
     expect(reconfigured.body.item.plan.pendingChange).toBeNull();

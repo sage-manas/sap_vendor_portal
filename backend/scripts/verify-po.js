@@ -11,8 +11,10 @@ const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
 
 const {
   getPOs, getPOById, acknowledgePO, submitASN, getASNForPO,
-  getInvoicePlan, configureInvoicePlan, removeInvoicePlan, setInvoicePlanLineBlock,
+  getInvoicePlan, configureInvoicePlan, setInvoicePlanLineBlock,
 } = require('../controllers/po.controller');
+const { buildPlan } = require('../services/invoicePlan.service');
+const { persistInvoicePlan } = require('../db/poHelpers');
 
 process.on('unhandledRejection', (err) => {
   console.error('UNHANDLED REJECTION (likely inside the fire-and-forget awaitGoodsReceipt callback):', err);
@@ -144,20 +146,59 @@ async function main() {
   });
 
   // --- Invoice plan sub-resource ---
+  //
+  // configureInvoicePlan (po:manage) is dates-only, same rule a supplier's own
+  // proposal is held to: it never creates a plan from nothing. So the plan
+  // itself is seeded here the way syncInvoicePlan would adopt one SAP already
+  // holds (source: 'sap'), and the controller is only exercised moving its
+  // dates.
 
-  await test('configureInvoicePlan builds a Periodic plan and persists it relationally', async () => {
+  const line10 = po.items.find((i) => i.line === 10);
+
+  await test('configureInvoicePlan refuses to create a plan where none exists', async () => {
     const req = fakeReq({
       clientId: 'CLT-0001', params: { id: po.id, line: '10' },
       body: { type: 'Periodic', startDate: '2026-01-01', endDate: '2026-04-01', frequency: 'Monthly', periodicAmount: 100 },
+    });
+    const next = capturedNext();
+    await runWithTenant('CLT-0001', () => configureInvoicePlan(req, fakeRes(), next));
+    assert.strictEqual(next.error?.statusCode, 400);
+
+    const planRow = await rawPrisma.invoicePlan.findFirst({ where: { item: { line: 10, po: { pk: po.pk } } } });
+    assert.strictEqual(planRow, null);
+  });
+
+  await test('(seed) a Periodic plan arrives as if adopted from SAP', async () => {
+    const plan = buildPlan(
+      { type: 'Periodic', startDate: '2026-01-01', endDate: '2026-04-01', frequency: 'Monthly', periodicAmount: 100 },
+      { item: line10, currency: po.currency || 'INR', existingPlan: null },
+    );
+    await persistInvoicePlan(line10, { ...plan, source: 'sap', syncedAt: new Date() });
+
+    const planRow = await rawPrisma.invoicePlan.findFirst({ where: { item: { line: 10, po: { pk: po.pk } } }, include: { lines: true } });
+    assert.strictEqual(planRow.lines.length, 3);
+  });
+
+  await test('configureInvoicePlan moves the dates on the plan SAP already holds', async () => {
+    const req = fakeReq({
+      clientId: 'CLT-0001', params: { id: po.id, line: '10' },
+      body: { type: 'Periodic', startDate: '2026-02-01', endDate: '2026-05-01', frequency: 'Monthly', periodicAmount: 100 },
     });
     const res = fakeRes();
     await runWithTenant('CLT-0001', () => configureInvoicePlan(req, res, capturedNext()));
     assert.strictEqual(res.body.item.plan.enabled, true);
     assert.strictEqual(res.body.item.plan.lines.length, 3);
-    assert.strictEqual(res.body.item.summary.totalLines, 3);
+    assert.strictEqual(res.body.item.plan.lines[0].settlementDate.slice(0, 10), '2026-02-01');
+  });
 
-    const planRow = await rawPrisma.invoicePlan.findFirst({ where: { item: { line: 10, po: { pk: po.pk } } }, include: { lines: true } });
-    assert.strictEqual(planRow.lines.length, 3);
+  await test('configureInvoicePlan refuses to change anything but the dates', async () => {
+    const req = fakeReq({
+      clientId: 'CLT-0001', params: { id: po.id, line: '10' },
+      body: { type: 'Periodic', startDate: '2026-02-01', endDate: '2026-05-01', frequency: 'Weekly', periodicAmount: 100 },
+    });
+    const next = capturedNext();
+    await runWithTenant('CLT-0001', () => configureInvoicePlan(req, fakeRes(), next));
+    assert.strictEqual(next.error?.statusCode, 400);
   });
 
   await test('getInvoicePlan reports the configured line and its billable dates', async () => {
@@ -197,17 +238,6 @@ async function main() {
     const res = fakeRes();
     await runWithTenant('CLT-0001', () => setInvoicePlanLineBlock(req, res, capturedNext()));
     assert.strictEqual(res.body.item.plan.lines.find((l) => l.lineNumber === firstLine.lineNumber).blocked, true);
-  });
-
-  await test('removeInvoicePlan disables the plan (no invoiced lines yet, so it is allowed)', async () => {
-    const req = fakeReq({ params: { id: po.id, line: '10' } });
-    const res = fakeRes();
-    await runWithTenant('CLT-0001', () => removeInvoicePlan(req, res, capturedNext()));
-
-    const getReq = fakeReq({ params: { id: po.id } });
-    const getRes = fakeRes();
-    await runWithTenant('CLT-0001', () => getInvoicePlan(getReq, getRes, capturedNext()));
-    assert.strictEqual(getRes.body.invoicePlanningEnabled, false);
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

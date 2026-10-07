@@ -9,7 +9,6 @@ const {
   createAssetPo,
   getInvoicePlan,
   configureInvoicePlan,
-  removeInvoicePlan,
   setInvoicePlanLineBlock,
   syncInvoicePlan,
   proposeInvoicePlanChange,
@@ -44,8 +43,11 @@ router.get('/:id', requirePermission(PERMISSIONS.PO_READ), getPOById);
 // supplier role holds.
 router.get('/:id/invoice-plan', requirePermission(PERMISSIONS.PO_READ), getInvoicePlan);
 router.post('/:id/invoice-plan/sync', requirePermission(PERMISSIONS.PO_MANAGE), validate(noBody), syncInvoicePlan);
+// Dates only (assertDatesOnlyChange, po.controller.js) — a buyer moves a
+// plan's settlement dates, same as a supplier's own propose/approve flow.
+// There is no DELETE here: a plan is SAP's own record, and nothing in this
+// portal's SAP-write contract can tell SAP to remove one.
 router.put('/:id/items/:line/invoice-plan', requirePermission(PERMISSIONS.PO_MANAGE), validate(invoicePlanSchema), configureInvoicePlan);
-router.delete('/:id/items/:line/invoice-plan', requirePermission(PERMISSIONS.PO_MANAGE), validate(noBody), removeInvoicePlan);
 router.put('/:id/items/:line/invoice-plan/lines/:lineNumber/block', requirePermission(PERMISSIONS.PO_MANAGE), validate(invoicePlanLineBlockSchema), setInvoicePlanLineBlock);
 // A supplier proposing a change to their own PO's plan — never a write to
 // SAP itself (po:invoice-plan:propose is a distinct permission from

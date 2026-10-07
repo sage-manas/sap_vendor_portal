@@ -19,7 +19,7 @@ const {
   InvoicePlanError,
   assertDatesOnlyChange,
 } = require('../services/invoicePlan.service');
-const { PO_INCLUDE, formatPlan, formatPo, persistInvoicePlan, disableInvoicePlan, syncPoStatus } = require('../db/poHelpers');
+const { PO_INCLUDE, formatPlan, formatPo, persistInvoicePlan, syncPoStatus } = require('../db/poHelpers');
 const { createWithUniqueId } = require('../utils/createWithUniqueId');
 const { toNumber } = require('../utils/money');
 const { toNumber: toQty } = require('../utils/quantity');
@@ -600,9 +600,18 @@ const getInvoicePlan = asyncHandler(async (req, res, next) => {
   });
 });
 
-// @desc    Configure (or replace) the invoicing plan on one PO line item
+// @desc    Move the dates on the invoicing plan SAP already holds for one PO
+//          line item — the buying organisation's own edit, applied at once
 // @route   PUT /api/pos/:id/items/:line/invoice-plan
 // @access  Private (po:manage — the buying organisation's own staff, never a supplier)
+//
+// Restricted to dates only, same rule a supplier's own proposal is held to
+// (assertDatesOnlyChange, below) — a buyer does not get a wider door onto
+// FPLA/FPLT than the one the propose/approve flow enforces. There is
+// therefore no "create a plan from nothing" path here: a plan reaches a line
+// only by SAP already holding one (configured in ME22N, picked up by
+// syncInvoicePlan or sweepPurchaseOrders.js's discovery), never by this
+// endpoint inventing one.
 const configureInvoicePlan = asyncHandler(async (req, res, next) => {
   const po = await prisma.purchaseOrder.findFirst({ where: { id: req.params.id }, include: PO_INCLUDE });
   if (!po) {
@@ -617,6 +626,7 @@ const configureInvoicePlan = asyncHandler(async (req, res, next) => {
   // are 400s with a sentence a buyer can act on.
   let plan;
   try {
+    assertDatesOnlyChange(req.body, existingPlan);
     plan = buildPlan(req.body, {
       item,
       currency: po.currency || 'INR',
@@ -635,31 +645,11 @@ const configureInvoicePlan = asyncHandler(async (req, res, next) => {
   });
 });
 
-// @desc    Switch invoice planning off for one PO line item
-// @route   DELETE /api/pos/:id/items/:line/invoice-plan
-// @access  Private (po:manage)
-const removeInvoicePlan = asyncHandler(async (req, res, next) => {
-  const po = await prisma.purchaseOrder.findFirst({ where: { id: req.params.id }, include: PO_INCLUDE });
-  if (!po) {
-    return next(ApiError.notFound('Purchase Order not found'));
-  }
-
-  const item = findPlanItem(po, req.params.line);
-  if (!item.invoicePlan?.enabled) {
-    return next(ApiError.badRequest(`Line ${item.line} has no invoicing plan to remove`));
-  }
-
-  // A plan with money already billed against it is a record, not a draft.
-  // Removing it would orphan those invoices, so it is refused outright.
-  const invoiced = (item.invoicePlan.lines || []).filter((line) => line.invoiceId);
-  if (invoiced.length) {
-    return next(ApiError.badRequest(`This invoicing plan cannot be removed — ${invoiced.length} of its ${item.invoicePlan.lines.length} dates ${invoiced.length === 1 ? 'has' : 'have'} already been invoiced`));
-  }
-
-  await disableInvoicePlan(item);
-
-  res.json({ message: `Invoice planning switched off for line ${item.line}`, poId: po.id, line: item.line });
-});
+// Switching planning off is never offered — a plan is SAP's own record
+// (FPLA/FPLT), and removing it here would only ever be portal-deep: nothing
+// in the SAP-write contract (contract.js's SAP_METHODS) can tell SAP to
+// delete one, so the plan would keep billing in SAP while the portal showed
+// it gone.
 
 // @desc    Re-read the invoicing plans SAP holds for this order and adopt them
 // @route   POST /api/pos/:id/invoice-plan/sync
@@ -962,7 +952,6 @@ module.exports = {
   createAssetPo,
   getInvoicePlan,
   configureInvoicePlan,
-  removeInvoicePlan,
   setInvoicePlanLineBlock,
   syncInvoicePlan,
   proposeInvoicePlanChange,

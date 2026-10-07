@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   CalendarClock, Repeat, SplitSquareHorizontal, Lock, Unlock, Check, Loader2,
-  RefreshCw, Receipt, Settings2, Trash2, Plus, X, AlertTriangle, CircleDot
+  RefreshCw, Settings2, AlertTriangle, CircleDot
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Modal from '@/components/ui/Modal';
@@ -23,21 +23,6 @@ import { poService } from '../services/poService';
 // PlanCard's `pendingChange` banner is where both sides see that state).
 // Neither audience sees the other's write controls, and the API enforces the
 // same split independently.
-
-const PLAN_TYPES = [
-  {
-    value: 'Periodic',
-    icon: Repeat,
-    title: 'Periodic',
-    blurb: 'The same amount, invoiced every period — a retainer, a lease, a maintenance contract. The dates are generated from a range and a frequency.',
-  },
-  {
-    value: 'Partial',
-    icon: SplitSquareHorizontal,
-    title: 'Partial',
-    blurb: 'One line value split across dated milestones — a down payment, a progress schedule. The instalments must add up to the whole line.',
-  },
-];
 
 const FREQUENCIES = ['Weekly', 'Monthly', 'Quarterly', 'Half-Yearly', 'Yearly'];
 
@@ -84,18 +69,20 @@ function Stat({ label, value, hint, accent = '' }) {
 
 // --- The configure dialog ---------------------------------------------------
 
-// `mode`: 'manage' (the buying organisation configuring the live plan — the
-// default, unchanged) or 'propose' (a supplier proposing a change to it — the
-// same form, since the shape SAP needs is identical either way, but the
-// submit calls proposeInvoicePlanChange instead of saveInvoicePlan and never
-// touches the live schedule directly). `existingPlan` is always the current
-// LIVE plan in both modes — a proposal is drafted from what is actually in
-// effect, never from another pending proposal.
+// `mode`: 'manage' (the buying organisation moving dates on the live plan) or
+// 'propose' (a supplier proposing a date change to it) — the same form
+// either way, since both are held to the same dates-only rule
+// (assertDatesOnlyChange, backend/services/invoicePlan.service.js) and SAP
+// needs the same shape; only the submit target differs (saveInvoicePlan vs.
+// proposeInvoicePlanChange, the latter never touching the live schedule
+// directly). `existingPlan` is always the current LIVE plan in both modes —
+// never null: there is no path here that creates a plan from nothing, only
+// one that moves the dates on a plan SAP already holds.
 function ConfigureDialog({ po, item, existingPlan, mode = 'manage', onClose, onSaved }) {
   const isPeriodic = (existingPlan?.type || 'Periodic') === 'Periodic';
-  const [type, setType] = useState(existingPlan?.type || 'Periodic');
-  // A supplier's proposal moves dates on the plan that exists and nothing else.
-  const datesOnly = mode === 'propose';
+  // Dates only, for both audiences — the plan type is fixed to whatever it
+  // already is; neither gets to restructure the plan.
+  const type = existingPlan?.type || 'Periodic';
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -122,7 +109,8 @@ function ConfigureDialog({ po, item, existingPlan, mode = 'manage', onClose, onS
       ],
   );
 
-  const [reference, setReference] = useState(existingPlan?.reference || '');
+  // Not editable here (dates only) — carried through unchanged on save.
+  const reference = existingPlan?.reference || '';
 
   const milestoneTotal = milestones.reduce((sum, m) => sum + (Number(m.percentage) || 0), 0);
   const netValue = Number(item?.netValue || 0);
@@ -175,7 +163,7 @@ function ConfigureDialog({ po, item, existingPlan, mode = 'manage', onClose, onS
     <Modal
       open
       onClose={onClose}
-      title={mode === 'propose' ? `Propose a change — line ${item.line}` : `Invoicing plan — line ${item.line}`}
+      title={mode === 'propose' ? `Propose a change — line ${item.line}` : `Move invoicing dates — line ${item.line}`}
       className="max-w-3xl"
     >
       <div className="space-y-5 p-5 overflow-y-auto">
@@ -186,40 +174,14 @@ function ConfigureDialog({ po, item, existingPlan, mode = 'manage', onClose, onS
           </div>
         </div>
 
-        {mode === 'propose' && (
-          <div className="flex items-start gap-2 px-3.5 py-3 rounded-lg bg-blue-50 border border-blue-200">
-            <CalendarClock className="size-4 text-blue-600 flex-shrink-0 mt-0.5" />
-            <p className="text-xs font-medium text-blue-700">
-              You can propose new dates only — descriptions, percentages and amounts stay as they are. Your buyer must approve the new dates before anything reaches SAP, and nothing below is billable until then.
-            </p>
-          </div>
-        )}
-
-        {/* Plan type — the one choice everything else follows from, so it is a
-            pair of explained cards rather than a dropdown. */}
-        {!datesOnly && <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {PLAN_TYPES.map((option) => {
-            const OptionIcon = option.icon;
-            const selected = type === option.value;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => setType(option.value)}
-                className={`text-left p-3.5 rounded-xl border-2 transition-all duration-150 cursor-pointer ${selected
-                  ? 'border-blue-500 bg-blue-50/60'
-                  : 'border-border bg-base hover:border-border-em'
-                  }`}
-              >
-                <div className="flex items-center gap-2">
-                  <OptionIcon className={`size-4 ${selected ? 'text-blue-600' : 'text-text-tertiary'}`} />
-                  <span className={`text-xs font-bold ${selected ? 'text-blue-700' : 'text-text-primary'}`}>{option.title}</span>
-                </div>
-                <p className="text-[11px] leading-snug text-text-secondary mt-1.5">{option.blurb}</p>
-              </button>
-            );
-          })}
-        </div>}
+        <div className="flex items-start gap-2 px-3.5 py-3 rounded-lg bg-blue-50 border border-blue-200">
+          <CalendarClock className="size-4 text-blue-600 flex-shrink-0 mt-0.5" />
+          <p className="text-xs font-medium text-blue-700">
+            {mode === 'propose'
+              ? 'You can propose new dates only — descriptions, percentages and amounts stay as they are. Your buyer must approve the new dates before anything reaches SAP, and nothing below is billable until then.'
+              : 'Only the dates can be changed here — descriptions, percentages, amounts and the plan type stay as they are. This saves straight to SAP.'}
+          </p>
+        </div>
 
         {type === 'Periodic' ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -235,25 +197,22 @@ function ConfigureDialog({ po, item, existingPlan, mode = 'manage', onClose, onS
             </div>
             <div>
               <label className={labelClass} htmlFor="plan-frequency">Frequency</label>
-              <select id="plan-frequency" disabled={datesOnly} className={inputClass} value={periodic.frequency}
-                onChange={(e) => setPeriodic({ ...periodic, frequency: e.target.value })}>
+              <select id="plan-frequency" disabled className={inputClass} value={periodic.frequency} onChange={() => {}}>
                 {FREQUENCIES.map((frequency) => <option key={frequency} value={frequency}>{frequency}</option>)}
               </select>
             </div>
             <div>
               <label className={labelClass} htmlFor="plan-invoiced">Invoiced</label>
-              <select id="plan-invoiced" disabled={datesOnly} className={inputClass} value={periodic.invoicingRule}
-                onChange={(e) => setPeriodic({ ...periodic, invoicingRule: e.target.value })}>
+              <select id="plan-invoiced" disabled className={inputClass} value={periodic.invoicingRule} onChange={() => {}}>
                 <option value="Arrears">In arrears — at the end of each period</option>
                 <option value="Advance">In advance — at the start of each period</option>
               </select>
             </div>
             <div className="sm:col-span-2">
               <label className={labelClass} htmlFor="plan-amount">Amount per period</label>
-              <input id="plan-amount" disabled={datesOnly} type="number" min="0" step="0.01" className={inputClass}
+              <input id="plan-amount" disabled type="number" min="0" step="0.01" className={inputClass}
                 placeholder={`Defaults to the line value, ${money(netValue, po.currency)}`}
-                value={periodic.periodicAmount}
-                onChange={(e) => setPeriodic({ ...periodic, periodicAmount: e.target.value })} />
+                value={periodic.periodicAmount} onChange={() => {}} />
               <p className="text-[10px] text-text-tertiary mt-1.5">
                 A periodic plan invoices this amount on every date — the plan total is the amount times the number of periods, not the line value.
               </p>
@@ -271,38 +230,20 @@ function ConfigureDialog({ po, item, existingPlan, mode = 'manage', onClose, onS
 
             {milestones.map((milestone, index) => (
               <div key={index} className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
-                <input id="plan-instalments" disabled={datesOnly} className={inputClass + ' sm:flex-1'} placeholder="Milestone" value={milestone.description}
-                  onChange={(e) => updateMilestone(index, { description: e.target.value })} />
+                <input id="plan-instalments" disabled className={inputClass + ' sm:flex-1'} placeholder="Milestone" value={milestone.description} onChange={() => {}} />
                 <input type="date" className={inputClass + ' sm:w-40'} value={milestone.settlementDate}
                   onChange={(e) => updateMilestone(index, { settlementDate: e.target.value })} />
                 <div className="relative sm:w-28">
-                  <input type="number" disabled={datesOnly} min="0" max="100" step="0.01" className={inputClass + ' pr-7'} value={milestone.percentage}
-                    onChange={(e) => updateMilestone(index, { percentage: e.target.value })} />
+                  <input type="number" disabled min="0" max="100" step="0.01" className={inputClass + ' pr-7'} value={milestone.percentage} onChange={() => {}} />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-text-tertiary">%</span>
                 </div>
                 <div className="sm:w-28 text-right text-[11px] font-mono tabular-nums text-text-secondary self-center">
                   {money((netValue * (Number(milestone.percentage) || 0)) / 100, po.currency)}
                 </div>
-                {!datesOnly && <button type="button" onClick={() => setMilestones((rows) => rows.filter((_, i) => i !== index))}
-                  disabled={milestones.length === 1}
-                  className="p-2 text-text-tertiary hover:text-red-600 disabled:opacity-30 cursor-pointer transition-colors duration-150">
-                  <X className="size-4" />
-                </button>}
               </div>
             ))}
-
-            {!datesOnly && <Button variant="outline" size="sm"
-              onClick={() => setMilestones((rows) => [...rows, { description: '', settlementDate: '', percentage: '' }])}>
-              <Plus className="size-3.5 mr-1.5" /> Add instalment
-            </Button>}
           </div>
         )}
-
-        {!datesOnly && <div>
-          <label className={labelClass} htmlFor="plan-reference">Reference (optional)</label>
-          <input id="plan-reference" className={inputClass} value={reference} onChange={(e) => setReference(e.target.value)}
-            placeholder="Contract number, agreement reference…" />
-        </div>}
 
         {error && (
           <div className="flex items-start gap-2 px-3.5 py-3 rounded-lg bg-red-50 border border-red-200">
@@ -380,7 +321,7 @@ function RejectProposalDialog({ po, entry, onClose, onRejected }) {
 
 function PlanCard({
   po, entry, canManage, canPropose, busy,
-  onConfigure, onRemove, onToggleBlock, onPropose, onApproveProposal, onRejectProposal,
+  onConfigure, onToggleBlock, onPropose, onApproveProposal, onRejectProposal,
 }) {
   const { plan, summary } = entry;
   const currency = plan.currency || po.currency || 'INR';
@@ -409,11 +350,7 @@ function PlanCard({
         {canManage && (
           <div className="flex items-center gap-2 flex-shrink-0">
             <Button variant="outline" size="sm" onClick={() => onConfigure(entry)} disabled={busy}>
-              <Settings2 className="size-3.5 mr-1.5" /> Edit
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => onRemove(entry)} disabled={busy || summary?.invoicedLines > 0}
-              title={summary?.invoicedLines > 0 ? 'Dates on this plan have already been invoiced' : 'Switch invoice planning off for this line'}>
-              <Trash2 className="size-3.5" />
+              <Settings2 className="size-3.5 mr-1.5" /> Move dates
             </Button>
           </div>
         )}
@@ -600,9 +537,6 @@ export default function InvoicePlanPanel({ po, canManage = false, canPropose = f
     }
   };
 
-  const plannedLines = new Set((data?.items || []).map((entry) => entry.line));
-  const unplannedItems = (po?.items || []).filter((item) => !plannedLines.has(item.line));
-
   return (
     <div className="space-y-5 animate-fade-in">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-2">
@@ -612,7 +546,7 @@ export default function InvoicePlanPanel({ po, canManage = false, canPropose = f
           </h4>
           <p className="text-[11px] text-text-secondary mt-1">
             {canManage
-              ? 'Line items billed on a schedule rather than against a goods receipt. Periodic plans recur; partial plans split the line across milestones.'
+              ? 'Line items billed on a schedule rather than against a goods receipt, as SAP configured it. You can move a plan\'s dates and sync what SAP holds — the schedule itself is set in SAP.'
               : canPropose
                 ? 'These line items are billed on a schedule agreed with your buyer, not against a delivery. Raise an invoice on each date as it comes due, or propose a change if the schedule needs to move.'
                 : 'These line items are billed on a schedule agreed with your buyer, not against a delivery. Raise an invoice on each date as it comes due.'}
@@ -644,9 +578,7 @@ export default function InvoicePlanPanel({ po, canManage = false, canPropose = f
         <EmptyState
           icon={CalendarClock}
           title="No invoicing plan on this order"
-          description={canManage
-            ? 'Every line on this order is invoiced against its goods receipt. Add a plan to a line to bill it on a schedule instead.'
-            : 'Every line on this order is invoiced against its delivery. Nothing here is billed on a schedule.'}
+          description="Every line on this order is invoiced against its goods receipt or delivery. A plan reaches a line only through SAP — raise one there, then Sync from SAP to adopt it."
         />
       ) : (
         data.items.map((entry) => (
@@ -658,7 +590,6 @@ export default function InvoicePlanPanel({ po, canManage = false, canPropose = f
             canPropose={canPropose}
             busy={busy}
             onConfigure={(target) => setConfiguring({ item: target, plan: target.plan, mode: 'manage' })}
-            onRemove={(target) => run(() => poService.removeInvoicePlan(po.id, target.line))}
             onToggleBlock={(target, line, blocked) =>
               run(() => poService.setInvoicePlanLineBlock(po.id, target.line, line.lineNumber, blocked))}
             onPropose={(target) => setConfiguring({ item: target, plan: target.plan, mode: 'propose' })}
@@ -667,34 +598,6 @@ export default function InvoicePlanPanel({ po, canManage = false, canPropose = f
             onRejectProposal={(target) => setRejecting(target)}
           />
         ))
-      )}
-
-      {/* Lines still invoiced the ordinary way. Only the buying organisation is
-          offered the switch, and only when there is a line left to switch. */}
-      {canManage && !loading && unplannedItems.length > 0 && (
-        <div className="card px-5 py-4">
-          <div className="text-[10px] font-extrabold text-text-secondary uppercase tracking-widest mb-3">
-            Lines invoiced against goods receipt
-          </div>
-          <div className="space-y-2">
-            {unplannedItems.map((item) => (
-              <div key={item.line} className="flex items-center justify-between gap-3 py-1.5">
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold text-text-primary truncate">
-                    Line {item.line} · {item.materialCode} — {item.description}
-                  </div>
-                  <div className="text-[11px] text-text-tertiary font-mono tabular-nums">
-                    {money(item.netValue, po.currency)}
-                  </div>
-                </div>
-                <Button variant="outline" size="sm" disabled={busy}
-                  onClick={() => setConfiguring({ item, plan: null })}>
-                  <Plus className="size-3.5 mr-1.5" /> Add invoicing plan
-                </Button>
-              </div>
-            ))}
-          </div>
-        </div>
       )}
 
       {configuring && (
