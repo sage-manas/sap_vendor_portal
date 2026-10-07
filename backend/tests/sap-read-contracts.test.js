@@ -619,10 +619,12 @@ describe('zpo_grn/Detail — the live contract (invoicing plan number discovery)
     });
   });
 
-  // The other half of what this endpoint uniquely answers. zpo_grn_vendor/Detail
-  // — the vendor-wide ledger the sweep reads — returns neither INV_PLANNO nor
-  // ACC_ASSIGNMNT_CAT on its lines, so an asset or service order is only
-  // identifiable through this per-order read.
+  // Confirmed live (23–24 Sept): both INV_PLANNO and ACC_ASSIGNMNT_CAT are now
+  // also on zpo_grn_vendor/Detail, the vendor-wide ledger the sweep reads —
+  // s4odata.driver.js's vendorPoGrnDisplay parses both (invoicePlanNumber,
+  // accountAssignmentCategory). This per-order read stays worth having
+  // regardless: it is still the only source for a plan *number* discovery
+  // ahead of poInvoicePlanDisplay.
   it('reports the account assignment category that marks an asset or service line', async () => {
     const payload = {
       ...LIVE_PO_DETAIL,

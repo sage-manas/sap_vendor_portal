@@ -88,6 +88,59 @@ describe('vendorPoGrnDisplay — company-code scoping (issue #62)', () => {
   });
 });
 
+// Confirmed live (23–24 Sept): on this endpoint RECEIVED_QUANTITY mirrors
+// ORDERED_QUANTITY on every line, GRN[] empty or not — every discovered PO
+// therefore read "Delivered" the moment it was found, with no goods receipt
+// in SAP behind it (jobs/handlers/sweepPurchaseOrders.js reads this field
+// straight into PurchaseOrderItem.grnQuantity). GR_EXPECTED corroborates:
+// "Closed" iff GRN[] is non-empty, "Open" iff it isn't. So receivedQuantity
+// is derived from summing GRN[] itself, the one field that actually reports
+// what SAP received.
+describe('vendorPoGrnDisplay — receivedQuantity is derived from GRN[], not RECEIVED_QUANTITY', () => {
+  const poRowWithReceipt = ({ orderedQuantity, receivedQuantityField, grns }) => ({
+    PO_NUMBER: '4500000001',
+    PO_DATE: '01.01.2026',
+    BUYER_NAME: 'Buyer',
+    SHIP_TO_CITY: 'Pune',
+    SHIP_TO_STATE: 'MH',
+    COM_CODE: '1000',
+    CURRENCY: 'INR',
+    PO_LINE_ITEMS: [{
+      ITEM_NUMBER: '10', MATERIAL_CODE: 'MAT-1', DESCRIPTION: 'Widget',
+      ORDERED_QUANTITY: orderedQuantity, RECEIVED_QUANTITY: receivedQuantityField, INVOICED_QUANTITY: '0',
+      UOM: 'EA', UNIT_PRICE: '50', NET_AMOUNT: '500', GROSS_AMOUNT: '590', PLANT: '1000',
+      GR_EXPECTED: grns.length ? 'Closed' : 'Open',
+      GRN: grns,
+    }],
+  });
+
+  it('reads 0 received when GRN[] is empty, even though RECEIVED_QUANTITY mirrors ORDERED_QUANTITY', async () => {
+    const payload = [poRowWithReceipt({ orderedQuantity: '10', receivedQuantityField: '10', grns: [] })];
+    const { restore } = mockHttpRequest(JSON.stringify(payload));
+    let result;
+    try {
+      result = await driverFor({ companyCode: '1000' }).vendorPoGrnDisplay({ vendor: { sapVendorCode: 'VEN0001' } });
+    } finally { restore(); }
+
+    expect(result.data.orders[0].items[0].receivedQuantity).toBe(0);
+  });
+
+  it('sums GRN[] quantities as the received quantity, independent of RECEIVED_QUANTITY', async () => {
+    const grns = [
+      { GR_NUMBER: '5000000001', GR_ITEM_NUMBER: '1', GR_DATE: '20260110', GR_QUANTITY: '4', UOM: 'EA', UNIT_PRICE: '50', NET_AMOUNT: '200' },
+      { GR_NUMBER: '5000000002', GR_ITEM_NUMBER: '1', GR_DATE: '20260112', GR_QUANTITY: '3', UOM: 'EA', UNIT_PRICE: '50', NET_AMOUNT: '150' },
+    ];
+    const payload = [poRowWithReceipt({ orderedQuantity: '10', receivedQuantityField: '10', grns })];
+    const { restore } = mockHttpRequest(JSON.stringify(payload));
+    let result;
+    try {
+      result = await driverFor({ companyCode: '1000' }).vendorPoGrnDisplay({ vendor: { sapVendorCode: 'VEN0001' } });
+    } finally { restore(); }
+
+    expect(result.data.orders[0].items[0].receivedQuantity).toBe(7);
+  });
+});
+
 describe('vendorPoGrnDisplay — drops RFQ documents this endpoint mixes in', () => {
   // Confirmed live: zpo_grn_vendor/Detail answers with a vendor's whole
   // purchasing-document set, RFQs in the 6xxxxxxx range included, despite

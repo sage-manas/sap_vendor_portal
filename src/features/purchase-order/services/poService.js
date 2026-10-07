@@ -55,11 +55,14 @@ export const poService = {
   // --- Invoicing plans (FPLA/FPLT) -----------------------------------------
   //
   // Reading a plan is part of reading the order, so every signed-in principal
-  // who can see the PO can see it. Configuring, removing and blocking a date
+  // who can see the PO can see it. Configuring (dates only — the API enforces
+  // it, same rule a supplier's own proposal is held to) and blocking a date
   // need `po:manage`, which suppliers do not hold — the UI hides them, and the
-  // API refuses them. Proposing a change is the one write a supplier does
-  // hold (`po:invoice-plan:propose`), and it never reaches SAP on its own —
-  // see the propose/approve/reject trio at the bottom of this block.
+  // API refuses them. There is no way to remove a plan: it is SAP's own
+  // record, and nothing here can tell SAP to delete one. Proposing a change
+  // is the one write a supplier does hold (`po:invoice-plan:propose`), and it
+  // never reaches SAP on its own — see the propose/approve/reject trio at the
+  // bottom of this block.
 
   /** The invoicing plans on one order, with what is billable today */
   async getInvoicePlan(poId) {
@@ -68,10 +71,6 @@ export const poService = {
 
   async saveInvoicePlan(poId, line, plan) {
     return apiClient.put(`/pos/${poId}/items/${line}/invoice-plan`, plan);
-  },
-
-  async removeInvoicePlan(poId, line) {
-    return apiClient.delete(`/pos/${poId}/items/${line}/invoice-plan`);
   },
 
   async setInvoicePlanLineBlock(poId, line, planLineNumber, blocked) {
