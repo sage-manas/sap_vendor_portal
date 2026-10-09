@@ -348,6 +348,50 @@ describe('POST /api/rfqs/:id/sap-quote-price (ME47)', () => {
     });
     expect(res.status).toBe(403);
   });
+
+  // The sealed-tender boundary submitBid enforces, on the route that is its
+  // SAP-side twin. ME47 *is* submitting a quotation: it pushes this
+  // supplier net price against a sourcing document, so a supplier who was
+  // never asked to quote must not reach it. Both routes carry the same
+  // permission (rfq:bid) and the same 404-not-403 obligation -- a 400 naming
+  // a line number, or a 200, tells an uninvited supplier that the tender
+  // exists and what is on it. See ADR-0037 and submitBid own comment.
+  it('rejects an ME47 price push from a non-invited vendor with 404 and writes nothing to SAP', async () => {
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(
+      rfqPayload({ invitedVendors: [{ id: 'someone_else' }] })
+    )).body;
+
+    const res = await asVendor(request(app).post(`/api/rfqs/${rfq.id}/sap-quote-price`)).send({
+      sapRfqNumber: '6000000063',
+      items: [{ line: 10, netPrice: 1400 }],
+    });
+
+    expect(res.status).toBe(404);
+
+    // The push must not have reached SAP. Asserted on the log the adapter
+    // writes, so this fails if the handler answers 404 only after calling out.
+    const entry = await asTenant(() => prisma.sapLog.findFirst({ where: { documentRef: '6000000063' } }));
+    expect(entry).toBeNull();
+  });
+
+  it('does not reveal which line numbers an RFQ has to a non-invited vendor', async () => {
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(
+      rfqPayload({ invitedVendors: [{ id: 'someone_else' }] })
+    )).body;
+
+    // Line 10 exists on this RFQ; line 99 does not. An uninvited supplier
+    // must not be able to tell the two apart -- same status, same body.
+    const real = await asVendor(request(app).post(`/api/rfqs/${rfq.id}/sap-quote-price`)).send({
+      sapRfqNumber: '6000000064', items: [{ line: 10, netPrice: 1400 }],
+    });
+    const fake = await asVendor(request(app).post(`/api/rfqs/${rfq.id}/sap-quote-price`)).send({
+      sapRfqNumber: '6000000064', items: [{ line: 99, netPrice: 1400 }],
+    });
+
+    expect(real.status).toBe(404);
+    expect(fake.status).toBe(404);
+    expect(real.body.error).toEqual(fake.body.error);
+  });
 });
 
 describe('GET /api/rfqs/:id/evaluate', () => {

@@ -481,8 +481,24 @@ const updateSapQuotationPrice = asyncHandler(async (req, res, next) => {
   const vendorId = requireVendorScope(req);
   const { sapRfqNumber, items } = req.body;
 
-  const rfq = await prisma.rFQ.findFirst({ where: { id: req.params.id }, include: { items: true } });
+  const rfq = await prisma.rFQ.findFirst({
+    where: { id: req.params.id },
+    include: { items: true, invitedVendors: true },
+  });
   if (!rfq) {
+    return next(ApiError.notFound('RFQ not found'));
+  }
+
+  // ME47 is this supplier submitting its quotation, so it carries the same
+  // sealed-tender rule submitBid enforces a few handlers up: a supplier
+  // absent from the invitee list gets the same 404 as a tender in another
+  // tenant. Checked before the line-number validation below, which would
+  // otherwise answer 400 naming a line and confirm both that the tender
+  // exists and what is on it -- and before the SAP call, which pushed a
+  // price against a sourcing document this supplier was never asked to
+  // quote on. Both were reachable until this check was added.
+  const invitation = rfq.invitedVendors.find((v) => v.vendorExtId === vendorId);
+  if (!invitation) {
     return next(ApiError.notFound('RFQ not found'));
   }
 
