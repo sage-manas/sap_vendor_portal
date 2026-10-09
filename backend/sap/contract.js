@@ -38,7 +38,15 @@ const SAP_METHODS = {
   // Vendor master. Approval is a portal-only decision (never SAP-driven), so
   // vendorCreate is called from approveVendor once the client admin has said
   // yes — not at submission, and there is no deferred "SAP approves" method.
-  vendorCreate:        { transaction: 'VENDOR_CREATE' },
+  // `createsDocument`: VENDOR_CR brings a vendor master into existence and
+  // takes a number from a real SAP number range to do it, so it is in the
+  // same category as poAssetCreate rather than the change-in-place writes
+  // listed on that method. It went unflagged until a go-live QA pass, which
+  // meant `npm run sap:conformance --client <id>` pointed at a real system
+  // created a vendor master named after the fixture, once per run. See
+  // tests/sap-write-flags.test.js, which now refuses to let a new write
+  // reach the conformance runner unclassified.
+  vendorCreate:        { transaction: 'VENDOR_CREATE', createsDocument: true },
   vendorVerifyKyc:     { transaction: 'VENDOR_KYC_VERIFY' },
   vendorReject:        { transaction: 'VENDOR_REJECT' },
   // A buyer-approved change to the payout bank account on a vendor master SAP
@@ -168,11 +176,15 @@ const SAP_METHODS = {
   // record for something SAP has no other way to learn: there is no RFQ, no
   // award and no supplier bid behind an asset PO, so there is no ledger for a
   // discovery sweep to correlate it against later.
-  // `createsDocument` marks the one property that makes this method different
-  // from every other write on the contract: poAcknowledge, quotationUpdatePrice
-  // and poInvoicePlanUpdate all *change* a document SAP already owns and can be
-  // run twice harmlessly, but this one brings a new document into existence.
-  // The conformance runner reads the flag and skips it — see runner.js.
+  // `createsDocument` separates the two writes that bring something new into
+  // existence — this one and vendorCreate — from the three that *change* a
+  // document SAP already owns: poAcknowledge, quotationUpdatePrice and
+  // poInvoicePlanUpdate can be run twice harmlessly, so they are deliberately
+  // left exercisable by the conformance runner. This one and vendorCreate
+  // cannot: each consumes a number range and leaves a document behind on
+  // every run. The conformance runner reads the flag and skips it — see
+  // runner.js. (This comment used to name only poAssetCreate, while
+  // vendorCreate sat unflagged one screen up.)
   poAssetCreate:     { transaction: 'PO_ASSET_CREATE', createsDocument: true, fields: { 'vendor.sapVendorCode': 'LIFNR' } },
 
   // Invoicing plans (ME22N → item → Invoicing Plan; tables FPLA/FPLT).
