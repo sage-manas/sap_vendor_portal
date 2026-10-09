@@ -87,7 +87,7 @@ const runConformanceSuite = async ({ adapter, clientId, timeoutMs = DEFAULT_TIME
         transaction: spec.transaction,
         status: 'skipped',
         durationMs: 0,
-        error: `${method} ${spec.createsDocument ? 'creates a document' : 'changes vendor master data'} in SAP and is not safe to exercise against a live system (see sap/contract.js)`,
+        error: `${method} ${spec.createsDocument ? 'creates a document or master record' : 'changes vendor master data'} in SAP and is not safe to exercise against a live system (see sap/contract.js)`,
       });
       continue;
     }
