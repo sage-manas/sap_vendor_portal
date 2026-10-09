@@ -11,6 +11,7 @@ const buildTestApp = require('./testApp');
 const { prisma, rawPrisma } = require('../db/prisma');
 const { hashPassword } = require('../db/credentials');
 const { runWithTenant, withoutTenantScope, getTenantId } = require('../utils/tenantContext');
+const { TENANT_SCOPED_MODELS } = require('../db/tenantExtension');
 const { seedClient, signTokenFor } = require('./helpers');
 
 const app = buildTestApp();
@@ -43,6 +44,49 @@ const adapterFor = (clientProp) => ({
 // whatever FK prerequisites a model now requires (soft string references in
 // Mongoose became real foreign keys — see prisma/schema.prisma) before
 // creating the row itself, and returns it.
+// Parent chains for the line-item cases at the end of MODEL_CASES. The
+// document-level cases inline their own; a child row needs the whole chain
+// above it, and repeating that eleven times would bury the one line per
+// case that actually differs. These go through `prisma`, not `rawPrisma`,
+// so each parent is stamped with whichever tenant the caller bound.
+const seedRfqRow = () => prisma.rFQ.create({ data: { id: 'RFQ-2026-001', description: 'Bearings', deadlineDate: soon() } });
+
+const seedBidRow = async (t) => {
+  const rfq = await seedRfqRow();
+  return prisma.rfqBid.create({ data: { rfqPk: rfq.pk, vendorId: `VND-${t}` } });
+};
+
+const seedPoRow = () => prisma.purchaseOrder.create({ data: { id: 'PO-2026-0001', vendorId: 'VND-1' } });
+
+const seedPoItemRow = async (t) => {
+  const po = await seedPoRow();
+  return prisma.purchaseOrderItem.create({ data: {
+    poPk: po.pk, line: 10, materialCode: `MAT-${t}`, quantity: 5, unitPrice: 10, netValue: 50,
+  } });
+};
+
+const seedAsnRow = async () => {
+  const po = await seedPoRow();
+  return prisma.aSN.create({ data: {
+    id: 'ASN-000001', poId: po.id, vendorId: 'VND-1', shipDate: new Date(), estimatedDeliveryDate: soon(),
+  } });
+};
+
+const seedGrnRow = async () => {
+  const asn = await seedAsnRow();
+  return prisma.gRN.create({ data: {
+    id: 'GRN-000001', poId: asn.poId, asnId: asn.id, vendorId: 'VND-1', postingDate: new Date(),
+  } });
+};
+
+const seedInvoiceRow = async () => {
+  const grn = await seedGrnRow();
+  return prisma.invoice.create({ data: {
+    id: 'INV-000001', grnId: grn.id, poId: grn.poId, vendorId: 'VND-1',
+    invoiceNumber: 'INV/1', invoiceDate: new Date(), subTotal: 100, taxAmount: 18, totalAmount: 118,
+  } });
+};
+
 const MODEL_CASES = [
   {
     name: 'Vendor',
@@ -164,11 +208,173 @@ const MODEL_CASES = [
     find: () => ({ fileName: 'f.pdf' }),
     update: { linkedTo: 'Invoice' },
   },
+  // ---------------------------------------------------------------------
+  // Line items and other child rows. Each carries its own `clientId`
+  // column and is registered with the tenant extension in its own right
+  // (db/tenantExtension.js), so each is scoped directly rather than through
+  // a join on its parent -- which is exactly why each needs its own case:
+  // the parent being isolated says nothing about the child.
+  //
+  // RfqBid and RfqBidUnitPrice are the most sensitive rows in the schema --
+  // one supplier's sealed bid and its per-line pricing, which a rival in
+  // any tenant must never read. Both were uncovered here until this block
+  // was added.
+  // ---------------------------------------------------------------------
+  {
+    name: 'RfqItem',
+    adapter: adapterFor('rfqItem'),
+    create: async (t) => {
+      const rfq = await seedRfqRow();
+      return prisma.rfqItem.create({ data: {
+        rfqPk: rfq.pk, line: 10, materialCode: `MAT-${t}`, quantity: 5, targetPrice: 12,
+      } });
+    },
+    find: (t) => ({ materialCode: `MAT-${t}` }),
+    update: { description: 'Renamed by the wrong tenant' },
+  },
+  {
+    name: 'RfqBid',
+    adapter: adapterFor('rfqBid'),
+    create: async (t) => {
+      const rfq = await seedRfqRow();
+      return prisma.rfqBid.create({ data: {
+        rfqPk: rfq.pk, vendorId: `VND-${t}`, vendorName: 'Sealed Bidder', gstRate: '18%', freight: 500,
+      } });
+    },
+    find: (t) => ({ vendorId: `VND-${t}` }),
+    update: { remarks: 'Tampered with by the wrong tenant' },
+  },
+  {
+    name: 'RfqBidUnitPrice',
+    adapter: adapterFor('rfqBidUnitPrice'),
+    create: async (t) => {
+      const bid = await seedBidRow(t);
+      return prisma.rfqBidUnitPrice.create({ data: { bidPk: bid.pk, lineNumber: 10, price: 11.5 } });
+    },
+    // Keyed on the price itself: a rival reading this row is the leak that
+    // matters, so the selector is the commercially sensitive value.
+    find: () => ({ price: 11.5 }),
+    update: { price: 1 },
+  },
+  {
+    name: 'RfqBidDocument',
+    adapter: adapterFor('rfqBidDocument'),
+    create: async (t) => {
+      const bid = await seedBidRow(t);
+      return prisma.rfqBidDocument.create({ data: {
+        bidPk: bid.pk, documentId: `DOC-${t}`, originalName: 'quotation.pdf', url: '/tmp/quotation.pdf',
+      } });
+    },
+    find: (t) => ({ documentId: `DOC-${t}` }),
+    update: { originalName: 'swapped.pdf' },
+  },
+  {
+    name: 'RfqInvitedVendor',
+    adapter: adapterFor('rfqInvitedVendor'),
+    create: async (t) => {
+      const rfq = await seedRfqRow();
+      return prisma.rfqInvitedVendor.create({ data: {
+        rfqPk: rfq.pk, vendorExtId: `VND-${t}`, name: 'Invited Supplier', rating: 95,
+      } });
+    },
+    find: (t) => ({ vendorExtId: `VND-${t}` }),
+    // The invitee list is what makes a tender sealed (ADR-0037): writing to
+    // another tenant's would be an uninvited vendor inviting itself.
+    update: { status: 'Revoked' },
+  },
+  {
+    name: 'PurchaseOrderItem',
+    adapter: adapterFor('purchaseOrderItem'),
+    create: async (t) => {
+      const po = await seedPoRow();
+      return prisma.purchaseOrderItem.create({ data: {
+        poPk: po.pk, line: 10, materialCode: `MAT-${t}`, quantity: 5, unitPrice: 10, netValue: 50,
+      } });
+    },
+    find: (t) => ({ materialCode: `MAT-${t}` }),
+    update: { unitPrice: 1 },
+  },
+  {
+    name: 'InvoicePlan',
+    adapter: adapterFor('invoicePlan'),
+    create: async (t) => {
+      const item = await seedPoItemRow(t);
+      return prisma.invoicePlan.create({ data: {
+        itemPk: item.pk, enabled: true, planNumber: `PLAN-${t}`, periodicAmount: 1000,
+      } });
+    },
+    find: (t) => ({ planNumber: `PLAN-${t}` }),
+    update: { enabled: false },
+  },
+  {
+    name: 'InvoicePlanLine',
+    adapter: adapterFor('invoicePlanLine'),
+    create: async (t) => {
+      const item = await seedPoItemRow(t);
+      const plan = await prisma.invoicePlan.create({ data: { itemPk: item.pk, enabled: true, planNumber: `PLAN-${t}` } });
+      return prisma.invoicePlanLine.create({ data: {
+        planPk: plan.pk, lineNumber: 1, description: `Milestone ${t}`,
+        settlementDate: soon(), percentage: 50, amount: 500,
+      } });
+    },
+    find: (t) => ({ description: `Milestone ${t}` }),
+    update: { amount: 1 },
+  },
+  {
+    name: 'AsnItem',
+    adapter: adapterFor('asnItem'),
+    create: async (t) => {
+      const asn = await seedAsnRow();
+      return prisma.asnItem.create({ data: {
+        asnPk: asn.pk, line: 10, materialCode: `MAT-${t}`, shippedQuantity: 5,
+      } });
+    },
+    find: (t) => ({ materialCode: `MAT-${t}` }),
+    update: { shippedQuantity: 1 },
+  },
+  {
+    name: 'GrnItem',
+    adapter: adapterFor('grnItem'),
+    create: async (t) => {
+      const grn = await seedGrnRow();
+      return prisma.grnItem.create({ data: {
+        grnPk: grn.pk, line: 10, materialCode: `MAT-${t}`, receivedQuantity: 5, acceptedQuantity: 5,
+      } });
+    },
+    find: (t) => ({ materialCode: `MAT-${t}` }),
+    update: { rejectedQuantity: 5 },
+  },
+  {
+    name: 'InvoiceItem',
+    adapter: adapterFor('invoiceItem'),
+    create: async (t) => {
+      const invoice = await seedInvoiceRow();
+      return prisma.invoiceItem.create({ data: {
+        invoicePk: invoice.pk, line: 10, materialCode: `MAT-${t}`,
+        quantity: 5, unitPrice: 20, amount: 100,
+      } });
+    },
+    find: (t) => ({ materialCode: `MAT-${t}` }),
+    update: { amount: 1 },
+  },
 ];
 
 beforeEach(async () => {
   await seedClient(A);
   await seedClient({ ...B, companyName: 'Rival Manufacturing' });
+});
+
+// The rule this file's header states, enforced instead of asserted. A model
+// registered with the tenant extension but absent from MODEL_CASES has no
+// cross-tenant regression test, and nothing else in either suite would
+// notice it was gone -- which is how eleven of twenty-two models, RfqBid
+// and its per-line sealed pricing among them, came to be scoped in
+// production but untested here. A failure means: add the case. Do not
+// relax this.
+it('has a case for every model the tenant extension scopes', () => {
+  const covered = new Set(MODEL_CASES.map(({ name }) => name));
+  const missing = [...TENANT_SCOPED_MODELS].filter((model) => !covered.has(model));
+  expect(missing).toEqual([]);
 });
 
 describe.each(MODEL_CASES)('cross-tenant isolation — $name', ({ adapter, create, find, update, sharedBusinessId = true }) => {
