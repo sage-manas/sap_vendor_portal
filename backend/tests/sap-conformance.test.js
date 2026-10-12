@@ -27,15 +27,16 @@ describe('the conformance suite', () => {
     expect(report.driver).toBe('mock');
     expect(report.results).toHaveLength(METHOD_NAMES.length);
 
-    // A method the contract marks  is skipped, not run — see
-    // runner.js. Today that is poAssetCreate (it would create a real purchase
-    // order) and vendorBankUpdate (it would repoint a real vendor's payout
+    // A method the contract marks unsafe is skipped, not run — see runner.js.
+    // Today that is poAssetCreate (it would create a real purchase order),
+    // vendorCreate (it would create a real vendor master and consume a number
+    // range) and vendorBankUpdate (it would repoint a real vendor's payout
     // account). Derived from the contract rather than hardcoded so
     // adding one does not quietly leave this assertion measuring the wrong
     // thing. Note this is NOT "every method without a fixture": most reads need
     // no arguments and are deliberately fixture-less but still exercised.
     const skippable = METHOD_NAMES.filter((method) => (SAP_METHODS[method].createsDocument || SAP_METHODS[method].changesMasterData));
-    expect(skippable).toEqual(['vendorBankUpdate', 'poAssetCreate']);
+    expect(skippable).toEqual(['vendorCreate', 'vendorBankUpdate', 'poAssetCreate']);
 
     const notSkipped = report.results.filter((r) => r.status !== 'skipped');
     expect(notSkipped.every((r) => r.status === 'passed')).toBe(true);
@@ -122,12 +123,17 @@ describe('the conformance suite', () => {
     expect(byMethod.vendorReject.status).toBe('not_implemented');
 
     // Methods that genuinely have to call SAP fail without a reachable
-    // baseUrl — never the skeleton's untried not_implemented. There is no
-    // invoiceCreate or deliveryCreate in the contract any more: the portal
-    // reads from SAP and never writes a document into it.
-    for (const method of ['vendorCreate']) {
+    // baseUrl — never the skeleton's untried not_implemented.
+    // quotationUpdatePrice is the example rather than vendorCreate: both POST,
+    // but vendorCreate now carries createsDocument and is skipped before the
+    // driver is ever consulted. The three change-in-place writes are still
+    // exercised deliberately (see contract.js's note on poAssetCreate), and
+    // this is what proves they reach the transport rather than being quietly
+    // skipped too.
+    for (const method of ['quotationUpdatePrice']) {
       expect(byMethod[method].status).toBe('failed');
     }
+    expect(byMethod.vendorCreate.status).toBe('skipped');
 
     // Sourcing is no longer part of the contract at all — RFQs, bids and awards
     // are portal-internal, and what SAP holds is read back rather than written.
