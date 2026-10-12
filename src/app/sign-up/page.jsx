@@ -6,10 +6,11 @@ import Link from 'next/link';
 import { Building2, KeyRound, Mail, ArrowRight, Loader2, AlertCircle, MailCheck } from 'lucide-react';
 import WorkspaceBrand from '@/components/portal/WorkspaceBrand';
 import { useWorkspaceRealm } from '@/lib/workspace-realm';
+import { currentSlug, withWorkspace } from '@/lib/workspace-slug';
 
 export default function SignUpPage() {
   const router = useRouter();
-  const { workspace, known, selfRegistrationOpen } = useWorkspaceRealm();
+  const { workspace, known, slug, selfRegistrationOpen, workspaceRequired } = useWorkspaceRealm();
   const [companyName, setCompanyName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -50,7 +51,9 @@ export default function SignUpPage() {
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
-      const response = await fetch(`${apiUrl}/auth/register`, {
+      // Under account tenancy the link says which workspace this registers
+      // into; under subdomain tenancy the address does and this is ignored.
+      const response = await fetch(`${apiUrl}${withWorkspace('/auth/register', currentSlug())}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -91,7 +94,7 @@ export default function SignUpPage() {
           </span>
         </div>
         <div className="mt-6 pt-5 border-t border-border text-center">
-          <Link href="/sign-in" className="text-[11px] text-emerald-400 hover:underline font-medium">
+          <Link href={withWorkspace('/sign-in', slug)} className="text-[11px] text-emerald-400 hover:underline font-medium">
             Back to sign in
           </Link>
         </div>
@@ -107,11 +110,12 @@ export default function SignUpPage() {
       <div className="w-full max-w-[460px] p-8 card animate-fadeUp my-8">
         <WorkspaceBrand workspace={workspace} caption="Registration by invitation" />
         <p className="text-xs text-text-secondary text-center leading-relaxed">
-          This workspace admits suppliers by invitation. Ask your contact in the buying
-          organisation to send you one — the invitation link brings you straight to onboarding.
+          {workspaceRequired
+            ? 'Registration starts from the link your buying organisation shares with its suppliers. Ask your contact there to send it — it brings you straight to onboarding.'
+            : 'This workspace admits suppliers by invitation. Ask your contact in the buying organisation to send you one — the invitation link brings you straight to onboarding.'}
         </p>
         <div className="mt-6 pt-5 border-t border-border text-center">
-          <Link href="/sign-in" className="text-[11px] text-emerald-400 hover:underline font-medium">
+          <Link href={withWorkspace('/sign-in', slug)} className="text-[11px] text-emerald-400 hover:underline font-medium">
             Back to sign in
           </Link>
         </div>
@@ -250,7 +254,7 @@ export default function SignUpPage() {
         <p className="text-[11px] text-text-tertiary">
           Already registered?{' '}
           <Link
-            href="/sign-in"
+            href={withWorkspace('/sign-in', slug)}
             className="text-emerald-400 hover:underline transition-colors duration-150 font-medium ml-1"
           >
             Sign In here

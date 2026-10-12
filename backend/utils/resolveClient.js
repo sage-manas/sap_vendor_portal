@@ -1,4 +1,5 @@
 const { prisma } = require('../db/prisma');
+const { isAccountTenancy } = require('../config/tenancyMode');
 
 const LEGACY_CLIENT_ID = 'CLT-0001';
 const LEGACY_CLIENT_SLUG = 'legacy';
@@ -30,12 +31,33 @@ const hostOf = (req) =>
 // `vendorportal.example.com` as a tenant and rejects every login there.
 const baseDomain = () => String(process.env.PORTAL_BASE_DOMAIN || '').trim().toLowerCase().replace(/^\./, '');
 
+// The shape provisioning enforces (services/tenantProvisioning.service.js).
+// Anything else in `?workspace=` is not a slug and names nothing.
+const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
+
+// Account tenancy: the workspace a shared link names. This is not an
+// authority — it only picks whose branding a signed-out screen shows and which
+// tenant a self-registration lands in. Who an account belongs to is decided by
+// the account (login reads its clientId), never by this.
+const linkSlug = (req) => {
+  const value = req.query?.workspace;
+  const slug = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return SLUG_PATTERN.test(slug) ? slug : null;
+};
+
 /**
  * The slug this request is addressed to, and where that answer came from.
  * `source` matters: only a slug that a real subdomain named is strong enough to
  * refuse a login (see auth.controller), because the fallback is a guess.
  */
 const realmFromRequest = (req) => {
+  // One address for every tenant (ADR-0044): the hostname names nothing, so it
+  // is not read at all. Neither is x-client-slug — that stays a development key.
+  if (isAccountTenancy()) {
+    const slug = linkSlug(req);
+    return slug ? { slug, source: 'link' } : { slug: null, source: 'none' };
+  }
+
   const host = hostOf(req);
   const base = baseDomain();
 

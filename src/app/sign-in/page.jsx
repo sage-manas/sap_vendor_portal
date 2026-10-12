@@ -6,11 +6,12 @@ import Link from 'next/link';
 import { Building2, KeyRound, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
 import WorkspaceBrand from '@/components/portal/WorkspaceBrand';
 import { useWorkspaceRealm } from '@/lib/workspace-realm';
+import { rememberWorkspace, forgetStoredWorkspace, withWorkspace } from '@/lib/workspace-slug';
 import { forgetWhoami } from '@/lib/whoami';
 
 export default function SignInPage() {
   const router = useRouter();
-  const { workspace, selfRegistrationOpen } = useWorkspaceRealm();
+  const { workspace, slug, selfRegistrationOpen, workspaceRequired } = useWorkspaceRealm();
   const [vendorIdOrEmail, setVendorIdOrEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -56,6 +57,10 @@ export default function SignInPage() {
       // to cache, and only a supplier belongs on the supplier portal home.
       localStorage.setItem('jwt_token', data.token);
       forgetWhoami();
+      // One address for every tenant: the account has just told us whose
+      // workspace this is, so the pages after sign-in can wear its branding.
+      if (data.workspace?.slug) rememberWorkspace(data.workspace.slug);
+      else forgetStoredWorkspace();
 
       if (data.vendor) {
         localStorage.setItem('clerk_user_id', data.vendor.vendorId);
@@ -110,7 +115,7 @@ export default function SignInPage() {
               Password
             </label>
             <Link
-              href="/forgot-password"
+              href={withWorkspace('/forgot-password', slug)}
               className="text-[10px] font-semibold text-emerald-400 hover:opacity-80 transition-opacity duration-150"
             >
               Forgot password?
@@ -156,11 +161,15 @@ export default function SignInPage() {
           <p className="text-[11px] text-text-tertiary">
             New vendor partner?{' '}
             <Link
-              href="/sign-up"
+              href={withWorkspace('/sign-up', slug)}
               className="text-emerald-400 hover:underline transition-colors duration-150 font-medium ml-1"
             >
               Register Profile
             </Link>
+          </p>
+        ) : workspaceRequired ? (
+          <p className="text-[11px] text-text-tertiary">
+            New supplier? Use the registration link your buyer sent you.
           </p>
         ) : (
           <p className="text-[11px] text-text-tertiary">

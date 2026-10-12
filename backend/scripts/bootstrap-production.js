@@ -26,7 +26,11 @@ const { rawPrisma } = require('../db/prisma');
 const { hashPassword } = require('../db/credentials');
 const { ROLES } = require('../config/roles');
 
+const { isAccountTenancy } = require('../config/tenancyMode');
+
 const REQUIRED_ENV = ['DATABASE_URL', 'JWT_SECRET', 'MASTER_KEY', 'PORTAL_BASE_DOMAIN', 'FRONTEND_URL', 'SMTP_HOST', 'MAIL_FROM'];
+// PORTAL_BASE_DOMAIN only matters when the hostname names the workspace.
+const requiredEnv = () => REQUIRED_ENV.filter((key) => !(key === 'PORTAL_BASE_DOMAIN' && isAccountTenancy()));
 
 class BootstrapRefused extends Error {}
 
@@ -38,7 +42,7 @@ const bootstrap = async ({ email, name = 'Platform Administrator', env = process
     throw new BootstrapRefused('NODE_ENV is not "production". Refusing to seed a production admin into an unknown database.');
   }
 
-  const missing = REQUIRED_ENV.filter((key) => !(key === 'MASTER_KEY' ? env.MASTER_KEY || env.SECRET_MASTER_KEY : env[key]));
+  const missing = requiredEnv().filter((key) => !(key === 'MASTER_KEY' ? env.MASTER_KEY || env.SECRET_MASTER_KEY : env[key]));
   if (missing.length) throw new BootstrapRefused(`Missing environment for production: ${missing.join(', ')}`);
 
   const migrated = await rawPrisma.$queryRaw`SELECT to_regclass('public._prisma_migrations') IS NOT NULL AS present`;
