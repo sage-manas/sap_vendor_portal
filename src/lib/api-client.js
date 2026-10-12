@@ -1,4 +1,5 @@
 import { isPlatformPath, isAuthPath } from './planes';
+import { forgetStoredWorkspace } from './workspace-slug';
 
 const CHANGE_PASSWORD_PATH = '/change-password';
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
@@ -50,6 +51,7 @@ export const apiClient = {
         localStorage.removeItem('jwt_token');
         localStorage.removeItem('clerk_user_id');
         localStorage.removeItem('sap_vendor_profile_data');
+        forgetStoredWorkspace();
         // Never redirect out of the platform console: it authenticates
         // through platform-client.js and does not hold a supplier token.
         if (!isAuthPath(window.location.pathname) && !isPlatformPath(window.location.pathname)) {

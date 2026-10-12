@@ -12,6 +12,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { initSocket, closeSocket } from '@/lib/socket';
 import { isPlatformPath, isAuthPath } from '@/lib/planes';
 import { useWhoami, forgetWhoami } from '@/lib/whoami';
+import { forgetStoredWorkspace } from '@/lib/workspace-slug';
 
 // Where an account on a provisioned temporary password is sent until it is
 // replaced. Not an auth path — it needs a session — so the redirect below has to
@@ -126,6 +127,7 @@ export function PortalProvider({ children }) {
       localStorage.removeItem('jwt_token');
       localStorage.removeItem('clerk_user_id');
       localStorage.removeItem('sap_vendor_profile_data');
+      forgetStoredWorkspace();
       forgetWhoami();
     }
     router.push('/sign-in');

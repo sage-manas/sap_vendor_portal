@@ -93,6 +93,22 @@ These are exactly the variables the server requires: it validates them at boot
 Retired variables (`CLERK_*`, `MONGO_URI`, `ADMIN_BOOTSTRAP_EMAILS`) are also
 refused at boot — remove them if an older `.env` still carries them.
 
+## Tenancy Mode
+
+```text
+PORTAL_TENANCY_MODE unset or "subdomain"   each tenant at <slug>.PORTAL_BASE_DOMAIN
+PORTAL_TENANCY_MODE=account                one address for everyone
+```
+
+The default needs wildcard DNS, a wildcard certificate and a matching Nginx
+`server_name`. With `PORTAL_TENANCY_MODE=account` none of that is needed:
+everyone signs in at the one address, the account decides which workspace it
+belongs to, and `PORTAL_BASE_DOMAIN` becomes optional. A tenant's administrator
+shares `https://<your-domain>/sign-in?workspace=<slug>` (branded sign-in) and
+`https://<your-domain>/sign-up?workspace=<slug>` (supplier self-registration) with
+their suppliers. A value other than `subdomain` or `account` stops the server
+at boot. See ADR-0044.
+
 ## Database
 
 PostgreSQL stores everything, through Prisma. Apply the schema before the first

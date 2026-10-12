@@ -7,6 +7,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const logger = require('../utils/logger');
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
 const { resolveClientForRequest, resolveRealmForRequest } = require('../utils/resolveClient');
+const { isAccountTenancy } = require('../config/tenancyMode');
 const { ROLES } = require('../config/roles');
 const { signToken } = require('../utils/authToken');
 // Called as mailer.sendMail so a test can stand in for the transport.
@@ -253,7 +254,16 @@ const describeWorkspace = (client) => ({
 // @route   GET /api/auth/workspace
 // @access  Public
 const getWorkspace = asyncHandler(async (req, res, next) => {
-  const { client } = await resolveRealmForRequest(req);
+  const { client, source } = await resolveRealmForRequest(req);
+
+  // One address for every tenant, and no `?workspace=` link: there is no
+  // workspace to describe, and that is not an error — the sign-in screen is
+  // simply the platform's own, unbranded. `tenancy` lets the sign-up screen say
+  // that registration starts from a tenant's link, instead of letting a
+  // supplier fill in a form that has nowhere to go.
+  if (source === 'none') {
+    return res.json({ success: true, workspace: null, tenancy: 'account' });
+  }
 
   // An unknown slug and a suspended tenant answer alike: a visitor at the wrong
   // address learns that there is nothing here, not which of the two it is.
@@ -272,8 +282,10 @@ const login = asyncHandler(async (req, res, next) => {
   const identifier = String(vendorIdOrEmail || '').trim();
 
   // An address that names no workspace (an unknown subdomain, the bare domain)
-  // is not a wrong password: there is nothing here to sign in to.
-  if (!(await resolveRealmForRequest(req)).client) {
+  // is not a wrong password: there is nothing here to sign in to. Under account
+  // tenancy every address is the door and the account names the workspace, so
+  // there is nothing to refuse on the way in.
+  if (!isAccountTenancy() && !(await resolveRealmForRequest(req)).client) {
     return next(ApiError.notFound('Unknown workspace'));
   }
 
@@ -339,6 +351,9 @@ const login = asyncHandler(async (req, res, next) => {
     token: signToken(updated),
     mustChangePassword: Boolean(updated.mustChangePassword),
     role: updated.role,
+    // The sign-in screen could not know whose branding to show; now it does, and
+    // can keep it for the pages after this one.
+    ...(isAccountTenancy() && { workspace: describeWorkspace(client) }),
     ...(user ? { user: formatUserResponse(updated) } : { vendor: formatVendorResponse(updated) })
   });
 });

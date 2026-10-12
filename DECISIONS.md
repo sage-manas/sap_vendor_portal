@@ -5,6 +5,56 @@ Each entry: the call, why, and what it costs.
 
 ---
 
+## ADR-0044 — Tenancy by account is an opt-in mode; the subdomain stays the default
+
+**Deployment · 2026-10-12 · Accepted**
+
+**Context.** ADR-0028 made the hostname the front door: `acme.<PORTAL_BASE_DOMAIN>` is Acme's
+workspace, and nothing else may choose one. The cost it named was wildcard DNS and a
+wildcard certificate before a second tenant can be onboarded. A first real deployment met
+it: onboarding a demo tenant needed a DNS record, a certificate, an nginx `server_name` and a
+CORS origin per tenant, none of which the operator could do from the console. The same read
+of the code showed the hostname was doing less than ADR-0028 implied. Login has always found
+the tenant from the *account* (the `clientId` on the Vendor or User row), and the
+cross-tenant refusal at a subdomain is a belt on top of that, not the thing that isolates
+tenants — every query is scoped by the tenant context the session token binds (ADR-0001).
+Transactional email already links to the single `FRONTEND_URL`, so in subdomain mode a new
+tenant administrator's first sign-in link led to an address that answers 404.
+
+**Decision.** `PORTAL_TENANCY_MODE` is `subdomain` (unset means this; unchanged in every
+respect) or `account`. Under `account`:
+
+- The hostname is not read, and neither is `x-client-slug`. One address serves every tenant.
+- **Login** needs no workspace. The account names its own, and the response carries that
+  workspace's public face so the sign-in screen can remember it.
+- A tenant's administrator shares `/sign-in?workspace=<slug>` and `/sign-up?workspace=<slug>`.
+  The slug picks only two things for a signed-out visitor: whose branding is shown, and which
+  tenant a **self-registration** lands in. It authorises nothing: an account arriving through
+  another tenant's link still signs in to its own.
+- `GET /api/auth/workspace` with no link answers 200 `{ workspace: null, tenancy: 'account' }`,
+  not 404, so the platform's own sign-in works and the sign-up screen can say that
+  registration starts from a link. A link to an unknown or suspended tenant is still the same
+  404 as before.
+- Registration with no link answers 404 and creates nothing. Invitations are unaffected —
+  the invitation token already names the tenant.
+- `PORTAL_BASE_DOMAIN` is no longer required in production. An unrecognised mode value stops
+  the boot rather than falling back to the other model.
+
+**What this does not weaken.** Tenant isolation after sign-in is untouched: the session token
+binds the tenant, and every model is scoped by it. Email addresses are already unique across
+the platform (ADR-0002, `assertEmailAvailable`), so "the account decides" is unambiguous. The
+slug in a link is public by design — it appears in a URL the tenant hands out — and is
+validated against the provisioning pattern before use.
+
+**What it costs.** Two things are given up, both deliberately. The address no longer proves
+which company a visitor meant, so a supplier who mistypes a link signs in to their own
+workspace instead of being refused at the wrong one. And whether a given slug exists is
+visible to anyone who tries it (200 versus 404 on the workspace endpoint), where under
+subdomains DNS made that visible anyway. A tenant that wants a branded address of its own
+(a custom domain) is still not supported, in either mode.
+
+---
+
 ## ADR-0043 — One supplier login per buyer relationship, confirmed for go-live
 
 **Go-live readiness · 2026-10-06 · Accepted**

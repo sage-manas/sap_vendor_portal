@@ -1,4 +1,5 @@
 const logger = require('../utils/logger');
+const { MODES, isAccountTenancy, invalidTenancyMode } = require('./tenancyMode');
 
 const validateEnv = () => {
   const strictlyRequired = ['PORT', 'DATABASE_URL', 'FRONTEND_URL'];
@@ -17,10 +18,19 @@ const validateEnv = () => {
     process.exit(1);
   }
 
+  const badMode = invalidTenancyMode();
+  if (badMode) {
+    const msg = `❌ Server crash: PORTAL_TENANCY_MODE="${badMode}" is not one of ${MODES.join(', ')}`;
+    logger.error(msg);
+    console.error(`\n${msg}\n`);
+    process.exit(1);
+  }
+
   // Workspaces are `<slug>.PORTAL_BASE_DOMAIN`. Without it the resolver has to
   // guess a tenant from the first label of whatever host arrived, which is how
-  // a shared name like vendorportal.example.com broke every login.
-  if (process.env.NODE_ENV === 'production' && !process.env.PORTAL_BASE_DOMAIN) {
+  // a shared name like vendorportal.example.com broke every login. Under account
+  // tenancy the hostname is not read, so there is nothing for it to configure.
+  if (process.env.NODE_ENV === 'production' && !isAccountTenancy() && !process.env.PORTAL_BASE_DOMAIN) {
     const msg = '❌ Server crash in Production: PORTAL_BASE_DOMAIN is required — workspaces are <slug>.<PORTAL_BASE_DOMAIN> (e.g. portal.example.com)';
     logger.error(msg);
     console.error(`
