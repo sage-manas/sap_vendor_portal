@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useSyncExternalStore } from 'react';
 import { useShell } from '@/lib/shell-context';
 import { useProfile } from '@/features/profile/hooks/useProfile';
 import { useRFQs } from '@/features/rfq/hooks/useRFQs';
@@ -20,6 +20,18 @@ const CHANGE_PASSWORD_PATH = '/change-password';
 import ToastNotification from '@/components/portal/ToastNotification';
 
 const PortalContext = createContext(undefined);
+
+// Whether a supplier/tenant token is in this browser. localStorage is invisible
+// to the server, so the server snapshot is "no session": the server render and
+// the first client render agree, and React re-reads the real answer straight
+// after hydrating. It is read again on every render, so a token written by the
+// sign-in page is seen as soon as the route changes.
+const subscribeToSession = (onChange) => {
+  window.addEventListener('storage', onChange);
+  return () => window.removeEventListener('storage', onChange);
+};
+const readSession = () => Boolean(localStorage.getItem('jwt_token'));
+const noSessionOnServer = () => false;
 
 // Every field the registration form edits that the vendor record stores.
 const REGISTRATION_FORM_FIELDS = [
@@ -65,18 +77,24 @@ export function PortalProvider({ children }) {
   const router = useRouter();
   const { mustChangePassword } = useWhoami();
 
-  // Redirect to sign-in if no token is found and not on auth pages
+  // Redirect to sign-in if no token is found and not on auth pages.
+  //
+  // Nothing is known about the session until the browser is reached, so a
+  // protected route is held back (`sessionPending`) rather than painted: it
+  // used to render the dashboard's sidebar, header and empty panels for a frame
+  // and only then bounce a signed-out visitor to /sign-in.
+  const hasSession = useSyncExternalStore(subscribeToSession, readSession, noSessionOnServer);
+  // The platform console has its own session and its own sign-in flow;
+  // bouncing an operator to the supplier login would be nonsense.
+  const needsSession = !isAuthPath(pathname) && !isPlatformPath(pathname);
+  const sessionPending = needsSession && !hasSession;
+
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('jwt_token');
-      const isAuthPage = isAuthPath(pathname);
-      // The platform console has its own session and its own sign-in flow;
-      // bouncing an operator to the supplier login would be nonsense.
-      if (!token && !isAuthPage && !isPlatformPath(pathname)) {
-        router.push('/sign-in');
-      }
+    if (typeof window === 'undefined') return;
+    if (!localStorage.getItem('jwt_token') && needsSession) {
+      router.push('/sign-in');
     }
-  }, [pathname, router]);
+  }, [pathname, router, needsSession]);
 
   // An account still on the temporary password it was provisioned with finishes
   // that before anything else. The platform console enforces the same rule in
@@ -417,7 +435,7 @@ export function PortalProvider({ children }) {
         clearNotifications
       }}
     >
-      {children}
+      {sessionPending ? null : children}
       <ToastNotification toasts={toasts} removeToast={removeToast} />
     </PortalContext.Provider>
   );
