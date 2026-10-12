@@ -11,9 +11,13 @@ set -euo pipefail
 
 BRANCH="${1:-master}"
 
-git fetch origin
-git checkout "$BRANCH"
-git pull --ff-only origin "$BRANCH"
+# SKIP_GIT=1: the caller (deploy/auto-deploy.sh) has already put the tree on the
+# exact commit it verified, so do not pull a newer one underneath it.
+if [ -z "${SKIP_GIT:-}" ]; then
+  git fetch origin
+  git checkout "$BRANCH"
+  git pull --ff-only origin "$BRANCH"
+fi
 
 # --include=dev: the Next build and the Prisma CLI are devDependencies, and
 # npm would silently drop them if the shell happens to export
