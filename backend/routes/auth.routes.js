@@ -8,6 +8,7 @@ const {
   forgotPasswordSchema,
   resetPasswordSchema,
   changePasswordSchema,
+  lookupInvitationSchema,
   acceptInvitationSchema,
   confirmEmailSchema
 } = require('../validators/auth.validator');
@@ -26,7 +27,9 @@ router.post('/confirm-email', validate(confirmEmailSchema), authController.confi
 router.post('/login', validate(loginSchema), guards.login, authController.login);
 router.post('/forgot-password', validate(forgotPasswordSchema), guards.forgotPassword, authController.forgotPassword);
 router.post('/reset-password', validate(resetPasswordSchema), guards.resetPassword, authController.resetPassword);
-router.get('/invitations/:token', invitationController.getInvitation);
+// The invitation token travels in the body, never the path: a path token is
+// written to every access log on the way in (#248).
+router.post('/invitations/lookup', validate(lookupInvitationSchema), invitationController.getInvitation);
 router.post('/invitations/accept', validate(acceptInvitationSchema), invitationController.acceptInvitation);
 
 // Authenticated: every principal holds self:read. These two are the only routes

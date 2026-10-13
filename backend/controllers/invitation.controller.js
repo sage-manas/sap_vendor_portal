@@ -161,10 +161,15 @@ const findByToken = async (rawToken) => {
 };
 
 // @desc    Look up an invitation so the accept screen can render
-// @route   GET /api/auth/invitations/:token
+// @route   POST /api/auth/invitations/lookup
 // @access  Public
+//
+// A POST, not a GET on `/invitations/:token`, because the token is a bearer
+// credential: in the path it lands in the app's request log, in nginx's access
+// log, in any proxy in between and in the browser's history. In the body it is
+// logged only on a 4xx/5xx, and redactDeep blanks a `token` key (#248).
 const getInvitation = asyncHandler(async (req, res, next) => {
-  const found = await findByToken(req.params.token);
+  const found = await findByToken(req.body.token);
   if (!found) {
     return next(ApiError.badRequest('This invitation is invalid or has expired'));
   }

@@ -62,7 +62,15 @@ const PATTERNS = [
   /\b[A-Z]{4}0[A-Z0-9]{6}\b/g, // IFSC
 ];
 
-const JSON_PAIR = /"([A-Za-z0-9_-]+)"(\s*:\s*)(?:"([^"\\]*)"|(\d{5,}))/g;
+// A URL path segment that is long enough and random enough to be a credential
+// rather than an identifier: the 64-hex invite and reset tokens, and anything
+// base64url of similar length. Routes are not supposed to put a token in the
+// path (#248 moved the one that did into a POST body), so this is the backstop
+// for the next one: a `cuid`/UUID primary key is shorter or dash-separated and
+// stays readable in the log.
+const PATH_SECRET = /\/(?:[A-Fa-f0-9]{32,}|[A-Za-z0-9_-]{40,})(?=[/?#]|$)/g;
+
+const JSON_PAIR =/"([A-Za-z0-9_-]+)"(\s*:\s*)(?:"([^"\\]*)"|(\d{5,}))/g;
 const QUERY_PAIR = /([?&])([A-Za-z0-9_-]+)=([^&#\s]*)/g;
 
 const decoded = (value) => {
@@ -83,6 +91,8 @@ const redactString = (text) => {
     if (SECRET_NAME_IN_TEXT.test(key)) return `${lead}${key}=[REDACTED]`;
     return whole;
   });
+
+  out = out.replace(PATH_SECRET, '/[REDACTED]');
 
   for (const pattern of PATTERNS) out = out.replace(pattern, (match) => mask(match));
   return out;

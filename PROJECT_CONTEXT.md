@@ -577,7 +577,7 @@ several places (a holdover from the abandoned Clerk-auth plan, §4).
 
 ### 7.1 Complete API Endpoint Map
 
-Base path `/api`. Auth column: **Public** / the permission the route declares (see `config/permissions.js` for who holds it). Phase 2 additions: `/api/users` (staff + invitations, plus `GET /users/roles` — the invitable roles and what each means, served from `config/roles.js`), `/api/vendors/invitations`, `/api/auth/invitations/:token`, `/api/auth/invitations/accept`, `/api/auth/change-password`, `/api/platform/auth/*`. Phase 5 additions: `/api/workspace/*` and `POST /api/vendors`. Phase 6 addition: `GET /api/auth/workspace`. Phase 7 additions: `GET /api/status` (public), `POST /platform/tenants/:clientId/billing/sync-usage`.
+Base path `/api`. Auth column: **Public** / the permission the route declares (see `config/permissions.js` for who holds it). Phase 2 additions: `/api/users` (staff + invitations, plus `GET /users/roles` — the invitable roles and what each means, served from `config/roles.js`), `/api/vendors/invitations`, `POST /api/auth/invitations/lookup` (a POST for a read: the invitation token is a bearer credential and must not reach an access log — issue #248), `/api/auth/invitations/accept`, `/api/auth/change-password`, `/api/platform/auth/*`. Phase 5 additions: `/api/workspace/*` and `POST /api/vendors`. Phase 6 addition: `GET /api/auth/workspace`. Phase 7 additions: `GET /api/status` (public), `POST /platform/tenants/:clientId/billing/sync-usage`.
 
 `GET /health` (liveness — DB state, socket count) and `GET /status` (public status page — see §5.7) sit directly on the router, ahead of everything else, with no `clientId`.
 

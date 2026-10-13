@@ -107,7 +107,7 @@ describe('invitations', () => {
 
     const rawToken = inviteTokenFor('newbuyer@example.com');
 
-    const preview = await request(app).get(`/api/auth/invitations/${rawToken}`);
+    const preview = await request(app).post('/api/auth/invitations/lookup').send({ token: rawToken });
     expect(preview.status).toBe(200);
     expect(preview.body.invitation.role).toBe('buyer');
 
@@ -123,6 +123,23 @@ describe('invitations', () => {
     const reuse = await request(app).post('/api/auth/invitations/accept')
       .send({ token: rawToken, password: 'Secret12345' });
     expect(reuse.status).toBe(400);
+  });
+
+  // #248: the token is a bearer credential, so it may not travel in a URL that
+  // the app log, nginx's access log and the browser history all keep.
+  it('does not serve an invitation to a token in the URL path', async () => {
+    const { token: adminToken } = await createAdminUser({ email: 'admin-inv-path@example.com' });
+
+    await bearer(request(app).post('/api/users/invitations'), adminToken)
+      .send({ email: 'pathlookup@example.com', role: 'finance' });
+    const rawToken = inviteTokenFor('pathlookup@example.com');
+
+    const viaPath = await request(app).get(`/api/auth/invitations/${rawToken}`);
+    expect(viaPath.status).toBe(404);
+
+    const viaBody = await request(app).post('/api/auth/invitations/lookup').send({ token: rawToken });
+    expect(viaBody.status).toBe(200);
+    expect(viaBody.body.invitation.email).toBe('pathlookup@example.com');
   });
 
   it('refuses to invite a role outside the tenant plane', async () => {
