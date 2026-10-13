@@ -19,7 +19,7 @@ const { guards } = require('../middleware/accountGuard');
 // `/workspace` answers which tenant this hostname is, which every signed-out
 // screen needs before anyone has a session to read it from.
 router.get('/workspace', authController.getWorkspace);
-router.post('/register', validate(registerSchema), authController.register);
+router.post('/register', validate(registerSchema), guards.register, authController.register);
 router.post('/confirm-email', validate(confirmEmailSchema), authController.confirmEmail);
 // The account guards run after validation (so they see a clean identifier) and
 // before the handler; see middleware/accountGuard.js.
