@@ -2,8 +2,10 @@ const express = require('express');
 const request = require('supertest');
 const bcrypt = require('bcryptjs');
 const buildTestApp = require('./testApp');
-const { registerVendor, createOperatorSession } = require('./helpers');
+const { registerVendor, createOperatorSession, baseVendor } = require('./helpers');
 const { apiLimiter } = require('../middleware/rateLimiter');
+const mailer = require('../utils/mailer');
+const { drainBackground } = require('../utils/background');
 
 const app = buildTestApp();
 
@@ -134,6 +136,50 @@ describe('per-account limits on forgot-password and reset-password', () => {
     }
     expect((await reset('not-a-real-token')).status).toBe(429);
     expect((await reset('a-different-token')).status).toBe(400);
+  });
+});
+
+describe('a per-recipient limit on the registration email', () => {
+  // Registration is public, answers 202 to everyone, and emails the address in
+  // the body. Without a limit it is a mail cannon aimed at any address an
+  // attacker types, and the per-IP ceiling (5000 a window, deliberately
+  // generous) does not stand in the way of one (issue #247). Counted per
+  // recipient, because the caller rotates and the victim does not.
+  const register = (email) => request(app)
+    .post('/api/auth/register')
+    .set('x-client-slug', 'legacy')
+    .send({ ...baseVendor, email });
+
+  afterEach(() => drainBackground());
+
+  it('allows five registration emails to one address in the window, then answers 429', async () => {
+    for (let i = 0; i < 5; i += 1) {
+      expect((await register('Victim@Example.com')).status).toBe(202);
+      // Registration answers before it sends; let each one finish so this
+      // counts what was sent rather than racing itself.
+      await drainBackground();
+    }
+    const sixth = await register('victim@example.com');
+    expect(sixth.status).toBe(429);
+    expect(Number(sixth.headers['retry-after'])).toBeGreaterThan(0);
+
+    await drainBackground();
+    expect(mailer.sentMails().filter((sent) => sent.to === 'victim@example.com')).toHaveLength(5);
+  });
+
+  it('does not limit another address, and says nothing about which ones exist', async () => {
+    const { payload } = await registerVendor(app);
+    for (let i = 0; i < 6; i += 1) {
+      await register('ghost@example.com');
+    }
+    // An address with an account and one without reach the ceiling alike.
+    // registerVendor already spent one of this address's five.
+    for (let i = 0; i < 4; i += 1) {
+      expect((await register(payload.email)).status).toBe(202);
+    }
+    expect((await register(payload.email)).status).toBe(429);
+    expect((await register('ghost@example.com')).status).toBe(429);
+    expect((await register('someone-else@example.com')).status).toBe(202);
   });
 });
 

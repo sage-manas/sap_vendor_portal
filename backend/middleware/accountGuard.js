@@ -147,6 +147,17 @@ const guards = {
   forgotPassword: accountGuard({
     scope: 'forgot', identify: (req) => normalise(req.body?.email), countEvery: true, freeAttempts: 3, lockAfter: 5,
   }),
+  // Registration is public, answers 202 to everyone, and sends an email to the
+  // address in the body — a confirmation link, "you already have an account",
+  // or a refusal. Nothing about that is a guess, so there is no wrong answer to
+  // forgive: what is being limited is how much mail one address can be made to
+  // receive from an endpoint anyone can call (issue #247). Keyed on the
+  // recipient rather than the caller because the caller rotates and the victim
+  // does not. Five is well above a person retrying a form and far below a
+  // mail-bomb.
+  register: accountGuard({
+    scope: 'register', identify: (req) => normalise(req.body?.email), countEvery: true, freeAttempts: 3, lockAfter: 5,
+  }),
   platformForgotPassword: accountGuard({
     scope: 'platform-forgot', identify: (req) => normalise(req.body?.email), countEvery: true, freeAttempts: 3, lockAfter: 5,
   }),
