@@ -63,6 +63,10 @@ const changePasswordSchema = z.strictObject({
   newPassword: passwordField
 });
 
+const lookupInvitationSchema = z.strictObject({
+  token: z.string().min(1, { message: "Invitation token is required" })
+});
+
 const acceptInvitationSchema = z.strictObject({
   token: z.string().min(1, { message: "Invitation token is required" }),
   password: passwordField,
@@ -85,6 +89,7 @@ module.exports = {
   forgotPasswordSchema,
   resetPasswordSchema,
   changePasswordSchema,
+  lookupInvitationSchema,
   acceptInvitationSchema,
   confirmEmailSchema,
   platformLoginSchema,

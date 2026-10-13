@@ -26,7 +26,7 @@ const NOT_A_LIST = new Set([
   // a collection that grows with a tenant's data -- the same reason
   // /meta/sap-fields is here.
   'GET /meta/indian-states',
-  'GET /auth/workspace', 'GET /auth/me', 'GET /auth/invitations/:token',
+  'GET /auth/workspace', 'GET /auth/me',
   'GET /platform/auth/me', 'GET /platform/health',
   'GET /platform/tenants/:clientId', 'GET /platform/tenants/:clientId/export', 'GET /platform/tenants/:clientId/sap',
   'GET /vendors/profile', 'GET /vendors/sap-reference-data', 'GET /vendors/performance', 'GET /vendors/:id',

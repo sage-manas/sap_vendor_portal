@@ -103,6 +103,20 @@ describe('redactString', () => {
     expect(out).toBe('/api/vendors?gstin=****C1ZV&status=Approved&accountNumber=****8901');
   });
 
+  // #248: no route should put a credential in the path (the invitation lookup
+  // that did is now a POST), so this is the backstop for the next one.
+  it('redacts a token-shaped URL path segment', () => {
+    const token = 'a'.repeat(64);
+    expect(redactString(`/api/auth/invitations/${token}`)).toBe('/api/auth/invitations/[REDACTED]');
+    expect(redactString(`GET /api/auth/reset/${token}?next=/dashboard`))
+      .toBe('GET /api/auth/reset/[REDACTED]?next=/dashboard');
+  });
+
+  it('leaves readable identifiers in a path alone', () => {
+    ['/api/users/invitations/clzx8k2p40000abcd1234', '/api/vendors/CLT-0001', '/api/rfqs/RFQ-2026-0001/bids']
+      .forEach((path) => expect(redactString(path)).toBe(path));
+  });
+
   it('leaves ordinary text alone', () => {
     const text = 'PO 4500012345 for ACME PHARMA, GRN posted 2026-09-18';
     expect(redactString(text)).toBe(text);

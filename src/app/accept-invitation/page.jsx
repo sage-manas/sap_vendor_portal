@@ -50,7 +50,13 @@ function AcceptInvitationForm() {
     let cancelled = false;
     (async () => {
       try {
-        const response = await fetch(`${apiUrl()}/auth/invitations/${encodeURIComponent(token)}`);
+        // A POST for a read, deliberately: the token is a credential and must
+        // not sit in a URL that every access log on the way keeps (#248).
+        const response = await fetch(`${apiUrl()}/auth/invitations/lookup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token }),
+        });
         const data = await response.json();
         if (cancelled) return;
         if (!response.ok) throw new Error(readError(data));

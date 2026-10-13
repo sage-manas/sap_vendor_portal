@@ -33,7 +33,7 @@ const PUBLIC_ROUTES = new Set([
   'POST /auth/login',
   'POST /auth/forgot-password',
   'POST /auth/reset-password',
-  'GET /auth/invitations/:token',
+  'POST /auth/invitations/lookup',
   'POST /auth/invitations/accept',
   'POST /platform/auth/login',
   'POST /platform/auth/forgot-password',
