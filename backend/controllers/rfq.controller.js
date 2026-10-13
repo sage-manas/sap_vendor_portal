@@ -470,11 +470,13 @@ const submitBid = asyncHandler(async (req, res, next) => {
 
 // @desc    Push an updated net price for a SAP-native quotation document
 //          (ME47, ZQUOT_NETPR/QUOT_UPDPR) — a real SAP write, distinct from
-//          submitBid above. `sapRfqNumber` is the SAP document (ebeln, e.g.
-//          "6000000062") the vendor is responding to, taken from what
-//          ME48/ME43 already show them in the SAP Documents tab; `items`
-//          reuses this portal RFQ's own line numbers so the vendor is only
-//          ever pricing lines they can already see in RFQ Monitor & History.
+//          submitBid above. The SAP document (ebeln, e.g. "6000000062") the
+//          price is written against is this RFQ's own `sapDocNumber`, never a
+//          number the request names: `sapRfqNumber` in the body is only an
+//          assertion about which document the vendor believes it is pricing,
+//          and a mismatch is refused. `items` reuses this portal RFQ's own
+//          line numbers so the vendor is only ever pricing lines they can
+//          already see in RFQ Monitor & History.
 // @route   POST /api/rfqs/:id/sap-quote-price
 // @access  Public
 const updateSapQuotationPrice = asyncHandler(async (req, res, next) => {
@@ -502,6 +504,28 @@ const updateSapQuotationPrice = asyncHandler(async (req, res, next) => {
     return next(ApiError.notFound('RFQ not found'));
   }
 
+  // The SAP document written to is the one this RFQ is, not the one the
+  // request asks for (issue #245). Authorising against an RFQ the supplier
+  // *is* invited to while naming any other `ebeln` in the body let a
+  // supplier push its own net price onto a sourcing document belonging to a
+  // different tender, a different supplier, or a different tenant
+  // altogether -- the portal's invitee check said yes, and SAP only ever saw
+  // the number from the payload. submitBid already does it the right way:
+  // it pushes `rfq.sapDocNumber` and skips the push entirely when the RFQ
+  // has none.
+  if (!rfq.sapDocNumber) {
+    return next(ApiError.conflict(
+      `RFQ ${rfq.id} has no SAP quotation document to price; submit the bid in the portal instead`
+    ));
+  }
+  // The body's number is kept as an assertion rather than ignored: the SAP
+  // Documents tab is where the vendor read it, so a mismatch means their
+  // view is stale (the RFQ was re-raised in SAP) or the client crossed two
+  // RFQs -- either way the write would land somewhere they did not intend.
+  if (sapRfqNumber && String(sapRfqNumber) !== String(rfq.sapDocNumber)) {
+    return next(ApiError.conflict(`RFQ ${rfq.id} is not SAP document ${sapRfqNumber}`));
+  }
+
   const validLines = new Set(rfq.items.map((item) => String(item.line)));
   const unknownLine = items.find((item) => !validLines.has(String(item.line)));
   if (unknownLine) {
@@ -516,7 +540,7 @@ const updateSapQuotationPrice = asyncHandler(async (req, res, next) => {
   const sap = await getSapAdapterForClient(req.clientId);
   const result = await sap.quotationUpdatePrice({
     vendor,
-    sapRfqNumber,
+    sapRfqNumber: rfq.sapDocNumber,
     items: items.map(({ line, netPrice }) => ({ item: line, netPrice })),
   });
 
