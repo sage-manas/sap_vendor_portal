@@ -304,8 +304,18 @@ describe('POST /api/rfqs/:id/bid', () => {
 });
 
 describe('POST /api/rfqs/:id/sap-quote-price (ME47)', () => {
+  // An RFQ that SAP raised. `sapDocNumber` is stamped by
+  // jobs/handlers/sweepQuotations.js when it discovers the document, so it is
+  // a precondition here rather than something this endpoint can produce --
+  // the sweep is covered by tests/discovery-sweeps.test.js.
+  const sapOriginRfq = async (docNumber, overrides = {}) => {
+    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload(overrides))).body;
+    await asTenant(() => prisma.rFQ.updateMany({ where: { id: rfq.id }, data: { sapDocNumber: docNumber } }));
+    return rfq;
+  };
+
   it('pushes the net price to SAP and echoes the document number back', async () => {
-    const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload())).body;
+    const rfq = await sapOriginRfq('6000000062');
 
     const res = await asVendor(request(app).post(`/api/rfqs/${rfq.id}/sap-quote-price`)).send({
       sapRfqNumber: '6000000062',
@@ -319,8 +329,58 @@ describe('POST /api/rfqs/:id/sap-quote-price (ME47)', () => {
     expect(entry).toMatchObject({ status: 'SUCCESS', direction: 'OUTBOUND' });
   });
 
-  it('rejects a line number that is not part of this RFQ', async () => {
+  // Issue #245: the document written to is the RFQ's own, so the body need
+  // not name one at all.
+  it('prices the RFQ own SAP document when the request names none', async () => {
+    const rfq = await sapOriginRfq('6000000070');
+
+    const res = await asVendor(request(app).post(`/api/rfqs/${rfq.id}/sap-quote-price`)).send({
+      items: [{ line: 10, netPrice: 1400 }]
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.sapRfqNumber).toBe('6000000070');
+  });
+
+  // Issue #245: the price must land on the sourcing document this RFQ *is*.
+  // A supplier properly invited to its own tender could otherwise name any
+  // other `ebeln` in the body and have SAP take the write.
+  it('refuses to price a SAP document that is not the one this RFQ is', async () => {
+    const rfq = await sapOriginRfq('6000000071');
+
+    const res = await asVendor(request(app).post(`/api/rfqs/${rfq.id}/sap-quote-price`)).send({
+      sapRfqNumber: '6000000072', // another tender's document
+      items: [{ line: 10, netPrice: 1 }]
+    });
+
+    expect(res.status).toBe(409);
+
+    // Nothing reached SAP under either number.
+    const entries = await asTenant(() => prisma.sapLog.findMany({
+      where: { documentRef: { in: ['6000000071', '6000000072'] } },
+    }));
+    expect(entries).toHaveLength(0);
+  });
+
+  // Issue #245: a portal-only RFQ has no SAP document to price. submitBid
+  // skips its push in that case; here there is nothing to fall back to, so
+  // the request is refused rather than writing against a guessed number.
+  it('refuses an ME47 push on an RFQ with no SAP quotation document', async () => {
     const rfq = (await asBuyer(request(app).post('/api/rfqs')).send(rfqPayload())).body;
+
+    const res = await asVendor(request(app).post(`/api/rfqs/${rfq.id}/sap-quote-price`)).send({
+      sapRfqNumber: '6000000073',
+      items: [{ line: 10, netPrice: 1400 }]
+    });
+
+    expect(res.status).toBe(409);
+
+    const entry = await asTenant(() => prisma.sapLog.findFirst({ where: { documentRef: '6000000073' } }));
+    expect(entry).toBeNull();
+  });
+
+  it('rejects a line number that is not part of this RFQ', async () => {
+    const rfq = await sapOriginRfq('6000000062');
 
     const res = await asVendor(request(app).post(`/api/rfqs/${rfq.id}/sap-quote-price`)).send({
       sapRfqNumber: '6000000062',

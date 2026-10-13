@@ -58,7 +58,10 @@ const reissueRfqSchema = z.strictObject({
 });
 
 const quotationPriceUpdateSchema = z.strictObject({
-  sapRfqNumber: z.string().min(1),
+  // Optional (issue #245): the document written to is the RFQ's own
+  // `sapDocNumber`, so this is only the client asserting which document it
+  // thinks it is pricing. Sent, it must match; omitted, the RFQ decides.
+  sapRfqNumber: z.string().min(1).optional(),
   items: z.array(
     z.strictObject({
       line: z.coerce.number().int().positive(),
