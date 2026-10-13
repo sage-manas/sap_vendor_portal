@@ -23,6 +23,7 @@ const AUDIT_ACTIONS = {
   OPERATOR_REACTIVATED: 'operator.reactivated',
   OPERATOR_MFA_ENROLLED: 'operator.mfa_enrolled',
   OPERATOR_MFA_RESET: 'operator.mfa_reset',
+  OPERATOR_MFA_FAILED: 'operator.mfa_failed',
   OPERATOR_LOGIN: 'operator.login',
   OPERATOR_LOGIN_FAILED: 'operator.login_failed',
   OPERATOR_PASSWORD_CHANGED: 'operator.password_changed',

@@ -186,7 +186,8 @@ const resetMfa = asyncHandler(async (req, res) => {
 
   const updated = await prisma.platformUser.update({
     where: { pk: operator.pk },
-    data: { mfaEnabled: false, mfaSecret: null, mfaEnrolledAt: null },
+    // The consumed-step marker goes with the secret it belonged to.
+    data: { mfaEnabled: false, mfaSecret: null, mfaEnrolledAt: null, mfaLastStepAt: null },
   });
 
   await recordAudit({

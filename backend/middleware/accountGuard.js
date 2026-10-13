@@ -2,7 +2,8 @@ const crypto = require('crypto');
 const ApiError = require('../utils/ApiError');
 
 // Per-account throttling for the endpoints an attacker uses to get into, or
-// take over, one particular account: login, forgot-password, reset-password.
+// take over, one particular account: login, MFA verification, forgot-password,
+// reset-password.
 //
 // The per-IP limiter cannot do this job. An office behind one NAT address needs
 // a generous IP ceiling, which is far more than an attacker needs to guess at a
@@ -133,6 +134,14 @@ const fingerprint = (value) => crypto.createHash('sha256').update(String(value ?
 const guards = {
   login: accountGuard({ scope: 'login', identify: (req) => normalise(req.body?.vendorIdOrEmail) }),
   platformLogin: accountGuard({ scope: 'platform-login', identify: (req) => normalise(req.body?.email) }),
+  // The second factor is guessable in a way a password is not — six digits,
+  // and a stolen password gets an attacker a half-session to guess them from.
+  // Mounted after `protectPlatform`, so the identifier is the operator the
+  // half-session names rather than anything the body claims. Fewer free
+  // attempts than login: a person reading a code off a phone does not need ten.
+  platformMfaVerify: accountGuard({
+    scope: 'platform-mfa', identify: (req) => req.auth?.id, freeAttempts: 3, lockAfter: 5,
+  }),
   // Every request counts — the answer is always "if it exists we sent it". Five
   // is plenty for a person who mistyped and is waiting on the email.
   forgotPassword: accountGuard({

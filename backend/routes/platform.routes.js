@@ -48,7 +48,7 @@ router.post('/auth/reset-password', validate(resetPasswordSchema), guards.platfo
 router.get('/auth/me', protectPlatformSession, requirePermission(PERMISSIONS.SELF_READ), platformAuthController.getMe);
 router.post('/auth/change-password', protectPlatformSession, requirePermission(PERMISSIONS.SELF_READ), validate(changePasswordSchema), platformAuthController.changePassword);
 router.post('/auth/mfa/enrol', protectPlatform, requirePermission(PERMISSIONS.SELF_READ), validate(noBody), platformAuthController.enrolMfa);
-router.post('/auth/mfa/verify', protectPlatform, requirePermission(PERMISSIONS.SELF_READ), validate(mfaVerifySchema), platformAuthController.verifyMfa);
+router.post('/auth/mfa/verify', protectPlatform, requirePermission(PERMISSIONS.SELF_READ), validate(mfaVerifySchema), guards.platformMfaVerify, platformAuthController.verifyMfa);
 
 // Everything below is the console proper: operator + MFA, then a permission.
 router.use(protectPlatform, requireMfa);

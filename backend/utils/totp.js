@@ -72,21 +72,36 @@ const counterAt = (when = Date.now()) => Math.floor(when / 1000 / STEP_SECONDS);
 const generateToken = (secret, when = Date.now()) => hotp(secret, counterAt(when));
 
 /**
- * Verifies a user-entered code against the secret, tolerating one step of
- * clock drift either way. Comparison is constant-time so a code cannot be
- * discovered by timing the response.
+ * The time step a user-entered code belongs to, or null if it matches none.
+ * Tolerates one step of clock drift either way. Comparison is constant-time so
+ * a code cannot be discovered by timing the response.
+ *
+ * The caller needs the step, not just a yes: a code stays valid for as long as
+ * its window lasts, so the only way to stop the same code being presented
+ * twice is to remember which step was last accepted (see verifyMfa).
  */
-const verifyToken = (secret, token, when = Date.now()) => {
+const matchCounter = (secret, token, when = Date.now()) => {
   const candidate = String(token || '').replace(/\D/g, '');
-  if (candidate.length !== DIGITS || !secret) return false;
+  if (candidate.length !== DIGITS || !secret) return null;
 
   const counter = counterAt(when);
+  let matched = null;
   for (let drift = -WINDOW; drift <= WINDOW; drift += 1) {
     const expected = hotp(secret, counter + drift);
-    if (crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(candidate))) return true;
+    // Every step is checked even after a match, so the work does not depend on
+    // which one it was.
+    if (crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(candidate))) matched = counter + drift;
   }
-  return false;
+  return matched;
 };
+
+/**
+ * Whether a code is valid at all, for callers with nothing to replay.
+ */
+const verifyToken = (secret, token, when = Date.now()) => matchCounter(secret, token, when) !== null;
+
+// The start of a step, as a timestamp — how a consumed step is stored.
+const stepStartedAt = (counter) => new Date(counter * STEP_SECONDS * 1000);
 
 /**
  * The otpauth:// URI an authenticator app scans. Contains the shared secret, so
@@ -96,4 +111,6 @@ const otpauthUrl = ({ secret, account, issuer = 'VendorConnect' }) =>
   `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(account)}`
   + `?secret=${secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=${DIGITS}&period=${STEP_SECONDS}`;
 
-module.exports = { generateSecret, generateToken, verifyToken, otpauthUrl, DIGITS, STEP_SECONDS };
+module.exports = {
+  generateSecret, generateToken, verifyToken, matchCounter, counterAt, stepStartedAt, otpauthUrl, DIGITS, STEP_SECONDS,
+};
