@@ -5,6 +5,47 @@ Each entry: the call, why, and what it costs.
 
 ---
 
+## ADR-0045 — An operator's TOTP code is single-use, and verification is guarded like a login
+
+**Security · 2026-10-13 · Accepted**
+
+**Context.** ADR-0016 made the platform console two-step: the password mints a half-session,
+and only `POST /platform/auth/mfa/verify` mints the token `requireMfa` accepts. The password
+half had the protections an attack surface gets — a per-account lockout
+(`middleware/accountGuard.js`) and an `operator.login_failed` audit entry per wrong guess.
+The code half had neither. It is the weaker of the two to attack: six digits, no rate limit,
+and reachable with nothing but a stolen or reset password. Ten thousand requests cover the
+space of a 6-digit code, and nothing recorded that they had been made. Separately,
+`totp.verifyToken` answered only "is this code valid", so a code stayed usable for every
+request inside its ±1-step window — a code read over someone's shoulder, phished, or
+captured by a proxy could be spent a second time by whoever got there first (issue #246).
+
+**Decision.** Three changes, all on the verify endpoint:
+
+- **A per-operator lockout.** `guards.platformMfaVerify`, mounted after `protectPlatform`, so
+  the identifier is the operator the half-session names, not anything the body claims. Three
+  free attempts, then progressive delay, then a 15-minute lock at five — tighter than
+  login's ten, because someone reading a code off their phone does not need ten tries.
+- **Every failure is audited** as `operator.mfa_failed`, with a `reason` of `invalid_code` or
+  `code_already_used`. The code itself is never recorded.
+- **One code, one verification.** `totp.matchCounter` now returns *which* step a code
+  belongs to, and `platform_users.mfaLastStepAt` remembers the last step accepted. A code
+  from that step or earlier is refused. The write is a conditional `updateMany` whose
+  condition *is* the replay check, so two requests carrying the same code cannot both pass
+  it; the loser updates nothing. The marker is cleared whenever the secret changes
+  (enrolment, and a super admin's MFA reset).
+
+**What it costs.** A replayed code answers with the same message as a wrong one — the
+distinction is in the `reason` field and the audit trail, not the message, because to whoever
+is replaying it "spent" and "wrong" should look alike. The lockout is lockable: an attacker
+holding a valid password can lock that operator out of the console for fifteen minutes by
+failing five codes. That is the standard account-lockout trade (see `accountGuard`'s own
+note), it is bounded, and it touches one operator; another operator's lock has no effect on
+anyone else. And an operator who genuinely needs to sign in twice inside thirty seconds must
+wait for the next code.
+
+---
+
 ## ADR-0044 — Tenancy by account is an opt-in mode; the subdomain stays the default
 
 **Deployment · 2026-10-12 · Accepted**

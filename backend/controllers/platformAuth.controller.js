@@ -115,7 +115,8 @@ const enrolMfa = asyncHandler(async (req, res, next) => {
   const secret = totp.generateSecret();
   await prisma.platformUser.update({
     where: { pk: operator.pk },
-    data: { mfaSecret: encrypt(secret), mfaEnabled: false },
+    // A fresh secret has no spent codes behind it.
+    data: { mfaSecret: encrypt(secret), mfaEnabled: false, mfaLastStepAt: null },
   });
 
   res.json({
@@ -130,6 +131,16 @@ const enrolMfa = asyncHandler(async (req, res, next) => {
 //          factor on an existing session
 // @route   POST /api/platform/auth/mfa/verify
 // @access  Private (platform, pre-MFA)
+// A wrong code is a guess at the second factor, so it leaves the same kind of
+// trail a wrong password does (the code itself is never recorded).
+const auditMfaFailure = (req, operator, reason) => recordAudit({
+  req,
+  action: AUDIT_ACTIONS.OPERATOR_MFA_FAILED,
+  clientId: null,
+  target: { type: 'PlatformUser', id: operator.pk, label: operator.email },
+  meta: { reason, ip: req.ip },
+});
+
 const verifyMfa = asyncHandler(async (req, res, next) => {
   const operator = await withMfaSecret(req.auth.id);
   const secret = operator.mfaSecret ? decrypt(operator.mfaSecret) : null;
@@ -137,18 +148,41 @@ const verifyMfa = asyncHandler(async (req, res, next) => {
   if (!secret) {
     return next(ApiError.badRequest('No authenticator is enrolled for this account', { reason: 'mfa_enrolment_required' }));
   }
-  if (!totp.verifyToken(secret, req.body.code)) {
+
+  // The step the code belongs to, not just "is it valid": a code is good for
+  // its whole window, and without remembering the last accepted step a code
+  // observed once (shoulder-surfed, phished, replayed off a proxy) can be
+  // spent again for the seconds that remain.
+  const step = totp.matchCounter(secret, req.body.code);
+  if (step === null) {
+    await auditMfaFailure(req, operator, 'invalid_code');
     return next(ApiError.unauthorized('That code is not valid'));
   }
 
   const justEnrolled = !operator.mfaEnabled;
-  let current = operator;
-  if (justEnrolled) {
-    current = await prisma.platformUser.update({
-      where: { pk: operator.pk },
-      data: { mfaEnabled: true, mfaEnrolledAt: new Date() },
-    });
+  // Conditional, and the condition is the replay check — so two requests
+  // carrying the same code cannot both pass it and then both write. The loser
+  // updates nothing and is told the code is spent.
+  const claimed = await prisma.platformUser.updateMany({
+    where: {
+      pk: operator.pk,
+      OR: [{ mfaLastStepAt: null }, { mfaLastStepAt: { lt: totp.stepStartedAt(step) } }],
+    },
+    data: {
+      mfaLastStepAt: totp.stepStartedAt(step),
+      ...(justEnrolled ? { mfaEnabled: true, mfaEnrolledAt: new Date() } : {}),
+    },
+  });
 
+  if (claimed.count === 0) {
+    await auditMfaFailure(req, operator, 'code_already_used');
+    // Deliberately the same message as a wrong code: to whoever is replaying
+    // it, "spent" and "wrong" should look alike.
+    return next(ApiError.unauthorized('That code is not valid', { reason: 'mfa_code_already_used' }));
+  }
+
+  const current = await prisma.platformUser.findFirst({ where: { pk: operator.pk } });
+  if (justEnrolled) {
     await recordAudit({
       req,
       action: AUDIT_ACTIONS.OPERATOR_MFA_ENROLLED,

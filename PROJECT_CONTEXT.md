@@ -680,7 +680,7 @@ badged "Filed & Signed" against the supplier's real PAN.
 | GET | `/platform/auth/me` | `self:read` | adds `mfa: {enrolled, verified}` so the console knows which step to show |
 | POST | `/platform/auth/change-password` | `self:read` | returns a fresh token keeping its MFA standing |
 | POST | `/platform/auth/mfa/enrol` | `self:read` | returns the secret + `otpauth://` URI **once**; stored encrypted |
-| POST | `/platform/auth/mfa/verify` | `self:read` | completes enrolment or clears the factor; mints the only token `requireMfa` accepts |
+| POST | `/platform/auth/mfa/verify` | `self:read` | completes enrolment or clears the factor; mints the only token `requireMfa` accepts. Per-operator lockout (5 wrong codes → 429), each failure audited `operator.mfa_failed`, and a code works once (ADR-0045) |
 | GET | `/platform/tenants` | `tenant:read` | `?status`, `?plan`, `?q`, paginated |
 | POST | `/platform/tenants` | `tenant:manage` | **creates the tenant and its first `client_admin`**; credentials emailed, never returned |
 | GET | `/platform/tenants/:clientId` | `tenant:read` | configuration + administrators + per-collection counts |

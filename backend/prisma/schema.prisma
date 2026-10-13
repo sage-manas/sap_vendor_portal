@@ -1297,6 +1297,10 @@ model PlatformUser {
   mfaEnabled    Boolean   @default(false)
   mfaSecret     String?
   mfaEnrolledAt DateTime?
+  // The start of the TOTP time step whose code was last accepted. A code stays
+  // valid for the length of its window, so this is what makes one code good
+  // for one verification only (ADR-0045).
+  mfaLastStepAt DateTime?
 
   createdBy String?
 
