@@ -188,6 +188,76 @@ describe('registration is addressed to one workspace', () => {
 
     expect(res.status).toBe(404);
   });
+
+  // Local development and the demo seed name their workspace with the header,
+  // which registration still honours outside production.
+  it('lands the supplier in the tenant a dev-mode x-client-slug names', async () => {
+    await seedClient({ clientId: 'CLT-0002', slug: 'northwind' });
+
+    const res = await request(app)
+      .post('/api/auth/register')
+      .set('x-client-slug', 'northwind')
+      .send(baseVendor);
+
+    expect(res.status).toBe(202);
+    await drainBackground();
+    const created = await withoutTenantScope(() => rawPrisma.vendor.findFirst({ where: { email: baseVendor.email } }));
+    expect(created.clientId).toBe('CLT-0002');
+  });
+
+  // #254: the realm a request names and the realm the environment falls back to
+  // were indistinguishable here, so a registration that named no workspace was
+  // created in whichever tenant held DEFAULT_CLIENT_SLUG — a tenant that can
+  // have a live SAP connection. Login already refused to treat that guess as an
+  // authority; this write did not. The legacy tenant exists and is operational
+  // in both cases below, so the only thing refusing is the provenance.
+  const vendorCount = () => withoutTenantScope(() => rawPrisma.vendor.count({ where: { email: baseVendor.email } }));
+
+  it('refuses a registration that named no workspace, and creates no vendor', async () => {
+    await seedClient();
+
+    const res = await withEnv(unnamed, () => request(app)
+      .post('/api/auth/register')
+      .set('host', 'localhost')
+      .send(baseVendor));
+
+    expect(res.status).toBe(404);
+    // The same answer the unknown-workspace path gives, so a caller learns
+    // nothing about which workspaces exist from which refusal they got.
+    expect(res.body.error).toBe('Unknown workspace');
+    await drainBackground();
+    expect(await vendorCount()).toBe(0);
+  });
+
+  it('refuses a registration that only the production default named', async () => {
+    await seedClient();
+
+    const res = await withEnv({ NODE_ENV: 'production' }, () => request(app)
+      .post('/api/auth/register')
+      .set('host', 'localhost')
+      .send(baseVendor));
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe('Unknown workspace');
+    await drainBackground();
+    expect(await vendorCount()).toBe(0);
+  });
+
+  it('refuses a registration addressed to the apex or the console', async () => {
+    await seedClient();
+
+    for (const host of ['vendorconnect.io', 'platform.vendorconnect.io']) {
+      const res = await withEnv({ PORTAL_BASE_DOMAIN: 'vendorconnect.io' }, () => request(app)
+        .post('/api/auth/register')
+        .set('host', host)
+        .send(baseVendor));
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Unknown workspace');
+    }
+    await drainBackground();
+    expect(await vendorCount()).toBe(0);
+  });
 });
 
 describe('login is addressed to one workspace', () => {
