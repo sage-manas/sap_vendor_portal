@@ -20,3 +20,11 @@ process.env.DATABASE_URL = assertSafeToWipe(resolveTestDatabaseUrl(), 'The Jest 
 // The per-account login backoff (middleware/accountGuard.js) is real seconds in
 // production; a test that wants to observe it sets its own.
 process.env.AUTH_DELAY_BASE_MS = '1';
+
+// The suite's ambient tenancy mode is fixed here rather than inherited from
+// backend/.env, which a developer sets for their own deployment. Most tests name
+// their workspace with `x-client-slug`, which only `subdomain` reads; a case that
+// wants the other model opts in per-case with withEnv (account-tenancy.test.js).
+// Without this pin, flipping the local .env to `account` silently changes what
+// ~35 unrelated test call sites are exercising.
+process.env.PORTAL_TENANCY_MODE = 'subdomain';

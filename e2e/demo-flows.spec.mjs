@@ -47,7 +47,11 @@ test.describe('demo flows, through the UI', () => {
     await page.route('https://api.postalpincode.in/**', (route) => route.abort());
 
     // --- Sign up ----------------------------------------------------------
-    await page.goto('/sign-up');
+    // The workspace comes from the link a buyer shares with its suppliers, which
+    // is the only thing that names one under account tenancy (ADR-0044). `legacy`
+    // is the tenant seed-demo.js creates. A bare /sign-up is deliberately not a
+    // registration form any more — it has no workspace to register into.
+    await page.goto('/sign-up?workspace=legacy');
     await page.getByLabel('Company Registered Name').fill(who.company);
     await page.getByLabel('Corporate Contact Email').fill(who.email);
     await page.getByLabel('Create Password').fill('Demo@12345');
