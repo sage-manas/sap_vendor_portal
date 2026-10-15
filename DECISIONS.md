@@ -5,6 +5,34 @@ Each entry: the call, why, and what it costs.
 
 ---
 
+## ADR-0046 — A request that names no workspace resolves to no workspace, in both tenancy modes
+
+**Tech debt · 2026-10-15 · Accepted** — amends ADR-0004, completes ADR-0044
+
+**Context.** ADR-0004 gave `utils/resolveClient.js` a terminal fallback: `DEFAULT_CLIENT_SLUG
+|| 'legacy'`. That was correct when there was one deployment and one tenant in it. Under
+multi-tenancy it means a request that named no workspace — no `PORTAL_BASE_DOMAIN`, no usable
+subdomain, no dev header — is answered with whichever tenant holds the `legacy` slug. An
+operator who configured neither variable got a portal that booted cleanly and quietly routed
+every signed-out visitor, and every self-registration, into one specific tenant. ADR-0044's
+`account` mode already modelled the honest answer (`{ slug: null, source: 'none' }`); the
+`subdomain` path could not express it.
+
+**Decision.** Drop the `|| LEGACY_CLIENT_SLUG` default. With `DEFAULT_CLIENT_SLUG` unset,
+`realmFromRequest` returns `{ slug: null, source: 'none' }`; set, it returns
+`{ slug, source: 'default' }` as before. `GET /api/auth/workspace` answers `workspace: null`
+on an unnamed realm in either mode and reports which mode answered, and `validateEnv` warns
+at boot when `subdomain` tenancy has neither variable configured. `LEGACY_CLIENT_SLUG` stays
+exported: the seed and migration paths name that tenant deliberately.
+
+**Consequences.** A deployment that wants the old behaviour opts in by naming the slug, where
+an operator reading the environment can see it. One that does not gets 404 "Unknown workspace"
+on registration and login — a loud failure in place of a silent misdirection — with a boot
+warning that points at the cause. The Jest suite pins `DEFAULT_CLIENT_SLUG=legacy`
+(`tests/env.js`), as CI already did, because ~a dozen call sites reach the fallback.
+
+---
+
 ## ADR-0045 — An operator's TOTP code is single-use, and verification is guarded like a login
 
 **Security · 2026-10-13 · Accepted**
@@ -1320,6 +1348,9 @@ subdomain-driven, but that is Phase 6 work.
 order: an explicit `x-client-slug` header (dev affordance) → the host's subdomain, when
 the host is a real multi-label hostname and not a bare IP → `DEFAULT_CLIENT_SLUG` →
 `legacy`. An unknown slug is a 400; a non-operational tenant is a 403.
+
+> Amended by ADR-0046: the terminal `→ legacy` step is gone. With `DEFAULT_CLIENT_SLUG`
+> unset, the resolver answers "no workspace" rather than naming a tenant nobody chose.
 
 **Consequences.** The existing single-tenant deployment keeps working unchanged, because
 everything lands in `CLT-0001`. Phase 6 replaces the header affordance with real subdomain

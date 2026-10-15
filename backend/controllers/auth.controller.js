@@ -7,7 +7,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const logger = require('../utils/logger');
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
 const { resolveClientForRequest, resolveRealmForRequest } = require('../utils/resolveClient');
-const { isAccountTenancy } = require('../config/tenancyMode');
+const { isAccountTenancy, tenancyMode } = require('../config/tenancyMode');
 const { ROLES } = require('../config/roles');
 const { signToken } = require('../utils/authToken');
 // Called as mailer.sendMail so a test can stand in for the transport.
@@ -179,9 +179,11 @@ const processRegistration = async (client, body) => {
 // account is created pending, and cannot sign in until the emailed link is
 // followed (confirmEmail). No session is issued here.
 const register = asyncHandler(async (req, res, next) => {
-  // Which workspace is this supplier registering into? (Subdomain in Phase 6;
-  // header/DEFAULT_CLIENT_SLUG/legacy until then.) These answer for the
-  // address being visited, not for the email being registered.
+  // Which workspace is this supplier registering into? The subdomain, the
+  // `?workspace=` link, or — in development — x-client-slug or
+  // DEFAULT_CLIENT_SLUG. Named by none of those, this is a 404 rather than a
+  // guess. These answer for the address being visited, not for the email being
+  // registered.
   const client = await resolveClientForRequest(req);
   if (!client) {
     return next(ApiError.notFound('Unknown workspace'));
@@ -256,13 +258,15 @@ const describeWorkspace = (client) => ({
 const getWorkspace = asyncHandler(async (req, res, next) => {
   const { client, source } = await resolveRealmForRequest(req);
 
-  // One address for every tenant, and no `?workspace=` link: there is no
-  // workspace to describe, and that is not an error — the sign-in screen is
-  // simply the platform's own, unbranded. `tenancy` lets the sign-up screen say
-  // that registration starts from a tenant's link, instead of letting a
-  // supplier fill in a form that has nowhere to go.
+  // Nothing named a workspace: no `?workspace=` link under account tenancy, and
+  // under subdomain tenancy neither a usable hostname nor a DEFAULT_CLIENT_SLUG
+  // (#253). There is no workspace to describe, and that is not an error — the
+  // sign-in screen is simply the platform's own, unbranded. `tenancy` reports
+  // which model answered, so the sign-up screen can say that registration
+  // starts from a tenant's link rather than letting a supplier fill in a form
+  // that has nowhere to go — which is true of the link model only.
   if (source === 'none') {
-    return res.json({ success: true, workspace: null, tenancy: 'account' });
+    return res.json({ success: true, workspace: null, tenancy: tenancyMode() });
   }
 
   // An unknown slug and a suspended tenant answer alike: a visitor at the wrong

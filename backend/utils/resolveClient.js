@@ -90,10 +90,17 @@ const realmFromRequest = (req) => {
     return { slug: String(header).toLowerCase(), source: 'header' };
   }
 
-  return {
-    slug: (process.env.DEFAULT_CLIENT_SLUG || LEGACY_CLIENT_SLUG).toLowerCase(),
-    source: 'default',
-  };
+  // Nothing in the request named a workspace, and nothing in the environment
+  // nominates one. That is "no workspace", not a tenant: an operator who sets
+  // neither PORTAL_BASE_DOMAIN nor DEFAULT_CLIENT_SLUG used to get a
+  // working-looking portal that routed every signed-out visitor into whichever
+  // tenant happened to hold the legacy slug, with nothing saying so (#253).
+  // Wanting that fallback is fine — it is opted into by naming the slug, where
+  // it is visible.
+  const configured = String(process.env.DEFAULT_CLIENT_SLUG || '').trim().toLowerCase();
+  if (!configured) return { slug: null, source: 'none' };
+
+  return { slug: configured, source: 'default' };
 };
 
 const slugFromRequest = (req) => realmFromRequest(req).slug;
