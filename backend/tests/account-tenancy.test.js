@@ -5,6 +5,7 @@ const { withoutTenantScope } = require('../utils/tenantContext');
 const { realmFromRequest } = require('../utils/resolveClient');
 const { registerVendor, seedClient, baseVendor, createTenantUser } = require('./helpers');
 const { drainBackground } = require('../utils/background');
+const logger = require('../utils/logger');
 
 // PORTAL_TENANCY_MODE=account (ADR-0044): one address for every tenant. The
 // account that signs in names its own workspace, so the hostname is not read;
@@ -291,5 +292,35 @@ describe('boot validation of the tenancy mode', () => {
 
   it('does not require PORTAL_BASE_DOMAIN under account tenancy, where the hostname is never read', async () => {
     expect(await validate({ PORTAL_TENANCY_MODE: 'account' })).toBe('booted');
+  });
+
+  // #253: outside production neither variable is required, and the resolver no
+  // longer invents a tenant when both are absent. Nothing else about that
+  // deployment looks wrong — it boots, and then answers "Unknown workspace" —
+  // so boot is where it has to be said.
+  describe('subdomain tenancy with no workspace configured at all', () => {
+    const warningsFrom = async (vars) => {
+      const warn = jest.spyOn(logger, 'warn').mockImplementation(() => {});
+      try {
+        // The suite pins DEFAULT_CLIENT_SLUG (tests/env.js); these cases own it.
+        await validate({ NODE_ENV: 'test', DEFAULT_CLIENT_SLUG: undefined, ...vars });
+        return warn.mock.calls.flat().join('\n');
+      } finally {
+        warn.mockRestore();
+      }
+    };
+
+    it('warns at boot rather than falling back silently', async () => {
+      expect(await warningsFrom({})).toMatch(/PORTAL_BASE_DOMAIN.*DEFAULT_CLIENT_SLUG/);
+    });
+
+    it('stays quiet once either variable names the workspace', async () => {
+      expect(await warningsFrom({ PORTAL_BASE_DOMAIN: 'vp.example.com' })).toBe('');
+      expect(await warningsFrom({ DEFAULT_CLIENT_SLUG: 'legacy' })).toBe('');
+    });
+
+    it('stays quiet under account tenancy, where neither variable is read', async () => {
+      expect(await warningsFrom({ PORTAL_TENANCY_MODE: 'account' })).toBe('');
+    });
   });
 });

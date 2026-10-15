@@ -13,6 +13,22 @@ const app = buildTestApp();
 
 const asRequest = (headers) => ({ headers });
 
+const withEnv = async (vars, fn) => {
+  const previous = Object.fromEntries(Object.keys(vars).map((key) => [key, process.env[key]]));
+  Object.entries(vars).forEach(([key, value]) => {
+    if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  });
+  try { return await fn(); } finally {
+    Object.entries(previous).forEach(([key, value]) => {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    });
+  }
+};
+
+// The suite pins DEFAULT_CLIENT_SLUG=legacy (tests/env.js); these cases are
+// about what happens without it.
+const unnamed = { PORTAL_BASE_DOMAIN: undefined, DEFAULT_CLIENT_SLUG: undefined };
+
 describe('realm resolution', () => {
   it('reads the tenant from a subdomain', () => {
     expect(realmFromRequest(asRequest({ host: 'northwind.vendorconnect.io' })))
@@ -63,6 +79,26 @@ describe('realm resolution', () => {
     }));
     expect(realm).toEqual({ slug: 'northwind', source: 'subdomain' });
   });
+
+  // #253: this used to answer `legacy` — a tenant nothing in the environment
+  // nominated — so an operator who configured neither variable got a portal
+  // that quietly routed every signed-out visitor into one specific workspace.
+  it('names no workspace when neither the request nor the environment names one', async () => {
+    for (const host of ['localhost', '10.0.12.4', 'platform.vendorconnect.io']) {
+      expect(await withEnv(unnamed, () => realmFromRequest(asRequest({ host }))))
+        .toEqual({ slug: null, source: 'none' });
+    }
+  });
+
+  it('keeps the default fallback for an operator who names it', async () => {
+    expect(await withEnv({ ...unnamed, DEFAULT_CLIENT_SLUG: 'legacy' },
+      () => realmFromRequest(asRequest({ host: 'localhost' }))))
+      .toEqual({ slug: 'legacy', source: 'default' });
+    // Named in whatever case and spacing the environment happens to carry.
+    expect(await withEnv({ ...unnamed, DEFAULT_CLIENT_SLUG: ' Northwind ' },
+      () => realmFromRequest(asRequest({ host: 'localhost' }))))
+      .toEqual({ slug: 'northwind', source: 'default' });
+  });
 });
 
 describe('GET /api/auth/workspace', () => {
@@ -107,6 +143,16 @@ describe('GET /api/auth/workspace', () => {
 
     const res = await request(app).get('/api/auth/workspace').set('x-client-slug', 'northwind');
     expect(res.status).toBe(404);
+  });
+
+  // The counterpart of account-tenancy.test.js's "describes no workspace — and
+  // is not an error — when there is no link": both modes can now say "nobody's
+  // front door" instead of naming a tenant by default (#253).
+  it('describes no workspace, and is not an error, on an unnamed realm', async () => {
+    const res = await withEnv(unnamed, () => request(app).get('/api/auth/workspace').set('host', 'localhost'));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true, workspace: null, tenancy: 'subdomain' });
   });
 
   it('never exposes SAP configuration or limits', async () => {

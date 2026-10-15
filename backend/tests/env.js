@@ -28,3 +28,10 @@ process.env.AUTH_DELAY_BASE_MS = '1';
 // Without this pin, flipping the local .env to `account` silently changes what
 // ~35 unrelated test call sites are exercising.
 process.env.PORTAL_TENANCY_MODE = 'subdomain';
+
+// Same reasoning, and the same value CI's test job sets (.github/workflows/
+// test.yml). Since #253 an unset DEFAULT_CLIENT_SLUG means "this request names
+// no workspace" rather than "the legacy tenant", so the ~dozen call sites that
+// reach the fallback need it named. A case that wants the unnamed realm opts
+// out per-case with withEnv (tenant-realm.test.js).
+process.env.DEFAULT_CLIENT_SLUG = 'legacy';

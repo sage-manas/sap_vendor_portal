@@ -39,6 +39,16 @@ ${msg}
     process.exit(1);
   }
 
+  // Outside production the base domain is optional, and a developer on
+  // localhost names their workspace with x-client-slug or DEFAULT_CLIENT_SLUG.
+  // With neither configured, nothing a signed-out request carries names a
+  // tenant, so registration and login answer 404 rather than quietly choosing
+  // one (#253, utils/resolveClient.js). Said out loud, because the symptom —
+  // "Unknown workspace" on a portal that boots fine — does not point here.
+  if (!isAccountTenancy() && !process.env.PORTAL_BASE_DOMAIN && !process.env.DEFAULT_CLIENT_SLUG) {
+    logger.warn('⚠️  Subdomain tenancy with neither PORTAL_BASE_DOMAIN nor DEFAULT_CLIENT_SLUG set: a request that names no workspace (localhost, a bare IP) resolves to no tenant, and signed-out routes will answer "Unknown workspace". Set DEFAULT_CLIENT_SLUG for local development, or PORTAL_TENANCY_MODE=account.');
+  }
+
   // Sessions are signed with this; the 'secret' fallback in code is a
   // development convenience and must never reach production.
   if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
