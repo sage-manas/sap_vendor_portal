@@ -1,13 +1,15 @@
 'use client';
 
 import React, { useState } from 'react';
-import {
-  FileText, Calendar, CheckCircle2, FileSpreadsheet, Download,
-  TrendingUp, ShoppingBag, Percent, Layers, Building2,
-  Clock, Activity, Receipt, ShieldCheck, AlertTriangle
-} from 'lucide-react';
+import { Download, FileText, Receipt } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import StatusBadge from '@/components/ui/StatusBadge';
+import DataTable from '@/components/ui/DataTable';
+import KPICard, { KPIStrip } from '@/components/ui/KPICard';
+import { PageHeader } from '@/components/ui/Page';
+import { Section } from '@/components/ui/Card';
+import { DropdownMenu, Tabs } from '@/components/ui/controls';
+import { BucketBar, ColumnChart, RankedBars, StepLineChart, inrFull } from '@/components/ui/charts';
 import { msmeStatusVariant, paymentStatusVariant } from '@/lib/statusColors';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { usePortal } from '@/lib/portal-context';
@@ -26,12 +28,14 @@ const MSME_PAYMENT_DAYS = 45;
 // Amounts arrive as Decimal strings from the API.
 const money = (value) => Number(value) || 0;
 
-const inr = (value) =>
-  `₹ ${money(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+// Exact figure without the currency sign — tables carry ₹ in the header.
+const amount = (value) =>
+  money(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const percent = (numerator, denominator) =>
   denominator > 0 ? `${((numerator / denominator) * 100).toFixed(1)}%` : '—';
 
+// dd.mm.yyyy — the CSV exports keep the format they always had.
 const formatDate = (dateStr) => {
   if (!dateStr) return '—';
   const d = new Date(dateStr);
@@ -41,46 +45,20 @@ const formatDate = (dateStr) => {
   return `${day}.${month}.${d.getFullYear()}`;
 };
 
+// 10 May 2026 — what the screen shows.
+const displayDate = (value) => {
+  if (!value) return '—';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
+const monthKey = (value) => {
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+const monthLabel = (key) => new Date(`${key}-01T00:00:00`).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
+
 const today = () => new Date().toISOString().slice(0, 10);
-
-function SapReadOnlyField({ label, value, isMonospace = true, containerClassName = '', icon: Icon }) {
-  return (
-    <div className="flex flex-col gap-1 items-center select-none focus-within:outline-none">
-      <span className="text-[9px] font-extrabold text-text-secondary uppercase tracking-wider flex items-center gap-1 leading-none" title={label}>
-        {Icon && <Icon className="size-3 text-text-tertiary shrink-0" />}
-        <span>{label}</span>
-      </span>
-      <div
-        className={`inline-flex items-center gap-1.5 border rounded-md px-2.5 text-xs h-6.5 font-semibold cursor-default box-border w-fit max-w-full overflow-hidden text-ellipsis whitespace-nowrap tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-em focus-visible:ring-offset-1 select-all transition-colors duration-150 ${isMonospace ? 'font-mono' : 'font-sans'
-          } ${containerClassName || 'bg-surface2 text-text-primary border-border'}`}
-        title={value == null ? '' : String(value)}
-        tabIndex={0}
-      >
-        <span>{value == null || value === '' ? '—' : value}</span>
-      </div>
-    </div>
-  );
-}
-
-function Section({ title, dot = 'bg-blue-500', children }) {
-  return (
-    <div className="card overflow-hidden">
-      <div className="flex items-center gap-2 px-5 py-3 border-b border-border bg-surface2/40">
-        <div className={`size-1.5 rounded-full ${dot}`}></div>
-        <span className="text-[10px] font-extrabold text-text-tertiary uppercase tracking-widest">{title}</span>
-      </div>
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-5">{children}</div>
-    </div>
-  );
-}
-
-function EmptyRow({ colSpan, children }) {
-  return (
-    <tr>
-      <td colSpan={colSpan} className="py-6 px-3 text-center text-[11px] text-text-tertiary">{children}</td>
-    </tr>
-  );
-}
 
 export default function ReportsAnalyticsView({ state }) {
   const { addToast } = usePortal();
@@ -122,7 +100,29 @@ export default function ReportsAnalyticsView({ state }) {
   const spendData = Object.values(spendMap)
     .map((row) => ({ ...row, poCount: row.poIds.size }))
     .sort((a, b) => b.spend - a.spend);
-  const topPlant = Object.entries(plantMap).sort((a, b) => b[1] - a[1])[0];
+  const plantData = Object.entries(plantMap)
+    .map(([plant, value]) => ({ label: plant, value }))
+    .sort((a, b) => b.value - a.value);
+
+  // Order value by the month each order was raised.
+  const monthMap = {};
+  pos.forEach((po) => {
+    const key = monthKey(po.createdDate);
+    if (key) monthMap[key] = (monthMap[key] || 0) + poValue(po);
+  });
+  // Every month from the first order to the last, including quiet ones — a
+  // time axis that skips empty months hides exactly the gap worth seeing.
+  const monthKeys = Object.keys(monthMap).sort();
+  const allMonths = [];
+  if (monthKeys.length) {
+    const last = monthKeys[monthKeys.length - 1];
+    const cursor = new Date(`${monthKeys[0]}-01T00:00:00`);
+    while (monthKey(cursor) <= last) {
+      allMonths.push(monthKey(cursor));
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+  }
+  const byMonth = allMonths.map((key) => ({ label: monthLabel(key), value: monthMap[key] || 0 }));
 
   const acknowledged = pos.filter((po) => po.acknowledgedAt && po.createdDate);
   const avgAckDays = acknowledged.length
@@ -145,6 +145,7 @@ export default function ReportsAnalyticsView({ state }) {
       ref: inv.invoiceNumber || inv.id,
       poId: inv.poId,
       date: formatDate(inv.invoiceDate),
+      rawDate: inv.invoiceDate,
       invoiceStatus: inv.status,
       amount: money(inv.totalAmount),
       days,
@@ -190,7 +191,6 @@ export default function ReportsAnalyticsView({ state }) {
   }, []);
   const runningBalance = chronological.length ? chronological[chronological.length - 1].balance : 0;
   const ledgerData = [...chronological].reverse();
-  const lastTransaction = ledgerData[0];
 
   // --- Exports ---------------------------------------------------------------
   const exportSpend = () => downloadCsv(`spend-by-material-${today()}.csv`, [
@@ -238,268 +238,211 @@ export default function ReportsAnalyticsView({ state }) {
     else exportLedger();
   };
 
+  // --- Tables ----------------------------------------------------------------
+  const materialColumns = [
+    { key: 'code', header: 'Material', mono: true, primary: true },
+    { key: 'group', header: 'Description', wrap: true },
+    { key: 'poCount', header: 'Orders', align: 'right', mono: true },
+    { key: 'spend', header: 'Order value (₹)', align: 'right', render: (r) => <span className="mono">{amount(r.spend)}</span> },
+  ];
+
+  const ageingColumns = [
+    { key: 'ref', header: 'Invoice', mono: true, primary: true },
+    { key: 'poId', header: 'Order', render: (r) => <span className="mono">{r.poId || '—'}</span> },
+    { key: 'date', header: 'Invoice date', render: (r) => displayDate(r.rawDate) },
+    { key: 'invoiceStatus', header: 'Status', render: (r) => (r.invoiceStatus ? <StatusBadge label={r.invoiceStatus} /> : '—') },
+    { key: 'days', header: 'Age (days)', align: 'right', mono: true },
+    { key: 'amount', header: 'Amount (₹)', align: 'right', render: (r) => <span className="mono">{amount(r.amount)}</span> },
+    {
+      key: 'msme',
+      header: 'MSME 45-day rule',
+      render: (r) => (isMsme || r.status === 'Cleared'
+        ? <StatusBadge label={r.status} variant={msmeStatusVariant(r.status)} />
+        : <span className="text-fg-subtle">Not MSME-registered</span>),
+    },
+  ];
+
+  const ledgerColumns = [
+    { key: 'date', header: 'Date', primary: true, render: (r) => displayDate(r.date) },
+    { key: 'type', header: 'Type' },
+    { key: 'doc', header: 'Reference', mono: true },
+    { key: 'desc', header: 'Description', wrap: true },
+    { key: 'debit', header: 'Debit (₹)', align: 'right', render: (r) => (r.debit > 0 ? <span className="mono">{amount(r.debit)}</span> : <span className="text-fg-subtle">—</span>) },
+    { key: 'credit', header: 'Credit (₹)', align: 'right', render: (r) => (r.credit > 0 ? <span className="mono">{amount(r.credit)}</span> : <span className="text-fg-subtle">—</span>) },
+    { key: 'balance', header: 'Balance (₹)', align: 'right', render: (r) => <span className="mono font-medium">{amount(r.balance)}</span> },
+    { key: 'status', header: 'Status', render: (r) => <StatusBadge label={r.status} variant={paymentStatusVariant(r.status)} /> },
+  ];
+
+  const moreActions = [
+    { label: 'Export TDS deducted (CSV)', icon: Receipt, onClick: exportTds },
+    { label: 'Download account statement (PDF)', icon: FileText, onClick: downloadStatement },
+  ];
+
   return (
     <ErrorBoundary>
-      <div className="space-y-6 max-w-full mx-auto animate-fade-in pb-16 relative">
+      <div className="pb-16">
+        <PageHeader
+          title="Reports"
+          description="Your orders, invoice ageing and account ledger with this buyer, calculated from your documents in the portal."
+          secondary={<DropdownMenu items={moreActions} label="More exports" />}
+          primary={(
+            <Button variant="secondary" onClick={exportCurrentTab}>
+              <Download strokeWidth={1.5} /> Export CSV
+            </Button>
+          )}
+        />
 
-        {/* PAGE HEADER */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-4 select-none">
-          <div className="space-y-1">
-            <h2 className="page-title flex items-center gap-2.5">
-              <FileSpreadsheet className="size-5 text-text-tertiary shrink-0" />
-              <span>Reports &amp; Analytics</span>
-            </h2>
-            <p className="text-text-tertiary text-xs font-semibold">
-              Your orders, invoice ageing and account ledger with this buyer, calculated from your documents in the portal
-            </p>
+        <Tabs
+          aria-label="Report"
+          value={detailTab}
+          onValueChange={setDetailTab}
+          items={[
+            { value: 'procurement', label: 'Orders' },
+            { value: 'finance', label: 'Invoices and tax' },
+            { value: 'selfservice', label: 'Account ledger' },
+          ]}
+        />
+
+        {detailTab === 'procurement' && (
+          <div className="pt-6">
+            <KPIStrip>
+              <KPICard label="Total order value" value={<span className="mono">{inrFull(totalOrderValue)}</span>} empty={!totalOrderValue} />
+              <KPICard label="Purchase orders" value={pos.length} />
+              <KPICard label="Open orders" value={openPos.length} hint={openPos.length ? `${inrFull(openPoValue)} still open` : 'Nothing open'} />
+              <KPICard
+                label="RFQs you quoted on"
+                value={rfqs.length ? percent(bidOn.length, rfqs.length) : '—'}
+                empty={!rfqs.length}
+                hint={rfqs.length ? `${bidOn.length} of ${rfqs.length} RFQs` : 'No RFQs yet'}
+              />
+            </KPIStrip>
+
+            <Section className="mt-8" title="Order value by month" description="By the month each order was raised.">
+              <div className="card p-4">
+                {byMonth.length
+                  ? <ColumnChart data={byMonth} ariaLabel={`Order value by month: ${byMonth.map((m) => `${m.label} ${inrFull(m.value)}`).join(', ')}`} />
+                  : <p className="py-2 text-sm text-fg-muted">Nothing to chart yet.</p>}
+              </div>
+            </Section>
+
+            <div className="mt-8 grid gap-6 lg:grid-cols-2">
+              <Section title="By material">
+                <div className="card p-4">
+                  {spendData.length
+                    ? <RankedBars ariaLabel="Order value by material" data={spendData.map((r) => ({ label: r.code, title: `${r.code} — ${r.group}`, value: r.spend }))} />
+                    : <p className="py-2 text-sm text-fg-muted">Nothing ordered yet.</p>}
+                </div>
+              </Section>
+              <Section title="By plant">
+                <div className="card p-4">
+                  {plantData.length
+                    ? <RankedBars ariaLabel="Order value by plant" data={plantData} />
+                    : <p className="py-2 text-sm text-fg-muted">Nothing ordered yet.</p>}
+                </div>
+              </Section>
+            </div>
+
+            <Section className="mt-8" title="Order value by material">
+              <DataTable
+                caption="Order value by material"
+                columns={materialColumns}
+                rows={spendData}
+                getRowId={(r) => r.code}
+                maxHeight="420px"
+                empty="No purchase orders yet."
+                totals={spendData.length > 1 ? {
+                  label: `${spendData.length} materials`,
+                  spend: <span className="mono">{amount(totalOrderValue)}</span>,
+                } : undefined}
+              />
+            </Section>
+
+            <Section className="mt-8" title="Delivery">
+              <KPIStrip>
+                <KPICard label="On-time in full" value={performance.deliveryOTIF == null ? '—' : `${performance.deliveryOTIF}%`} empty={performance.deliveryOTIF == null} />
+                <KPICard label="Average time to acknowledge" value={avgAckDays == null ? '—' : `${avgAckDays.toFixed(1)} days`} empty={avgAckDays == null} />
+                <KPICard label="Quantity accepted on receipt" value={percent(acceptedQty, receivedQty)} empty={!receivedQty} />
+              </KPIStrip>
+            </Section>
           </div>
-          <div className="flex flex-wrap items-center gap-2.5">
-            <button
-              type="button"
-              className="flex items-center gap-2 bg-surface border border-border hover:border-border-em hover:bg-surface2 text-text-secondary font-semibold px-3 h-9 rounded-md transition-all text-xs cursor-pointer shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-em"
-              onClick={exportCurrentTab}
-            >
-              <Download className="size-4 text-text-tertiary shrink-0" />
-              <span>Export CSV</span>
-            </button>
+        )}
+
+        {detailTab === 'finance' && (
+          <div className="pt-6">
+            <Section title="Outstanding invoices by age" description="Invoices not yet cleared, by days since the invoice date.">
+              <div className="card p-4">
+                <BucketBar
+                  ariaLabel="Outstanding invoice value by age"
+                  buckets={[
+                    { label: '0–30 days', value: bucket(0, 30) },
+                    { label: '31–60 days', value: bucket(31, 60) },
+                    { label: '61–90 days', value: bucket(61, 90) },
+                    { label: 'Over 90 days', value: bucket(91) },
+                  ]}
+                />
+              </div>
+            </Section>
+
+            <Section className="mt-8" title="Invoice ageing">
+              <DataTable
+                caption="Invoice ageing"
+                columns={ageingColumns}
+                rows={apAgingData}
+                getRowId={(r) => r.ref}
+                maxHeight="420px"
+                empty="No invoices submitted yet."
+              />
+            </Section>
+
+            <Section className="mt-8" title="Tax and processing">
+              <KPIStrip>
+                <KPICard label="TDS deducted" value={<span className="mono">{inrFull(totalTds)}</span>} empty={!totalTds} hint="Across all payments" />
+                <KPICard label="GST charged" value={<span className="mono">{inrFull(gstInvoiced)}</span>} empty={!gstInvoiced} hint="On your invoices" />
+                <KPICard
+                  label="Paid and cleared"
+                  value={invoices.length ? `${clearedInvoices.length} of ${invoices.length}` : '—'}
+                  empty={!invoices.length}
+                  hint={invoices.length ? percent(clearedInvoices.length, invoices.length) : 'No invoices yet'}
+                />
+                <KPICard
+                  label="Needs attention"
+                  value={matchWarnings.length + msmeOverdue.length}
+                  hint={`${matchWarnings.length} match warning${matchWarnings.length === 1 ? '' : 's'}${isMsme ? ` · ${msmeOverdue.length} MSME invoice${msmeOverdue.length === 1 ? '' : 's'} over 45 days` : ''}`}
+                />
+              </KPIStrip>
+            </Section>
           </div>
-        </div>
+        )}
 
-        {/* TAB HEADERS */}
-        <div className="flex items-center gap-6 border-b border-border">
-          {[
-            { id: 'procurement', label: '1. Orders & Spend' },
-            { id: 'finance', label: '2. Invoices & Tax' },
-            { id: 'selfservice', label: '3. Account Ledger' },
-          ].map(t => (
-            <button
-              key={t.id}
-              onClick={() => setDetailTab(t.id)}
-              className={`pb-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${detailTab === t.id
-                  ? 'border-text-primary text-text-primary'
-                  : 'border-transparent text-text-tertiary hover:text-text-secondary'
-                }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        {detailTab === 'selfservice' && (
+          <div className="pt-6">
+            <KPIStrip>
+              <KPICard label="Open order value" value={<span className="mono">{inrFull(openPoValue)}</span>} empty={!openPoValue} />
+              <KPICard label="Awaiting payment" value={<span className="mono">{inrFull(outstanding.reduce((sum, row) => sum + row.amount, 0))}</span>} empty={!outstanding.length} />
+              <KPICard label="Ledger balance" value={<span className="mono">{inrFull(runningBalance)}</span>} empty={!runningBalance} />
+              <KPICard label="Supplier score" value={performance.weightedScore == null ? '—' : `${performance.weightedScore} / 100`} empty={performance.weightedScore == null} />
+            </KPIStrip>
 
-        {/* TAB CONTENT BLOCK */}
-        <div className="bg-surface2/30 p-1 rounded-xl">
-
-          {/* TAB CONTENT: 1. ORDERS & SPEND */}
-          {detailTab === 'procurement' && (
-            <div className="space-y-6 animate-fade-in">
-              <Section title="Order Key Performance Indicators">
-                <SapReadOnlyField label="Total Order Value" value={inr(totalOrderValue)} icon={TrendingUp} containerClassName="bg-blue-50 text-blue-700 border-blue-200" />
-                <SapReadOnlyField label="Purchase Orders" value={String(pos.length)} icon={ShoppingBag} containerClassName="bg-blue-50 text-blue-700 border-blue-200" />
-                <SapReadOnlyField label="Open POs - Value" value={`${openPos.length} · ${inr(openPoValue)}`} icon={ShoppingBag} containerClassName="bg-orange-50 text-orange-700 border-orange-200" />
-                <SapReadOnlyField label="RFQ Participation Rate" value={rfqs.length ? `${percent(bidOn.length, rfqs.length)} (${bidOn.length}/${rfqs.length})` : '—'} icon={Percent} containerClassName="bg-emerald-50 text-emerald-800 border-emerald-200" />
-              </Section>
-
-              <Section title="Spend Breakdown" dot="bg-teal-500">
-                <SapReadOnlyField label="Materials Supplied" value={String(spendData.length)} icon={Layers} containerClassName="bg-teal-50 text-teal-700 border-teal-200" />
-                <SapReadOnlyField label="Top Material" value={spendData[0] ? `${spendData[0].code} · ${inr(spendData[0].spend)}` : '—'} icon={Layers} containerClassName="bg-teal-50 text-teal-700 border-teal-200" />
-                <SapReadOnlyField label="Top Plant" value={topPlant ? `${topPlant[0]} · ${inr(topPlant[1])}` : '—'} icon={Building2} containerClassName="bg-amber-50 text-amber-700 border-amber-200" />
-              </Section>
-
-              {/* Spend Table */}
-              <div className="space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-2">
-                  <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">
-                    Order Value by Material
-                  </h3>
-                </div>
-                <div className="w-full overflow-x-auto overflow-y-auto max-h-[320px] custom-scrollbar card">
-                  <table className="w-full text-left border-collapse min-w-[700px]">
-                    <thead className="sticky top-0 z-10">
-                      <tr className="bg-surface2 border-b border-border text-text-primary font-bold uppercase text-[10px] tracking-wider font-sans">
-                        <th className="py-2.5 px-3 border-r border-border w-16">No</th>
-                        <th className="py-2.5 px-3 border-r border-border w-44">Material Code</th>
-                        <th className="py-2.5 px-3 border-r border-border min-w-[200px]">Description</th>
-                        <th className="py-2.5 px-3 border-r border-border w-28 text-right">POs</th>
-                        <th className="py-2.5 px-3 w-40 text-right">Order Value</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border text-text-secondary">
-                      {spendData.length === 0 && <EmptyRow colSpan={5}>No purchase orders yet.</EmptyRow>}
-                      {spendData.map((item, idx) => (
-                        <tr key={item.code} className="hover:bg-surface2 transition-colors">
-                          <td className="py-2 px-3 border-r border-border text-text-secondary font-semibold font-mono tabular-nums">{idx + 1}</td>
-                          <td className="py-2 px-3 border-r border-border font-mono font-bold text-text-primary">{item.code}</td>
-                          <td className="py-2 px-3 border-r border-border font-sans font-medium text-text-primary">{item.group}</td>
-                          <td className="py-2 px-3 border-r border-border text-right font-mono tabular-nums">{item.poCount}</td>
-                          <td className="py-2 px-3 text-right font-mono font-bold text-text-primary tabular-nums">{inr(item.spend)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+            <Section className="mt-8" title="Balance over time" description="Invoices raise the balance; payments (net plus TDS) bring it down.">
+              <div className="card p-4">
+                {chronological.length > 1
+                  ? <StepLineChart ariaLabel="Ledger balance over time" data={chronological.map((r) => ({ label: displayDate(r.date), value: r.balance }))} />
+                  : <p className="py-2 text-sm text-fg-muted">Not enough activity to chart yet.</p>}
               </div>
+            </Section>
 
-              <Section title="Delivery Metrics" dot="bg-emerald-500">
-                <SapReadOnlyField label="On-Time In-Full (OTIF)" value={performance.deliveryOTIF == null ? '—' : `${performance.deliveryOTIF}%`} icon={CheckCircle2} containerClassName="bg-emerald-50 text-emerald-800 border-emerald-200" />
-                <SapReadOnlyField label="Avg PO Acknowledgement" value={avgAckDays == null ? '—' : `${avgAckDays.toFixed(1)} days`} icon={Clock} containerClassName="bg-amber-50 text-amber-700 border-amber-200" />
-                <SapReadOnlyField label="Quantity Accepted on Receipt" value={percent(acceptedQty, receivedQty)} icon={Percent} containerClassName="bg-emerald-50 text-emerald-800 border-emerald-200" />
-              </Section>
-
-              <div className="flex justify-end items-center card p-4 w-full">
-                <Button onClick={exportSpend} variant="outline" className="font-bold text-xs px-5 h-9">
-                  Export Order Value (CSV)
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* TAB CONTENT: 2. INVOICES & TAX */}
-          {detailTab === 'finance' && (
-            <div className="space-y-6 animate-fade-in">
-              <Section title="Outstanding Invoices by Age">
-                <SapReadOnlyField label="0-30 Days" value={inr(bucket(0, 30))} icon={Clock} containerClassName="bg-blue-50 text-blue-700 border-blue-200" />
-                <SapReadOnlyField label="31-60 Days" value={inr(bucket(31, 60))} icon={Clock} containerClassName="bg-orange-50 text-orange-700 border-orange-200" />
-                <SapReadOnlyField label="61-90 Days" value={inr(bucket(61, 90))} icon={Clock} containerClassName="bg-surface2 text-text-secondary border-border" />
-                <SapReadOnlyField label="Over 90 Days" value={inr(bucket(91))} icon={AlertTriangle} containerClassName="bg-rose-50 text-rose-800 border-rose-200" />
-              </Section>
-
-              <div className="space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-2">
-                  <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">
-                    Invoice Ageing Details
-                  </h3>
-                </div>
-                <div className="w-full overflow-x-auto overflow-y-auto max-h-[320px] custom-scrollbar card">
-                  <table className="w-full text-left border-collapse min-w-[800px] whitespace-nowrap">
-                    <thead className="sticky top-0 z-10">
-                      <tr className="bg-surface2 border-b border-border text-text-primary font-bold uppercase text-[10px] tracking-wider font-sans">
-                        <th className="py-2.5 px-3 border-r border-border w-40">Invoice Ref</th>
-                        <th className="py-2.5 px-3 border-r border-border w-32">Purchase Order</th>
-                        <th className="py-2.5 px-3 border-r border-border w-24 text-center">Date</th>
-                        <th className="py-2.5 px-3 border-r border-border w-32">Invoice Status</th>
-                        <th className="py-2.5 px-3 border-r border-border w-24 text-right">Age (Days)</th>
-                        <th className="py-2.5 px-3 border-r border-border w-36 text-right">Amount</th>
-                        <th className="py-2.5 px-3 text-center w-40">MSME 45-Day Rule</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border text-text-secondary">
-                      {apAgingData.length === 0 && <EmptyRow colSpan={7}>No invoices submitted yet.</EmptyRow>}
-                      {apAgingData.map((item) => {
-                        const isOverdue = item.status === 'Overdue (MSME Priority!)';
-                        return (
-                          <tr key={item.ref} className={`hover:bg-surface2 transition-colors ${isOverdue ? 'bg-rose-50/20' : ''}`}>
-                            <td className="py-2 px-3 border-r border-border font-mono font-bold text-text-primary">{item.ref}</td>
-                            <td className="py-2 px-3 border-r border-border font-mono">{item.poId || '—'}</td>
-                            <td className="py-2 px-3 border-r border-border text-center font-mono tabular-nums">{item.date}</td>
-                            <td className="py-2 px-3 border-r border-border font-semibold">{item.invoiceStatus}</td>
-                            <td className={`py-2 px-3 border-r border-border text-right font-mono font-bold tabular-nums ${isOverdue ? 'text-rose-600' : ''}`}>{item.days}</td>
-                            <td className="py-2 px-3 border-r border-border text-right font-mono font-bold text-text-primary tabular-nums">{inr(item.amount)}</td>
-                            <td className="py-2 px-3 text-center">
-                              {isMsme || item.status === 'Cleared'
-                                ? <StatusBadge label={item.status} variant={msmeStatusVariant(item.status)} />
-                                : <span className="text-[10px] text-text-tertiary">Not MSME-registered</span>}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <Section title="Tax Withheld & GST" dot="bg-emerald-500">
-                <SapReadOnlyField label="TDS Deducted (All Payments)" value={inr(totalTds)} icon={Receipt} containerClassName="bg-rose-50 text-rose-800 border-rose-200" />
-                <SapReadOnlyField label="GST Charged on Invoices" value={inr(gstInvoiced)} icon={ShieldCheck} containerClassName="bg-emerald-50 text-emerald-800 border-emerald-200" />
-                <SapReadOnlyField label="MSME Invoices > 45 Days" value={isMsme ? String(msmeOverdue.length) : 'Not MSME-registered'} isMonospace={isMsme} icon={CheckCircle2} containerClassName="bg-emerald-50 text-emerald-800 border-emerald-300" />
-              </Section>
-
-              <Section title="Invoice Processing" dot="bg-teal-500">
-                <SapReadOnlyField label="Invoices Submitted" value={String(invoices.length)} icon={FileText} containerClassName="bg-blue-50 text-blue-700 border-blue-200" />
-                <SapReadOnlyField label="Paid & Cleared" value={invoices.length ? `${clearedInvoices.length} (${percent(clearedInvoices.length, invoices.length)})` : '—'} icon={Percent} containerClassName="bg-emerald-50 text-emerald-800 border-emerald-200" />
-                <SapReadOnlyField label="Match Warnings" value={String(matchWarnings.length)} icon={AlertTriangle} containerClassName="bg-rose-50 text-rose-800 border-rose-200" />
-              </Section>
-
-              <div className="flex justify-end gap-2 items-center card p-4 w-full">
-                <Button onClick={exportAging} variant="outline" className="font-bold text-xs px-5 h-9">
-                  Export Invoice Ageing (CSV)
-                </Button>
-                <Button onClick={exportTds} className="font-bold text-xs px-6 h-9">
-                  Export TDS Deducted (CSV)
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* TAB CONTENT: 3. ACCOUNT LEDGER */}
-          {detailTab === 'selfservice' && (
-            <div className="space-y-6 animate-fade-in">
-              <Section title="Account Snapshot">
-                <SapReadOnlyField label="Open POs Value" value={inr(openPoValue)} icon={ShoppingBag} containerClassName="bg-blue-50 text-blue-700 border-blue-200" />
-                <SapReadOnlyField label="Invoices Awaiting Payment" value={inr(outstanding.reduce((sum, row) => sum + row.amount, 0))} icon={Receipt} containerClassName="bg-orange-50 text-orange-700 border-orange-200" />
-                <SapReadOnlyField label="Ledger Balance" value={inr(runningBalance)} icon={TrendingUp} containerClassName="bg-blue-50 text-blue-700 border-blue-200" />
-                <SapReadOnlyField label="Performance Score" value={performance.weightedScore == null ? '—' : `${performance.weightedScore} / 100`} icon={Activity} containerClassName="bg-emerald-50 text-emerald-800 border-emerald-200" />
-              </Section>
-
-              <div className="space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-2">
-                  <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">
-                    Account Ledger Statement
-                  </h3>
-                </div>
-                <div className="w-full overflow-x-auto overflow-y-auto max-h-[320px] custom-scrollbar card">
-                  <table className="w-full text-left border-collapse min-w-[850px] whitespace-nowrap">
-                    <thead className="sticky top-0 z-10">
-                      <tr className="bg-surface2 border-b border-border text-text-primary font-bold uppercase text-[10px] tracking-wider font-sans">
-                        <th className="py-2.5 px-3 border-r border-border w-24 text-center">Date</th>
-                        <th className="py-2.5 px-3 border-r border-border w-28">Doc Type</th>
-                        <th className="py-2.5 px-3 border-r border-border w-40">Document Ref</th>
-                        <th className="py-2.5 px-3 border-r border-border min-w-[200px]">Description</th>
-                        <th className="py-2.5 px-3 border-r border-border w-32 text-right">Debit (₹)</th>
-                        <th className="py-2.5 px-3 border-r border-border w-32 text-right">Credit (₹)</th>
-                        <th className="py-2.5 px-3 border-r border-border w-36 text-right">Balance</th>
-                        <th className="py-2.5 px-3 text-center w-28">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border text-text-secondary">
-                      {ledgerData.length === 0 && <EmptyRow colSpan={8}>No invoices or payments yet.</EmptyRow>}
-                      {ledgerData.map((item, idx) => (
-                        <tr key={`${item.doc}-${idx}`} className="hover:bg-surface2 transition-colors">
-                          <td className="py-2 px-3 border-r border-border text-center font-mono font-medium tabular-nums">{formatDate(item.date)}</td>
-                          <td className="py-2 px-3 border-r border-border font-medium font-sans text-text-secondary">{item.type}</td>
-                          <td className="py-2 px-3 border-r border-border font-mono font-bold text-text-primary">{item.doc}</td>
-                          <td className="py-2 px-3 border-r border-border font-medium">{item.desc}</td>
-                          <td className="py-2 px-3 border-r border-border text-right font-mono tabular-nums">{item.debit > 0 ? inr(item.debit) : '—'}</td>
-                          <td className="py-2 px-3 border-r border-border text-right font-mono tabular-nums">{item.credit > 0 ? inr(item.credit) : '—'}</td>
-                          <td className="py-2 px-3 border-r border-border text-right font-mono font-bold text-text-primary tabular-nums">{inr(item.balance)}</td>
-                          <td className="py-2 px-3 text-center">
-                            <StatusBadge label={item.status} variant={paymentStatusVariant(item.status)} />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {lastTransaction && (
-                <Section title="Last Transaction" dot="bg-emerald-500">
-                  <SapReadOnlyField label="Document Date" value={formatDate(lastTransaction.date)} icon={Calendar} containerClassName="bg-surface2 text-text-secondary border-border" />
-                  <SapReadOnlyField label="Invoice / Payment Ref" value={lastTransaction.doc} icon={FileText} containerClassName="bg-blue-50 text-blue-700 border-blue-200" />
-                  <SapReadOnlyField label="Clearing Status" value={lastTransaction.status} isMonospace={false} icon={Clock} containerClassName="bg-amber-50 text-amber-700 border-amber-300" />
-                </Section>
-              )}
-
-              <div className="flex justify-end gap-2 items-center card p-4 w-full">
-                <Button onClick={exportLedger} variant="outline" className="font-bold text-xs px-5 h-9">
-                  Export Ledger (CSV)
-                </Button>
-                <Button onClick={downloadStatement} className="font-bold text-xs px-6 h-9">
-                  Download Statement (PDF)
-                </Button>
-              </div>
-            </div>
-          )}
-
-        </div>
+            <Section className="mt-8" title="Account ledger">
+              <DataTable
+                caption="Account ledger"
+                columns={ledgerColumns}
+                rows={ledgerData}
+                getRowId={(r, i) => `${r.doc}-${i}`}
+                maxHeight="480px"
+                empty="No invoices or payments yet."
+              />
+            </Section>
+          </div>
+        )}
       </div>
     </ErrorBoundary>
   );

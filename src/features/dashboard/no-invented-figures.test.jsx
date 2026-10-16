@@ -60,7 +60,7 @@ describe('an account with no documents shows no invented figures', () => {
 
   it('on reports & analytics', async () => {
     renderWithPortal(<AnalyticsPage />, { plane: 'supplier', route: '/analytics', api: EMPTY_SUPPLIER_API });
-    await screen.findByRole('heading', { name: /Reports & Analytics/, level: 2 });
+    await screen.findByRole('heading', { name: 'Reports', level: 1 });
 
     expectNothingInvented();
     expect(screen.getByText('No purchase orders yet.')).toBeInTheDocument();
@@ -68,7 +68,7 @@ describe('an account with no documents shows no invented figures', () => {
 
   it('on the performance scorecard', async () => {
     renderWithPortal(<PerformancePage />, { plane: 'supplier', route: '/performance', api: EMPTY_SUPPLIER_API });
-    await screen.findByRole('heading', { name: /Supplier Performance scorecard/i, level: 2 });
+    await screen.findByRole('heading', { name: 'Performance', level: 1 });
 
     expectNothingInvented();
   });

@@ -90,8 +90,9 @@ describe('what the invoice ledger claims about GST', () => {
       },
     });
 
-    expect(await screen.findByText('GST Invoice Value')).toBeInTheDocument();
-    expect(screen.queryByText(/GST Invoice Value \(18%\)/)).not.toBeInTheDocument();
+    // The column is the invoice's value; no column header asserts a rate.
+    expect(await screen.findByRole('columnheader', { name: 'Value (₹)' })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /\d+%/ })).not.toBeInTheDocument();
   });
 
   it('shows the invoice’s own effective rate, derived from its own totals', async () => {

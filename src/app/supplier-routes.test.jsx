@@ -19,15 +19,16 @@ import AdminRedirectPage from '@/app/admin/page';
 // has an approved profile and no documents yet. The headings live in the
 // feature views the thin page components delegate to.
 
-// Every supplier view names itself with a level-2 page title.
+// Every supplier view names itself with a level-1 page title (PageHeader).
+// Titles follow the redesign's copy (docs/redesign/01-audit.md §4.3).
 const ROUTES = [
-  ['/', DashboardPage, 'Vendor Dashboard'],
-  ['/rfqs', RfqsPage, 'RFQ Management'],
-  ['/pos', PurchaseOrdersPage, /Purchase Orders/i],
+  ['/', DashboardPage, 'Overview'],
+  ['/rfqs', RfqsPage, 'RFQs'],
+  ['/pos', PurchaseOrdersPage, 'Purchase orders'],
   ['/invoices', InvoicesPage, /^Invoices$/i],
-  ['/payments', PaymentsPage, /Payment Tracking/i],
-  ['/performance', PerformancePage, /Supplier Performance scorecard/i],
-  ['/analytics', AnalyticsPage, /Reports & Analytics/i],
+  ['/payments', PaymentsPage, 'Payments'],
+  ['/performance', PerformancePage, 'Performance'],
+  ['/analytics', AnalyticsPage, 'Reports'],
   ['/registration', RegistrationPage, /Vendor Registration/i],
 ];
 
@@ -35,7 +36,7 @@ describe.each(ROUTES)('%s', (route, Page, heading) => {
   it('names itself for a supplier with no documents', async () => {
     renderWithPortal(<Page />, { plane: 'supplier', route, api: EMPTY_SUPPLIER_API });
 
-    expect(await screen.findByRole('heading', { name: heading, level: 2 })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: heading, level: 1 })).toBeInTheDocument();
   });
 
   it('renders without the session redirecting away', async () => {
@@ -43,16 +44,16 @@ describe.each(ROUTES)('%s', (route, Page, heading) => {
       plane: 'supplier', route, api: EMPTY_SUPPLIER_API,
     });
 
-    await screen.findByRole('heading', { name: heading, level: 2 });
+    await screen.findByRole('heading', { name: heading, level: 1 });
     // PortalProvider bounces a tokenless visitor to /sign-in and anyone still
     // on a temporary password to /change-password. Neither applies here, and a
     // page that redirects anyway is a provider bug, not a page that "renders".
     await waitFor(() => expect(navigation.push).not.toHaveBeenCalled());
   });
 
-  it('opens its heading outline at level 2, with no skipped level', async () => {
+  it('opens its heading outline at level 1, with no skipped level', async () => {
     renderWithPortal(<Page />, { plane: 'supplier', route, api: EMPTY_SUPPLIER_API });
-    await screen.findByRole('heading', { name: heading, level: 2 });
+    await screen.findByRole('heading', { name: heading, level: 1 });
 
     expectHeadingOutline(route);
   });

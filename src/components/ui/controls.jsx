@@ -25,7 +25,7 @@ export function Tabs({ items, value, defaultValue, onValueChange, children, clas
             value={item.value}
             className="-mb-px flex h-9 shrink-0 items-center gap-1.5 border-b-2 border-transparent text-sm text-fg-muted outline-none
               hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--accent-solid)]
-              data-[selected]:border-fg data-[selected]:font-medium data-[selected]:text-fg cursor-pointer"
+              data-[active]:border-fg data-[active]:font-medium data-[active]:text-fg cursor-pointer"
           >
             {item.label}
             {item.count != null && <span className="mono text-xs text-fg-subtle">{item.count}</span>}
