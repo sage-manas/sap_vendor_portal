@@ -6,7 +6,7 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const logger = require('../utils/logger');
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
-const { resolveClientForRequest, resolveRealmForRequest } = require('../utils/resolveClient');
+const { resolveRealmForRequest } = require('../utils/resolveClient');
 const { isAccountTenancy, tenancyMode } = require('../config/tenancyMode');
 const { ROLES } = require('../config/roles');
 const { signToken } = require('../utils/authToken');
@@ -179,13 +179,20 @@ const processRegistration = async (client, body) => {
 // account is created pending, and cannot sign in until the emailed link is
 // followed (confirmEmail). No session is issued here.
 const register = asyncHandler(async (req, res, next) => {
-  // Which workspace is this supplier registering into? The subdomain, the
-  // `?workspace=` link, or — in development — x-client-slug or
-  // DEFAULT_CLIENT_SLUG. Named by none of those, this is a 404 rather than a
-  // guess. These answer for the address being visited, not for the email being
-  // registered.
-  const client = await resolveClientForRequest(req);
-  if (!client) {
+  // Which workspace is this supplier registering into? How the answer was
+  // reached decides whether it may be written to at all. Login already refuses
+  // an account only on a real subdomain, because the development fallbacks are
+  // a guess about which workspace was meant — and a guess that is too weak to
+  // reject a sign-in must not be strong enough to create a supplier in a tenant
+  // (#254). A tenant's default can hold a live SAP connection.
+  //
+  // These answer for the address being visited, not for the email being
+  // registered. Every refusal below is the same "Unknown workspace", so a
+  // caller learns nothing about which workspaces exist or why this one said no.
+  const { client, source } = await resolveRealmForRequest(req);
+  const namedByRequest = source === 'subdomain' || source === 'link'
+    || ((source === 'header' || source === 'default') && process.env.NODE_ENV !== 'production');
+  if (!namedByRequest || !client) {
     return next(ApiError.notFound('Unknown workspace'));
   }
   if (!isClientOperational(client)) {

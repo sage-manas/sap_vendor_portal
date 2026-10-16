@@ -111,11 +111,12 @@ const slugFromRequest = (req) => realmFromRequest(req).slug;
 // regardless of what tenant context is bound.
 const findClientBySlug = async (slug) => (slug ? prisma.client.findFirst({ where: { slug } }) : null);
 
-const resolveClientForRequest = async (req) => findClientBySlug(slugFromRequest(req));
-
 /**
- * The realm plus the tenant it resolved to, for the paths that need to know how
- * the answer was reached. Returns `client: null` when no such workspace exists.
+ * The realm plus the tenant it resolved to. Every caller gets `source` with it,
+ * on purpose: there is no client-only variant, because a caller that cannot see
+ * how the answer was reached cannot tell a named workspace from a fallback
+ * guess — which is how registration came to write into a guessed tenant (#254).
+ * Returns `client: null` when no such workspace exists.
  */
 const resolveRealmForRequest = async (req) => {
   const realm = realmFromRequest(req);
@@ -123,7 +124,6 @@ const resolveRealmForRequest = async (req) => {
 };
 
 module.exports = {
-  resolveClientForRequest,
   resolveRealmForRequest,
   realmFromRequest,
   slugFromRequest,
