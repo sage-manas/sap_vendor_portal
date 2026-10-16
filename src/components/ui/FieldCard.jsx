@@ -1,6 +1,7 @@
 'use client';
 
 import { Children, cloneElement, isValidElement, useId } from 'react';
+import { AlertCircle } from 'lucide-react';
 
 // The labelled-field wrapper the supplier forms are built from.
 //
@@ -102,22 +103,23 @@ export default function FieldCard({ label, required, error, hint, className = ''
   const { id, control } = useLabelledControl({ label, required, error, hint, children });
 
   return (
-    <div className={`flex items-start gap-1.5 select-none w-full ${className}`}>
-      <label htmlFor={id} className="text-[13px] font-semibold text-text-secondary shrink-0 w-28 pt-1.5" title={label}>
+    <div className={`flex flex-col gap-1.5 w-full min-w-0 ${className}`}>
+      <label htmlFor={id} className="text-sm font-medium text-fg">
         {/* Decorative: requiredness reaches assistive tech through
             aria-required on the control, so the asterisk is excluded from
             the accessible name rather than read out as "star". */}
-        {label} {required && <span aria-hidden="true" className="text-rose-500 font-bold ml-0.5">*</span>}
+        {label} {required && <span aria-hidden="true" className="text-fg-subtle">*</span>}
       </label>
-      <div className="flex-1 flex flex-col min-w-0">
-        {control}
-        {hint && !error && (
-          <span id={`${id}-hint`} className="text-[11px] text-text-tertiary mt-1">{hint}</span>
-        )}
-        {error && (
-          <span id={`${id}-error`} className="text-[11px] font-bold text-rose-500 mt-1">{error}</span>
-        )}
-      </div>
+      {control}
+      {hint && !error && (
+        <span id={`${id}-hint`} className="text-xs text-fg-subtle">{hint}</span>
+      )}
+      {error && (
+        <span id={`${id}-error`} className="flex items-start gap-1.5 text-xs text-danger">
+          <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+          {error}
+        </span>
+      )}
     </div>
   );
 }

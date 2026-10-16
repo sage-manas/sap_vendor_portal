@@ -14,27 +14,50 @@ const themeScript = `(function(){try{var t=localStorage.getItem('vc-theme');if(!
 // serves) rather than loaded through next/font/google, which downloads them
 // from fonts.gstatic.com during every build — a network hiccup there failed
 // CI's frontend build with nothing wrong in the code.
-const geistSans = localFont({
-  src: "./fonts/Geist-Variable.woff2",
-  variable: "--font-geist-sans",
-  weight: "100 900",
+//
+// IBM Plex Sans for the interface, IBM Plex Mono for identifiers and amounts
+// only (docs/redesign/design-system.md). Each comes as two faces: the Latin
+// subset, preloaded, and Latin Extended, which carries the rupee sign (U+20B9)
+// and is fetched only when a glyph in its range is on the page. globals.css
+// lists both families in --font-sans / --font-mono, so the browser picks per
+// glyph. (Font loader options must be literals, so the Latin Extended range is
+// written out in both calls.)
+const plexSans = localFont({
+  src: "./fonts/IBMPlexSans-Latin-Variable.woff2",
+  variable: "--font-plex-sans",
+  weight: "100 700",
+  display: "swap",
 });
 
-const geistMono = localFont({
-  src: "./fonts/GeistMono-Variable.woff2",
-  variable: "--font-geist-mono",
-  weight: "100 900",
+const plexSansExt = localFont({
+  src: "./fonts/IBMPlexSans-LatinExt-Variable.woff2",
+  variable: "--font-plex-sans-ext",
+  weight: "100 700",
+  display: "swap",
+  preload: false,
+  declarations: [{ prop: "unicode-range", value: "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1E00-1E9F, U+20A0-20AB, U+20AD-20C0, U+2113, U+A720-A7FF" }],
 });
 
-// Serif display face for page-level headings only (claude/DESIGN.md's
-// Copernicus/Tiempos is a licensed Anthropic face; Source Serif 4 is an
-// open, screen-legible stand-in that still reads editorial at 20-28px —
-// Cormorant/EB Garamond, the doc's own suggested substitutes, get too
-// delicate at the sizes a dense console actually uses for its headers).
-const sourceSerif = localFont({
-  src: "./fonts/SourceSerif4-Variable.woff2",
-  variable: "--font-serif-display",
-  weight: "500 600",
+const plexMono = localFont({
+  src: [
+    { path: "./fonts/IBMPlexMono-Latin-400.woff2", weight: "400" },
+    { path: "./fonts/IBMPlexMono-Latin-500.woff2", weight: "500" },
+  ],
+  variable: "--font-plex-mono",
+  display: "swap",
+  adjustFontFallback: false,
+});
+
+const plexMonoExt = localFont({
+  src: [
+    { path: "./fonts/IBMPlexMono-LatinExt-400.woff2", weight: "400" },
+    { path: "./fonts/IBMPlexMono-LatinExt-500.woff2", weight: "500" },
+  ],
+  variable: "--font-plex-mono-ext",
+  display: "swap",
+  preload: false,
+  adjustFontFallback: false,
+  declarations: [{ prop: "unicode-range", value: "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1E00-1E9F, U+20A0-20AB, U+20AD-20C0, U+2113, U+A720-A7FF" }],
 });
 
 export const metadata = {
@@ -50,7 +73,7 @@ export default async function RootLayout({ children }) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${sourceSerif.variable} h-full antialiased`}
+      className={`${plexSans.variable} ${plexSansExt.variable} ${plexMono.variable} ${plexMonoExt.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <head>

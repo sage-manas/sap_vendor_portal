@@ -1,23 +1,27 @@
 import React, { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
+import { Button } from './button';
 
-export default function Drawer({ isOpen, onClose, title, children }) {
+// A side sheet for detail views. Covers the full viewport height above the
+// app header (the old one started at a hard-coded 44px and left a gap under
+// the 52px header).
+export default function Drawer({ isOpen, onClose, title, description, footer, children }) {
   const overlayRef = useRef(null);
-  
+
   useEffect(() => {
     const handleEscape = (e) => {
       if (e.key === 'Escape' && isOpen) {
         onClose();
       }
     };
-    
+
     if (isOpen) {
       document.body.style.overflow = 'hidden';
       window.addEventListener('keydown', handleEscape);
     } else {
       document.body.style.overflow = '';
     }
-    
+
     return () => {
       document.body.style.overflow = '';
       window.removeEventListener('keydown', handleEscape);
@@ -32,36 +36,38 @@ export default function Drawer({ isOpen, onClose, title, children }) {
 
   return (
     <>
-      {/* Backdrop */}
-      <div 
+      <div
         ref={overlayRef}
         onClick={handleOverlayClick}
-        className={`fixed top-11 inset-0 bg-black/40 backdrop-blur-sm z-[90] transition-opacity duration-300 ${
+        aria-hidden="true"
+        className={`fixed inset-0 z-40 bg-[var(--scrim)] transition-opacity duration-200 ${
           isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       />
-      
-      {/* Drawer */}
-      <div 
-        className={`fixed top-11 right-0 h-[calc(100vh-44px)] w-full max-w-[500px] bg-surface shadow-[0_0_40px_rgba(0,0,0,0.1)] z-[100] transform transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] flex flex-col border-l border-border ${
-          isOpen ? 'translate-x-0' : 'translate-x-full'
+
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={typeof title === 'string' ? title : undefined}
+        aria-hidden={!isOpen}
+        inert={!isOpen}
+        className={`fixed inset-y-0 right-0 z-50 flex w-full max-w-[480px] flex-col border-l border-border bg-surface transition-[translate,visibility] duration-200 ease-out ${
+          isOpen ? 'translate-x-0 shadow-modal' : 'invisible translate-x-full'
         }`}
       >
-        <div className="flex items-center justify-between px-6 py-5 border-b border-border bg-surface relative overflow-hidden">
-          {/* Subtle gradient highlight */}
-          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary/60 to-primary/10" />
-          
-          <h2 className="text-[15px] font-bold text-text-primary tracking-tight">{title}</h2>
-          <button 
-            onClick={onClose}
-            className="p-1.5 hover:bg-surface2 rounded-md text-text-tertiary hover:text-text-primary transition-colors cursor-pointer group"
-          >
-            <X className="size-4 group-hover:scale-110 transition-transform" />
-          </button>
+        <div className="flex items-start gap-3 border-b border-border px-5 py-4">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-lg font-semibold text-fg">{title}</h2>
+            {description && <p className="mt-0.5 text-sm text-fg-muted">{description}</p>}
+          </div>
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close" className="-mr-1.5">
+            <X strokeWidth={1.5} />
+          </Button>
         </div>
-        <div className="flex-1 overflow-y-auto px-6 py-6 custom-scrollbar bg-base relative">
+        <div className="flex-1 overflow-y-auto px-5 py-5 text-sm">
           {children}
         </div>
+        {footer && <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">{footer}</div>}
       </div>
     </>
   );
