@@ -15,6 +15,7 @@ const STATES = {
   healthy: { dot: 'bg-success', label: 'SAP connected', sentence: 'Calls to SAP are succeeding.' },
   degraded: { dot: 'bg-warning', label: 'SAP degraded', sentence: 'Some recent calls to SAP failed. Data may be a little behind.' },
   failing: { dot: 'bg-danger', label: 'SAP unreachable', sentence: 'Calls to SAP are failing. What you see may be out of date until it recovers.' },
+  simulated: { dot: 'bg-info', label: 'SAP simulator', sentence: 'This workspace is not connected to a real SAP system yet. Documents come from the built-in simulator.' },
   idle: { dot: 'bg-fg-subtle', label: 'SAP idle', sentence: 'Nothing has been exchanged with SAP in the last day.' },
   unknown: { dot: 'bg-fg-subtle', label: 'No SAP activity yet', sentence: 'This workspace has not exchanged anything with SAP yet.' },
   unavailable: { dot: 'bg-fg-subtle', label: 'SAP status unavailable', sentence: 'The status could not be loaded just now.' },
@@ -37,8 +38,12 @@ export function useSapStatus() {
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
+      // A tab nobody is looking at doesn't need fresh status.
+      if (document.hidden) return;
       try {
-        const data = await apiClient.request('/dashboard/sap-status');
+        // `background`: an expired session must not sign anyone out from a
+        // poll they never asked for — their next real request will.
+        const data = await apiClient.request('/dashboard/sap-status', { background: true });
         if (!cancelled) setStatus(data || { status: 'unavailable' });
       } catch {
         if (!cancelled) setStatus({ status: 'unavailable' });
@@ -46,7 +51,14 @@ export function useSapStatus() {
     };
     load();
     const timer = setInterval(load, REFRESH_MS);
-    return () => { cancelled = true; clearInterval(timer); };
+    // Catch up as soon as the tab is visible again.
+    const onVisible = () => { if (!document.hidden) load(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
 
   return status;
@@ -77,15 +89,16 @@ export default function SapStatus() {
               {state.label}
             </Popover.Title>
             <Popover.Description className="mt-1 text-fg-muted">{state.sentence}</Popover.Description>
-            {data.status !== 'unavailable' && (
+            {!['unavailable', 'simulated'].includes(data.status) && (
               <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 border-t border-border pt-3">
-                <dt className="text-fg-muted">Last synced</dt>
+                {/* For a supplier these two rows cover their own documents only. */}
+                <dt className="text-fg-muted">{data.scope === 'supplier' ? 'Your last sync' : 'Last synced'}</dt>
                 <dd title={data.lastSyncAt ? absolute(data.lastSyncAt) : undefined}>
                   {data.lastSyncAt ? relative(data.lastSyncAt) : 'Never'}
                 </dd>
                 <dt className="text-fg-muted">System</dt>
                 <dd className="capitalize">{data.environment}</dd>
-                <dt className="text-fg-muted">Last {data.windowHours} h</dt>
+                <dt className="text-fg-muted">{data.scope === 'supplier' ? `Your calls, ${data.windowHours} h` : `Last ${data.windowHours} h`}</dt>
                 <dd>
                   <span className="num">{data.calls}</span> calls
                   {data.failures > 0 && <>, <span className="num text-danger">{data.failures}</span> failed</>}

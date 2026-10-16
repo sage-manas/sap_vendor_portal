@@ -2,11 +2,10 @@
 
 import React from 'react';
 import { usePathname } from 'next/navigation';
-import {
-  BarChart3, Building2, CreditCard, Database, FileText, Gauge, LayoutDashboard, LogOut, Receipt, Search, ShoppingBag, Warehouse,
-} from 'lucide-react';
+import { Database, LogOut, Search } from 'lucide-react';
 import CommandPalette from '../ui/CommandPalette';
 import TenantBranding from './TenantBranding';
+import { BACK_OFFICE, OVERVIEW, SUPPLIER_MODULES } from './supplierModules';
 import AppShell from '../shell/AppShell';
 import SapStatus from '../shell/SapStatus';
 import NotificationsMenu from '../shell/NotificationsMenu';
@@ -19,19 +18,6 @@ import { modulesFor, isOnboarding } from '@/lib/onboarding';
 import { hasOwnChrome, isAuthPath } from '@/lib/planes';
 
 const isDevEnv = process.env.NODE_ENV !== 'production';
-
-// The supplier portal's modules, in the order a supplier works through them.
-// `registration` is the company profile: it lives in the sidebar footer, and
-// is the only module an onboarding supplier gets (modulesFor decides that).
-const MODULES = [
-  { id: 'pos', name: 'Orders', icon: ShoppingBag },
-  { id: 'invoices', name: 'Invoices', icon: Receipt },
-  { id: 'payments', name: 'Payments', icon: CreditCard },
-  { id: 'rfqs', name: 'RFQs', icon: FileText },
-  { id: 'performance', name: 'Performance', icon: Gauge },
-  { id: 'analytics', name: 'Reports', icon: BarChart3 },
-  { id: 'registration', name: 'Company profile', icon: Building2 },
-];
 
 export default function PortalLayout({ children }) {
   const pathname = usePathname();
@@ -77,7 +63,7 @@ export default function PortalLayout({ children }) {
 
   const profile = state.profile || {};
   const onboarding = mounted && !isTenantStaff && isOnboarding(profile);
-  const modules = modulesFor(MODULES, { isSupplier: !isTenantStaff, profile });
+  const modules = modulesFor(SUPPLIER_MODULES, { isSupplier: !isTenantStaff, profile });
 
   const openOrders = mounted ? (state.pos || []).filter((p) => p.status === 'Open').length : 0;
   const openRfqs = mounted ? (state.rfqs || []).filter((r) => r.status === 'Bidding Open').length : 0;
@@ -86,18 +72,18 @@ export default function PortalLayout({ children }) {
     rfqs: { count: openRfqs, countLabel: `${openRfqs} ${openRfqs === 1 ? 'RFQ is' : 'RFQs are'} open for quotation` },
   };
 
-  const item = (id, label, icon) => ({
-    key: id, label, icon, active: activeTab === id, onClick: () => setActiveTab(id), ...counts[id],
+  const item = ({ id, name, icon }) => ({
+    key: id, label: name, icon, active: activeTab === id, onClick: () => setActiveTab(id), ...counts[id],
   });
 
   const nav = [
-    item('dashboard', 'Overview', LayoutDashboard),
+    item(OVERVIEW),
     // The back office belongs to the buying organisation's own staff. Which
     // accounts those are is the server's answer (ADR-0027).
-    ...(isTenantStaff ? [item('workspace', 'Workspace back office', Warehouse)] : []),
-    ...modules.filter((m) => m.id !== 'registration').map((m) => item(m.id, m.name, m.icon)),
+    ...(isTenantStaff ? [item(BACK_OFFICE)] : []),
+    ...modules.filter((m) => m.id !== 'registration').map(item),
   ];
-  const footerNav = modules.filter((m) => m.id === 'registration').map((m) => item(m.id, m.name, m.icon));
+  const footerNav = modules.filter((m) => m.id === 'registration').map(item);
 
   const companyName = (mounted && profile.companyName) || 'Guest supplier';
   const vendorCode = mounted && profile.sapVendorCode;

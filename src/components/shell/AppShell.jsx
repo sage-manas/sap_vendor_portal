@@ -74,7 +74,7 @@ function NavItem({ item, collapsed, onNavigate }) {
   );
 }
 
-function SidebarBody({ surface, identity, nav, footerNav, note, collapsed, onNavigate }) {
+function SidebarBody({ surface, identity, nav, footerNav, note, collapsed, onNavigate, headerAction }) {
   const s = SURFACE[surface];
   return (
     <>
@@ -91,6 +91,7 @@ function SidebarBody({ surface, identity, nav, footerNav, note, collapsed, onNav
             <p className="identity-caption truncate text-xs text-fg-subtle">{identity.caption || s.label}</p>
           </div>
         )}
+        {headerAction && <div className="ml-auto shrink-0">{headerAction}</div>}
       </div>
       <nav aria-label={`${s.label} navigation`} className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2">
         {nav.map((item) => <NavItem key={item.key} item={item} collapsed={collapsed} onNavigate={onNavigate} />)}
@@ -126,16 +127,37 @@ export default function AppShell({ surface, identity, nav, footerNav, note, topb
     return () => window.removeEventListener('keydown', onKey);
   }, [toggleCollapsed]);
 
-  // Phone sheet: Escape closes, focus moves in and comes back.
+  // Phone sheet: Escape closes, Tab stays inside, focus moves in and comes
+  // back, and widening past the phone breakpoint closes it (otherwise the
+  // hidden sheet would keep the page's scroll locked).
   useEffect(() => {
     if (!sheetOpen) return undefined;
     const opener = menuButtonRef.current;
-    sheetRef.current?.focus();
-    const onKey = (e) => { if (e.key === 'Escape') setSheetOpen(false); };
+    const sheet = sheetRef.current;
+    sheet?.focus();
+
+    const onKey = (e) => {
+      if (e.key === 'Escape') { setSheetOpen(false); return; }
+      if (e.key !== 'Tab' || !sheet) return;
+      const focusables = sheet.querySelectorAll('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])');
+      if (!focusables.length) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && (document.activeElement === first || document.activeElement === sheet)) {
+        e.preventDefault(); last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault(); first.focus();
+      }
+    };
+    const wide = window.matchMedia?.('(min-width: 768px)');
+    const onWide = (e) => { if (e.matches) setSheetOpen(false); };
+
     window.addEventListener('keydown', onKey);
+    wide?.addEventListener('change', onWide);
     document.body.style.overflow = 'hidden';
     return () => {
       window.removeEventListener('keydown', onKey);
+      wide?.removeEventListener('change', onWide);
       document.body.style.overflow = '';
       opener?.focus();
     };
@@ -162,10 +184,18 @@ export default function AppShell({ surface, identity, nav, footerNav, note, topb
             aria-label="Navigation"
             className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col bg-surface shadow-modal outline-none animate-slideIn"
           >
-            <Button variant="ghost" size="icon" onClick={() => setSheetOpen(false)} aria-label="Close navigation" className="absolute right-2 top-2.5 z-10">
-              <X strokeWidth={1.5} />
-            </Button>
-            <SidebarBody {...bodyProps} collapsed={false} onNavigate={() => setSheetOpen(false)} />
+            <SidebarBody
+              {...bodyProps}
+              collapsed={false}
+              onNavigate={() => setSheetOpen(false)}
+              headerAction={(
+                // Inherits the header's colour: on the platform console's
+                // inverted header a muted ghost icon would all but disappear.
+                <Button variant="ghost" size="icon" onClick={() => setSheetOpen(false)} aria-label="Close navigation" className="-mr-1 [color:inherit]! opacity-75 hover:opacity-100 hover:bg-transparent!">
+                  <X strokeWidth={1.5} />
+                </Button>
+              )}
+            />
           </aside>
         </div>
       )}

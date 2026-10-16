@@ -10,6 +10,7 @@ import AppShell from '@/components/shell/AppShell';
 import SapStatus from '@/components/shell/SapStatus';
 import ThemeToggle from '@/components/shell/ThemeToggle';
 import UserMenu from '@/components/shell/UserMenu';
+import { roleLabel } from '@/components/shell/roleLabel';
 import { WorkspaceSessionProvider, useWorkspaceSession, STAGE } from '@/lib/workspace-session';
 import { navFor, isActive } from '@/lib/workspaceNav';
 import { forgetWhoami } from '@/lib/whoami';
@@ -41,9 +42,6 @@ const ICONS = {
   '/workspace/users': Users,
   '/workspace/settings': Settings,
 };
-
-// "client_admin" → "Client admin". Display only — the role registry is unchanged.
-const roleLabel = (role) => (role ? role.charAt(0).toUpperCase() + role.slice(1).replace(/_/g, ' ') : '');
 
 function Chrome({ children }) {
   const pathname = usePathname();

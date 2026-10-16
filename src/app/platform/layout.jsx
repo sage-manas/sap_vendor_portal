@@ -6,6 +6,7 @@ import { Building2, History, LayoutDashboard, LogOut, Plug, RefreshCcw, ShieldCh
 import AppShell from '@/components/shell/AppShell';
 import ThemeToggle from '@/components/shell/ThemeToggle';
 import UserMenu from '@/components/shell/UserMenu';
+import { roleLabel } from '@/components/shell/roleLabel';
 import { PlatformSessionProvider, usePlatformSession } from '@/lib/platform-session';
 import PlatformGate from '@/components/platform/PlatformGate';
 import { navFor, isActive } from '@/lib/platformNav';
@@ -23,9 +24,6 @@ const ICONS = {
   '/platform/audit': History,
   '/platform/operators': ShieldCheck,
 };
-
-// "super_admin" → "Super admin". Display only.
-const roleLabel = (role) => (role ? role.charAt(0).toUpperCase() + role.slice(1).replace(/_/g, ' ') : '');
 
 function Chrome({ children }) {
   const pathname = usePathname();

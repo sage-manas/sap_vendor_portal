@@ -115,7 +115,7 @@ const platformHealth = asyncHandler(async (req, res) => {
 
   const tenants = await Promise.all(clients.map(async (client) => {
     const [traffic, connection, usage, jobs] = await Promise.all([
-      sapTrafficFor(client.clientId, WINDOW_HOURS),
+      sapTrafficFor(client.clientId, WINDOW_HOURS, { includeLatest: true }),
       sapConnectionFor(client),
       usageFor(client),
       jobsFor(client.clientId),

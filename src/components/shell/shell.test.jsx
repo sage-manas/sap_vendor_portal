@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ShoppingBag, LayoutDashboard } from 'lucide-react';
 import AppShell from './AppShell';
 import SapStatus from './SapStatus';
+import UserMenu from './UserMenu';
 import { apiClient } from '@/lib/api-client';
 
 // The application shell shared by the supplier portal, the tenant workspace
@@ -94,9 +95,35 @@ describe('SapStatus', () => {
     expect(await screen.findByRole('button', { name: /SAP status unavailable/ })).toBeInTheDocument();
   });
 
-  it('reads the workspace\'s own status endpoint', async () => {
+  it('says a workspace on the built-in simulator is a simulator, never "connected"', async () => {
+    vi.spyOn(apiClient, 'request').mockResolvedValue({ status: 'simulated', environment: 'sandbox', windowHours: 24, calls: 5, failures: 0 });
+    render(<SapStatus />);
+    expect(await screen.findByRole('button', { name: /^SAP simulator\./ })).toBeInTheDocument();
+    expect(screen.queryByText('SAP connected')).not.toBeInTheDocument();
+  });
+
+  it('polls as a background request, so an expired session can\'t sign anyone out mid-form', async () => {
     const spy = vi.spyOn(apiClient, 'request').mockResolvedValue({ status: 'healthy', environment: 'sandbox', windowHours: 24, calls: 1, failures: 0 });
     render(<SapStatus />);
-    await waitFor(() => expect(spy).toHaveBeenCalledWith('/dashboard/sap-status'));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('/dashboard/sap-status', { background: true }));
+  });
+
+  it('does not poll from a hidden tab', async () => {
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    const spy = vi.spyOn(apiClient, 'request').mockResolvedValue({ status: 'healthy' });
+    render(<SapStatus />);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(spy).not.toHaveBeenCalled();
+    hidden.mockRestore();
+  });
+});
+
+describe('UserMenu', () => {
+  it('never shows a separator at the edge or two in a row', async () => {
+    render(<UserMenu name="Meridian Castings" items={['separator', { label: 'Sign out', onClick: () => {} }, 'separator']} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Account: Meridian Castings' }));
+    await screen.findByRole('menuitem', { name: 'Sign out' });
+    // Only the one under the name/caption header.
+    expect(screen.getAllByRole('separator')).toHaveLength(1);
   });
 });
