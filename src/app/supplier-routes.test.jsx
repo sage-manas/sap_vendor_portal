@@ -29,7 +29,7 @@ const ROUTES = [
   ['/payments', PaymentsPage, 'Payments'],
   ['/performance', PerformancePage, 'Performance'],
   ['/analytics', AnalyticsPage, 'Reports'],
-  ['/registration', RegistrationPage, /Vendor Registration/i],
+  ['/registration', RegistrationPage, 'Company profile'],
 ];
 
 describe.each(ROUTES)('%s', (route, Page, heading) => {
