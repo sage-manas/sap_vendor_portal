@@ -4,9 +4,9 @@ Status: complete, no application code changed. Captured 2026-10-16 against the
 demo seed (`supplier@meridiancastings.in`, `admin@nucleusmfg.in`) and a local
 throwaway operator (`redesign-screens@local.test`).
 
-Screenshots: [`before/`](before/) — 38 routes × {1440×900, 1280×800, 768×1024,
+Screenshots: `docs/redesign/before/` (generated locally, not committed — 300+ PNGs) — 38 routes × {1440×900, 1280×800, 768×1024,
 390×844} × {light, dark} = 304 PNGs (18 MB), named `<route>__<w>x<h>__<theme>.png`,
-grouped `auth/ vendor/ workspace/ platform/`. Next's dev-tools badge (the
+grouped `auth/ vendor/ workspace/ platform/`. Committed before/after grids per phase live in `phase3/compare-*.png` and later phase folders. Next's dev-tools badge (the
 floating "N") is hidden in every capture — it is dev-only chrome, not product
 UI, so it is struck from the problem list below.
 
