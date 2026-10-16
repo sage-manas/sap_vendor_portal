@@ -1,10 +1,10 @@
-export default function Spinner({ size = 16, className = '' }) {
+export default function Spinner({ size = 16, className = '', label = 'Loading' }) {
   return (
     <span
-      className={`inline-block rounded-full border-2 border-border-em border-t-transparent animate-spin ${className}`}
+      className={`inline-block shrink-0 rounded-full border-[1.5px] border-current border-r-transparent text-fg-subtle animate-spin ${className}`}
       style={{ width: size, height: size, animationDuration: '0.7s' }}
       role="status"
-      aria-label="Loading"
+      aria-label={label}
     />
   );
 }

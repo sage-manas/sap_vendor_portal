@@ -1,96 +1,84 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, Loader2, X } from 'lucide-react';
+import { AlertCircle, AlertTriangle, CheckCircle2, Info, Loader2, X } from 'lucide-react';
+import { PageHeader as SharedPageHeader } from '@/components/ui/Page';
+import StatusBadge from '@/components/ui/StatusBadge';
 
 // The back-office vocabulary, shared by the platform console and the tenant
 // workspace. Two planes, two navs, two sessions — but one set of tables,
 // headers and notices, because a second copy would be the place the design
 // system quietly forks.
 //
-// Follows the shared token system in globals.css ("Slate & Copper"): bordered
-// surfaces with real radius, mono for tabular data, restrained shadows —
-// same language as the supplier portal's `.card`/`.status-badge` classes.
+// Ledger design system (docs/redesign/design-system.md). The header and the
+// status vocabulary are the supplier portal's own components, so the three
+// surfaces cannot drift apart.
 
 export const PageHeader = ({ title, caption, children }) => (
-  <div className="mb-5 flex items-start justify-between gap-4 border-b border-border pb-4">
-    <div>
-      <h1 className="page-title">{title}</h1>
-      {caption && <p className="mt-1 text-[13px] text-text-secondary">{caption}</p>}
-    </div>
-    {children && <div className="flex shrink-0 items-center gap-2">{children}</div>}
-  </div>
+  <SharedPageHeader title={title} description={caption}>{children}</SharedPageHeader>
 );
+
+const NOTICE = {
+  error: { cls: 'border-danger/30 bg-danger-tint text-danger', Icon: AlertCircle },
+  success: { cls: 'border-success/30 bg-success-tint text-success', Icon: CheckCircle2 },
+  // Not an error — nothing has gone wrong — but louder than info: for a
+  // consequence the reader needs to weigh before acting, like an action that
+  // writes to SAP and cannot be undone from here.
+  warn: { cls: 'border-warning/30 bg-warning-tint text-warning', Icon: AlertTriangle },
+  info: { cls: 'border-border bg-surface text-fg-muted', Icon: Info },
+};
 
 export const Notice = ({ tone = 'error', children, onDismiss }) => {
   if (!children) return null;
-  const tones = {
-    error: 'border-rose-500/50 bg-rose-500/10 text-rose-400',
-    success: 'border-emerald-500/50 bg-emerald-500/10 text-emerald-text',
-    // Not an error — nothing has gone wrong — but louder than info: for a
-    // consequence the reader needs to weigh before acting, like an action that
-    // writes to SAP and cannot be undone from here.
-    warn: 'border-amber-500/50 bg-amber-500/10 text-amber-400',
-    info: 'border-border-em text-text-secondary',
-  };
+  const { cls, Icon } = NOTICE[tone] || NOTICE.info;
 
   return (
-    <div role="status" className={`mb-4 flex items-start gap-2.5 rounded-lg border p-3 text-xs ${tones[tone] || tones.info}`}>
-      {(tone === 'error' || tone === 'warn') && <AlertCircle className="mt-0.5 size-4 shrink-0" />}
-      <span className="flex-1">{children}</span>
+    <div role="status" className={`mb-4 flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-sm ${cls}`}>
+      <Icon className="mt-0.5 size-4 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+      <span className="min-w-0 flex-1">{children}</span>
       {onDismiss && (
-        <button type="button" onClick={onDismiss} aria-label="Dismiss"><X className="size-3.5" /></button>
+        <button type="button" onClick={onDismiss} aria-label="Dismiss" className="-my-0.5 grid size-6 place-items-center rounded-md opacity-80 hover:opacity-100 cursor-pointer">
+          <X className="size-3.5" strokeWidth={1.5} />
+        </button>
       )}
     </div>
   );
 };
 
+// `type="text"` comes first so a caller's own `type` (password, email …)
+// still wins. Without any type the field used to miss the input styles in
+// globals.css and render borderless (redesign audit §4.2).
 export const Field = ({ label, hint, error, children, ...props }) => (
   <div>
     <label className="label">{label}</label>
-    {children || <input className="w-full" aria-invalid={error ? true : undefined} {...props} />}
-    {error && <p className="mt-1.5 text-[11px] text-red-600" role="alert">{error}</p>}
-    {hint && <p className="mt-1.5 text-[11px] text-text-tertiary">{hint}</p>}
+    {children || <input type="text" className="w-full" aria-invalid={error ? true : undefined} {...props} />}
+    {error && (
+      <p className="mt-1.5 flex items-start gap-1.5 text-xs text-danger" role="alert">
+        <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />{error}
+      </p>
+    )}
+    {hint && <p className="mt-1.5 text-xs text-fg-subtle">{hint}</p>}
   </div>
 );
 
-// Tenant and operator statuses share one visual language, so they share one
-// component rather than each screen inventing its own colours.
-const STATUS_TONE = {
-  Active: 'status-badge-active',
-  Trial: 'status-badge-trial',
-  Suspended: 'status-badge-suspended',
-  Terminated: 'status-badge-revoked',
-  // Supplier lifecycle (backend/config/statuses.js)
-  Approved: 'status-badge-active',
-  Rejected: 'status-badge-revoked',
-  'Under Review': 'status-badge-warn',
-  'Pending Approval': 'status-badge-warn',
-  Pending: 'status-badge-pending',
-  Draft: 'status-badge-pending',
-  healthy: 'status-badge-active',
-  degraded: 'status-badge-warn',
-  failing: 'status-badge-suspended',
-  unknown: 'status-badge-pending',
-  // Dual identity / sync state (backend/config/statuses.js SAP_SYNC_STATE) —
-  // the reconciliation queue's own vocabulary.
-  Synced: 'status-badge-active',
-  Local: 'status-badge-pending',
-  Failed: 'status-badge-suspended',
-  Orphaned: 'status-badge-suspended',
-};
+// Tenant, operator, supplier and sync statuses go through the one shared
+// status map (components/ui/status.js), so a state looks the same on every
+// surface.
+export const Status = ({ value }) => <StatusBadge label={value} variant="pending" />;
 
-export const Status = ({ value }) => (
-  <span className={`status-badge ${STATUS_TONE[value] || 'status-badge-pending'}`}>{value}</span>
-);
-
+/**
+ * columns: { key, header, render?, align?: 'right', mono?: boolean }
+ * Numeric columns should pass `align: 'right'` so amounts line up. A column
+ * without `render` prints its raw value in mono (they are identifiers) unless
+ * it passes `mono: false`.
+ */
 export const Table = ({ columns, rows, empty = 'Nothing here yet.', onRowClick }) => (
-  <div className="card overflow-hidden">
+  <div className="card overflow-x-auto">
     <table className="w-full border-collapse">
       <thead className="table-sticky">
-        <tr className="border-b border-border bg-surface2">
+        <tr>
           {columns.map((column) => (
-            <th key={column.key} className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-[0.05em] text-text-tertiary">
+            <th key={column.key} className={column.align === 'right' ? 'text-right' : undefined}>
               {column.header}
             </th>
           ))}
@@ -98,16 +86,18 @@ export const Table = ({ columns, rows, empty = 'Nothing here yet.', onRowClick }
       </thead>
       <tbody>
         {rows.length === 0 ? (
-          <tr><td colSpan={columns.length} className="px-3 py-8 text-center text-xs text-text-tertiary">{empty}</td></tr>
+          <tr><td colSpan={columns.length} className="text-fg-muted">{empty}</td></tr>
         ) : rows.map((row, index) => (
           <tr
             key={row.key ?? index}
             onClick={onRowClick ? () => onRowClick(row) : undefined}
-            className={`border-b border-border last:border-0 hover:bg-surface2 ${onRowClick ? 'cursor-pointer' : ''}`}
+            className={onRowClick ? 'cursor-pointer' : undefined}
           >
             {columns.map((column) => (
-              <td key={column.key} className="px-3 py-2 align-middle text-[13px]">
-                {column.render ? column.render(row) : <span className="mono">{row[column.key]}</span>}
+              <td key={column.key} className={column.align === 'right' ? 'text-right whitespace-nowrap' : undefined}>
+                {column.render
+                  ? column.render(row)
+                  : column.mono === false ? row[column.key] : <span className="mono">{row[column.key]}</span>}
               </td>
             ))}
           </tr>
@@ -118,8 +108,8 @@ export const Table = ({ columns, rows, empty = 'Nothing here yet.', onRowClick }
 );
 
 export const Loading = ({ label = 'Loading' }) => (
-  <div className="flex items-center gap-2 py-10 text-xs text-text-tertiary">
-    <Loader2 className="size-4 animate-spin" /> {label}…
+  <div className="flex items-center gap-2 py-10 text-sm text-fg-subtle" role="status">
+    <Loader2 className="size-4 animate-spin" strokeWidth={1.5} /> {label}…
   </div>
 );
 

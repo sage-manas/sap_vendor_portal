@@ -59,7 +59,7 @@ sap_vendor_portal/
 ├── .github/workflows/test.yml ← CI: runs BOTH frontend + backend test suites
 ├── AGENTS.md / CLAUDE.md    ← agent instructions (CLAUDE.md just @-includes AGENTS.md)
 ├── DECISIONS.md             ← the ADR log — every numbered decision cited elsewhere in this file
-├── claude/DESIGN.md         ← "Cream & Coral" design system that src/app/globals.css is built from
+├── claude/DESIGN.md         ← reference for the retired "Cream & Coral" system (current: docs/redesign/design-system.md)
 ├── HOSTING_PROVIDER_HANDOFF.md, SERVER_SETUP_QUICK_READ.md ← deploy/ops reference
 ├── README.md                ← stock create-next-app readme (not project-specific)
 ├── package.json             ← FRONTEND package (Next, React, some backend deps duplicated)
@@ -70,7 +70,7 @@ sap_vendor_portal/
 └── .cursor/ .gemini/ .impeccable/ ← "impeccable" design-linter tool skill (dev tooling, ignorable)
 ```
 
-`backend/logs/` and `backend/uploads/` **were** committed artifacts (winston logs / an uploaded PDF) — already `.gitignore`d but committed before that rule existed. A repo-hygiene pass (deploy fix, below) purged them from the git index along with a Windows-built `backend/node_modules` that had also been committed, ~860k deletions in one commit; none of the three is application source and none is expected to reappear. The old `mongodb_data/` (a committed local MongoDB data dir) was removed once the Postgres migration was confirmed complete; nothing recreates it. `src/app/fonts/` holds three self-hosted variable `.woff2` files (Geist, Geist Mono, Source Serif 4 — §8.2); `docs/abap-requests/` holds endpoint specs handed to the SAP team for not-yet-implemented writes (currently `vendor-bank-update.md`, §5.6/§6).
+`backend/logs/` and `backend/uploads/` **were** committed artifacts (winston logs / an uploaded PDF) — already `.gitignore`d but committed before that rule existed. A repo-hygiene pass (deploy fix, below) purged them from the git index along with a Windows-built `backend/node_modules` that had also been committed, ~860k deletions in one commit; none of the three is application source and none is expected to reappear. The old `mongodb_data/` (a committed local MongoDB data dir) was removed once the Postgres migration was confirmed complete; nothing recreates it. `src/app/fonts/` holds the self-hosted IBM Plex Sans / Plex Mono `.woff2` files, Latin and Latin Extended subsets (§8.2, §11); `docs/abap-requests/` holds endpoint specs handed to the SAP team for not-yet-implemented writes (currently `vendor-bank-update.md`, §5.6/§6).
 
 **Note on `package.json` duplication:** the root (frontend) package.json lists backend-ish deps (express, socket.io, bcryptjs, jsonwebtoken…) *and* frontend deps. The **actual backend** runs from `backend/package.json` (its own `node_modules`). When touching the API, use `backend/`.
 
@@ -727,7 +727,7 @@ This *is* a real multi-route App Router app. (Earlier `workflow/` docs described
 `activeTab` is derived from `pathname`; `setActiveTab(id)` does `router.push`.
 
 ### 8.2 Providers & layout (`src/app/layout.jsx`)
-Nesting: `ThemeProvider` → `ShellProvider` → `PortalProvider` → `PortalLayout` → `{children}`. A `beforeInteractive` inline script resolves dark/light theme pre-paint (localStorage `vc-theme`) to avoid flash. Fonts: Geist, Geist Mono and Source Serif 4, **self-hosted** as variable `.woff2` files under `src/app/fonts/` via `next/font/local` (not `next/font/google`) — a build that fetched them from `fonts.gstatic.com` at build time failed CI on a network hiccup with nothing wrong in the code; same CSS variables and weights, no build-time network dependency.
+Nesting: `ThemeProvider` → `ShellProvider` → `PortalProvider` → `PortalLayout` → `{children}`. A `beforeInteractive` inline script resolves dark/light theme pre-paint (localStorage `vc-theme`) to avoid flash. Fonts: IBM Plex Sans and IBM Plex Mono, **self-hosted** as `.woff2` files under `src/app/fonts/` via `next/font/local` (not `next/font/google`) — a build that fetched them from `fonts.gstatic.com` at build time failed CI on a network hiccup with nothing wrong in the code; same CSS variables and weights, no build-time network dependency.
 
 - **`ThemeProvider`** (`lib/theme-context.js`) — light/dark toggle.
 - **`ShellProvider`** (`lib/shell-context.js`) — owns `sapPayloadLogs` (the BAPI console feed): seeds a `PORTAL_INITIALIZE` log, hydrates from `localStorage('sap_vendor_portal_logs')`, fetches `/logs` when authed, exposes `addSapLog / clearSapLogs / refreshSapLogs`. Caps at 100 logs.
@@ -852,29 +852,30 @@ The seed is idempotent and the specs create their own tenders, so a warm databas
 
 ---
 
-## 11. Design System — "Cream & Coral" (`src/app/globals.css`)
+## 11. Design System — "Ledger" (`src/app/globals.css`)
 
-**`src/app/globals.css` is the source of truth for the palette**, not a separate markdown
-file. It is adapted from `claude/DESIGN.md` (Claude.com's marketing-site system), reshaped
-for a dense operational console. The earlier "Kinetic Industrial Console" system — black
-canvas, electric-green accent, zero radius — was replaced by this one; its `DESIGN.md` was
-removed on 14 Sep 2026 and is in `git log` if needed.
+**`docs/redesign/design-system.md` is the reference; `src/app/globals.css` holds the
+tokens.** Ledger replaced "Cream & Coral" in the 2026-10 redesign (audit and direction
+choice in `docs/redesign/`); `/__design` (dev only) renders every primitive in both themes.
 
 Rules that matter when writing UI:
-- Tokens are **RGB triplets** (`--color-*-rgb`) so Tailwind opacity modifiers work.
-- Light is a warm cream canvas (`#FAF9F5`) on white cards; dark is a warm near-black
-  (`#181715`) — warm, never cool-graphite or blue-black.
-- The accent is **coral** (`#CC785C` light, `#E0895F` dark). Small text uses the darker
-  `--color-emerald-text-rgb` for contrast, not the button coral.
-- **The `--color-emerald-*` variable names are deliberate and must not be renamed.** The
-  colour is coral; the names are the runtime hook `src/lib/branding.js` (ADR-0030) writes a
-  tenant's brand colour into. Renaming them is a functional change.
+- Three token layers: primitives (`--slate-*`) → semantic (`--surface`, `--fg-muted`,
+  `--accent-text`, `--danger-tint` …, as Tailwind utilities `bg-surface`, `text-fg-muted`)
+  → legacy (`--color-*-rgb`, `text-text-tertiary`, `.btn-v` …) mapped onto Ledger values
+  until each is unused.
+- Cool slate neutrals; one accent, default ink blue `#1E4FD0`. Semantic colours only on state.
+- **`--color-emerald-default-rgb` must not be renamed** — it is the one variable
+  `src/lib/branding.js` (ADR-0030) writes a tenant's brand colour into. Every accent role
+  (`--accent-text`, `--accent-solid`, `--accent-fg`, `--accent-tint`) is derived from it in
+  CSS so any tenant colour stays legible in both themes; `npm run check:contrast` verifies.
+  Use the derived tokens, never `rgb(var(--color-emerald-default-rgb))` directly.
 - Dark mode keys off a `.dark` class on `<html>` (`theme-context.js`), not OS
   `prefers-color-scheme` — so `dark:` utilities must key off that class
   (`@custom-variant dark` at the top of globals.css).
-- **Dual font:** a humanist sans for chrome, a serif for display headings; JetBrains Mono
-  for *all* tabular data, IDs, amounts and compliance codes (GST/TDS/MSME) with
-  `tabular-nums`.
+- **Fonts:** IBM Plex Sans for the UI; IBM Plex Mono **only** for identifiers and amounts
+  (not dates, statuses or prose). `tabular-nums` everywhere. Sentence case; no
+  uppercase-tracked labels; nothing under 12px.
+- Statuses go through `StatusBadge` and the one domain map in `src/components/ui/status.js`.
 
 ## 12. Docs in `docs/`
 

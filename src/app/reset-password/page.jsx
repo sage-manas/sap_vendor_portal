@@ -58,7 +58,7 @@ function ResetPasswordForm() {
     <div className="w-full max-w-[420px] p-8 card animate-fadeUp">
       {/* Brand Header */}
       <div className="flex flex-col items-center mb-8">
-        <div className="size-12 rounded-none flex items-center justify-center text-white mb-3 shrink-0" style={{ backgroundColor: 'rgb(var(--color-emerald-default-rgb))' }}>
+        <div className="size-12 rounded-none flex items-center justify-center text-white mb-3 shrink-0" style={{ backgroundColor: 'var(--accent-solid)' }}>
           <Building2 className="size-6" />
         </div>
         <h1 className="text-xl font-bold text-text-primary tracking-wide">Set a New Password</h1>
