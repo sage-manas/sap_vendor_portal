@@ -51,17 +51,15 @@ const unitPriceField = (line) => screen.getByLabelText(`Unit price (₹) for lin
 // rather than for the click — the per-line price fields do not exist until
 // an RFQ is chosen.
 const openQuotationTab = async (user) => {
-  // The tab bar button and the form's submit button carry the same label, so
-  // the tab is the one that is not a submit control.
-  const tab = (await screen.findAllByRole('button', { name: /^Submit Quotation$/i }))
-    .find((button) => button.getAttribute('type') !== 'submit');
+  // The tab and the form's submit button carry the same label; the tab is
+  // the one with the tab role.
+  const tab = await screen.findByRole('tab', { name: /^Submit quotation$/i });
   await user.click(tab);
   await waitFor(() => expect(rfqSelect()).toBeInTheDocument(), { timeout: 4000 });
 };
 
 const submitForm = (user) => user.click(
-  screen.getAllByRole('button', { name: /^Submit Quotation$/i })
-    .find((button) => button.getAttribute('type') === 'submit')
+  screen.getByRole('button', { name: /^Submit quotation$/i })
 );
 
 // The RFQ picker sits above the field cards and is named by the heading

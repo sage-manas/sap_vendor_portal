@@ -33,8 +33,7 @@ const field = (label) => screen.getByLabelText(label, { exact: false });
 const unitPriceField = (line) => screen.getByLabelText(`Unit price (₹) for line ${line}`, { exact: false });
 
 const openQuotationTab = async (user) => {
-  const tab = (await screen.findAllByRole('button', { name: /^Submit Quotation$/i }))
-    .find((button) => button.getAttribute('type') !== 'submit');
+  const tab = await screen.findByRole('tab', { name: /^Submit quotation$/i });
   await user.click(tab);
   await waitFor(() => expect(screen.getByLabelText('Choose a request')).toBeInTheDocument(), { timeout: 4000 });
 };
@@ -50,7 +49,8 @@ describe('a supplier can see the price they already submitted', () => {
     // already carries this vendor's own bid, so the monitor list — requests
     // still waiting on a quote — has nothing to show.
     await waitFor(() => expect(screen.getByText(/no open rfqs to show/i)).toBeInTheDocument());
-    expect(screen.getByText(/no open rfq records found/i)).toBeInTheDocument();
+    // One empty state, not an empty list beside an empty detail pane.
+    expect(screen.queryByRole('list', { name: /open requests/i })).not.toBeInTheDocument();
     expect(screen.getByText(/1\s*quoted/i)).toBeInTheDocument();
   });
 
