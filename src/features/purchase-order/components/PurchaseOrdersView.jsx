@@ -97,6 +97,10 @@ const displayDate = (value) => {
 
 // Saved views over the list — groups of the same statuses the status filter
 // already knows; their counts are what the old KPI cards showed.
+// A YYYY-MM-DD date days from today, for the shipment form's defaults.
+// Module-level so the clock read stays out of anything React renders.
+const isoDateInDays = (days) => new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
 const SAVED_VIEWS = [
   { value: 'all', label: 'All', match: () => true },
   { value: 'ack', label: 'Needs acknowledgement', match: (s) => s === 'Open' },
@@ -391,7 +395,7 @@ export default function PurchaseOrdersView({
       vehicleNumber: prev.vehicleNumber || '',
       invoiceReference: prev.invoiceReference || '',
       shipDate: prev.shipDate || new Date().toISOString().split('T')[0],
-      estimatedDeliveryDate: prev.estimatedDeliveryDate || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      estimatedDeliveryDate: prev.estimatedDeliveryDate || isoDateInDays(3),
       items: initialQtys
     }));
   };
@@ -486,7 +490,7 @@ export default function PurchaseOrdersView({
       vehicleNumber: '',
       invoiceReference: '',
       shipDate: new Date().toISOString().split('T')[0],
-      estimatedDeliveryDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      estimatedDeliveryDate: isoDateInDays(3),
       items: initialQtys
     });
     setDetailTab('create_asn');

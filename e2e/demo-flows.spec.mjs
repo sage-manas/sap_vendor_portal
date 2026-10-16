@@ -95,13 +95,13 @@ test.describe('demo flows, through the UI', () => {
     await page.getByLabel('Currency').selectOption({ index: 1 });
     await page.getByLabel('Shipping terms 1').fill('FOB');
     await page.getByLabel('Shipping terms 2').fill('Mumbai Port');
-    await page.getByRole('button', { name: 'Save & Continue' }).click();
+    await page.getByRole('button', { name: 'Save and continue' }).click();
 
     // --- Step 2: tax ----------------------------------------------------------
     await expect(page.getByLabel('GST Registration Type')).toBeVisible();
     await page.getByLabel('GST Registration Type').selectOption({ index: 1 });
     await page.getByLabel('TDS Section').selectOption({ index: 1 });
-    await page.getByRole('button', { name: 'Save & Continue' }).click();
+    await page.getByRole('button', { name: 'Save and continue' }).click();
 
     // --- Step 3: bank ---------------------------------------------------------
     await expect(page.getByLabel('Account holder name')).toBeVisible();
@@ -114,7 +114,7 @@ test.describe('demo flows, through the UI', () => {
     await page.getByLabel('Bank branch (auto-fetched)').fill('Bhosari, Pune');
     await page.getByLabel('Cancelled cheque copy').setInputFiles(pdf('cancelled-cheque.pdf'));
     await expect(page.getByText('cancelled-cheque.pdf')).toBeVisible();
-    await page.getByRole('button', { name: 'Save & Continue' }).click();
+    await page.getByRole('button', { name: 'Save and continue' }).click();
 
     // --- Step 4: documents ----------------------------------------------------
     await page.getByLabel('PAN card copy').setInputFiles(pdf('pan-card.pdf'));
