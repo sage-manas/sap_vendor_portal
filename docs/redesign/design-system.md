@@ -273,6 +273,39 @@ entries; `destructive` items), `Checkbox` (with `indeterminate`), `Switch`,
 
 ---
 
+## App shell — `src/components/shell/`
+
+One shell (`AppShell`) for the supplier portal (`PortalLayout`), the tenant
+workspace (`app/workspace/layout.jsx`) and the platform console
+(`app/platform/layout.jsx`). Each layout passes its own navigation — still
+filtered by its own permission registry (`workspaceNav.js`, `platformNav.js`,
+`onboarding.js`'s `modulesFor`) — plus identity and top-bar items.
+
+- **Sidebar:** labelled, 240px, collapsible to a 56px icon rail (`Ctrl+B`, or
+  the button left of the top bar). Collapse is remembered in `localStorage`
+  (`vc-sidebar-collapsed`). Registry entries with `group: 'admin'` sit at the
+  foot. Count badges are neutral pills with an accessible label ("3 orders need
+  acknowledgement"); collapsed, they become a dot.
+- **Identity:** the sidebar header names whose space this is — the buyer's
+  workspace (logo or initial) with "Supplier portal" or "Workspace" under it.
+  The **platform console's header is inverted** so an operator can never mistake
+  it for a tenant workspace.
+- **Top bar:** search (`Ctrl K`, supplier portal), `SapStatus`,
+  notifications (supplier portal), `ThemeToggle`, `UserMenu`.
+- **`SapStatus`:** the one SAP indicator — a dot and a word, with a popover of
+  last sync, system and the last 24h of calls. Reads
+  `GET /api/dashboard/sap-status` every 60s (the workspace's row of the platform
+  health board). States: connected / degraded / unreachable / idle (no traffic
+  today, synced before) / no activity yet / unavailable. Not shown on the
+  platform console, which has the per-tenant health board instead.
+- **Phones (< 768px):** the sidebar is a sheet (dialog, Escape closes, focus
+  returns to the menu button).
+
+- ❌ Status chips repeating the SAP state on pages; red alarm count bubbles;
+  icon-only navigation without a label.
+
+---
+
 ## Migrating a screen
 
 | Old | New |
