@@ -1,31 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { usePortal } from '@/lib/portal-context';
-import SkeletonLoader from '@/components/shared/SkeletonLoader';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { Button } from '@/components/ui/button';
-import KPICard from '@/components/ui/KPICard';
-import EmptyState from '@/components/ui/EmptyState';
+import KPICard, { KPIStrip } from '@/components/ui/KPICard';
 import StatusBadge from '@/components/ui/StatusBadge';
 import Drawer from '@/components/ui/Drawer';
+import DataTable from '@/components/ui/DataTable';
+import TableSkeleton from '@/components/ui/TableSkeleton';
+import { PageHeader } from '@/components/ui/Page';
+import { Section } from '@/components/ui/Card';
+import { Meter } from '@/components/ui/controls';
 import { poStatusVariant, invoiceStatusVariant } from '@/lib/statusColors';
 import { downloadFromApi } from '@/lib/download';
-import {
-  FileText,
-  ShoppingBag,
-  Receipt,
-  CreditCard,
-  Activity,
-  Download,
-  AlertTriangle,
-  Calendar,
-  Sparkles,
-  ChevronRight,
-  FileCheck,
-  RefreshCw,
-  FolderOpen,
-  CheckCircle2,
-  AlertCircle
-} from 'lucide-react';
+import { CheckCircle2, ChevronRight, Download, RefreshCw, X } from 'lucide-react';
 
 // Amounts arrive as Decimal strings from the API (utils/money.js on the server).
 const money = (value) => Number(value) || 0;
@@ -33,13 +20,7 @@ const money = (value) => Number(value) || 0;
 const inr = (value) =>
   `₹${money(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-// ₹8.4L / ₹1.2Cr for a headline figure; exact rupees below a lakh.
-const inrCompact = (value) => {
-  const n = money(value);
-  if (n >= 1e7) return `₹${(n / 1e7).toFixed(2)}Cr`;
-  if (n >= 1e5) return `₹${(n / 1e5).toFixed(1)}L`;
-  return `₹${Math.round(n).toLocaleString('en-IN')}`;
-};
+const amount = (value) => money(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const shortDate = (value) => {
   if (!value) return '—';
@@ -62,10 +43,14 @@ const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`;
 const listIds = (rows, idOf) =>
   rows.slice(0, 3).map(idOf).join(', ') + (rows.length > 3 ? ` +${rows.length - 3}` : '');
 
+const poTotal = (po) => (po.items || []).reduce((sum, item) => sum + money(item.netValue), 0);
+
+// What a task's dot means: waiting on you, or something to look at.
+const TASK_TONE = { warning: 'bg-warning', acknowledge: 'bg-accent-solid', invoice: 'bg-accent-solid', ship: 'bg-accent-solid', rfq: 'bg-accent-solid' };
+
 export default function DashboardView({ state, setActiveTab }) {
   const portal = usePortal();
 
-  // Local simulated production state flags
   const [isLoading, setIsLoading] = useState(true);
   const [drawerContent, setDrawerContent] = useState(null); // { type: 'PO' | 'Invoice', data: any }
   const [selectedItemIds, setSelectedItemIds] = useState([]);
@@ -121,33 +106,6 @@ export default function DashboardView({ state, setActiveTab }) {
     }
   };
 
-  // Helper function to render a custom illustrative empty state
-  const renderEmptyState = (title, description, IconComp, actionText, onAction) => (
-    <EmptyState
-      icon={IconComp}
-      title={title}
-      description={description}
-      className="min-h-[180px] animate-fade-in"
-      action={actionText && onAction ? (
-        <Button variant="ghost" size="sm" onClick={onAction}>
-          <RefreshCw className="size-2.5" />
-          <span>{actionText}</span>
-        </Button>
-      ) : undefined}
-    />
-  );
-
-  // Helper for rendering skeleton loading shapes
-  const renderCardSkeleton = () => (
-    <div className="metric-panel !p-2.5 flex-row items-start justify-between animate-pulse">
-      <div className="space-y-2 flex-1">
-        <div className="skeleton h-2.5 rounded w-20"></div>
-        <div className="skeleton h-5 rounded w-12"></div>
-      </div>
-      <div className="size-6 rounded-full skeleton shrink-0"></div>
-    </div>
-  );
-
   // Action items, each one a count of real documents that are waiting on the
   // supplier. No alert is shown for a condition the data does not establish.
   const alerts = [];
@@ -158,8 +116,6 @@ export default function DashboardView({ state, setActiveTab }) {
       desc: 'The buyer’s three-way match flagged a difference between the order, the goods receipt and the invoice.',
       actionText: 'Review invoices',
       tab: 'invoices',
-      icon: AlertTriangle,
-      iconColor: 'text-amber-600 bg-amber-50 border-amber-200'
     });
   }
   if (toAcknowledge.length > 0) {
@@ -169,8 +125,6 @@ export default function DashboardView({ state, setActiveTab }) {
       desc: 'Confirm you accept the order so the buyer knows it is in hand.',
       actionText: 'Acknowledge',
       tab: 'pos',
-      icon: Calendar,
-      iconColor: 'text-red-700 bg-red-50 border-red-200'
     });
   }
   if (pendingInvoices.length > 0) {
@@ -180,8 +134,6 @@ export default function DashboardView({ state, setActiveTab }) {
       desc: 'Submit your invoice against these goods receipts so payment can be processed.',
       actionText: 'Submit invoice',
       tab: 'pos',
-      icon: Receipt,
-      iconColor: 'text-amber-600 bg-amber-50 border-amber-200'
     });
   }
   if (toShip.length > 0) {
@@ -191,8 +143,6 @@ export default function DashboardView({ state, setActiveTab }) {
       desc: 'Send the shipment notice when goods leave your dock, so the goods receipt can be matched.',
       actionText: 'Send shipment',
       tab: 'pos',
-      icon: ShoppingBag,
-      iconColor: 'text-blue-700 bg-blue-50 border-blue-200'
     });
   }
   if (openRfqs.length > 0) {
@@ -200,18 +150,10 @@ export default function DashboardView({ state, setActiveTab }) {
       type: 'rfq',
       title: `${plural(openRfqs.length, 'RFQ')} open for your quotation (${listIds(openRfqs, rfq => rfq.id)})`,
       desc: `${openRfqs[0].description || 'Request for quotation'}${openRfqs.length > 1 ? ` and ${openRfqs.length - 1} more` : ''}.`,
-      actionText: 'Submit Quotation',
+      actionText: 'Submit quotation',
       tab: 'rfqs',
-      icon: Sparkles,
-      iconColor: 'text-blue-700 bg-blue-50 border-blue-200'
     });
   }
-
-  const toggleSelection = (id) => {
-    setSelectedItemIds(prev => 
-      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-    );
-  };
 
   // Selection is shared across the PO and Invoice lists, so each branch below only
   // acts on the ids that actually match its own dataset and skips the rest.
@@ -274,650 +216,287 @@ export default function DashboardView({ state, setActiveTab }) {
     setSelectedItemIds([]);
   };
 
+  // The two lists share one selection, so each table only sees its own ids.
+  const invoiceKey = (inv) => inv.invoiceNumber || inv.no;
+  const poIds = new Set(pos.map((p) => p.id));
+  const invoiceKeys = new Set(invoices.map(invoiceKey));
+  const setSelectionWithin = (keys) => (next) =>
+    setSelectedItemIds((prev) => [...prev.filter((id) => !keys.has(id)), ...next]);
+
+  const orderColumns = [
+    { key: 'id', header: 'Order', mono: true, primary: true },
+    { key: 'material', header: 'Material', wrap: true, render: (row) => <span className="text-fg">{row.items?.[0]?.description || '—'}</span> },
+    { key: 'date', header: 'Raised', render: (row) => shortDate(row.createdDate) },
+    { key: 'value', header: 'Value (₹)', align: 'right', render: (row) => <span className="mono">{amount(poTotal(row))}</span> },
+    { key: 'status', header: 'Status', render: (row) => <StatusBadge label={row.status} variant={poStatusVariant(row.status)} /> },
+  ];
+
+  const invoiceColumns = [
+    { key: 'no', header: 'Invoice', primary: true, render: (row) => <span className="mono">{invoiceKey(row)}</span> },
+    { key: 'poId', header: 'Order', mono: true },
+    { key: 'date', header: 'Date', render: (row) => shortDate(row.invoiceDate) },
+    { key: 'value', header: 'Value (₹)', align: 'right', render: (row) => <span className="mono">{amount(row.totalAmount)}</span> },
+    { key: 'status', header: 'Status', render: (row) => <StatusBadge label={row.status} variant={invoiceStatusVariant(row.status)} /> },
+  ];
+
+  const downloadStatement = () => downloadFromApi('/reports/statement', 'account-statement.pdf')
+    .catch((err) => portal.addToast('error', `Could not download the statement: ${err.message}`));
+
   return (
     <ErrorBoundary>
-      <>
-        <div className="space-y-6 max-w-full animate-fade-in pb-12">
-
-        {/* 1. TOP HEADER & MAIN BUTTON ACTIONS */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-          <div>
-            <h2 className="page-title select-none">Vendor Dashboard</h2>
-            <p className="text-text-tertiary text-[11px] mt-0.5 font-medium" suppressHydrationWarning>
-              Your account overview &mdash; {shortDate(today)} &bull; {fiscalLabel(today)}
-            </p>
-          </div>
-
-          {/* INTERACTIVE STATE CONTROLS */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleFetchPOs}
-            >
-              <RefreshCw className="size-3" />
-              <span>Sync</span>
-            </Button>
-
-            <Button variant="default" size="sm" onClick={() => setActiveTab('invoices')}>
-              <FileText className="size-3" />
-              <span>View Invoices</span>
-            </Button>
-          </div>
-        </div>
-
-        {/* 2. WELCOME BANNER — a real card with an accent wash, not a hardcoded
-            solid-color block (was bg-[#3730A3] dark:bg-[#B8860B], invisible to
-            per-tenant branding and unrelated to the rest of the token system). */}
-        <div
-          className="card p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4"
-          style={{ backgroundColor: 'var(--color-emerald-dim)' }}
-        >
-          <div>
-            <p className="text-[10px] uppercase tracking-wider text-emerald-text font-bold mb-1">Welcome back</p>
-            <h3 className="page-title mb-2">
-              {profile.companyName || '—'}
-            </h3>
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-text-secondary">
-              <span>Supplier ID: <strong className="font-mono text-text-primary">{profile.sapVendorCode || profile.vendorId || '—'}</strong></span>
-              <span className="text-text-tertiary">|</span>
-              <span>GSTIN: <strong className="font-mono text-text-primary">{profile.gstin || '—'}</strong></span>
+      <div className="pb-16">
+        <PageHeader
+          title="Overview"
+          description={(
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-1" suppressHydrationWarning>
+              <span className="text-fg">{profile.companyName || '—'}</span>
+              <span aria-hidden="true">·</span>
+              <span>Supplier ID <span className="mono text-fg">{profile.sapVendorCode || profile.vendorId || '—'}</span></span>
+              <span aria-hidden="true">·</span>
+              <span>GSTIN <span className="mono text-fg">{profile.gstin || '—'}</span></span>
               {profile.status && <StatusBadge label={profile.status} />}
-            </div>
-          </div>
-
-          {/* QUICK ICON SHORTCUTS */}
-          <div className="flex flex-wrap items-stretch gap-2 border-t border-border pt-4 lg:border-t-0 lg:pt-0">
-            {[
-              { label: 'View Invoices', tab: 'invoices', icon: Receipt },
-              { label: 'Send shipment', tab: 'pos', icon: ShoppingBag },
-              { label: 'View RFQs', tab: 'rfqs', icon: FileText },
-              { label: 'Statement', tab: 'payments', icon: CreditCard },
-              { label: 'TDS Certificates', tab: 'payments', icon: FileCheck }
-            ].map((action, idx) => {
-              const IconComp = action.icon;
-              return (
-                <button
-                  key={idx}
-                  onClick={() => setActiveTab(action.tab)}
-                  className="flex flex-col items-center justify-center min-w-[76px] px-2.5 py-2 rounded-lg bg-surface/60 hover:bg-surface transition-colors text-center cursor-pointer text-text-secondary hover:text-text-primary gap-1.5 border border-transparent hover:border-border"
-                >
-                  <IconComp className="size-4 shrink-0" />
-                  <span className="text-[9px] font-bold leading-tight uppercase tracking-tight whitespace-nowrap">{action.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* 3. 4 STAT CARDS KPI ROW */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {isLoading ? (
-            <div className="col-span-full">
-              <SkeletonLoader type="card" count={4} />
-            </div>
-          ) : (
-            <>
-              {/* Stat Card 1: Open POs */}
-              <div className="animate-fade-in animate-stagger-1">
-                <KPICard
-                  label="Open POs"
-                  value={<span className="tabular-nums">{openPOCount}</span>}
-                  icon={ShoppingBag}
-                  sub={toAcknowledge.length ? `${toAcknowledge.length} awaiting acknowledgement` : 'all acknowledged'}
-                />
-              </div>
-
-              {/* Stat Card 2: Pending Invoices */}
-              <div className="animate-fade-in animate-stagger-2">
-                <KPICard
-                  label="Pending Invoices"
-                  value={<span className="tabular-nums">{pendingInvoicesCount}</span>}
-                  icon={Receipt}
-                  tone="amber"
-                  sub={pendingInvoicesCount ? 'goods receipts to invoice' : 'nothing to invoice'}
-                />
-              </div>
-
-              {/* Stat Card 3: Awaiting payment */}
-              <div className="animate-fade-in animate-stagger-3">
-                <KPICard
-                  label="Awaiting Payment"
-                  value={<span className="tabular-nums">{inrCompact(unpaidTotal)}</span>}
-                  icon={CreditCard}
-                  tone="info"
-                  sub={`${plural(unpaidInvoices.length, 'invoice')} not yet cleared`}
-                />
-              </div>
-
-              {/* Stat Card 4: Performance Score */}
-              <div className="animate-fade-in animate-stagger-4">
-                <KPICard
-                  label="Performance Score"
-                  value={
-                    <span className="tabular-nums">
-                      {hasPerformance ? performance.weightedScore : '—'}
-                      <span className="text-[16px] text-text-tertiary font-normal ml-1">/ 100</span>
-                    </span>
-                  }
-                  icon={Activity}
-                  tone="success"
-                  sub={performance.grade ? `Grade ${performance.grade}` : undefined}
-                />
-              </div>
-            </>
+              <span className="basis-full text-fg-subtle">{shortDate(today)} · {fiscalLabel(today)}</span>
+            </span>
           )}
-        </div>
-
-        {/* 4. ALERTS & NOTIFICATIONS (2x2 Grid Panel) */}
-        <div className="card overflow-hidden">
-          <div className="px-3.5 py-2.5 border-b border-border">
-            <h4 className="label mb-0">Alerts &amp; Notifications</h4>
-          </div>
-
-          {isLoading ? (
-            <div className="p-3 space-y-2 animate-pulse">
-              <div className="skeleton h-3 rounded w-2/3"></div>
-              <div className="skeleton h-2.5 rounded w-1/4"></div>
-            </div>
-          ) : alerts.length === 0 ? (
-            renderEmptyState(
-              'All Action Items Cleared',
-              'You have no pending alerts or notifications.',
-              CheckCircle2
-            )
-          ) : (
-            /* VERTICAL ALERTS FEED */
-            <div className="flex flex-col divide-y divide-border/50">
-              {alerts.map((alert, idx) => {
-                const Icon = alert.icon;
-                return (
-                  <div key={idx} className="p-4 flex items-start gap-4 hover:bg-surface2 transition-colors duration-200 cursor-pointer" onClick={() => setActiveTab(alert.tab)}>
-                    <div className={`size-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 border ${alert.iconColor} shadow-sm`}>
-                      <Icon className="size-4" />
-                    </div>
-                    <div className="space-y-1 flex-1">
-                      <div className="flex justify-between items-start">
-                        <h5 className="font-bold text-[13px] text-text-primary">{alert.title}</h5>
-                        <span className="text-[10px] text-text-tertiary font-mono tracking-wide uppercase">New</span>
-                      </div>
-                      <p className="text-[12px] text-text-secondary leading-relaxed pr-8">{alert.desc}</p>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setActiveTab(alert.tab); }}
-                        className="text-emerald-text font-bold text-[11px] flex items-center gap-1 hover:underline pt-1.5 transition-colors duration-150"
-                      >
-                        <span>{alert.actionText}</span>
-                        <ChevronRight className="size-3" />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+          secondary={(
+            <Button variant="secondary" onClick={handleFetchPOs} loading={isLoading}>
+              <RefreshCw strokeWidth={1.5} /> Refresh orders
+            </Button>
           )}
-        </div>
+        />
 
-        {/* 5. SIDE-BY-SIDE: RECENT POs & RECENT INVOICES */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-          {/* RECENT PURCHASE ORDERS */}
-          <div className="card overflow-hidden flex flex-col">
-            <div className="px-3.5 py-2.5 border-b border-border flex items-center justify-between">
-              <h4 className="label mb-0">
-                Purchase Orders Monitor
-              </h4>
-              <button
-                onClick={() => setActiveTab('pos')}
-                className="text-[11px] text-text-tertiary hover:text-text-primary hover:underline font-semibold cursor-pointer transition-colors duration-150"
-              >
-                All Orders
-              </button>
-            </div>
-            {isLoading ? (
-              <div className="p-3 space-y-3 animate-pulse">
-                <div className="skeleton h-8 rounded"></div>
-                <div className="skeleton h-8 rounded"></div>
-              </div>
-            ) : !state.pos || state.pos.length === 0 ? (
-              renderEmptyState(
-                'No Active Purchase Orders',
-                'No purchase orders have been issued to your company yet.',
-                FolderOpen,
-                'Check for new orders',
-                handleFetchPOs
-              )
-            ) : (
-              <div className="flex flex-col">
-                {state.pos.slice(0, 4).map((row, idx) => {
-                  const isSelected = selectedItemIds.includes(row.id);
-                  return (
-                    <div key={idx} className={`group relative p-3 flex items-center justify-between transition-all duration-200 border-b border-border/40 last:border-0 ${isSelected ? 'bg-primary/5' : 'hover:bg-surface2/50'}`}>
-                      {/* Selection indicator bar */}
-                      <div className={`absolute left-0 top-0 bottom-0 w-1 transition-colors duration-200 ${isSelected ? 'bg-primary' : 'bg-transparent group-hover:bg-border/50'}`} />
-                      
-                      <div className="flex items-center gap-3.5 min-w-0 pl-2">
-                        <div className="flex items-center justify-center shrink-0">
-                          <input 
-                            type="checkbox" 
-                            checked={isSelected}
-                            onChange={() => toggleSelection(row.id)}
-                            className="size-4 rounded-sm border-border text-primary focus:ring-primary focus:ring-offset-1 focus:ring-offset-surface cursor-pointer bg-base transition-colors"
-                          />
-                        </div>
-                        <div className={`size-8 rounded-lg flex items-center justify-center shrink-0 transition-colors ${isSelected ? 'bg-primary/10 text-primary' : 'bg-surface2 text-text-secondary border border-border'}`}>
-                          <ShoppingBag className="size-3.5" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <span 
-                            className="font-mono font-bold text-text-primary cursor-pointer hover:text-primary transition-colors text-[12px] tracking-tight" 
-                            onClick={() => setDrawerContent({ type: 'PO', data: row })}
-                          >
-                            {row.id}
-                          </span>
-                          <p className="text-[11px] text-text-tertiary truncate mt-0.5">
-                            <span className="font-medium text-text-secondary">{row.items?.[0]?.description || 'Material Order'}</span> 
-                            <span className="mx-1.5 opacity-50">&bull;</span> 
-                            {row.items?.[0]?.quantity || 0} {row.items?.[0]?.uom || 'EA'}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-4 shrink-0 text-right pr-1">
-                        <div className="hidden sm:block">
-                          <p className="font-mono font-bold text-text-primary text-[12px] tabular-nums tracking-tight">{inr((row.items || []).reduce((sum, item) => sum + money(item.netValue), 0))}</p>
-                          <p className="text-[10px] text-text-tertiary font-mono mt-0.5 tabular-nums">{shortDate(row.createdDate)}</p>
-                        </div>
-                        <StatusBadge label={row.status} variant={poStatusVariant(row.status)} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* RECENT INVOICES */}
-          <div className="card overflow-hidden flex flex-col">
-            <div className="px-4 py-3 border-b border-border flex items-center justify-between bg-surface/50">
-              <h4 className="text-[12px] font-bold text-text-primary uppercase tracking-wider mb-0 flex items-center gap-2">
-                <Receipt className="size-4 text-text-tertiary" />
-                Logistics Invoices Ledger
-              </h4>
-              <button
-                onClick={() => setActiveTab('invoices')}
-                className="text-[11px] text-text-tertiary hover:text-primary font-medium cursor-pointer transition-colors duration-150 flex items-center gap-1"
-              >
-                All Invoices <ChevronRight className="size-3" />
-              </button>
-            </div>
-            {isLoading ? (
-              <div className="p-4 space-y-4 animate-pulse">
-                <div className="skeleton h-10 rounded-lg"></div>
-                <div className="skeleton h-10 rounded-lg"></div>
-              </div>
-            ) : !state.invoices || state.invoices.length === 0 ? (
-              renderEmptyState(
-                'No Invoices Logged',
-                'No invoices yet. Once your buyer\'s finance team posts one against a delivery, it will appear here.',
-                FileText,
-                'View Invoices',
-                () => setActiveTab('invoices')
-              )
-            ) : (
-              <div className="flex flex-col">
-                {state.invoices.slice(0, 4).map((row, idx) => {
-                  const isSelected = selectedItemIds.includes(row.invoiceNumber || row.no);
-                  return (
-                    <div key={idx} className={`group relative p-3 flex items-center justify-between transition-all duration-200 border-b border-border/40 last:border-0 ${isSelected ? 'bg-primary/5' : 'hover:bg-surface2/50'}`}>
-                      {/* Selection indicator bar */}
-                      <div className={`absolute left-0 top-0 bottom-0 w-1 transition-colors duration-200 ${isSelected ? 'bg-primary' : 'bg-transparent group-hover:bg-border/50'}`} />
-                      
-                      <div className="flex items-center gap-3.5 min-w-0 pl-2">
-                        <div className="flex items-center justify-center shrink-0">
-                          <input 
-                            type="checkbox" 
-                            checked={isSelected}
-                            onChange={() => toggleSelection(row.invoiceNumber || row.no)}
-                            className="size-4 rounded-sm border-border text-primary focus:ring-primary focus:ring-offset-1 focus:ring-offset-surface cursor-pointer bg-base transition-colors"
-                          />
-                        </div>
-                        <div className={`size-8 rounded-lg flex items-center justify-center shrink-0 transition-colors ${isSelected ? 'bg-primary/10 text-primary' : 'bg-surface2 text-text-secondary border border-border'}`}>
-                          <Receipt className="size-3.5" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <span 
-                            className="font-mono font-bold text-text-primary cursor-pointer hover:text-primary transition-colors text-[12px] tracking-tight" 
-                            onClick={() => setDrawerContent({ type: 'Invoice', data: row })}
-                          >
-                            {row.invoiceNumber || row.no}
-                          </span>
-                          <p className="text-[11px] text-text-tertiary truncate mt-0.5">
-                            Ref PO: <strong className="font-mono font-bold text-text-secondary">{row.poId}</strong>
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-4 shrink-0 text-right pr-1">
-                        <div className="hidden sm:block">
-                          <p className="font-mono font-bold text-text-primary text-[12px] tabular-nums tracking-tight">{inr(row.totalAmount)}</p>
-                          <p className="text-[10px] text-text-tertiary font-mono mt-0.5 tabular-nums">{shortDate(row.invoiceDate)}</p>
-                        </div>
-                        <StatusBadge label={row.status} variant={invoiceStatusVariant(row.status)} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* 6. SIDE-BY-SIDE: PERFORMANCE BAR INDICATORS & RECENT PAYMENTS */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-
-          {/* MY PERFORMANCE SCORING BARS */}
-          <div className="lg:col-span-5 card p-3.5 flex flex-col justify-between min-h-[300px]">
-            <div>
-              <h4 className="label mb-0 border-b border-border pb-2">
-                Service Delivery KPIs (OTIF)
-              </h4>
-
+        <div className="grid gap-x-8 gap-y-10 xl:grid-cols-[minmax(0,1fr)_20rem]">
+          <div className="min-w-0 space-y-10">
+            <Section title="Needs your attention">
               {isLoading ? (
-                <div className="space-y-3 pt-3 animate-pulse">
-                  <div className="skeleton h-5 rounded"></div>
-                  <div className="skeleton h-5 rounded"></div>
-                  <div className="skeleton h-5 rounded"></div>
-                </div>
-              ) : !hasPerformance ? (
-                <p className="pt-3 text-[11px] text-text-tertiary">
-                  Scores appear once you have delivered and invoiced against a purchase order.
+                <div className="card"><TableSkeleton rows={3} cols={2} /></div>
+              ) : alerts.length === 0 ? (
+                <p className="flex items-center gap-2 text-sm text-fg-muted">
+                  <CheckCircle2 className="size-4 text-success" strokeWidth={1.5} aria-hidden="true" />
+                  Nothing needs your attention right now.
                 </p>
               ) : (
-                /* INDICATORS SCALE — the three measures GET /vendors/performance computes */
-                <div className="space-y-3 pt-3">
-                  {[
-                    { name: 'On-Time In-Full Delivery (OTIF)', score: money(performance.deliveryOTIF), target: 95 },
-                    { name: 'Quality Acceptance Rate', score: money(performance.qualityAcceptance), target: 95 },
-                    { name: 'Invoice Billing Accuracy', score: money(performance.invoiceAccuracy), target: 90 },
-                  ].map((m) => {
-                    const meets = m.score >= m.target;
-                    return (
-                      <div key={m.name} className="space-y-1">
-                        <div className="flex justify-between text-[11px] font-bold">
-                          <span className="text-text-primary">{m.name}</span>
-                          <span className="text-text-secondary tabular-nums">
-                            {m.score}% <span className="text-text-tertiary font-normal">/ target {m.target}%</span>
-                            {meets && <span className="text-xs ml-0.5">✓</span>}
-                          </span>
-                        </div>
-                        <div className="w-full bg-surface2 h-1.5 rounded-full border border-border overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all duration-500 ${meets ? 'bg-emerald-500' : 'bg-amber-500'}`}
-                            style={{ width: `${Math.min(100, m.score)}%` }}
-                          ></div>
-                        </div>
+                <ul className="card divide-y divide-border">
+                  {alerts.map((alert) => (
+                    <li key={alert.type} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center">
+                      <span className={`mt-1.5 hidden size-2 shrink-0 self-start rounded-full sm:block ${TASK_TONE[alert.type]}`} aria-hidden="true" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-fg">{alert.title}</p>
+                        <p className="text-sm text-fg-muted">{alert.desc}</p>
                       </div>
-                    );
-                  })}
-                </div>
+                      <Button variant="secondary" size="sm" onClick={() => setActiveTab(alert.tab)} className="self-start sm:self-center">
+                        {alert.actionText}
+                        <ChevronRight strokeWidth={1.5} />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
               )}
-            </div>
+            </Section>
 
-            {/* OVERALL PERFORMANCE CARD SCORE */}
-            {hasPerformance && (
-              <div className="mt-3 bg-surface2/50 border border-border p-2.5 rounded-xl flex items-center justify-between">
-                <div>
-                  <span className="label mb-0">Overall Score</span>
-                  <p className="text-base font-bold text-text-primary font-mono mt-0.5 tabular-nums">
-                    {performance.weightedScore} <span className="text-[11px] font-normal text-text-tertiary font-sans">/ 100</span>
-                  </p>
-                </div>
-                {performance.grade && (
-                  <span className="px-2 py-0.5 rounded-md border border-border bg-surface2 text-text-primary text-[10px] font-semibold uppercase tracking-wider font-sans">
-                    Grade {performance.grade}
-                  </span>
-                )}
+            {isLoading ? (
+              <div className="card"><TableSkeleton rows={1} cols={4} /></div>
+            ) : (
+              <KPIStrip>
+                <KPICard
+                  label="Open orders"
+                  value={openPOCount}
+                  hint={toAcknowledge.length ? `${toAcknowledge.length} awaiting acknowledgement` : 'All acknowledged'}
+                />
+                <KPICard label="To invoice" value={pendingInvoicesCount} hint={pendingInvoicesCount ? plural(pendingInvoicesCount, 'goods receipt') : 'Nothing to invoice'} />
+                <KPICard
+                  label="Awaiting payment"
+                  value={<span className="mono">{inr(unpaidTotal)}</span>}
+                  empty={!unpaidTotal}
+                  hint={unpaidInvoices.length ? `${plural(unpaidInvoices.length, 'invoice')} not yet cleared` : 'Nothing outstanding'}
+                />
+                <KPICard
+                  label="Supplier score"
+                  value={hasPerformance ? <>{performance.weightedScore} <span className="text-sm font-medium text-fg-muted">/ 100{performance.grade ? ` · ${performance.grade}` : ''}</span></> : '—'}
+                  empty={!hasPerformance}
+                  hint={hasPerformance ? undefined : 'After your first delivery'}
+                />
+              </KPIStrip>
+            )}
+
+            {selectedItemIds.length > 0 && (
+              <div className="sticky top-2 z-20 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-sm shadow-popover" role="region" aria-label="Selection">
+                <span className="mr-auto text-fg">{selectedItemIds.length} selected</span>
+                <Button variant="secondary" size="sm" onClick={() => handleBulkAction('Acknowledge')}>
+                  <CheckCircle2 strokeWidth={1.5} /> Acknowledge
+                </Button>
+                <Button variant="secondary" size="sm" onClick={() => handleBulkAction('Download')}>
+                  <Download strokeWidth={1.5} /> Download PDF
+                </Button>
+                <Button variant="ghost" size="icon-sm" onClick={() => setSelectedItemIds([])} aria-label="Clear selection">
+                  <X strokeWidth={1.5} />
+                </Button>
               </div>
             )}
+
+            <Section
+              title="Recent orders"
+              actions={<Button variant="link" onClick={() => setActiveTab('pos')}>All orders</Button>}
+            >
+              <DataTable
+                caption="Recent orders"
+                columns={orderColumns}
+                rows={pos.slice(0, 5)}
+                loading={isLoading}
+                selectable
+                selected={selectedItemIds.filter((id) => poIds.has(id))}
+                onSelectedChange={setSelectionWithin(poIds)}
+                onRowClick={(row) => setDrawerContent({ type: 'PO', data: row })}
+                rowLabel={(row) => row.id}
+                empty={(
+                  <span>
+                    No purchase orders have been issued to your company yet.{' '}
+                    <Button variant="link" onClick={handleFetchPOs}>Check for new orders</Button>
+                  </span>
+                )}
+              />
+            </Section>
+
+            <Section
+              title="Recent invoices"
+              actions={<Button variant="link" onClick={() => setActiveTab('invoices')}>All invoices</Button>}
+            >
+              <DataTable
+                caption="Recent invoices"
+                columns={invoiceColumns}
+                rows={invoices.slice(0, 5)}
+                getRowId={invoiceKey}
+                loading={isLoading}
+                selectable
+                selected={selectedItemIds.filter((id) => invoiceKeys.has(id))}
+                onSelectedChange={setSelectionWithin(invoiceKeys)}
+                onRowClick={(row) => setDrawerContent({ type: 'Invoice', data: row })}
+                rowLabel={invoiceKey}
+                empty="No invoices yet — once your buyer’s finance team posts one against a delivery, it appears here."
+              />
+            </Section>
           </div>
 
-          {/* RECENT PAYMENTS RECEIVED */}
-          <div className="lg:col-span-7 card overflow-hidden flex flex-col justify-between min-h-[300px]">
-            <div>
-              <div className="px-3.5 py-2.5 border-b border-border flex items-center justify-between">
-                <h4 className="label mb-0">
-                  Treasury Disbursements (Recent)
-                </h4>
-                <button
-                  onClick={() => setActiveTab('payments')}
-                  className="text-[11px] text-text-tertiary hover:text-text-primary hover:underline font-semibold cursor-pointer transition-colors duration-150"
-                >
-                  Statement
-                </button>
-              </div>
+          <aside className="space-y-10">
+            <Section
+              title="Performance"
+              actions={<Button variant="link" onClick={() => setActiveTab('performance')}>Details</Button>}
+            >
+              {!hasPerformance ? (
+                <p className="text-sm text-fg-muted">Scores appear once you have delivered and invoiced against a purchase order.</p>
+              ) : (
+                <div className="card space-y-4 p-4">
+                  {/* The three measures GET /vendors/performance computes. */}
+                  <Meter label="On-time in full" value={money(performance.deliveryOTIF)} target={95} />
+                  <Meter label="Quality acceptance" value={money(performance.qualityAcceptance)} target={95} />
+                  <Meter label="Invoice accuracy" value={money(performance.invoiceAccuracy)} target={90} />
+                </div>
+              )}
+            </Section>
+
+            <Section
+              title="Recent payments"
+              actions={<Button variant="link" onClick={() => setActiveTab('payments')}>All payments</Button>}
+            >
               {/* state.payments is null until usePayments' first fetch answers
                   (issue #111) — distinct from [], a vendor confirmed to have
                   no payments. Rendering the empty state for null told a
                   supplier who simply hadn't loaded yet that they had never
                   been paid. */}
               {isLoading || state.payments === null ? (
-                <div className="p-3 space-y-3 animate-pulse">
-                  <div className="skeleton h-8 rounded"></div>
-                  <div className="skeleton h-8 rounded"></div>
-                </div>
+                <div className="card"><TableSkeleton rows={2} cols={2} /></div>
               ) : state.payments.length === 0 ? (
-                renderEmptyState(
-                  'No Disbursement Logs',
-                  'No payments yet. Payments are released 45 days after your buyer approves an invoice.',
-                  CreditCard
-                )
+                <p className="text-sm text-fg-muted">No payments yet. Payments are released 45 days after your buyer approves an invoice.</p>
               ) : (
-                <div className="flex flex-col">
-                  {state.payments.slice(0, 3).map((row, idx) => {
-                    // No invented UTR. This used to fall back to `UTR${Date.now()}`,
-                    // which both read the clock during render (impure) and put a
-                    // string indistinguishable from a real bank reference on screen
-                    // for a payment that has none yet — the same reason PO creation
-                    // stopped minting fake SAP order numbers.
-                    const utr = row.utrCode || row.utr || '—';
-                    const invNumber = row.invoiceNumber || row.invoiceId || '—';
-                    const method = row.paymentMethod || '—';
-                    const grossVal = money(row.grossAmount);
-                    const tdsVal = money(row.tdsDeducted);
-                    const netVal = money(row.netAmount);
-                    const payDate = shortDate(row.paymentDate);
-
-                    return (
-                      <div key={idx} className="p-2.5 flex items-center justify-between hover:bg-surface2 transition-colors duration-150 even:bg-surface2/30">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <div className="size-6 rounded bg-[#F0FDF4] border border-[#BBF7D0] flex items-center justify-center text-[#16A34A] shrink-0">
-                            <CreditCard className="size-3.5" />
-                          </div>
-                          <div className="min-w-0">
-                            <span className="font-mono font-bold text-text-primary cursor-pointer hover:underline text-[11px]" onClick={() => setActiveTab('payments')}>
-                              {utr}
-                            </span>
-                            <p className="text-[11px] text-text-tertiary mt-0.5 font-semibold">
-                              Inv: <strong className="font-mono font-bold">{invNumber}</strong> &bull; {method}
-                            </p>
-                          </div>
+                <div className="card">
+                  <ul className="divide-y divide-border">
+                    {state.payments.slice(0, 3).map((row, idx) => (
+                      // No invented UTR. This used to fall back to `UTR${Date.now()}`,
+                      // which both read the clock during render (impure) and put a
+                      // string indistinguishable from a real bank reference on screen
+                      // for a payment that has none yet.
+                      <li key={row.id || idx} className="flex items-start justify-between gap-3 px-4 py-3 text-sm">
+                        <div className="min-w-0">
+                          <p className="mono truncate text-fg" title="UTR">{row.utrCode || row.utr || '—'}</p>
+                          <p className="text-xs text-fg-subtle">
+                            {(row.invoiceNumber || row.invoiceId) && <><span className="mono">{row.invoiceNumber || row.invoiceId}</span> · </>}
+                            {shortDate(row.paymentDate)} · {row.paymentMethod || '—'}
+                          </p>
                         </div>
-
-                        <div className="flex items-center gap-4 shrink-0 text-right">
-                          <div className="hidden sm:block text-[10px] text-text-tertiary font-semibold">
-                            <p>Gross: <span className="font-mono text-text-primary tabular-nums">{inr(grossVal)}</span></p>
-                            <p>TDS: <span className="font-mono text-destructive tabular-nums">-{inr(tdsVal)}</span></p>
-                          </div>
-                          <div>
-                            <p className="font-mono font-bold text-[#16A34A] text-[11px] tabular-nums">{inr(netVal)}</p>
-                            <p className="text-[10px] text-text-tertiary font-mono mt-0.5 tabular-nums">{payDate}</p>
-                          </div>
+                        <div className="text-right">
+                          <p className="mono text-fg">{inr(row.netAmount)}</p>
+                          {money(row.tdsDeducted) > 0 && <p className="text-xs text-fg-subtle">TDS <span className="mono">{inr(row.tdsDeducted)}</span></p>}
                         </div>
-                      </div>
-                    );
-                  })}
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="border-t border-border px-4 py-2">
+                    <Button variant="link" onClick={downloadStatement}>Download statement (PDF)</Button>
+                  </div>
                 </div>
               )}
-            </div>
-
-            {/* ACTION BUTTON CLEARING BARS */}
-            <div className="p-2.5 bg-surface2/50 border-t border-border grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => downloadFromApi('/reports/statement', 'account-statement.pdf')
-                  .catch((err) => portal.addToast('error', `Could not download the statement: ${err.message}`))}
-                className="justify-center border border-transparent hover:border-border"
-              >
-                <Download className="size-3" />
-                <span>Download Advice</span>
-              </Button>
-              <Button variant="default" size="sm" onClick={() => setActiveTab('payments')} className="justify-center">
-                <FileCheck className="size-3" />
-                <span>Form 16A / TDS</span>
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* FLOATING ACTION BAR */}
-      <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 transition-all duration-300 transform ${selectedItemIds.length > 0 ? 'translate-y-0 opacity-100 scale-100' : 'translate-y-10 opacity-0 scale-95 pointer-events-none'}`}>
-        <div className="bg-surface shadow-2xl border border-border rounded-full px-4 py-2.5 flex items-center gap-4 text-[13px] font-medium animate-fade-in">
-          <div className="flex items-center gap-2 px-2 border-r border-border">
-            <span className="flex items-center justify-center size-5 bg-primary text-white rounded-full text-[11px] font-bold">
-              {selectedItemIds.length}
-            </span>
-            <span className="text-text-primary">Selected</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Button variant="outline" size="sm" onClick={() => handleBulkAction('Download')} className="h-7 text-[11px] rounded-full px-3">
-              <Download className="size-3 mr-1.5" />
-              Download PDF
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => handleBulkAction('Acknowledge')} className="h-7 text-[11px] rounded-full px-3 text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50">
-              <CheckCircle2 className="size-3 mr-1.5" />
-              Acknowledge
-            </Button>
-          </div>
-          <button 
-            onClick={() => setSelectedItemIds([])}
-            className="p-1 hover:bg-surface2 rounded-full text-text-tertiary transition-colors ml-2"
-          >
-            <AlertCircle className="size-4 rotate-45" />
-          </button>
+            </Section>
+          </aside>
         </div>
       </div>
 
       {/* DETAILS DRAWER */}
-      <Drawer 
-        isOpen={!!drawerContent} 
+      <Drawer
+        isOpen={!!drawerContent}
         onClose={() => setDrawerContent(null)}
-        title={
-          <div className="flex items-center gap-2">
-            {drawerContent?.type === 'PO' ? <ShoppingBag className="size-4 text-primary" /> : <Receipt className="size-4 text-primary" />}
-            <span>{drawerContent?.type === 'PO' ? `Purchase Order Details` : `Invoice Details`}</span>
-          </div>
-        }
+        title={drawerContent ? (drawerContent.type === 'PO' ? drawerContent.data.id : (drawerContent.data.invoiceNumber || drawerContent.data.no)) : ''}
+        description={drawerContent ? `${drawerContent.type === 'PO' ? 'Purchase order' : 'Invoice'} · ${shortDate(drawerContent.type === 'PO' ? drawerContent.data.createdDate : drawerContent.data.invoiceDate)}` : undefined}
+        footer={drawerContent && (
+          <>
+            <Button variant="ghost" onClick={() => setDrawerContent(null)}>Close</Button>
+            <Button onClick={() => { setDrawerContent(null); setActiveTab(drawerContent.type === 'PO' ? 'pos' : 'invoices'); }}>
+              Open in {drawerContent.type === 'PO' ? 'Orders' : 'Invoices'}
+            </Button>
+          </>
+        )}
       >
         {drawerContent && (
-          <div className="space-y-8 pb-8">
-            {/* Header Section */}
-            <div className="flex flex-col gap-3">
-              <div className="flex items-start justify-between">
-                <div>
-                  <h3 className="text-2xl font-bold text-text-primary font-mono tracking-tight">
-                    {drawerContent.type === 'PO' ? drawerContent.data.id : (drawerContent.data.invoiceNumber || drawerContent.data.no)}
-                  </h3>
-                  <p className="text-[13px] text-text-tertiary mt-1 flex items-center gap-1.5">
-                    <Calendar className="size-3.5" />
-                    {shortDate(drawerContent.type === 'PO' ? drawerContent.data.createdDate : drawerContent.data.invoiceDate)}
-                  </p>
-                </div>
-                <div className="pt-1">
-                  <StatusBadge 
-                    label={drawerContent.data.status} 
-                    variant={drawerContent.type === 'PO' ? poStatusVariant(drawerContent.data.status) : invoiceStatusVariant(drawerContent.data.status)} 
-                  />
-                </div>
-              </div>
-            </div>
+          <div className="space-y-6">
+            <dl className="grid grid-cols-[8rem_1fr] gap-x-3 gap-y-2.5">
+              <dt className="text-fg-muted">Status</dt>
+              <dd>
+                <StatusBadge
+                  label={drawerContent.data.status}
+                  variant={drawerContent.type === 'PO' ? poStatusVariant(drawerContent.data.status) : invoiceStatusVariant(drawerContent.data.status)}
+                />
+              </dd>
+              <dt className="text-fg-muted">Total value</dt>
+              <dd className="mono text-fg">
+                {inr(drawerContent.type === 'PO' ? poTotal(drawerContent.data) : drawerContent.data.totalAmount)}
+              </dd>
+              <dt className="text-fg-muted">Lines</dt>
+              <dd className="mono">{drawerContent.data.items?.length ?? 0}</dd>
+            </dl>
 
-            {/* Financial Summary */}
-            <div className="bg-surface rounded-xl border border-border shadow-sm overflow-hidden">
-              <div className="bg-surface2/50 px-4 py-2.5 border-b border-border">
-                <h4 className="text-[11px] font-bold uppercase tracking-widest text-text-secondary flex items-center gap-2">
-                  <CreditCard className="size-3.5" />
-                  Financial Summary
-                </h4>
-              </div>
-              <div className="p-4 flex justify-between items-end">
-                <div className="space-y-1">
-                  <span className="text-[12px] text-text-tertiary">Total Net Value</span>
-                  <p className="text-2xl font-mono font-bold text-text-primary tracking-tight">
-                    {inr(drawerContent.type === 'PO'
-                      ? (drawerContent.data.items || []).reduce((sum, item) => sum + money(item.netValue), 0)
-                      : drawerContent.data.totalAmount)}
-                  </p>
-                </div>
-                <div className="text-right space-y-1">
-                  <span className="text-[12px] text-text-tertiary">Items</span>
-                  <p className="text-[14px] font-mono font-medium text-text-secondary">
-                    {drawerContent.data.items?.length ?? 0}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Line Items */}
-            <div className="space-y-3">
-              <h4 className="text-[11px] font-bold uppercase tracking-widest text-text-secondary flex items-center gap-2 px-1">
-                <FileText className="size-3.5" />
-                Line Items
-              </h4>
-              
-              <div className="border border-border rounded-xl overflow-hidden divide-y divide-border bg-surface">
-                {drawerContent.data.items?.map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-center p-3.5 hover:bg-surface2/50 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <div className="size-8 rounded bg-base border border-border flex items-center justify-center text-text-tertiary font-mono text-[10px] shrink-0">
-                        {String(idx + 1).padStart(2, '0')}
-                      </div>
-                      <div>
-                        <p className="font-semibold text-[13px] text-text-primary">{item.description}</p>
-                        <p className="text-[11px] text-text-tertiary mt-0.5 flex items-center gap-1.5">
-                          <span className="font-mono bg-surface2 px-1.5 py-0.5 rounded text-[10px]">{item.quantity} {item.uom}</span>
-                          {item.materialCode && <span>&bull; {item.materialCode}</span>}
+            <div>
+              <h3 className="mb-2 text-sm font-medium text-fg">Line items</h3>
+              {drawerContent.data.items?.length ? (
+                <ul className="divide-y divide-border rounded-lg border border-border">
+                  {drawerContent.data.items.map((item, idx) => (
+                    <li key={idx} className="flex items-start justify-between gap-3 px-3 py-2.5">
+                      <div className="min-w-0">
+                        <p className="text-fg">{item.description}</p>
+                        <p className="text-xs text-fg-subtle">
+                          <span className="mono">{item.quantity} {item.uom}</span>
+                          {item.materialCode && <> · <span className="mono">{item.materialCode}</span></>}
                         </p>
                       </div>
-                    </div>
-                    <span className="font-mono font-medium text-[13px] text-text-primary">
-                      {inr(item.netValue ?? item.amount)}
-                    </span>
-                  </div>
-                )) || (
-                  <div className="p-6 text-center text-text-tertiary flex flex-col items-center gap-2">
-                    <FolderOpen className="size-6 opacity-50" />
-                    <p className="text-[12px]">Line item details not available in this preview.</p>
-                  </div>
-                )}
-              </div>
-            </div>
-            
-            {/* Actions */}
-            <div className="pt-6 flex gap-3">
-              <Button variant="outline" className="flex-1 border-border hover:bg-surface2" onClick={() => setDrawerContent(null)}>
-                Close
-              </Button>
-              <Button className="flex-1" onClick={() => { setDrawerContent(null); setActiveTab(drawerContent.type === 'PO' ? 'pos' : 'invoices'); }}>
-                Open Full Module &rarr;
-              </Button>
+                      <span className="mono text-fg">{inr(item.netValue ?? item.amount)}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-fg-muted">Line item details aren’t available here.</p>
+              )}
             </div>
           </div>
         )}
       </Drawer>
-
-      </>
     </ErrorBoundary>
   );
 }
