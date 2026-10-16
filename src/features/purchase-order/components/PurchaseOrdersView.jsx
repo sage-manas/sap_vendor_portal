@@ -2,50 +2,24 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  ShoppingBag, Clock, CheckCircle2, Truck, ChevronRight, ChevronLeft, Search, Filter,
-  Calendar, User, Download, AlertTriangle, Plus,
-  FileText, ChevronDown, Check, MapPin, CreditCard, ArrowLeft,
-  Building, Building2, TrendingUp, Percent, ShieldCheck, ShieldAlert, Loader2, RefreshCw, HelpCircle, Receipt, CalendarClock, AlertCircle
+  Clock, CheckCircle2, Search, Download, FileText, Check, ArrowLeft, Loader2, CalendarClock, AlertCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import FileUploadZone from '@/components/shared/FileUploadZone';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import StatusBadge from '@/components/ui/StatusBadge';
-import EmptyState from '@/components/ui/EmptyState';
 import TableSkeleton from '@/components/ui/TableSkeleton';
 import DataTable from '@/components/ui/DataTable';
 import { PageHeader } from '@/components/ui/Page';
 import { DropdownMenu, Pagination, SegmentedControl, Tabs } from '@/components/ui/controls';
-import Modal from '@/components/ui/Modal';
 import { poStatusVariant } from '@/lib/statusColors';
 import { describeSyncState } from '@/lib/syncState';
-import { poKind, lineKind, kindTone, lineHasInvoicePlan, hasInvoicePlan as poHasInvoicePlan, hasPendingInvoicePlanChange, invoicePlanNumbers } from '@/features/purchase-order/poKind';
+import { poKind, lineKind, lineHasInvoicePlan, hasInvoicePlan as poHasInvoicePlan, hasPendingInvoicePlanChange, invoicePlanNumbers } from '@/features/purchase-order/poKind';
 import { useWhoami } from '@/lib/whoami';
 import { rfqService } from '@/features/rfq/services/rfqService';
 import InvoicePlanPanel from './InvoicePlanPanel';
 
 import { useLabelledControl } from '@/components/ui/FieldCard';
-
-// The shipment form's own card. Different layout from components/ui/FieldCard
-// — boxed, with an icon — but the label/control association is the same
-// problem, so it comes from the same place.
-function EnterpriseFieldCard({ label, required, error, children }) {
-  const { id, control } = useLabelledControl({ label, required, error, children });
-
-  return (
-    <div className="flex min-w-0 flex-col gap-1.5">
-      <label htmlFor={id} className="text-sm font-medium text-fg">
-        {label} {required && <span aria-hidden="true" className="text-fg-subtle">*</span>}
-      </label>
-      {control}
-      {error && (
-        <span id={`${id}-error`} className="flex items-start gap-1.5 text-xs text-danger">
-          <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />{error}
-        </span>
-      )}
-    </div>
-  );
-}
 
 // A read-only value beside its label. Mono only for identifiers and amounts;
 // the decorative tints callers used to pass (containerClassName) are no
@@ -78,16 +52,6 @@ function SapInputField({ label, required, children }) {
   );
 }
 
-const formatDate = (dateStr) => {
-  if (!dateStr) return '';
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr;
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const year = d.getFullYear();
-  return `${day}.${month}.${year}`;
-};
-
 // 10 May 2026 — the app's one display format for a date.
 const displayDate = (value) => {
   if (!value) return '—';
@@ -95,34 +59,18 @@ const displayDate = (value) => {
   return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
-// Saved views over the list — groups of the same statuses the status filter
-// already knows; their counts are what the old KPI cards showed.
-// A YYYY-MM-DD date days from today, for the shipment form's defaults.
+// A YYYY-MM-DD date `days` from today, for the shipment form's defaults.
 // Module-level so the clock read stays out of anything React renders.
 const isoDateInDays = (days) => new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
+// Saved views over the list — groups of the same statuses the status filter
+// already knows; their counts are what the old KPI cards showed.
 const SAVED_VIEWS = [
   { value: 'all', label: 'All', match: () => true },
   { value: 'ack', label: 'Needs acknowledgement', match: (s) => s === 'Open' },
   { value: 'delivery', label: 'In delivery', match: (s) => s === 'Acknowledged' || s === 'Dispatched' },
   { value: 'done', label: 'Completed', match: (s) => s === 'Delivered' || s === 'Invoiced' || s === 'Paid' },
 ];
-
-const parseDateSafe = (dateStr) => {
-  if (!dateStr) return new Date();
-  let d = new Date(dateStr);
-  if (isNaN(d.getTime())) {
-    const parts = String(dateStr).split(/[./-]/);
-    if (parts.length === 3) {
-      if (parts[2].length === 4) {
-        d = new Date(parts[2], parts[1] - 1, parts[0]);
-      } else if (parts[0].length === 4) {
-        d = new Date(parts[0], parts[1] - 1, parts[2]);
-      }
-    }
-  }
-  return isNaN(d.getTime()) ? new Date() : d;
-};
 
 export default function PurchaseOrdersView({
   state,
@@ -256,7 +204,6 @@ export default function PurchaseOrdersView({
   // currentView tracks detail sub-states: 'list' | 'detail' | 'asn' | 'asn_success' | 'grn_detail'
   const [currentView, setCurrentView] = useState('list');
   const [activePoState, setActivePo] = useState(null);
-  const [activeGrnState, setActiveGrn] = useState(null);
   // allPOs, not cleanPOs: an order SAP holds that the portal has not recorded
   // yet opens the same detail page as any other, so it has to be findable here
   // too or the page would fall back to a stale snapshot of it.
@@ -265,7 +212,6 @@ export default function PurchaseOrdersView({
   // addresses a PurchaseOrder row by id, and there is no such row for this
   // order until jobs/handlers/sweepPurchaseOrders.js records it.
   const activePoIsSapOnly = Boolean(activePo?.sapOnly);
-  const activeGrn = activeGrnState ? (cleanGrns.find(g => g.id === activeGrnState.id) || activeGrnState) : null;
   // The export bridge (Phase 5.2): downloads the awarded PO as a file for
   // the buyer's own MM team to import into SAP on their own schedule — not
   // a live SAP write. Keyed by rfqId (the export endpoint is RFQ-scoped) so
@@ -282,23 +228,6 @@ export default function PurchaseOrdersView({
       setExportingFormat(null);
     }
   };
-  const [activeLineIdx, setActiveLineIdx] = useState(0);
-  const [asnLineIdx, setAsnLineIdx] = useState(0);
-  const [grnLineIdx, setGrnLineIdx] = useState(0);
-
-  // Selecting a different order restarts its ASN/GRN line cursors. Done as an
-  // adjustment during render rather than in an effect: an effect runs *after*
-  // the browser has already painted, so for one frame the new order was shown
-  // with the previous order's line highlighted. Comparing against the previous
-  // id and resetting inline is React's documented pattern for derived-from-prop
-  // state, and it re-renders before anything reaches the screen.
-  const [lineCursorPoId, setLineCursorPoId] = useState(activePo?.id);
-  if (activePo?.id !== lineCursorPoId) {
-    setLineCursorPoId(activePo?.id);
-    setAsnLineIdx(0);
-    setGrnLineIdx(0);
-  }
-
   // Search and Filters for Screen 1
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -316,7 +245,6 @@ export default function PurchaseOrdersView({
 
   // Local state for E-Way Bill uploads and validation errors
   const [ewayBillNo, setEwayBillNo] = useState('');
-  const [ewayBillFile, setEwayBillFile] = useState(null);
   const [dispatchQuantities, setDispatchQuantities] = useState({});
   const [validationErrors, setValidationErrors] = useState({});
 
@@ -405,27 +333,17 @@ export default function PurchaseOrdersView({
     setActivePo(po);
     setDetailTab('po_detail');
     setCurrentView('detail');
-    setActiveLineIdx(0);
   };
 
   const handleOpenGrnDetails = (grn) => {
     const po = cleanPOs.find(p => p.id === grn.poId);
-    setActiveGrn(grn);
     setActivePo(po);
     setDetailTab('grn_status');
     setCurrentView('detail');
-    setActiveLineIdx(0);
   };
 
-  // Sort POs
-  const handleSort = (field) => {
-    if (sortField === field) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortOrder('asc');
-    }
-  };
+
+
 
   // Filter and sort the PO list
   const getFilteredPOs = () => {
