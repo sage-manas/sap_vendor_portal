@@ -11,6 +11,13 @@ import { currentSlug, withWorkspace } from '@/lib/workspace-slug';
 export default function SignUpPage() {
   const router = useRouter();
   const { workspace, known, slug, selfRegistrationOpen, workspaceRequired } = useWorkspaceRealm();
+  // Which workspace this registration joins, said in words. An unbranded tenant
+  // is still a named one; only a screen that resolved no workspace at all names
+  // none, and that screen does not offer the form (#255).
+  const workspaceName = workspace?.companyName || null;
+  const joining = workspaceName
+    ? `This registration creates a supplier account in ${workspaceName}'s workspace on VendorConnect.`
+    : null;
   const [companyName, setCompanyName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -33,6 +40,15 @@ export default function SignUpPage() {
   const handleRegister = async (e) => {
     e.preventDefault();
     setError('');
+
+    // The realm answer decides which workspace this account joins, so nothing
+    // is posted before it arrives. Without it the screen cannot say whose
+    // workspace the supplier would be joining, and that is the whole point of
+    // naming it (#255).
+    if (!known) {
+      setError('Still working out which workspace this registration joins. Try again in a moment.');
+      return;
+    }
 
     // Pre-validate GSTIN and PAN structure before submitting
     const gstinRegex = /^[0-9]{2}[A-Z0-9]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/i;
@@ -85,7 +101,11 @@ export default function SignUpPage() {
   if (submittedTo) {
     return (
       <div className="w-full max-w-[460px] p-8 card animate-fadeUp my-8">
-        <WorkspaceBrand workspace={workspace} caption="Supplier registration" />
+        <WorkspaceBrand
+          workspace={workspace}
+          caption="Supplier registration"
+          naming={workspaceName ? `Your registration was sent to ${workspaceName}'s workspace on VendorConnect.` : null}
+        />
         <div className="p-4 rounded-none bg-emerald-900/10 border border-emerald-900/40 flex items-start gap-2.5 text-xs text-emerald-400">
           <MailCheck className="size-4 shrink-0 mt-0.5" />
           <span>
@@ -102,16 +122,22 @@ export default function SignUpPage() {
     );
   }
 
-  // A workspace can close self-service registration (config/tenantSettings.js).
-  // The API refuses the POST either way; this is so a supplier reads the reason
-  // instead of filling in a form that cannot be accepted.
+  // Two reasons there is no form to fill in: no workspace resolved at all, so
+  // the registration has nowhere to go and the API refuses it (#254); or a
+  // resolved workspace that has closed self-service registration
+  // (config/tenantSettings.js). Either way a supplier reads the reason instead
+  // of posting into a guess.
   if (known && !selfRegistrationOpen) {
     return (
       <div className="w-full max-w-[460px] p-8 card animate-fadeUp my-8">
-        <WorkspaceBrand workspace={workspace} caption="Registration by invitation" />
+        <WorkspaceBrand
+          workspace={workspace}
+          caption={workspaceRequired ? 'No workspace named' : 'Registration by invitation'}
+          naming={workspaceName ? `${workspaceName}'s supplier workspace on VendorConnect.` : null}
+        />
         <p className="text-xs text-text-secondary text-center leading-relaxed">
           {workspaceRequired
-            ? 'Registration starts from the link your buying organisation shares with its suppliers. Ask your contact there to send it — it brings you straight to onboarding.'
+            ? 'This address names no workspace, so there is nothing to register into. Registration starts from the link your buying organisation shares with its suppliers. Ask your contact there to send it — it brings you straight to onboarding.'
             : 'This workspace admits suppliers by invitation. Ask your contact in the buying organisation to send you one — the invitation link brings you straight to onboarding.'}
         </p>
         <div className="mt-6 pt-5 border-t border-border text-center">
@@ -125,8 +151,9 @@ export default function SignUpPage() {
 
   return (
     <div className="w-full max-w-[460px] p-8 card animate-fadeUp my-8">
-      {/* Whose front door this is (workspace-realm.js) */}
-      <WorkspaceBrand workspace={workspace} caption="Supplier registration" />
+      {/* Whose front door this is (workspace-realm.js), named in words as well
+          as in branding — the form below binds the account to it. */}
+      <WorkspaceBrand workspace={workspace} caption="Supplier registration" naming={joining} />
 
       {/* Error Output */}
       {error && (
@@ -232,7 +259,7 @@ export default function SignUpPage() {
 
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || !known}
           className="btn btn-v w-full h-9 justify-center disabled:opacity-50 disabled:cursor-not-allowed mt-2"
         >
           {loading ? (

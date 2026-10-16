@@ -181,3 +181,72 @@ describe('sign-up under account tenancy', () => {
     expect(screen.queryByLabelText(/gstin/i)).not.toBeInTheDocument();
   });
 });
+
+// The unbranded screen has to mean "this names no workspace", never "a
+// workspace you cannot see" (#255). Branding is optional per tenant, so the
+// company name — not the logo, not the accent colour — is what tells a
+// supplier whose commercial relationship they are entering into.
+describe('naming the workspace an account joins', () => {
+  const unbranded = { ...NORTHWIND, branding: {} };
+  const branded = { ...NORTHWIND, branding: { logo: 'https://cdn.example/northwind.png' } };
+
+  it.each([
+    ['no logo configured', unbranded],
+    ['a logo configured', branded],
+  ])('sign-up names the workspace with %s', async (_label, workspace) => {
+    visit('?workspace=northwind');
+    renderWithPortal(<SignUpPage />, {
+      plane: 'bare',
+      route: '/sign-up',
+      signedOut: true,
+      api: { 'GET /auth/workspace': { workspace } },
+    });
+
+    expect(await screen.findByText(/creates a supplier account in Northwind Traders's workspace/i))
+      .toBeInTheDocument();
+    expect(document.getElementById('signup-gstin')).toBeTruthy();
+  });
+
+  it('sign-in names the workspace a supplier is signing in to, logo or not', async () => {
+    visit('?workspace=northwind');
+    renderWithPortal(<SignInPage />, {
+      plane: 'bare',
+      route: '/sign-in',
+      signedOut: true,
+      api: { 'GET /auth/workspace': { workspace: unbranded } },
+    });
+
+    expect(await screen.findByText(/sign in to Northwind Traders's supplier workspace/i)).toBeInTheDocument();
+  });
+
+  it('sign-in says the address names no workspace rather than looking like the product itself', async () => {
+    renderWithPortal(<SignInPage />, {
+      plane: 'bare',
+      route: '/sign-in',
+      signedOut: true,
+      api: { 'GET /auth/workspace': { workspace: null, tenancy: 'subdomain' } },
+    });
+
+    expect(await screen.findByText(/this address names no workspace/i)).toBeInTheDocument();
+  });
+
+  // Subdomain tenancy, at an address no tenant owns: the realm answer carries
+  // no workspace, and the old screen read that as "unbranded" and offered the
+  // form anyway. The POST is refused server-side (#254); the point here is that
+  // a supplier is never shown a form whose workspace cannot be named.
+  it.each([
+    ['an address no tenant owns', { workspace: null, tenancy: 'subdomain' }],
+    ['a realm answer that failed', { status: 404, body: { error: 'Unknown workspace' } }],
+  ])('sign-up offers no form for %s', async (_label, answer) => {
+    renderWithPortal(<SignUpPage />, {
+      plane: 'bare',
+      route: '/sign-up',
+      signedOut: true,
+      api: { 'GET /auth/workspace': answer },
+    });
+
+    expect(await screen.findByText(/this address names no workspace/i)).toBeInTheDocument();
+    expect(document.getElementById('signup-gstin')).toBeNull();
+    expect(screen.queryByRole('button', { name: /create account/i })).not.toBeInTheDocument();
+  });
+});
