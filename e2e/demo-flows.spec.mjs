@@ -168,7 +168,7 @@ test.describe('demo flows, through the UI', () => {
     // --- Acknowledge ----------------------------------------------------------
     await page.goto('/pos');
     await page.getByPlaceholder('PO # or material description...').fill(po.id);
-    await page.getByRole('row').filter({ hasText: po.id }).getByRole('button', { name: 'View PO' }).click();
+    await page.getByRole('button', { name: `Open ${po.id}` }).click();
 
     // --- The awarded PO downloads under the name the server chose --------------
     // CORS has to expose Content-Disposition for the browser to read it at all
@@ -188,7 +188,7 @@ test.describe('demo flows, through the UI', () => {
     await expect(page.getByRole('heading', { name: new RegExp(`${po.id}.*Acknowledged`) })).toBeVisible();
 
     // --- Ship -------------------------------------------------------------------
-    await page.getByRole('button', { name: '2. Send shipment' }).click();
+    await page.getByRole('tab', { name: 'Send shipment' }).click();
     // Nothing is invented on the supplier's behalf: the references start empty.
     await expect(page.getByLabel('Carrier / Transporter')).toHaveValue('');
     await expect(page.getByLabel('E-Way Bill Number')).toHaveValue('');
@@ -211,7 +211,7 @@ test.describe('demo flows, through the UI', () => {
     // invoice on their behalf (PROJECT_CONTEXT.md §5.6), so the story ends once
     // the goods receipt they can act on has arrived.
     await page.goto('/pos');
-    await page.getByRole('button', { name: 'Delivery Receipts' }).click();
+    await page.getByRole('tab', { name: /Delivery receipts/ }).click();
     await expect(page.getByText(grn.id).first()).toBeVisible({ timeout: 30_000 });
   });
 });

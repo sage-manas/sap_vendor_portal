@@ -121,7 +121,7 @@ test.describe('procure to pay, on the mock SAP driver', () => {
 
     // [UI · supplier] The delivery receipt they can act on is on their ledger.
     await page.goto('/pos');
-    await page.getByRole('button', { name: 'Delivery Receipts' }).click();
+    await page.getByRole('tab', { name: /Delivery receipts/ }).click();
     await expect(page.getByText(grn.id).first()).toBeVisible({ timeout: 30_000 });
 
     // --- The trail holds together -------------------------------------------

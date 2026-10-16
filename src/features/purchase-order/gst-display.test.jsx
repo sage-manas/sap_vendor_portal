@@ -40,7 +40,7 @@ describe('what the purchase-order line-item table claims about GST', () => {
       },
     });
 
-    await userEvent.click(await screen.findByRole('button', { name: /view po/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /^Open PO-/ }));
 
     expect(await screen.findByText('V0')).toBeInTheDocument();
     expect(screen.queryByText(/G1 \(18%\)/)).not.toBeInTheDocument();
@@ -58,7 +58,7 @@ describe('what the purchase-order line-item table claims about GST', () => {
       },
     });
 
-    await userEvent.click(await screen.findByRole('button', { name: /view po/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /^Open PO-/ }));
 
     await waitFor(() => expect(screen.getByText('Hex bolts')).toBeInTheDocument());
     const row = screen.getByText('Hex bolts').closest('tr');

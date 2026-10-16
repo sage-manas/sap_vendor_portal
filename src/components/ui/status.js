@@ -39,8 +39,12 @@ export const VARIANT_TONE = {
 };
 
 const T = {
-  // Purchase orders (PoStatus)
+  // Purchase orders (PoStatus), and the supplier PO page's own labels for them
   open: 'action', // a new order is the supplier's to acknowledge
+  new: 'action',
+  'shipment sent': 'progress',
+  'delivery confirmed': 'done',
+  'invoice posted': 'done',
   acknowledged: 'progress',
   dispatched: 'progress',
   'in transit': 'progress',
