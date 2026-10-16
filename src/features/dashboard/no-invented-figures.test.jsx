@@ -47,6 +47,17 @@ describe('an account with no documents shows no invented figures', () => {
     expect(screen.getByText('All Action Items Cleared')).toBeInTheDocument();
   });
 
+  // The dashboard used to carry a "Connected" button that toggled a simulated
+  // timeout banner — a connection state with nothing behind it. SAP status now
+  // comes from GET /api/dashboard/sap-status, shown once, in the top bar.
+  it('on the dashboard, claims no connection state of its own', async () => {
+    renderWithPortal(<DashboardPage />, { plane: 'supplier', route: '/', api: EMPTY_SUPPLIER_API });
+    await screen.findByRole('heading', { name: 'Vendor Dashboard', level: 2 });
+
+    expect(screen.queryByRole('button', { name: /^(Connected|Disconnected)$/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/CONNECTION_TIMEOUT/)).not.toBeInTheDocument();
+  });
+
   it('on reports & analytics', async () => {
     renderWithPortal(<AnalyticsPage />, { plane: 'supplier', route: '/analytics', api: EMPTY_SUPPLIER_API });
     await screen.findByRole('heading', { name: /Reports & Analytics/, level: 2 });

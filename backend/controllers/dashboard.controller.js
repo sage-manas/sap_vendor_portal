@@ -2,6 +2,8 @@ const { prisma } = require('../db/prisma');
 const asyncHandler = require('../utils/asyncHandler');
 const { withVendorScope } = require('../utils/requestScope');
 const { toNumber } = require('../utils/money');
+const { getSapAdapterForClient } = require('../sap');
+const { sapTrafficFor, withCircuit } = require('../utils/sapHealth');
 
 // @desc    Get dashboard summary statistics
 // @route   GET /api/dashboard/summary
@@ -33,6 +35,34 @@ const getDashboardSummary = asyncHandler(async (req, res, next) => {
   });
 });
 
+const SAP_STATUS_WINDOW_HOURS = 24;
+
+// @desc    This workspace's SAP connection, as the app's top bar shows it
+// @route   GET /api/dashboard/sap-status
+// @access  dashboard:read (every tenant role and suppliers)
+//
+// The tenant's own row of the platform health board (utils/sapHealth.js), cut
+// down to what anyone in the workspace may see: whether SAP is answering and
+// when it last did. No call names or SAP error text — suppliers read this too.
+const getSapStatus = asyncHandler(async (req, res) => {
+  const [client, traffic, adapter] = await Promise.all([
+    prisma.client.findUnique({ where: { clientId: req.clientId }, select: { sapEnvironment: true } }),
+    sapTrafficFor(req.clientId, SAP_STATUS_WINDOW_HOURS),
+    getSapAdapterForClient(req.clientId),
+  ]);
+
+  res.json({
+    status: withCircuit(traffic.status, adapter.circuit()),
+    environment: client?.sapEnvironment || 'sandbox',
+    lastSyncAt: traffic.lastSuccessAt,
+    windowHours: SAP_STATUS_WINDOW_HOURS,
+    calls: traffic.calls,
+    failures: traffic.failures,
+    checkedAt: new Date().toISOString(),
+  });
+});
+
 module.exports = {
-  getDashboardSummary
+  getDashboardSummary,
+  getSapStatus,
 };

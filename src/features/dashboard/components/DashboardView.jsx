@@ -22,8 +22,6 @@ import {
   ChevronRight,
   FileCheck,
   RefreshCw,
-  Wifi,
-  WifiOff,
   FolderOpen,
   CheckCircle2,
   AlertCircle
@@ -69,8 +67,6 @@ export default function DashboardView({ state, setActiveTab }) {
 
   // Local simulated production state flags
   const [isLoading, setIsLoading] = useState(true);
-  const [apiError, setApiError] = useState(null);
-  const [isRetrying, setIsRetrying] = useState(false);
   const [drawerContent, setDrawerContent] = useState(null); // { type: 'PO' | 'Invoice', data: any }
   const [selectedItemIds, setSelectedItemIds] = useState([]);
 
@@ -110,29 +106,6 @@ export default function DashboardView({ state, setActiveTab }) {
     rfq.status === 'Bidding Open' && !(rfq.bids || []).some(bid => bid.vendorId === profile.vendorId));
 
   const hasPerformance = performance.weightedScore != null;
-
-  // Toggle API Error simulation
-  const toggleConnection = () => {
-    if (apiError) {
-      setApiError(null);
-    } else {
-      setApiError({
-        code: 'CONNECTION_TIMEOUT',
-        message: 'We could not reach your buyer’s system. The connection timed out, so some data may be out of date.'
-      });
-    }
-  };
-
-  // Re-establish gateway mock trigger
-  const handleRetryConnection = () => {
-    setIsRetrying(true);
-    setTimeout(() => {
-      setIsRetrying(false);
-      setApiError(null);
-      setIsLoading(true);
-      setTimeout(() => setIsLoading(false), 800);
-    }, 1500);
-  };
 
   // Pull latest POs action trigger. This used to spawn a fabricated inbound
   // order; purchase orders come from the buyer’s system, so it re-reads them instead.
@@ -306,37 +279,6 @@ export default function DashboardView({ state, setActiveTab }) {
       <>
         <div className="space-y-6 max-w-full animate-fade-in pb-12">
 
-        {/* ERROR STATUS RECOVERY BANNER */}
-        {apiError && (
-          <div className="bg-red-50/80 border border-red-200 p-3 rounded-xl text-red-950 animate-slide-down shadow-[0_1px_4px_rgba(10,15,46,0.08)]">
-            <div className="flex items-start gap-2.5">
-              <AlertCircle className="size-4 text-red-700 shrink-0 mt-0.5" />
-              <div className="space-y-1.5 flex-1">
-                <h4 className="text-xs font-bold tracking-tight">Can&apos;t reach your buyer&apos;s system ({apiError.code})</h4>
-                <p className="text-[11px] text-red-800 leading-normal font-mono bg-red-100/50 p-1.5 rounded border border-red-200/50">
-                  {apiError.message}
-                </p>
-                <div className="flex flex-wrap items-center gap-2.5 pt-0.5">
-                  <button
-                    onClick={handleRetryConnection}
-                    disabled={isRetrying}
-                    className="flex items-center gap-1 bg-red-700 hover:bg-red-800 disabled:bg-red-800/80 text-white font-bold text-[9px] px-2.5 py-1 rounded-md transition-all duration-150 cursor-pointer shadow-xs select-none"
-                  >
-                    <RefreshCw className={`size-2.5 ${isRetrying ? 'animate-spin' : ''}`} />
-                    <span>{isRetrying ? 'Reconnecting...' : 'Reconnect & Retry'}</span>
-                  </button>
-                  <button
-                    onClick={() => setApiError(null)}
-                    className="text-red-800 hover:text-red-950 font-bold text-[9px] hover:underline cursor-pointer"
-                  >
-                    Ignore & Work Offline
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* 1. TOP HEADER & MAIN BUTTON ACTIONS */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
           <div>
@@ -348,19 +290,6 @@ export default function DashboardView({ state, setActiveTab }) {
 
           {/* INTERACTIVE STATE CONTROLS */}
           <div className="flex flex-wrap items-center gap-1.5">
-            {/* CONNECTION STATE TOGGLE */}
-            <button
-              onClick={toggleConnection}
-              title="Click to toggle the connection state"
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] font-semibold transition-all duration-150 cursor-pointer h-7 ${apiError
-                ? 'bg-red-500/10 border-red-500/30 text-red-600 dark:text-red-400 animate-pulse hover:bg-red-500/20'
-                : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20'
-                }`}
-            >
-              {apiError ? <WifiOff className="size-3" /> : <Wifi className="size-3" />}
-              <span>{apiError ? 'Disconnected' : 'Connected'}</span>
-            </button>
-
             <Button
               variant="outline"
               size="sm"
@@ -393,12 +322,7 @@ export default function DashboardView({ state, setActiveTab }) {
               <span>Supplier ID: <strong className="font-mono text-text-primary">{profile.sapVendorCode || profile.vendorId || '—'}</strong></span>
               <span className="text-text-tertiary">|</span>
               <span>GSTIN: <strong className="font-mono text-text-primary">{profile.gstin || '—'}</strong></span>
-              {(apiError || profile.status) && (
-                <span className="px-1.5 py-0.5 rounded-md bg-surface text-text-primary border border-border text-[9px] font-bold flex items-center gap-1 font-sans">
-                  <span className={`size-1.5 rounded-full ${apiError ? 'bg-red-500' : profile.status === 'Approved' ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`}></span>
-                  {apiError ? 'Disconnected' : profile.status}
-                </span>
-              )}
+              {profile.status && <StatusBadge label={profile.status} />}
             </div>
           </div>
 

@@ -46,19 +46,19 @@ export default function CommandPalette() {
   // sidebar has hidden.
   const navItems = useMemo(() => {
     const allModules = [
-      { id: 'registration', name: 'Vendor Registration', icon: UserCheck },
-      { id: 'rfqs', name: 'RFQ Management', icon: FileText },
-      { id: 'pos', name: 'Purchase Orders', icon: ShoppingBag },
-      { id: 'invoices', name: 'Invoice Processing', icon: Receipt },
-      { id: 'payments', name: 'Payment Tracking', icon: CreditCard },
+      { id: 'registration', name: 'Company profile', icon: UserCheck },
+      { id: 'rfqs', name: 'RFQs', icon: FileText },
+      { id: 'pos', name: 'Orders', icon: ShoppingBag },
+      { id: 'invoices', name: 'Invoices', icon: Receipt },
+      { id: 'payments', name: 'Payments', icon: CreditCard },
       { id: 'performance', name: 'Performance', icon: Activity },
-      { id: 'analytics', name: 'Reports & Analytics', icon: BarChart3 },
+      { id: 'analytics', name: 'Reports', icon: BarChart3 },
     ];
     const items = [
-      { id: 'dashboard', name: 'Vendor Dashboard', icon: LayoutDashboard },
+      { id: 'dashboard', name: 'Overview', icon: LayoutDashboard },
       ...modulesFor(allModules, { isSupplier: !isTenantStaff, profile: state.profile }),
     ];
-    if (isTenantStaff) items.push({ id: 'workspace', name: 'Workspace Back Office', icon: Database });
+    if (isTenantStaff) items.push({ id: 'workspace', name: 'Workspace back office', icon: Database });
     return items.map((n) => ({
       key: `nav-${n.id}`,
       group: 'Navigation',
@@ -94,7 +94,7 @@ export default function CommandPalette() {
     {
       key: 'act-logout',
       group: 'Actions',
-      name: 'Log Out',
+      name: 'Sign out',
       subtitle: 'Session',
       icon: LogOut,
       search: 'log out sign out logout session',

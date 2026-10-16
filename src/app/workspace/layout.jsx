@@ -3,7 +3,13 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Loader2, LogOut } from 'lucide-react';
+import {
+  Building2, CreditCard, FileText, History, LayoutDashboard, Loader2, LogOut, Receipt, Settings, ShoppingBag, Store, Truck, Users,
+} from 'lucide-react';
+import AppShell from '@/components/shell/AppShell';
+import SapStatus from '@/components/shell/SapStatus';
+import ThemeToggle from '@/components/shell/ThemeToggle';
+import UserMenu from '@/components/shell/UserMenu';
 import { WorkspaceSessionProvider, useWorkspaceSession, STAGE } from '@/lib/workspace-session';
 import { navFor, isActive } from '@/lib/workspaceNav';
 import { forgetWhoami } from '@/lib/whoami';
@@ -22,68 +28,64 @@ const signOut = (router) => {
   router.push('/sign-in');
 };
 
+// Presentation only: the nav registry (workspaceNav.js) decides what shows.
+const ICONS = {
+  '/workspace': LayoutDashboard,
+  '/workspace/suppliers': Building2,
+  '/workspace/rfqs': FileText,
+  '/workspace/purchase-orders': ShoppingBag,
+  '/workspace/shipments': Truck,
+  '/workspace/invoices': Receipt,
+  '/workspace/payments': CreditCard,
+  '/workspace/audit': History,
+  '/workspace/users': Users,
+  '/workspace/settings': Settings,
+};
+
+// "client_admin" → "Client admin". Display only — the role registry is unchanged.
+const roleLabel = (role) => (role ? role.charAt(0).toUpperCase() + role.slice(1).replace(/_/g, ' ') : '');
+
 function Chrome({ children }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, workspace, permissions, plane } = useWorkspaceSession();
-  const items = navFor(permissions, plane);
+  const items = navFor(permissions, plane).map((item) => ({
+    key: item.href,
+    href: item.href,
+    label: item.label,
+    icon: ICONS[item.href],
+    active: isActive(item, pathname),
+    group: item.group,
+  }));
+  const name = workspace?.companyName || 'Workspace';
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-base font-sans text-text-primary">
-      <header className="flex h-13 shrink-0 items-center justify-between border-b border-border bg-surface px-4">
-        <div className="flex items-center gap-2.5">
-          {workspace?.branding?.logo ? (
-            // eslint-disable-next-line @next/next/no-img-element -- a tenant's own URL, not a build-time asset
-            <img src={workspace.branding.logo} alt="" className="h-5 w-auto" />
-          ) : (
-            <>
-              <span
-                className="flex size-6 shrink-0 items-center justify-center rounded-[5px] text-[13px] font-bold"
-                style={{ backgroundColor: 'var(--accent-solid)', color: 'var(--accent-fg)' }}
-              >
-                V
-              </span>
-              <span className="text-[13px] font-semibold tracking-[-0.01em]">VendorConnect</span>
-            </>
-          )}
-          <span className="rounded-md border border-border-em px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-text-tertiary">
-            {workspace?.companyName || 'Workspace'}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-4">
-          <Link href="/" className="text-[11px] text-text-tertiary hover:text-text-primary">
-            Portal
-          </Link>
-          <div className="text-right leading-tight">
-            <p className="text-[12px] text-text-primary">{user?.name || user?.email}</p>
-            <p className="mono text-[10px] uppercase tracking-[0.08em] text-text-tertiary">{user?.role}</p>
-          </div>
-          <button type="button" onClick={() => signOut(router)} className="btn btn-o h-8 px-2.5" title="Sign out">
-            <LogOut className="size-3.5" />
-          </button>
-        </div>
-      </header>
-
-      <div className="flex flex-1 overflow-hidden">
-        <nav className="w-56 shrink-0 border-r border-border bg-surface p-2">
-          {items.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`sidebar-link ${isActive(item, pathname) ? 'active' : ''}`}
-              title={item.description}
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
-
-        <main id="workspace-content" className="custom-scrollbar flex-1 overflow-y-auto px-6 py-5">
-          {children}
-        </main>
-      </div>
-    </div>
+    <AppShell
+      surface="workspace"
+      mainId="workspace-content"
+      identity={{ logo: workspace?.branding?.logo || null, mark: name.charAt(0).toUpperCase(), title: name, caption: 'Workspace' }}
+      nav={items.filter((item) => item.group !== 'admin')}
+      footerNav={items.filter((item) => item.group === 'admin')}
+      topbar={{
+        end: (
+          <>
+            <SapStatus />
+            <ThemeToggle />
+            <UserMenu
+              name={user?.name || user?.email}
+              caption={[roleLabel(user?.role), user?.name ? user?.email : null].filter(Boolean).join(' · ')}
+              items={[
+                { label: 'Supplier portal', icon: Store, href: '/' },
+                'separator',
+                { label: 'Sign out', icon: LogOut, onClick: () => signOut(router) },
+              ]}
+            />
+          </>
+        ),
+      }}
+    >
+      <div className="px-4 py-5 md:px-6 md:py-6">{children}</div>
+    </AppShell>
   );
 }
 

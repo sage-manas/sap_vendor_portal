@@ -670,7 +670,7 @@ badged "Filed & Signed" against the supplier's real PAN.
 
 **SAP logs** (`saplog.routes.js`, JWT): `GET /logs` — the BAPI console feed.
 
-**Dashboard** (`dashboard.routes.js`, JWT): `GET /dashboard/summary`.
+**Dashboard** (`dashboard.routes.js`, JWT, `dashboard:read`): `GET /dashboard/summary`; `GET /dashboard/sap-status` — the caller's own workspace SAP state (`healthy`/`degraded`/`failing`/`unknown`, circuit breaker included), environment and last successful sync, from `utils/sapHealth.js` (shared with `GET /platform/health`). No SAP error text: suppliers read it too. Feeds the single SAP indicator in the app top bar.
 
 **Platform console** (`platform.routes.js`). `/auth/*` needs an operator token; **everything below it also needs `requireMfa`**. A tenant or supplier token gets **404** anywhere here.
 | Method | Path | Auth | Notes |
