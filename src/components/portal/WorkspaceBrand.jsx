@@ -35,7 +35,7 @@ export default function WorkspaceBrand({ workspace, caption, naming }) {
       ) : (
         <div
           className="size-12 rounded-lg flex items-center justify-center mb-3 shrink-0"
-          style={{ backgroundColor: 'rgb(var(--color-emerald-default-rgb))', color: 'rgb(var(--color-on-emerald-rgb))' }}
+          style={{ backgroundColor: 'var(--accent-solid)', color: 'var(--accent-fg)' }}
         >
           <Building2 className="size-6" />
         </div>

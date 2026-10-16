@@ -142,7 +142,7 @@ export function DropdownMenu({ items, trigger, label = 'More actions', align = '
     <Menu.Root>
       <Menu.Trigger
         aria-label={trigger ? undefined : label}
-        className="btn btn-g h-8! w-8! p-0! data-[popup-open]:bg-subtle"
+        className={trigger ? undefined : 'btn btn-g h-8! w-8! p-0! data-[popup-open]:bg-subtle'}
         render={trigger}
       >
         {trigger ? undefined : <MoreHorizontal className="size-4" strokeWidth={1.5} />}

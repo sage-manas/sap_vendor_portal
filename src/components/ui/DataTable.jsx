@@ -20,6 +20,9 @@ import TableSkeleton from './TableSkeleton';
  *   wrap?: true         let long text wrap (cells are single-line by default)
  * }]
  *
+ * maxHeight (e.g. '60dvh') makes the body scroll inside the table with a sticky
+ * header — use it for long lists.
+ *
  * Presentation only: sorting, selection and column visibility are controlled
  * — the screen owns the state and decides what they mean.
  */
@@ -42,6 +45,7 @@ export default function DataTable({
   totals,
   hiddenColumns = [],
   caption,
+  maxHeight,
   className = '',
 }) {
   const visible = columns.filter((c) => !hiddenColumns.includes(c.key));
@@ -79,10 +83,12 @@ export default function DataTable({
   return (
     <div className={`rounded-lg border border-border bg-surface ${className}`}>
       {/* ≥ 768px: a real table */}
-      <div className="hidden md:block overflow-x-auto rounded-lg">
+      {/* A header can only stick inside a box that scrolls vertically, so the
+          sticky header needs maxHeight; without it the page scrolls. */}
+      <div className="hidden md:block overflow-auto rounded-lg" style={maxHeight ? { maxHeight } : undefined}>
         <table className="w-full border-collapse">
           {caption && <caption className="sr-only">{caption}</caption>}
-          <thead className="sticky top-0 z-10">
+          <thead className={maxHeight ? 'sticky top-0 z-10' : undefined}>
             <tr>
               {selectable && (
                 <th className="w-10 pr-0">
@@ -196,6 +202,13 @@ export default function DataTable({
                 </dl>
               </div>
               {rowActions && <DropdownMenu items={rowActions(row)} label={`Actions for ${rowLabel(row)}`} />}
+              {/* The card's own click is a pointer shortcut; this is the
+                  keyboard and screen-reader way in. */}
+              {!rowActions && onRowClick && (
+                <button type="button" onClick={() => onRowClick(row)} aria-label={`Open ${rowLabel(row)}`} className="-mr-2 grid size-8 shrink-0 place-items-center rounded-md text-fg-subtle hover:bg-subtle hover:text-fg cursor-pointer">
+                  <ChevronRight className="size-4" strokeWidth={1.5} />
+                </button>
+              )}
             </li>
           );
         })}

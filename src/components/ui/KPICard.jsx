@@ -4,7 +4,8 @@
 // their labels. A zero is not signal, so it renders muted and smaller, with
 // the hint carrying the meaning ("Nothing outstanding") instead of a hero "0".
 //
-// `icon` and `tone` are accepted for backward compatibility and ignored.
+// Callers that still pass the old `icon` and `tone` props are fine — they are
+// simply not read.
 
 const isZero = (value) => {
   if (typeof value === 'number') return value === 0;
@@ -25,8 +26,6 @@ export default function KPICard({
   linkLabel,
   empty,
   className = '',
-  // eslint-disable-next-line no-unused-vars
-  icon, tone,
 }) {
   const muted = empty ?? isZero(value);
   const note = hint ?? sub;

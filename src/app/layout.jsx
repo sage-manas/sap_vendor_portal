@@ -21,12 +21,17 @@ const themeScript = `(function(){try{var t=localStorage.getItem('vc-theme');if(!
 // and is fetched only when a glyph in its range is on the page. globals.css
 // lists both families in --font-sans / --font-mono, so the browser picks per
 // glyph. (Font loader options must be literals, so the Latin Extended range is
-// written out in both calls.)
+// written out in both calls.) adjustFontFallback is off on every face: its
+// size-adjusted Arial face has no unicode-range, so it would sit between the
+// two Plex faces in the stack and serve the rupee sign itself. adjustFontFallback is off everywhere: its
+// size-adjusted Arial face has no unicode-range, so it would sit between the
+// two Plex faces and serve the rupee sign itself.
 const plexSans = localFont({
   src: "./fonts/IBMPlexSans-Latin-Variable.woff2",
   variable: "--font-plex-sans",
   weight: "100 700",
   display: "swap",
+  adjustFontFallback: false,
 });
 
 const plexSansExt = localFont({
@@ -35,6 +40,7 @@ const plexSansExt = localFont({
   weight: "100 700",
   display: "swap",
   preload: false,
+  adjustFontFallback: false,
   declarations: [{ prop: "unicode-range", value: "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1E00-1E9F, U+20A0-20AB, U+20AD-20C0, U+2113, U+A720-A7FF" }],
 });
 

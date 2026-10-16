@@ -991,7 +991,7 @@ export default function PurchaseOrdersView({
                         <button
                           key={page}
                           onClick={() => setCurrentPage(page)}
-                          className={`size-7 rounded-md font-bold text-xs flex items-center justify-center transition-colors duration-150 border tabular-nums ${currentPage === page ? 'bg-[rgb(var(--color-emerald-default-rgb))] text-white border-transparent' : 'bg-surface border-border hover:bg-surface2 text-text-secondary'}`}
+                          className={`size-7 rounded-md font-bold text-xs flex items-center justify-center transition-colors duration-150 border tabular-nums ${currentPage === page ? 'bg-[var(--accent-solid)] text-white border-transparent' : 'bg-surface border-border hover:bg-surface2 text-text-secondary'}`}
                         >
                           {page}
                         </button>
@@ -1522,7 +1522,7 @@ export default function PurchaseOrdersView({
                               required
                               value={asnForm.shipDate}
                               onChange={e => setAsnForm({ ...asnForm, shipDate: e.target.value })}
-                              className="w-36 bg-surface border border-border focus:border-[rgb(var(--color-emerald-default-rgb))] rounded-[3px] px-2.5 h-6.5 text-xs outline-none text-text-primary font-mono font-bold tabular-nums transition-all duration-150"
+                              className="w-36 bg-surface border border-border focus:border-[var(--accent-solid)] rounded-[3px] px-2.5 h-6.5 text-xs outline-none text-text-primary font-mono font-bold tabular-nums transition-all duration-150"
                             />
                           </SapInputField>
 
@@ -1532,7 +1532,7 @@ export default function PurchaseOrdersView({
                               required
                               value={asnForm.estimatedDeliveryDate}
                               onChange={e => setAsnForm({ ...asnForm, estimatedDeliveryDate: e.target.value })}
-                              className="w-36 bg-surface border border-border focus:border-[rgb(var(--color-emerald-default-rgb))] rounded-[3px] px-2.5 h-6.5 text-xs outline-none text-text-primary font-mono font-bold tabular-nums transition-all duration-150"
+                              className="w-36 bg-surface border border-border focus:border-[var(--accent-solid)] rounded-[3px] px-2.5 h-6.5 text-xs outline-none text-text-primary font-mono font-bold tabular-nums transition-all duration-150"
                             />
                           </SapInputField>
 
@@ -1544,7 +1544,7 @@ export default function PurchaseOrdersView({
                               value={asnForm.carrierName}
                               onChange={e => setAsnForm({ ...asnForm, carrierName: e.target.value })}
                               placeholder="DHL Express"
-                              className="w-[14ch] bg-surface border border-border focus:border-[rgb(var(--color-emerald-default-rgb))] rounded-[3px] px-2.5 h-6.5 text-xs outline-none text-text-primary font-bold transition-all duration-150"
+                              className="w-[14ch] bg-surface border border-border focus:border-[var(--accent-solid)] rounded-[3px] px-2.5 h-6.5 text-xs outline-none text-text-primary font-bold transition-all duration-150"
                             />
                           </SapInputField>
 
@@ -1555,7 +1555,7 @@ export default function PurchaseOrdersView({
                               value={asnForm.vehicleNumber}
                               onChange={e => setAsnForm({ ...asnForm, vehicleNumber: e.target.value })}
                               placeholder="MH-12-XY-4321"
-                              className="w-[24ch] bg-surface border border-border focus:border-[rgb(var(--color-emerald-default-rgb))] rounded-[3px] px-2.5 h-6.5 text-xs outline-none text-text-primary font-mono font-bold uppercase transition-all duration-150"
+                              className="w-[24ch] bg-surface border border-border focus:border-[var(--accent-solid)] rounded-[3px] px-2.5 h-6.5 text-xs outline-none text-text-primary font-mono font-bold uppercase transition-all duration-150"
                             />
                           </SapInputField>
 
@@ -1566,7 +1566,7 @@ export default function PurchaseOrdersView({
                               value={ewayBillNo}
                               onChange={e => setEwayBillNo(e.target.value.replace(/\D/g, ''))}
                               placeholder="12-digit numeric code"
-                              className="w-[16ch] bg-surface border border-border focus:border-[rgb(var(--color-emerald-default-rgb))] rounded-[3px] px-2.5 h-6.5 text-xs outline-none text-text-primary font-mono font-bold tabular-nums transition-all duration-150"
+                              className="w-[16ch] bg-surface border border-border focus:border-[var(--accent-solid)] rounded-[3px] px-2.5 h-6.5 text-xs outline-none text-text-primary font-mono font-bold tabular-nums transition-all duration-150"
                             />
                           </SapInputField>
                         </div>
@@ -1690,7 +1690,7 @@ export default function PurchaseOrdersView({
                                                   }
                                                 }));
                                               }}
-                                              className={`w-24 bg-surface border focus:border-[rgb(var(--color-emerald-default-rgb))] rounded-[3px] px-2 py-0.5 text-xs text-right font-mono font-semibold outline-none tabular-nums transition-all duration-150 ${error ? 'border-red-500 focus:border-red-500 bg-red-50/30' : 'border-border-em'
+                                              className={`w-24 bg-surface border focus:border-[var(--accent-solid)] rounded-[3px] px-2 py-0.5 text-xs text-right font-mono font-semibold outline-none tabular-nums transition-all duration-150 ${error ? 'border-red-500 focus:border-red-500 bg-red-50/30' : 'border-border-em'
                                                 }`}
                                               placeholder="0"
                                             />

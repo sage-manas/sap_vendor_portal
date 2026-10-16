@@ -90,8 +90,8 @@ export default function Sidebar({ activeTab, setActiveTab, state, onReset }) {
             : "ml-auto size-4.5 rounded-full text-[9px] flex items-center justify-center font-bold"
           }
           style={isCollapsed
-            ? { backgroundColor: 'rgb(var(--color-emerald-default-rgb))' }
-            : { backgroundColor: 'var(--color-emerald-dim)', color: 'rgb(var(--color-emerald-text-rgb))' }
+            ? { backgroundColor: 'var(--accent-solid)' }
+            : { backgroundColor: 'var(--color-emerald-dim)', color: 'var(--accent-text)' }
           }>
             {(state.pos || []).filter(p => p.status === 'Open').length}
           </span>
@@ -102,8 +102,8 @@ export default function Sidebar({ activeTab, setActiveTab, state, onReset }) {
             : "ml-auto size-4.5 rounded-full text-[9px] flex items-center justify-center font-bold"
           }
           style={isCollapsed
-            ? { backgroundColor: 'rgb(var(--color-emerald-default-rgb))' }
-            : { backgroundColor: 'var(--color-emerald-dim)', color: 'rgb(var(--color-emerald-text-rgb))' }
+            ? { backgroundColor: 'var(--accent-solid)' }
+            : { backgroundColor: 'var(--color-emerald-dim)', color: 'var(--accent-text)' }
           }>
             {(state.rfqs || []).filter(r => r.status === 'Bidding Open').length}
           </span>

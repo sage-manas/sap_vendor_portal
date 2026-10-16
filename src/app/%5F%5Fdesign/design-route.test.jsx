@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { useState } from 'react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import DesignPage from '@/app/%5F%5Fdesign/page';
 import StatusBadge from '@/components/ui/StatusBadge';
 import KPICard from '@/components/ui/KPICard';
+import Drawer from '@/components/ui/Drawer';
+import DataTable from '@/components/ui/DataTable';
 
 // /__design is the design system's test bed (docs/redesign/design-system.md):
 // visible in development, absent from production.
@@ -47,6 +50,37 @@ describe('StatusBadge', () => {
   it('keeps the label exactly as given', () => {
     render(<StatusBadge label="Bidding Open" />);
     expect(screen.getByText('Bidding Open')).toBeInTheDocument();
+  });
+});
+
+describe('Drawer', () => {
+  it('moves focus into the panel when it opens and back to the opener when it closes', () => {
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>Open order</button>
+          <Drawer isOpen={open} onClose={() => setOpen(false)} title="PO-2026-0077">body</Drawer>
+        </>
+      );
+    }
+    render(<Harness />);
+    const opener = screen.getByRole('button', { name: 'Open order' });
+    opener.focus();
+    fireEvent.click(opener);
+    expect(screen.getByRole('dialog', { name: 'PO-2026-0077' })).toHaveFocus();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(opener).toHaveFocus();
+  });
+});
+
+describe('DataTable on a phone', () => {
+  it('gives a clickable row a labelled button, not just a clickable card', () => {
+    const onRowClick = vi.fn();
+    render(<DataTable caption="Orders" columns={[{ key: 'id', header: 'Order' }]} rows={[{ id: 'PO-1' }]} onRowClick={onRowClick} rowLabel={(r) => r.id} />);
+    // The card list and the table both render in jsdom (CSS decides which shows).
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open PO-1' })[1]);
+    expect(onRowClick).toHaveBeenCalledWith({ id: 'PO-1' });
   });
 });
 

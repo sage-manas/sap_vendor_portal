@@ -73,13 +73,14 @@
   --info:    #2A6496;  --info-tint:    #E6F0F8;
 
   --accent: rgb(var(--color-emerald-default-rgb));
-  /* Link/label text: the accent, darkened as far as needed to read on white. */
-  --accent-text: color-mix(in oklab, var(--accent) 88%, black);
-  --accent-text: oklch(from var(--accent) min(l, 0.5) c h);
+  /* Fallbacks for browsers without relative colour syntax; the @supports
+     block below replaces them with the exact derivations. (A second
+     declaration of a custom property can't act as a fallback — custom
+     properties are never rejected at parse time, so the last one always
+     wins.) */
+  --accent-text: color-mix(in oklab, var(--accent) 80%, black);
   --accent-tint: color-mix(in srgb, var(--accent) 9%, var(--surface));
-  /* White on a dark accent, ink on a light one (a tenant may pick yellow). */
   --accent-fg: #FFFFFF;
-  --accent-fg: oklch(from var(--accent) clamp(0, (0.6 - l) * 1000, 1) 0 0);
   --accent-solid: var(--accent);
 
   --shadow-popover: 0 8px 24px rgb(14 23 38 / 0.12), 0 0 0 1px rgb(14 23 38 / 0.04);
@@ -97,8 +98,6 @@
   --color-text-primary-rgb: 11, 15, 21;
   --color-text-secondary-rgb: 70, 81, 99;
   --color-text-tertiary-rgb: 99, 109, 125;
-  --color-emerald-text-rgb: 26, 69, 184;
-  --color-on-emerald-rgb: 255, 255, 255;
   --color-emerald-dim: var(--accent-tint);
 }
 
@@ -119,14 +118,12 @@
   --danger:  #F07C72;  --danger-tint:  #2E1715;
   --info:    #72AADB;  --info-tint:    #132232;
 
-  /* Same tenant colour, lifted to read on near-black. */
+  /* Same tenant colour, lifted to read on near-black (fallbacks; see the
+     @supports block). */
   --accent-text: color-mix(in oklab, var(--accent) 55%, white);
-  --accent-text: oklch(from var(--accent) max(l, 0.76) c h);
   --accent-solid: color-mix(in oklab, var(--accent) 60%, white);
-  --accent-solid: oklch(from var(--accent) max(l, 0.7) c h);
   --accent-tint: color-mix(in srgb, var(--accent) 22%, var(--surface));
   --accent-fg: var(--slate-950);
-  --accent-fg: oklch(from var(--accent-solid) clamp(0, (0.6 - l) * 1000, 1) 0 0);
 
   --shadow-popover: 0 8px 24px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(255 255 255 / 0.04);
   --shadow-modal: 0 16px 48px rgb(0 0 0 / 0.6);
@@ -142,10 +139,24 @@
   --color-text-primary-rgb: 239, 241, 244;
   --color-text-secondary-rgb: 169, 178, 192;
   --color-text-tertiary-rgb: 133, 142, 156;
-  --color-emerald-text-rgb: 154, 180, 255;
-  --color-on-emerald-rgb: 255, 255, 255;
 
   color-scheme: dark;
+}
+
+/* Exact accent derivations (oklch lightness clamps), where supported. These
+   are what scripts/check-contrast.mjs verifies for a range of tenant colours. */
+@supports (color: oklch(from red l c h)) {
+  :root {
+    /* Link/label text: the accent, darkened as far as needed to read on white. */
+    --accent-text: oklch(from var(--accent) min(l, 0.5) c h);
+    /* White on a dark accent, ink on a light one (a tenant may pick yellow). */
+    --accent-fg: oklch(from var(--accent-solid) clamp(0, (0.6 - l) * 1000, 1) 0 0);
+  }
+  .dark {
+    --accent-text: oklch(from var(--accent) max(l, 0.76) c h);
+    --accent-solid: oklch(from var(--accent) max(l, 0.7) c h);
+    --accent-fg: oklch(from var(--accent-solid) clamp(0, (0.6 - l) * 1000, 1) 0 0);
+  }
 }
 
 @theme inline {
@@ -196,8 +207,9 @@
   /* Type scale: 12 / 13 / 14 (base) / 16 / 20 / 24 / 32, 4px line grid. */
   --text-xs: 12px;   --text-xs--line-height: 16px;
   --text-sm: 13px;   --text-sm--line-height: 20px;
-  /* No --text-base: it would collide with the legacy --color-base (bg-base),
-     making 	ext-base set the colour to the canvas. 14px is the body default. */
+  /* Body is 14px and needs no class. Avoid the `text-base` utility: it is
+     Tailwind's 16px default and is ambiguous with the legacy --color-base
+     (bg-base) until that token is removed — use text-lg for 16px. */
   --text-lg: 16px;   --text-lg--line-height: 24px;
   --text-xl: 20px;   --text-xl--line-height: 28px;
   --text-2xl: 24px;  --text-2xl--line-height: 32px;
@@ -360,13 +372,20 @@
   select:focus,
   textarea:focus {
     border-color: var(--accent-solid);
-    box-shadow: 0 0 0 3px var(--accent-tint);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-solid) 28%, transparent);
   }
   input[aria-invalid="true"],
   select[aria-invalid="true"],
   textarea[aria-invalid="true"] {
     border-color: var(--danger);
     box-shadow: inset 0 0 0 1px var(--danger);
+  }
+  /* An invalid field still has to show that it has focus. */
+  input[aria-invalid="true"]:focus,
+  select[aria-invalid="true"]:focus,
+  textarea[aria-invalid="true"]:focus {
+    border-color: var(--danger);
+    box-shadow: 0 0 0 3px var(--danger-tint), inset 0 0 0 1px var(--danger);
   }
   input:disabled,
   select:disabled,
@@ -521,7 +540,7 @@
   }
   .input:focus {
     border-color: var(--accent-solid);
-    box-shadow: 0 0 0 3px var(--accent-tint);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-solid) 28%, transparent);
   }
 
   /* Field label: sentence case, readable size, above the control. */
@@ -604,8 +623,14 @@
   outline: 2px solid var(--accent-solid);
   outline-offset: 2px;
 }
-input:focus-visible, select:focus-visible, textarea:focus-visible {
-  outline: none; /* the border + ring above is the indicator for fields */
+/* Text-entry fields show focus with their border + ring instead. Only those:
+   checkboxes, radios, file pickers and input buttons keep the outline. */
+input:is(:not([type]), [type=text], [type=email], [type=number], [type=password],
+  [type=date], [type=tel], [type=search], [type=url], [type=time], [type=month],
+  [type=week], [type=datetime-local]):focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
 }
 :focus:not(:focus-visible) {
   outline: none;

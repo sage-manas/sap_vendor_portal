@@ -105,8 +105,10 @@ button labels stay ≥ 4.5:1 in both themes. `npm run check:contrast` runs nine
 sample tenant colours through the same maths; the redesign PR also verified the
 browser-computed values. Default accent: ink blue `#1E4FD0`.
 
-Older browsers without relative colour syntax fall back to `color-mix`
-approximations declared on the line above each `oklch(from …)`.
+Browsers without relative colour syntax get `color-mix` approximations; the
+exact `oklch` derivations sit in an `@supports (color: oklch(from red l c h))`
+block (a second declaration of a custom property can't act as a fallback —
+custom properties never fail to parse).
 
 ### Type
 
@@ -220,11 +222,13 @@ Table props: `rows`, `getRowId`, `loading`, `empty`, `density`
 (`comfortable` 40px / `compact` 36px), `sort` + `onSortChange`, `selectable` +
 `selected` + `onSelectedChange`, `onRowClick`, `inlineActions(row)` (revealed
 on hover/focus), `rowActions(row)` (kebab menu — always visible, so touch works),
-`totals` (`{ label, [key]: value }`), `hiddenColumns`, `caption`.
+`totals` (`{ label, [key]: value }`), `hiddenColumns`, `caption`, `maxHeight`.
 
-Behaviour: sticky header; `aria-sort` on sorted headers; select-all with
+Behaviour: with `maxHeight` the body scrolls inside the table under a sticky
+header (a header can only stick inside a box that scrolls vertically); `aria-sort` on sorted headers; select-all with
 indeterminate; single-line cells by default (the table scrolls sideways if it
-must); below 768px each row becomes a card. State is controlled — the screen
+must); below 768px each row becomes a card, with a labelled open button when
+the row is clickable. State is controlled — the screen
 decides what sorting and selection mean.
 
 - ✅ Currency in the column header (`Value (₹)`), right-aligned mono values, a
@@ -255,8 +259,9 @@ entries; `destructive` items), `Checkbox` (with `indeterminate`), `Switch`,
   radius, labelled close.
 - **Drawer** — same API plus `description` and `footer`. Full viewport height
   (the old one started at a hard-coded 44px under a 52px header); `role=dialog`,
-  labelled close; `inert` and hidden while closed so its contents aren't
-  tabbable off-screen.
+  labelled close; focus moves into the panel on open and back to the opener on
+  close; `inert` and hidden while closed so its contents aren't tabbable
+  off-screen.
 - **Toast** (`portal/ToastNotification.jsx`) — theme tokens (it was hard-coded
   white in dark mode), icon + message, type announced to screen readers, labelled
   dismiss.
