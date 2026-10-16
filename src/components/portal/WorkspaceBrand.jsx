@@ -11,8 +11,14 @@ import { brandMark } from '@/lib/branding';
  * is the heading and VendorConnect is the caption underneath. Before the realm
  * answers, `workspace` is null and this falls back to the product's own mark —
  * the same thing an unbranded tenant shows.
+ *
+ * `naming` is the line that says, in words rather than in branding, which
+ * workspace this screen belongs to. A tenant's logo is optional and its accent
+ * colour is optional, so neither can be what tells a supplier whose portal they
+ * are agreeing to join (#255); this line is not optional when a workspace
+ * resolved.
  */
-export default function WorkspaceBrand({ workspace, caption }) {
+export default function WorkspaceBrand({ workspace, caption, naming }) {
   const { logo, name } = brandMark(workspace);
 
   return (
@@ -38,6 +44,11 @@ export default function WorkspaceBrand({ workspace, caption }) {
       <p className="text-[10px] text-text-tertiary font-mono tracking-wider uppercase mt-1 text-center">
         {caption}
       </p>
+      {naming ? (
+        <p className="text-[11px] text-text-secondary text-center leading-relaxed mt-3 px-2">
+          {naming}
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -11,7 +11,15 @@ import { forgetWhoami } from '@/lib/whoami';
 
 export default function SignInPage() {
   const router = useRouter();
-  const { workspace, slug, selfRegistrationOpen, workspaceRequired } = useWorkspaceRealm();
+  const { workspace, known, slug, selfRegistrationOpen, workspaceRequired } = useWorkspaceRealm();
+  // Which front door this is, in words. A supplier should know whose portal
+  // they are signing in to even when that tenant has set no logo (#255); an
+  // address that resolved no workspace says so rather than looking neutral.
+  const naming = workspace?.companyName
+    ? `Sign in to ${workspace.companyName}'s supplier workspace on VendorConnect.`
+    : known && workspaceRequired
+      ? 'This address names no workspace. Your account decides which workspace you sign in to.'
+      : null;
   const [vendorIdOrEmail, setVendorIdOrEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -79,7 +87,7 @@ export default function SignInPage() {
   return (
     <div className="w-full max-w-[420px] p-8 card animate-fadeUp">
       {/* Whose front door this is (workspace-realm.js) */}
-      <WorkspaceBrand workspace={workspace} caption="Supplier portal · VendorConnect" />
+      <WorkspaceBrand workspace={workspace} caption="Supplier portal · VendorConnect" naming={naming} />
 
       {/* Form Error Message */}
       {error && (
