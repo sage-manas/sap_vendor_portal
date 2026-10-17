@@ -5,6 +5,7 @@ import { AlertCircle, AlertTriangle, CheckCircle2, ChevronRight, Info, Loader2, 
 import { PageHeader as SharedPageHeader } from '@/components/ui/Page';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { useLabelledControl } from '@/components/ui/FieldCard';
+import { useNarrow } from '@/components/ui/useNarrow';
 
 // The back-office vocabulary, shared by the platform console and the tenant
 // workspace. Two planes, two navs, two sessions — but one set of tables,
@@ -89,7 +90,62 @@ export const Status = ({ value }) => <StatusBadge label={value} variant="pending
 // With `onRowClick`, each row also gets a labelled chevron button: the row's
 // own click is a pointer shortcut, the button is the keyboard and
 // screen-reader way in. `rowLabel(row)` names it ("Open …").
-export const Table = ({ columns, rows, empty = 'Nothing here yet.', onRowClick, rowLabel = (row) => String(row.key ?? '') }) => (
+const cellValue = (column, row) => {
+  if (column.render) return column.render(row);
+  return column.mono === false ? row[column.key] : <span className="mono">{row[column.key]}</span>;
+};
+
+// Below 768px a table becomes one card per row (the brief's phone layout):
+// the first column is the card's title, the rest are label/value pairs.
+const TableCards = ({ columns, rows, empty, onRowClick, rowLabel }) => {
+  const [title, ...rest] = columns;
+  return (
+    <ul className="card divide-y divide-border">
+      {rows.length === 0 ? (
+        <li className="px-4 py-4 text-sm text-fg-muted">{empty}</li>
+      ) : rows.map((row, index) => (
+        <li key={row.key ?? index} className="flex gap-3 px-4 py-3">
+          <div
+            className={`min-w-0 flex-1 ${onRowClick ? 'cursor-pointer' : ''}`}
+            onClick={onRowClick ? () => onRowClick(row) : undefined}
+          >
+            <div className="text-sm font-medium text-fg">{cellValue(title, row)}</div>
+            <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+              {rest.filter((column) => column.header).map((column) => (
+                <div key={column.key} className="contents">
+                  <dt className="text-fg-subtle">{column.header}</dt>
+                  <dd className="min-w-0 break-words text-fg">{cellValue(column, row)}</dd>
+                </div>
+              ))}
+            </dl>
+            {/* Header-less columns are row actions; on a card they sit below. */}
+            {rest.filter((column) => !column.header).map((column) => (
+              <div key={column.key} className="mt-2">{cellValue(column, row)}</div>
+            ))}
+          </div>
+          {onRowClick && (
+            <button
+              type="button"
+              onClick={() => onRowClick(row)}
+              aria-label={`Open ${rowLabel(row)}`}
+              className="-mr-2 grid size-8 shrink-0 cursor-pointer place-items-center rounded-md text-fg-subtle hover:bg-subtle hover:text-fg"
+            >
+              <ChevronRight className="size-4" strokeWidth={1.5} />
+            </button>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+};
+
+export const Table = ({ empty = 'Nothing here yet.', rowLabel = (row) => String(row.key ?? ''), ...props }) => {
+  const narrow = useNarrow();
+  const Layout = narrow ? TableCards : TableGrid;
+  return <Layout empty={empty} rowLabel={rowLabel} {...props} />;
+};
+
+const TableGrid = ({ columns, rows, empty, onRowClick, rowLabel }) => (
   <div className="card overflow-x-auto">
     <table className="w-full border-collapse">
       <thead className="table-sticky">
