@@ -6,6 +6,7 @@ import { validateFields } from '../validation';
 // Owns the label/control association, so this form cannot forget it — see the
 // header on that file for why it exists.
 import FieldCard from '@/components/ui/FieldCard';
+import { Button } from '@/components/ui/button';
 
 // Finding 4.2: the supplier side of the bank-account change review.
 //
@@ -102,14 +103,14 @@ export function BankChangeRequest({ profile, onSubmit }) {
   };
 
   return (
-    <div className="p-6 card space-y-4">
-      <div className="flex items-start justify-between gap-4 border-b border-border pb-2">
-        <h3 className="label mb-0 flex items-center gap-2">
-          <Landmark className="size-3.5 text-text-tertiary" aria-hidden="true" />
+    <section className="space-y-4">
+      <div className="flex items-center justify-between gap-4">
+        <h2 className="flex items-center gap-2 text-lg font-semibold text-fg">
+          <Landmark className="size-4 text-fg-subtle" strokeWidth={1.5} aria-hidden="true" />
           Bank account
-        </h3>
+        </h2>
         {!open && !awaitingSap && (
-          <button type="button" className="btn btn-o h-7 text-[11px]" onClick={() => {
+          <Button type="button" variant="secondary" size="sm" onClick={() => {
             setForm(formFrom(profile));
             setErrors({});
             setFailure('');
@@ -117,51 +118,51 @@ export function BankChangeRequest({ profile, onSubmit }) {
             setOpen(true);
           }}>
             {pending ? 'Replace request' : 'Request a change'}
-          </button>
+          </Button>
         )}
       </div>
 
       {/* What SAP will actually pay today. Stated plainly, because a pending
           request below it could otherwise read as already in effect. */}
-      <dl className="grid grid-cols-1 gap-x-8 gap-y-2 text-xs md:grid-cols-2">
-        <div className="flex justify-between gap-4 border-b border-border-subtle pb-2">
-          <dt className="font-bold text-text-secondary">Paid to</dt>
-          <dd className="font-mono font-semibold text-text-primary">{masked(profile.accountNumber)}</dd>
+      <dl className="grid grid-cols-1 gap-x-10 border-t border-border text-sm md:grid-cols-2">
+        <div className="flex justify-between gap-4 border-b border-border py-2.5">
+          <dt className="text-fg-muted">Paid to</dt>
+          <dd className="mono text-fg">{masked(profile.accountNumber)}</dd>
         </div>
-        <div className="flex justify-between gap-4 border-b border-border-subtle pb-2">
-          <dt className="font-bold text-text-secondary">Bank</dt>
-          <dd className="font-semibold text-text-primary">
+        <div className="flex justify-between gap-4 border-b border-border py-2.5">
+          <dt className="text-fg-muted">Bank</dt>
+          <dd className="text-right text-fg">
             {profile.bankName || '—'}{profile.ifscCode ? ` (${profile.ifscCode})` : ''}
           </dd>
         </div>
       </dl>
 
       {done && !pending && (
-        <p className="text-xs text-text-secondary" role="status">
+        <p className="text-sm text-fg-muted" role="status">
           Your request has been sent. It takes effect once your buyer approves it and records it in SAP.
         </p>
       )}
 
       {pending && (
-        <div className="space-y-2 rounded border border-border p-3" style={{ backgroundColor: 'var(--color-amber-dim, transparent)' }}>
-          <p className="flex items-center gap-2 text-xs font-bold text-text-primary">
+        <div className={`space-y-2 rounded-lg border p-4 ${awaitingSap ? 'border-info/30 bg-info-tint' : 'border-warning/30 bg-warning-tint'}`}>
+          <p className="flex items-center gap-2 text-sm font-medium text-fg">
             {awaitingSap
-              ? <ShieldCheck className="size-3.5 text-emerald-400" aria-hidden="true" />
-              : <Clock className="size-3.5 text-text-tertiary" aria-hidden="true" />}
+              ? <ShieldCheck className="size-4 text-info" strokeWidth={1.5} aria-hidden="true" />
+              : <Clock className="size-4 text-warning" strokeWidth={1.5} aria-hidden="true" />}
             {awaitingSap
               ? 'Approved — being recorded in your buyer’s SAP system'
               : 'Awaiting your buyer’s approval'}
           </p>
-          <p className="text-[11px] leading-normal text-text-tertiary">
+          <p className="text-sm text-fg-muted">
             {awaitingSap
               ? 'Your buyer has approved this change. Payments move to the new account once it is recorded in SAP, which is why the account above has not changed yet.'
               : 'Payments still go to the account above until this is approved and recorded in SAP.'}
           </p>
-          <dl className="grid grid-cols-1 gap-x-8 gap-y-1.5 pt-1 text-[11px] md:grid-cols-2">
+          <dl className="grid grid-cols-1 gap-x-10 gap-y-1.5 pt-1 text-sm md:grid-cols-2">
             {FIELDS.filter((field) => field in pending).map((field) => (
               <div key={field} className="flex justify-between gap-4">
-                <dt className="font-bold text-text-secondary">{LABELS[field]}</dt>
-                <dd className="font-mono font-semibold text-text-primary">
+                <dt className="text-fg-muted">{LABELS[field]}</dt>
+                <dd className="mono text-fg">
                   {field === 'accountNumber' ? masked(pending[field]) : pending[field]}
                 </dd>
               </div>
@@ -171,10 +172,10 @@ export function BankChangeRequest({ profile, onSubmit }) {
       )}
 
       {open && (
-        <form onSubmit={submit} className="space-y-4 border-t border-border pt-4" noValidate>
+        <form onSubmit={submit} className="grid max-w-3xl gap-x-6 gap-y-4 rounded-lg border border-border bg-surface p-5 md:grid-cols-2" noValidate>
           {pending && !awaitingSap && (
-            <p className="flex items-start gap-2 text-[11px] leading-normal text-text-secondary">
-              <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-text-tertiary" aria-hidden="true" />
+            <p className="flex items-start gap-2 text-sm text-fg-muted md:col-span-2">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" strokeWidth={1.5} aria-hidden="true" />
               {/* The server overwrites pendingBankChange rather than refusing a
                   second request, so saying this is the difference between a
                   supplier correcting a typo on purpose and discarding their
@@ -208,7 +209,7 @@ export function BankChangeRequest({ profile, onSubmit }) {
               // invites a submit that changes nothing.
               value={form.accountNumber}
               onChange={(e) => change('accountNumber', e.target.value.replace(/\D/g, ''))}
-              className="w-full font-mono"
+              className="mono w-full"
             />
           </FieldCard>
 
@@ -218,7 +219,7 @@ export function BankChangeRequest({ profile, onSubmit }) {
               maxLength={11}
               value={form.ifscCode}
               onChange={(e) => change('ifscCode', e.target.value.toUpperCase())}
-              className="w-full font-mono uppercase"
+              className="mono w-full uppercase"
             />
           </FieldCard>
 
@@ -242,19 +243,19 @@ export function BankChangeRequest({ profile, onSubmit }) {
             />
           </FieldCard>
 
-          {failure && <p className="text-[11px] text-red-600" role="alert">{failure}</p>}
+          {failure && <p className="text-sm text-danger md:col-span-2" role="alert">{failure}</p>}
 
-          <div className="flex items-center gap-2">
-            <button type="submit" className="btn btn-v h-9" disabled={busy}>
+          <div className="flex items-center gap-2 md:col-span-2">
+            <Button type="submit" disabled={busy}>
               {busy ? 'Sending…' : 'Send request'}
-            </button>
-            <button type="button" className="btn btn-o h-9" onClick={() => setOpen(false)} disabled={busy}>
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
               Cancel
-            </button>
+            </Button>
           </div>
         </form>
       )}
-    </div>
+    </section>
   );
 }
 

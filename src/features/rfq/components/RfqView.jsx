@@ -1,11 +1,10 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
+  AlertCircle,
   CheckCircle2,
-  Percent,
   ClipboardList,
+  Download,
   Search,
-  ChevronsLeft,
-  Menu,
   Loader2,
   FileText,
   IndianRupee
@@ -16,6 +15,9 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 import StatusBadge from '@/components/ui/StatusBadge';
 import EmptyState from '@/components/ui/EmptyState';
 import Modal from '@/components/ui/Modal';
+import DataTable from '@/components/ui/DataTable';
+import { PageHeader } from '@/components/ui/Page';
+import { Avatar, DropdownMenu, Tabs } from '@/components/ui/controls';
 
 import FieldCard from '@/components/ui/FieldCard';
 import { rfqStatusVariant } from '@/lib/statusColors';
@@ -40,62 +42,12 @@ const formatDate = (dateStr) => {
   return `${day}.${month}.${year}`;
 };
 
-// --- Redesigned components (matching vendor registration's numbered card style) ---
-const SectionHeader = ({ title, number }) => (
-  <div className="flex items-center gap-2.5 px-5 py-3 border-b border-border select-none">
-    {number && (
-      <span className="inline-flex items-center justify-center text-[11px] font-bold font-mono text-primary bg-primary/10 rounded px-2 py-1 tabular-nums shrink-0">
-        {number}
-      </span>
-    )}
-    <h3 className="text-[15px] font-bold text-text-primary">{title}</h3>
-  </div>
-);
-
-// Bordered, numbered card wrapper for a form section
-const FormSection = ({ number, title, children, className = '' }) => (
-  <div className={`bg-surface border border-border rounded-xl shadow-xs ${className}`}>
-    <SectionHeader number={number} title={title} />
-    <div className="p-4">
-      {children}
-    </div>
-  </div>
-);
-
-const EnterpriseCard = ({ label, required, children, error }) => (
-  <div className={`p-4.5 border rounded-xl shadow-xs flex flex-col justify-between min-h-[110px] transition-all duration-200 ${error ? 'border-rose-500 ring-1 ring-rose-500/50 bg-rose-50/5' : 'border-border hover:border-border-em hover:shadow-xs bg-surface'
-    }`}>
-    <div className="flex justify-between items-center mb-1.5">
-      <span className="text-xs font-medium text-text-secondary block select-none">{label} {required && <span className="text-rose-500 font-bold select-none ml-0.5">*</span>}</span>
-    </div>
-    <div className="flex-1 flex items-center w-full">
-      {children}
-    </div>
-  </div>
-);
-
-const FIELD_INPUT_OVERRIDES = "[&_input]:!rounded-md [&_input]:!border [&_input]:!border-border [&_input]:!bg-surface [&_input]:!px-2.5 [&_input]:!py-1.5 [&_input]:!text-[13px] [&_input]:placeholder:!text-text-tertiary/50 [&_input]:placeholder:!font-semibold [&_input:focus]:!border-primary [&_input:focus]:!bg-surface [&_input:focus]:!outline-none [&_select]:!rounded-md [&_select]:!border [&_select]:!border-border [&_select]:!bg-surface [&_select]:!px-2.5 [&_select]:!py-1.5 [&_select]:!text-[13px] [&_select:focus]:!border-primary [&_select:focus]:!bg-surface [&_select:focus]:!outline-none [&_textarea]:!rounded-md [&_textarea]:!border [&_textarea]:!border-border [&_textarea]:!bg-surface [&_textarea]:!px-2.5 [&_textarea]:!py-1.5 [&_textarea]:!text-[13px] [&_textarea]:placeholder:!text-text-tertiary/50 [&_textarea]:placeholder:!font-semibold [&_textarea:focus]:!border-primary [&_textarea:focus]:!bg-surface [&_textarea:focus]:!outline-none";
-
-// Thin alias so the call sites below read unchanged. The label/control
-// association, aria-invalid and aria-describedby all live in the shared
-// primitive now — see components/ui/FieldCard.jsx.
-const EnterpriseFieldCard = (props) => <FieldCard {...props} className={FIELD_INPUT_OVERRIDES} />;
-
-const SkeletonCard = () => (
-  <div className="p-4.5 bg-surface border border-border rounded-xl flex flex-col justify-between min-h-[140px] animate-pulse">
-    <div className="flex justify-between items-center">
-      <div className="h-3.5 w-24 skeleton" />
-      <div className="h-3.5 w-8 skeleton" />
-    </div>
-    <div className="h-9 w-full skeleton rounded-lg mt-2" />
-    <div className="flex justify-between items-center pt-2 mt-3 border-t border-border">
-      <div className="flex gap-1.5">
-        <div className="h-4.5 w-10 skeleton rounded-full" />
-        <div className="h-4.5 w-10 skeleton rounded-full" />
-      </div>
-      <div className="h-3 w-16 skeleton" />
-    </div>
-  </div>
+// One titled group of the quotation form or the request detail.
+const FormSection = ({ title, children }) => (
+  <section className="space-y-4">
+    <h3 className="text-base font-semibold text-fg">{title}</h3>
+    {children}
+  </section>
 );
 
 const getInitialQuoteForm = () => ({
@@ -152,7 +104,6 @@ export default function RfqView({
   // or 'me48' (what SAP itself holds against this vendor's code).
   const [activeProcTab, setActiveProcTab] = useState('monitor');
   const [listSearch, setListSearch] = useState('');
-  const [showRfqList, setShowRfqList] = useState(true);
 
   const [isLoading, setIsLoading] = useState(false);
   const [tabLoading, setTabLoading] = useState(false);
@@ -381,372 +332,233 @@ export default function RfqView({
     );
   }
 
+  const quotedCount = state.rfqs.length - openRfqs.length;
+  const matchesSearch = (r) =>
+    r.id.toLowerCase().includes(listSearch.toLowerCase()) || r.description.toLowerCase().includes(listSearch.toLowerCase());
+  const listedRfqs = openRfqs.filter(matchesSearch);
+  const activeRfq = openRfqs.find(r => r.id === selectedRfqId) || openRfqs[0];
+
+  const rfqLineColumns = [
+    { key: 'lineNo', header: 'Line', mono: true, primary: true },
+    { key: 'materialCode', header: 'Item code', render: (item) => <span className="mono">{item.materialCode}</span> },
+    { key: 'description', header: 'Description', wrap: true },
+    { key: 'quantity', header: 'Quantity', align: 'right', mono: true, render: (item) => item.quantity.toLocaleString() },
+    { key: 'uom', header: 'Unit' },
+    { key: 'targetPrice', header: 'Target price (₹)', align: 'right', mono: true, render: (item) => (item.targetPrice ? item.targetPrice.toFixed(2) : '0.00') },
+    { key: 'deliveryDate', header: 'Delivery', render: (item) => formatDate(item.deliveryDate) },
+  ];
+
   return (
     <ErrorBoundary>
-      <div className="space-y-4 max-w-full animate-fade-in pb-16">
+      <div className="space-y-6 pb-16">
 
-      {/* PAGE HEADER */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-4 select-none">
-        <div className="space-y-1">
-          <h2 className="page-title flex items-center gap-2">
-            <ClipboardList className="size-5 text-primary shrink-0" /> RFQ Management
-          </h2>
-          <p className="text-text-tertiary text-xs font-semibold">
-            Review requests you&rsquo;ve been invited to quote, submit pricing, and track awards through to a purchase order
-          </p>
-        </div>
-        <span className="chip bg-surface2 text-text-secondary border border-border w-fit shrink-0">
-          <span className="status-dot status-dot-active"></span>
-          {openRfqs.length} open &middot; {state.rfqs.length - openRfqs.length} quoted
-        </span>
-      </div>
-
-      {/* PROCUREMENT SUB NAVIGATION */}
-      <div className="flex items-center justify-between border-b border-border select-none bg-surface p-1 rounded-md shadow-xs">
-        <div className="flex">
-          <button
-            onClick={() => { setActiveProcTab('monitor'); setListSearch(''); }}
-            className={`pb-2.5 px-5 text-xs font-bold border-b-2 transition-colors duration-150 cursor-pointer flex items-center gap-2 ${activeProcTab === 'monitor'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-text-tertiary hover:text-text-primary'
-              }`}
-          >
-            <ClipboardList className="size-4" /> RFQ Monitor &amp; History
-          </button>
-          <button
-            onClick={() => { setActiveProcTab('me47'); setListSearch(''); }}
-            className={`pb-2.5 px-5 text-xs font-bold border-b-2 transition-colors duration-150 cursor-pointer flex items-center gap-2 ${activeProcTab === 'me47'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-text-tertiary hover:text-text-primary'
-              }`}
-          >
-            <Percent className="size-4" /> Submit Quotation
-          </button>
-          <button
-            onClick={() => { setActiveProcTab('me48'); setListSearch(''); }}
-            className={`pb-2.5 px-5 text-xs font-bold border-b-2 transition-colors duration-150 cursor-pointer flex items-center gap-2 ${activeProcTab === 'me48'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-text-tertiary hover:text-text-primary'
-              }`}
-          >
-            <FileText className="size-4" /> My Documents
-          </button>
-        </div>
-        {activeProcTab === 'monitor' && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowRfqList(!showRfqList)}
-            className="mr-2"
-          >
-            {showRfqList ? <ChevronsLeft className="size-3.5" /> : <Menu className="size-3.5" />}
-            <span>{showRfqList ? 'Hide List' : 'Show List'}</span>
-          </Button>
+      <PageHeader
+        title="RFQs"
+        description={(
+          <>
+            Quote on requests you have been invited to, and track them through to a purchase order.{' '}
+            <span className="whitespace-nowrap text-fg-subtle">{openRfqs.length} open &middot; {quotedCount} quoted</span>
+          </>
         )}
-      </div>
+      />
+
+      <Tabs
+        aria-label="RFQ screens"
+        value={activeProcTab}
+        onValueChange={(tab) => { setActiveProcTab(tab); setListSearch(''); }}
+        items={[
+          { value: 'monitor', label: 'Open requests', count: openRfqs.length },
+          { value: 'me47', label: 'Submit quotation' },
+          { value: 'me48', label: 'My documents' },
+        ]}
+      />
 
       {activeProcTab === 'monitor' ? (
-        <div className="card flex overflow-hidden min-h-[500px]">
-          {/* LEFT SIDEBAR PANEL: RFQ LIST */}
-          <div className={`shrink-0 bg-surface flex flex-col h-[calc(100vh-13.5rem)] transition-all duration-300 ease-in-out overflow-hidden ${
-            showRfqList ? 'w-80 border-r border-border opacity-100' : 'w-0 opacity-0 border-r-0'
-          }`}>
-            <div className="p-3 border-b border-border bg-surface2/40">
-              <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider mb-2">RFQ List</h3>
-              <div className="relative">
-                <Search className="absolute left-2.5 top-2 size-3.5 text-text-tertiary" />
-                <input
-                  type="text"
-                  placeholder="Search RFQs..."
-                  value={listSearch}
-                  onChange={e => setListSearch(e.target.value)}
-                  className="pl-8"
-                />
+        // One empty state when there is nothing open — never an empty list
+        // beside an empty detail pane.
+        !activeRfq ? (
+          <EmptyState
+            icon={ClipboardList}
+            title="No open RFQs to show"
+            description="RFQs you've already quoted move to My documents, where you can update your price."
+          />
+        ) : (
+          <div className="grid items-start gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
+            {/* LIST */}
+            <div className="overflow-hidden rounded-lg border border-border bg-surface">
+              <div className="border-b border-border p-2">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-fg-subtle" strokeWidth={1.5} aria-hidden="true" />
+                  <input
+                    type="search"
+                    aria-label="Search open requests"
+                    placeholder="Search requests"
+                    value={listSearch}
+                    onChange={e => setListSearch(e.target.value)}
+                    className="w-full pl-8!"
+                  />
+                </div>
               </div>
-            </div>
-            <div className="flex-1 overflow-y-auto custom-scrollbar divide-y divide-border">
-              {openRfqs
-                .filter(r => r.id.toLowerCase().includes(listSearch.toLowerCase()) || r.description.toLowerCase().includes(listSearch.toLowerCase()))
-                .map(rfq => {
-                  const isSelected = selectedRfqId === rfq.id || (!selectedRfqId && openRfqs[0]?.id === rfq.id);
-                  
+              <ul className="max-h-[32rem] divide-y divide-border overflow-y-auto" aria-label="Open requests">
+                {listedRfqs.map(rfq => {
+                  const isSelected = activeRfq.id === rfq.id;
                   return (
-                    <button
-                      key={rfq.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedRfqId(rfq.id);
-                      }}
-                      className={`w-full text-left p-3.5 transition-colors duration-150 cursor-pointer block ${
-                        isSelected
-                          ? 'bg-surface2 border-l-4 border-primary'
-                          : 'hover:bg-surface2/60'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-mono text-xs font-bold text-text-primary">{rfq.id}</span>
-                        <StatusBadge label={rfq.status} variant={rfqStatusVariant(rfq.status)} />
-                      </div>
-                      <p className="text-xs font-bold text-text-primary truncate" title={rfq.description}>{rfq.description}</p>
-                      <div className="flex items-center justify-between mt-2 text-[10px] text-text-tertiary font-mono">
-                        {/* '--' when nobody chose one (issue #125). This used to
-                            read "Org: 1000" on every RFQ in the list, chosen or not,
-                            because the column defaulted to SAP's IDES demo value. */}
-                        <span>Org: {rfq.purchasingOrg || '—'}</span>
-                        <span className="whitespace-nowrap">Date: {formatDate(rfq.createdDate)}</span>
-                      </div>
-                    </button>
+                    <li key={rfq.id}>
+                      <button
+                        type="button"
+                        aria-current={isSelected ? 'true' : undefined}
+                        onClick={() => setSelectedRfqId(rfq.id)}
+                        className={`block w-full cursor-pointer px-3.5 py-3 text-left transition-colors ${isSelected
+                          ? 'bg-accent-tint shadow-[inset_2px_0_0_var(--accent-solid)]'
+                          : 'hover:bg-subtle'}`}
+                      >
+                        <span className="flex items-center justify-between gap-2">
+                          <span className="mono text-sm text-fg">{rfq.id}</span>
+                          <StatusBadge label={rfq.status} variant={rfqStatusVariant(rfq.status)} />
+                        </span>
+                        <span className="mt-1 block truncate text-sm text-fg" title={rfq.description}>{rfq.description}</span>
+                        <span className="mt-1 flex items-center justify-between gap-2 text-xs text-fg-subtle">
+                          {/* '—' when nobody chose one (issue #125). This used to
+                              read "Org: 1000" on every RFQ in the list, chosen or not,
+                              because the column defaulted to SAP's IDES demo value. */}
+                          <span>Buying unit {rfq.purchasingOrg || '—'}</span>
+                          <span className="whitespace-nowrap">{formatDate(rfq.createdDate)}</span>
+                        </span>
+                      </button>
+                    </li>
                   );
                 })}
-              {openRfqs.filter(r => r.id.toLowerCase().includes(listSearch.toLowerCase()) || r.description.toLowerCase().includes(listSearch.toLowerCase())).length === 0 && (
-                <EmptyState
-                  title="No open RFQ records found"
-                  description="RFQs you've already quoted move to My Documents for price updates."
-                  className="py-8"
-                />
-              )}
+                {listedRfqs.length === 0 && (
+                  <li className="px-3.5 py-6 text-sm text-fg-muted">No requests match “{listSearch}”.</li>
+                )}
+              </ul>
             </div>
-          </div>
 
-          {/* RIGHT SIDE DETAILS PANEL */}
-          <div className="flex-1 flex flex-col min-w-0 bg-base/40 overflow-hidden h-[calc(100vh-13.5rem)]">
+            {/* DETAIL */}
+            <article className="min-w-0 space-y-8 rounded-lg border border-border bg-surface p-5 md:p-6">
+              <header className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="text-lg font-semibold text-fg">
+                    <span className="mono">{activeRfq.id}</span> · {activeRfq.description}
+                  </h2>
+                  <p className="mt-1 text-sm text-fg-muted">
+                    Raised {formatDate(activeRfq.createdDate)}
+                    {' · '}Buying unit <span className="mono">{activeRfq.purchasingOrg || '—'}</span>
+                    {activeRfq.rfqType ? <> · Type <span className="mono">{activeRfq.rfqType}</span></> : null}
+                  </p>
+                </div>
+                <StatusBadge label={activeRfq.status} variant={rfqStatusVariant(activeRfq.status)} />
+              </header>
 
-            {/* TABS: MONITOR VIEW */}
-            {activeProcTab === 'monitor' && (() => {
-              const activeRfq = openRfqs.find(r => r.id === selectedRfqId) || openRfqs[0];
-              if (!activeRfq) {
-                return (
-                  <div className="flex-1 flex items-center justify-center p-8">
-                    <EmptyState
-                      title="No open RFQs to show"
-                      description="RFQs you've already quoted move to My Documents for price updates."
+              <FormSection title="Line items">
+                <DataTable
+                  caption="Requested line items"
+                  columns={rfqLineColumns}
+                  rows={activeRfq.items.map((item, idx) => ({ ...item, lineNo: (idx + 1) * 10 }))}
+                  getRowId={(item) => item.lineNo}
+                  rowLabel={(item) => `line ${item.lineNo}`}
+                  empty="This request has no lines."
+                />
+              </FormSection>
+
+              {/* The API withholds the invitee list from suppliers (a sealed
+                  tender does not name the competition); it is only present
+                  for staff. */}
+              {activeRfq.invitedVendors && (
+                <FormSection title="Invited vendors">
+                  <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {activeRfq.invitedVendors?.map(v => (
+                      <li key={v.id} className="flex items-center gap-3 rounded-md border border-border px-3 py-2.5">
+                        <Avatar name={v.name || '?'} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm text-fg" title={v.name}>{v.name}</span>
+                          <span className="mono block truncate text-xs text-fg-subtle">{v.id}</span>
+                        </span>
+                        <span className="mono text-sm text-fg-muted" title={`Vendor rating: ${v.rating}`}>{v.rating}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </FormSection>
+              )}
+
+              <FormSection title="Progress of this request">
+                {(() => {
+                  const hasBids = activeRfq.bids?.length > 0;
+                  const isAwarded = activeRfq.status === 'Awarded';
+                  // Each step is "done" only once the one after it has
+                  // started — a request with bids in but no award yet is not
+                  // "evaluation done", it's "evaluation active".
+                  const steps = [
+                    { label: 'Request published', value: 'Published', note: formatDate(activeRfq.createdDate), done: true },
+                    {
+                      label: 'Quotes received',
+                      value: hasBids ? `${activeRfq.bids.length} bid(s) received` : 'Pending bids',
+                      // An RFQ SAP raised directly carries no deadline
+                      // (schema.prisma's RFQ.deadlineDate comment) — said
+                      // plainly, not as a bare "—" that reads like a gap.
+                      note: `Deadline: ${activeRfq.deadlineDate ? formatDate(activeRfq.deadlineDate) : 'No deadline set by buyer'}`,
+                      done: hasBids,
+                      active: !hasBids,
+                    },
+                    {
+                      label: 'Evaluation',
+                      value: isAwarded ? 'Evaluated' : hasBids ? 'Review ready' : 'Pending review',
+                      note: 'Score weights active',
+                      done: isAwarded,
+                      active: hasBids && !isAwarded,
+                    },
+                    { label: 'Order raised', value: isAwarded ? 'Order raised' : 'PO pending', note: isAwarded ? 'Conversion completed' : 'Pending award', done: isAwarded },
+                  ];
+                  return (
+                    <ol className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                      {steps.map((step) => (
+                        <li
+                          key={step.label}
+                          aria-current={step.active ? 'step' : undefined}
+                          className={`border-t-2 pt-2.5 ${step.done ? 'border-fg' : step.active ? 'border-accent-solid' : 'border-border'}`}
+                        >
+                          <span className="flex items-center gap-1.5 text-xs text-fg-muted">
+                            {step.done && <CheckCircle2 className="size-3.5 text-success" strokeWidth={1.5} aria-hidden="true" />}
+                            {step.label}
+                          </span>
+                          <span className={`mt-1 block text-sm ${step.done || step.active ? 'font-medium text-fg' : 'text-fg-subtle'}`}>{step.value}</span>
+                          <span className="mt-0.5 block text-xs text-fg-subtle">{step.note}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  );
+                })()}
+              </FormSection>
+
+              <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4 text-sm text-fg-muted">
+                <p>
+                  Delivery location: <span className="text-fg">{activeRfq.deliveryLocation || '—'}</span>
+                  <span
+                    className="ml-1 cursor-help text-fg-subtle"
+                    title="Sourcing (RFQs, bids, awards) is managed in VendorConnect. SAP has no inbound API for issuing an RFQ or capturing a bid, so this stays portal-internal — optionally reconciled against SAP once the resulting PO is matched (see the ledger tab)."
+                  >
+                    &middot; managed in VendorConnect
+                  </span>
+                </p>
+                {activeRfq.status === 'Awarded' && (
+                  <div className="flex items-center gap-3">
+                    <StatusBadge label={activeRfq.awardedVendorName ? `Awarded to ${activeRfq.awardedVendorName}` : 'Awarded'} tone="done" />
+                    <DropdownMenu
+                      label="Download the order for SAP import"
+                      trigger={<Button variant="secondary" size="sm"><Download className="mr-1.5 size-3.5" strokeWidth={1.5} /> Export order</Button>}
+                      items={['csv', 'xlsx', 'json', 'idoc'].map((format) => ({
+                        label: exportingFormat === format ? `Preparing ${format.toUpperCase()}…` : `Download ${format.toUpperCase()}`,
+                        icon: Download,
+                        disabled: exportingFormat !== null,
+                        onClick: () => handleExportPo(activeRfq.id, format),
+                      }))}
                     />
                   </div>
-                );
-              }
-              return (
-                <div className="flex-1 flex flex-col overflow-hidden">
-                  {/* Detail Header */}
-                  <div className="p-4 border-b border-border bg-surface2/40 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setShowRfqList(!showRfqList)}
-                        className="shrink-0 border border-border"
-                        title={showRfqList ? "Hide RFQ List" : "Show RFQ List"}
-                      >
-                        {showRfqList ? <ChevronsLeft className="size-4" /> : <Menu className="size-4" />}
-                      </Button>
-                      <div>
-                        <h3 className="text-xs font-bold text-text-primary uppercase">
-                          {activeRfq.id} · {activeRfq.description}{activeRfq.rfqType ? ` · Type ${activeRfq.rfqType}` : ''}
-                        </h3>
-                        <p className="text-[10px] text-text-secondary font-mono mt-0.5 whitespace-nowrap">
-                          Vendor: {currentVendorCode} &bull; Created: {formatDate(activeRfq.createdDate)} &bull; Org: {activeRfq.purchasingOrg || '—'}
-                        </p>
-                      </div>
-                    </div>
-                    <StatusBadge label={activeRfq.status} variant={rfqStatusVariant(activeRfq.status)} />
-                  </div>
-
-                  {/* Scrollable Content */}
-                  <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-6 bg-surface">
-                    {/* RAW DETAILS */}
-                    <FormSection number="01" title="Line items">
-                      <div className="overflow-x-auto -m-4">
-                        <table className="w-full text-left border-collapse table-sticky">
-                          <thead>
-                            <tr>
-                              <th className="w-12">Line</th>
-                              <th className="whitespace-nowrap">Material Code</th>
-                              <th>Description</th>
-                              <th className="text-right">Qty Required</th>
-                              <th className="text-center">UoM</th>
-                              <th className="text-right whitespace-nowrap">Target Ref Price</th>
-                              <th className="font-mono whitespace-nowrap">Delivery Date</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {activeRfq.items.map((item, idx) => (
-                              <tr key={idx}>
-                                <td className="font-mono font-bold text-text-tertiary">{(idx + 1) * 10}</td>
-                                <td className="font-mono font-bold text-text-primary whitespace-nowrap">{item.materialCode}</td>
-                                <td className="font-semibold text-text-primary">{item.description}</td>
-                                <td className="text-right font-mono font-bold tabular-nums">{item.quantity.toLocaleString()}</td>
-                                <td className="text-center font-bold">{item.uom}</td>
-                                <td className="text-right font-mono text-text-secondary whitespace-nowrap tabular-nums">₹{item.targetPrice ? item.targetPrice.toFixed(2) : '0.00'}</td>
-                                <td className="font-mono text-text-tertiary whitespace-nowrap">{formatDate(item.deliveryDate)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </FormSection>
-
-                    {/* The API withholds the invitee list from suppliers (a sealed
-                        tender does not name the competition); it is only
-                        present for staff. */}
-                    {activeRfq.invitedVendors && (
-                    <FormSection number="02" title="Invited vendors">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {activeRfq.invitedVendors?.map(v => {
-                           const ratingVal = Number(v.rating || 0);
-                           let ratingColorClass = "bg-surface2 text-text-secondary border-border-em";
-                           if (ratingVal >= 90) {
-                             ratingColorClass = "bg-emerald-900/20 text-emerald-400 border-emerald-900/50";
-                           } else if (ratingVal >= 80) {
-                             ratingColorClass = "bg-amber-500/20 text-amber-400 border-amber-500/30";
-                           } else if (ratingVal > 0) {
-                             ratingColorClass = "bg-rose-900/20 text-rose-400 border-rose-900/50";
-                           }
-                           const initials = (v.name || '?')
-                             .split(/\s+/)
-                             .filter(Boolean)
-                             .slice(0, 2)
-                             .map(w => w[0])
-                             .join('')
-                             .toUpperCase();
-
-                           return (
-                             <div key={v.id} className="p-3.5 bg-surface border border-border rounded-xl flex items-center gap-3 text-xs shadow-xs hover:border-border-em hover:shadow-sm transition-all duration-200">
-                               <span className="size-9 rounded-full flex items-center justify-center font-bold text-[11px] shrink-0" style={{ backgroundColor: 'var(--color-emerald-dim)', color: 'var(--accent-text)' }}>
-                                 {initials}
-                               </span>
-                               <div className="min-w-0 flex-1">
-                                 <p className="font-bold text-text-primary text-[11px] leading-tight truncate" title={v.name}>
-                                   {v.name}
-                                 </p>
-                                 <p className="text-[10px] text-text-tertiary font-mono truncate">Code: {v.id}</p>
-                               </div>
-                               <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border shrink-0 ${ratingColorClass}`} title={`Vendor Rating: ${v.rating}`}>
-                                 {v.rating}
-                               </span>
-                             </div>
-                           );
-                         })}
-                      </div>
-                    </FormSection>
-                    )}
-
-                    {/* PROCESS DETAILS (AUDIT WORKFLOW STATUS) */}
-                    <FormSection number={activeRfq.invitedVendors ? '03' : '02'} title="Progress of this request">
-                      {(() => {
-                        const hasBids = activeRfq.bids?.length > 0;
-                        const isAwarded = activeRfq.status === 'Awarded';
-                        // Each step is "done" only once the one after it has
-                        // started — a request with bids in but no award yet
-                        // is not "evaluation done", it's "evaluation active".
-                        const stepDone = [true, hasBids, isAwarded, isAwarded];
-                        const stepActive = [false, !hasBids, hasBids && !isAwarded, false];
-
-                        return (
-                          <div>
-                            {/* Connected rail — the one visual that answers
-                                "how far along is this" before reading a
-                                single word below it. */}
-                            <div className="flex items-center px-1 mb-4" aria-hidden="true">
-                              {stepDone.map((done, i) => (
-                                <React.Fragment key={i}>
-                                  <span className={`size-6 rounded-full flex items-center justify-center shrink-0 border-2 font-mono text-[10px] font-bold transition-colors duration-150 ${
-                                    done
-                                      ? 'border-transparent text-on-emerald'
-                                      : stepActive[i]
-                                        ? 'border-primary text-primary bg-primary/10'
-                                        : 'border-border text-text-tertiary bg-surface'
-                                  }`} style={done ? { backgroundColor: 'var(--accent-solid)' } : undefined}>
-                                    {done ? <CheckCircle2 className="size-3.5" /> : i + 1}
-                                  </span>
-                                  {i < stepDone.length - 1 && (
-                                    <span className={`flex-1 h-0.5 mx-1.5 rounded-full transition-colors duration-150 ${stepDone[i + 1] || stepDone[i] ? 'bg-[var(--accent-solid)]' : 'bg-border'}`} />
-                                  )}
-                                </React.Fragment>
-                              ))}
-                            </div>
-
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                              <div className="p-3 border-t-2 border-t-[var(--accent-solid)] border-x border-b border-border rounded-md bg-surface2/30">
-                                <span className="text-[9px] text-text-tertiary uppercase block font-bold">Request published</span>
-                                <span className="font-bold text-text-primary block mt-1.5">Published</span>
-                                <span className="text-[9px] font-mono text-text-tertiary block mt-1 whitespace-nowrap">{formatDate(activeRfq.createdDate)}</span>
-                              </div>
-
-                              <div className={`p-3 border-t-2 rounded-md bg-surface2/30 border-x border-b border-border ${hasBids ? 'border-t-[var(--accent-solid)]' : 'border-t-primary/60'}`}>
-                                <span className="text-[9px] text-text-tertiary uppercase block font-bold">Quotes received</span>
-                                <span className={`font-bold block mt-1.5 ${hasBids ? 'text-text-primary' : 'text-text-tertiary'}`}>
-                                  {hasBids ? `${activeRfq.bids.length} bid(s) received` : 'Pending bids'}
-                                </span>
-                                {/* An RFQ SAP raised directly carries no deadline
-                                    (schema.prisma's RFQ.deadlineDate comment) — said
-                                    plainly, not as a bare "—" that reads like a
-                                    loading gap. */}
-                                <span className="text-[9px] font-mono text-text-tertiary block mt-1 whitespace-nowrap">
-                                  Deadline: {activeRfq.deadlineDate ? formatDate(activeRfq.deadlineDate) : 'No deadline set by buyer'}
-                                </span>
-                              </div>
-
-                              <div className={`p-3 border-t-2 rounded-md bg-surface2/30 border-x border-b border-border ${isAwarded ? 'border-t-[var(--accent-solid)]' : hasBids ? 'border-t-primary/60' : 'border-t-border'}`}>
-                                <span className="text-[9px] text-text-tertiary uppercase block font-bold">Evaluation</span>
-                                <span className={`font-bold block mt-1.5 ${isAwarded || activeRfq.status === 'Under Review' ? 'text-text-primary' : 'text-text-tertiary'}`}>
-                                  {isAwarded ? 'Evaluated' : hasBids ? 'Review ready' : 'Pending review'}
-                                </span>
-                                <span className="text-[9px] text-text-tertiary block mt-1">Score weights active</span>
-                              </div>
-
-                              <div className={`p-3 border-t-2 rounded-md bg-surface2/30 border-x border-b border-border ${isAwarded ? 'border-t-[var(--accent-solid)]' : 'border-t-border'}`}>
-                                <span className="text-[9px] text-text-tertiary uppercase block font-bold">Order raised</span>
-                                <span className={`font-bold block mt-1.5 ${isAwarded ? 'text-text-primary' : 'text-text-tertiary'}`}>
-                                  {isAwarded ? 'Order raised' : 'PO pending'}
-                                </span>
-                                <span className="text-[9px] font-mono text-text-tertiary block mt-1">
-                                  {isAwarded ? 'Conversion completed' : 'Pending award'}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })()}
-                    </FormSection>
-
-                    <div className="flex justify-between items-center pt-3 border-t border-border text-xs text-text-secondary">
-                      <p className="font-semibold flex items-center gap-1.5">
-                        Delivery Location: {activeRfq.deliveryLocation}
-                        <span
-                          className="text-text-tertiary font-normal cursor-help"
-                          title="Sourcing (RFQs, bids, awards) is managed in VendorConnect. SAP has no inbound API for issuing an RFQ or capturing a bid, so this stays portal-internal — optionally reconciled against SAP once the resulting PO is matched (see the ledger tab)."
-                        >
-                          &middot; managed in VendorConnect
-                        </span>
-                      </p>
-                      <div className="flex items-center gap-2">
-                        {activeRfq.status === 'Awarded' && (
-                          <>
-                            <span className="font-mono text-[10px] text-green-700 bg-green-50 border border-green-200 px-2.5 py-1 rounded font-bold">
-                              Awarded to {activeRfq.awardedVendorName || 'Synced Vendor'}
-                            </span>
-                            <div className="flex items-center gap-1" title="Download the PO for your buyer's SAP team to import — a file, not a live sync.">
-                              {['csv', 'xlsx', 'json', 'idoc'].map((format) => (
-                                <button
-                                  key={format}
-                                  type="button"
-                                  disabled={exportingFormat !== null}
-                                  onClick={() => handleExportPo(activeRfq.id, format)}
-                                  className="font-mono text-[10px] uppercase text-text-secondary bg-surface2/50 border border-border px-2 py-1 rounded font-bold hover:bg-surface2 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                  {exportingFormat === format ? <Loader2 className="size-3 animate-spin" /> : format}
-                                </button>
-                              ))}
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
+                )}
+              </footer>
+            </article>
           </div>
-        </div>
+        )
       ) : activeProcTab === 'me48' ? (
         /* TAB: EVERY PURCHASING DOCUMENT SAP HOLDS ON THIS VENDOR CODE.
            Two reads, one list — ME43 (ZME43/ME43) reports the RFQ/quotation
@@ -760,20 +572,19 @@ export default function RfqView({
           });
 
           return (
-            <div className="card p-5 space-y-4 animate-fade-in">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-[15px] font-bold text-text-primary">My purchasing documents</h3>
-                  <p className="text-[11px] text-text-tertiary mt-1 max-w-3xl">
+            <section className="space-y-4">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div className="max-w-3xl">
+                  <h2 className="text-lg font-semibold text-fg">Your buyer&rsquo;s records</h2>
+                  <p className="mt-1 text-sm text-fg-muted">
                     Read straight from your buyer&rsquo;s system for supplier ID{' '}
-                    <span className="font-mono font-bold text-text-secondary">{currentVendorCode}</span>.
-                    These are your buyer&rsquo;s own records, so they are listed separately from the
-                    requests shown in the monitor.
+                    <span className="mono text-fg">{currentVendorCode}</span>. These are your buyer&rsquo;s own
+                    records, so they are listed separately from the open requests.
                   </p>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="label mb-0 whitespace-nowrap">Type</span>
-                  <select className="h-9" value={documentTypeFilter} onChange={(e) => setDocumentTypeFilter(e.target.value)}>
+                <div className="flex items-center gap-2">
+                  <label htmlFor="sap-document-type" className="text-sm text-fg-muted">Type</label>
+                  <select id="sap-document-type" value={documentTypeFilter} onChange={(e) => setDocumentTypeFilter(e.target.value)}>
                     {/* DOCUMENT_TYPE.QUOTATION is SAP's own name for the
                         RFQ/quotation range (lib/sapDocuments.js) — labelled
                         "RFQs" here, which is this screen's own vocabulary. */}
@@ -785,9 +596,9 @@ export default function RfqView({
               </div>
 
               {documents === null ? (
-                <div className="flex items-center gap-2 text-xs text-text-tertiary py-6 justify-center">
-                  <Loader2 className="size-3.5 animate-spin" /> Loading your buyer&rsquo;s records for your company...
-                </div>
+                <p className="flex items-center justify-center gap-2 py-6 text-sm text-fg-muted" role="status">
+                  <Loader2 className="size-4 animate-spin" strokeWidth={1.5} aria-hidden="true" /> Loading your buyer&rsquo;s records for your company…
+                </p>
               ) : documents.length === 0 ? (
                 <EmptyState
                   icon={FileText}
@@ -801,15 +612,44 @@ export default function RfqView({
                   ? documents
                   : documents.filter((doc) => doc.documentType === documentTypeFilter);
 
+                const documentColumns = [
+                  { key: 'documentNumber', header: 'Document', mono: true, primary: true, render: (doc) => doc.documentNumber || '—' },
+                  {
+                    key: 'documentType',
+                    header: 'Type',
+                    // The data value stays SAP's own name (DOCUMENT_TYPE.QUOTATION)
+                    // — only the label shown here uses this screen's vocabulary.
+                    render: (doc) => (
+                      <StatusBadge
+                        label={doc.documentType === DOCUMENT_TYPE.QUOTATION ? 'RFQ' : doc.documentType}
+                        variant={doc.documentType === DOCUMENT_TYPE.QUOTATION ? 'info' : 'pending'}
+                      />
+                    ),
+                  },
+                  { key: 'date', header: 'Date', render: (doc) => formatDate(doc.date) },
+                  { key: 'currency', header: 'Currency', mono: true, render: (doc) => doc.currency || '—' },
+                  ...(!org ? [{ key: 'purchasingOrg', header: 'Buying unit', mono: true, render: (doc) => doc.purchasingOrg || '—' }] : []),
+                  {
+                    key: 'actions',
+                    header: <span className="sr-only">Actions</span>,
+                    align: 'right',
+                    render: (doc) => (doc.documentType === DOCUMENT_TYPE.QUOTATION ? (
+                      <Button type="button" variant="secondary" size="sm" onClick={() => openPriceUpdate(doc)}>
+                        <IndianRupee className="mr-1.5 size-3.5" strokeWidth={1.5} /> Update price
+                      </Button>
+                    ) : null),
+                  },
+                ];
+
                 return (
                   <>
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-text-tertiary">
-                      <span><span className="font-bold text-text-secondary tabular-nums">{counts.quotations}</span> RFQ(s)</span>
-                      <span><span className="font-bold text-text-secondary tabular-nums">{counts.purchaseOrders}</span> purchase order(s)</span>
+                    <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-fg-muted">
+                      <span><span className="mono text-fg">{counts.quotations}</span> RFQ(s)</span>
+                      <span><span className="mono text-fg">{counts.purchaseOrders}</span> purchase order(s)</span>
                       {/* Shown once as context rather than repeated down a
                           column: it is the same value on every row. */}
-                      {org && <span>Buying unit <span className="font-mono font-bold text-text-secondary">{org}</span></span>}
-                    </div>
+                      {org && <span>Buying unit <span className="mono text-fg">{org}</span></span>}
+                    </p>
 
                     {shown.length === 0 ? (
                       <EmptyState
@@ -818,409 +658,310 @@ export default function RfqView({
                         description="Your buyer has documents for your company, but none of the selected type."
                       />
                     ) : (
-                      <div className="overflow-x-auto overflow-y-auto max-h-[520px] custom-scrollbar border border-border">
-                        <table className="w-full text-left border-collapse table-sticky">
-                          <thead className="sticky top-0 z-10">
-                            <tr>
-                              <th>Document No.</th>
-                              <th>Type</th>
-                              <th>Date</th>
-                              <th>Currency</th>
-                              {!org && <th>Buying unit</th>}
-                              <th className="text-right">Actions</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {shown.map((doc, index) => (
-                              <tr key={`${doc.documentNumber || 'unnumbered'}-${index}`}>
-                                <td className="font-mono font-bold text-text-primary select-all">{doc.documentNumber || '—'}</td>
-                                <td>
-                                  <StatusBadge
-                                    // The data value stays SAP's own name
-                                    // (DOCUMENT_TYPE.QUOTATION) — only the
-                                    // label shown here uses this screen's
-                                    // vocabulary.
-                                    label={doc.documentType === DOCUMENT_TYPE.QUOTATION ? 'RFQ' : doc.documentType}
-                                    variant={doc.documentType === DOCUMENT_TYPE.QUOTATION ? 'info' : 'pending'}
-                                  />
-                                </td>
-                                <td className="font-mono text-text-tertiary tabular-nums whitespace-nowrap">{formatDate(doc.date)}</td>
-                                <td className="font-mono text-text-secondary">{doc.currency || '—'}</td>
-                                {!org && <td className="font-mono text-text-secondary">{doc.purchasingOrg || '—'}</td>}
-                                <td className="text-right">
-                                  {doc.documentType === DOCUMENT_TYPE.QUOTATION && (
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() => openPriceUpdate(doc)}
-                                      className="gap-1.5"
-                                    >
-                                      <IndianRupee className="size-3.5" /> Update Price
-                                    </Button>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                      <DataTable
+                        caption="Purchasing documents on file"
+                        columns={documentColumns}
+                        rows={shown}
+                        getRowId={(doc, index) => `${doc.documentNumber || 'unnumbered'}-${index}`}
+                        rowLabel={(doc) => `document ${doc.documentNumber || ''}`}
+                        maxHeight="520px"
+                      />
                     )}
 
-                    <p className="text-[10px] text-text-tertiary">
+                    <p className="text-xs text-fg-subtle">
                       Showing {shown.length} of {documents.length} document(s), newest first.
                     </p>
                   </>
                 );
               })()}
-            </div>
+            </section>
           );
         })()
       ) : (
         /* TAB: SUBMIT QUOTATION FORM */
-        <div className="space-y-6">
-          {tabLoading ? (
-            <div className="card space-y-6 animate-fade-in p-6">
-              <div>
-                <div className="h-4.5 w-48 skeleton mb-1.5" />
-                <div className="h-3 w-80 skeleton" />
+        tabLoading ? (
+          <div className="card space-y-4 p-6" aria-busy="true">
+            <div className="h-4.5 w-48 skeleton" />
+            <div className="h-3 w-80 skeleton" />
+            {[1, 2, 3].map(i => <div key={i} className="h-9 w-full skeleton" />)}
+          </div>
+        ) : (
+          <form onSubmit={handleQuotationSubmit} className="relative space-y-8">
+            {isLoading && (
+              <div className="absolute inset-0 z-30 flex min-h-[400px] flex-col items-center justify-center bg-canvas/85" role="status">
+                <Loader2 className="mb-3 size-6 animate-spin text-fg-muted" strokeWidth={1.5} aria-hidden="true" />
+                <p className="text-sm font-medium text-fg">Submitting your quote…</p>
+                <p className="mt-1 text-sm text-fg-muted">Sending your prices and delivery terms to your buyer.</p>
               </div>
-              <div className="space-y-3">
-                <div className="h-4.5 w-28 skeleton" />
-                <div className="flex flex-col border border-border rounded-md divide-y divide-border bg-surface overflow-hidden">
-                  {[1, 2, 3].map(i => (
-                    <div key={i} className="py-2.5 px-3 flex items-center gap-3">
-                      <div className="h-3.5 w-40 skeleton shrink-0" />
-                      <div className="h-8 flex-1 skeleton" />
-                    </div>
-                  ))}
-                </div>
-              </div>
+            )}
+
+            <div>
+              <h2 className="text-lg font-semibold text-fg">Submit quotation</h2>
+              <p className="mt-1 text-sm text-fg-muted">Send your prices, discounts and delivery timelines to your buyer.</p>
             </div>
-          ) : (
-            <form onSubmit={handleQuotationSubmit} className="card space-y-6 relative p-6">
-              {isLoading && (
-                <div className="absolute inset-0 bg-surface/85 backdrop-blur-xs flex flex-col items-center justify-center z-30 min-h-[400px]">
-                  <div className="size-10 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4" />
-                  <p className="text-xs font-bold text-text-primary uppercase tracking-widest font-mono">Submitting your quote...</p>
-                  <p className="text-[10px] text-text-secondary mt-1">Sending your prices and delivery terms to your buyer...</p>
-                </div>
-              )}
 
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                  <h3 className="text-sm font-bold text-text-primary">Submit Quotation</h3>
-                  <p className="text-[11px] text-text-secondary mt-0.5">Send your prices, discounts and delivery timelines to your buyer</p>
-                </div>
-              </div>
-
-              {/* RFQ Selection Dropdown and Details */}
-              {(() => {
-                const selectedRfq = state.rfqs.find(r => r.id === quoteForm.rfqId);
-                return (
-                  <div className={`p-4 bg-surface2/30 border rounded-md space-y-4 ${quoteErrors.rfqId ? 'border-rose-500 ring-1 ring-rose-500/50 bg-rose-50/5' : 'border-border'}`}>
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                      <div>
-                        <h4 id="quote-rfq-label" className="text-[11px] font-bold text-text-secondary uppercase tracking-wider font-mono">Choose a request</h4>
-                        <p className="text-[10px] text-text-tertiary mt-0.5 font-semibold">Pick one of the open requests you have been invited to quote for</p>
-                      </div>
-                      <div>
-                        {/* Named by the heading beside it rather than by a
-                            <label> — pointed at rather than duplicated, so
-                            the two cannot drift. */}
-                        <select
-                          id="quote-rfq"
-                          aria-labelledby="quote-rfq-label"
-                          aria-required="true"
-                          aria-invalid={quoteErrors.rfqId ? true : undefined}
-                          value={quoteForm.rfqId}
-                          onChange={e => {
-                            const selectedId = e.target.value;
-                            const rfq = state.rfqs.find(r => r.id === selectedId);
-                            // A quotation already submitted for this RFQ shows
-                            // its own numbers back rather than a blank form —
-                            // the gap that left an earlier submission with
-                            // nowhere to confirm it had gone in at all.
-                            const ownBid = ownBidFor(rfq);
-                            const unitPrices = {};
-                            (rfq?.items || []).forEach((item) => {
-                              unitPrices[item.line] = ownBid ? String(ownBid.unitPrices?.[item.line] ?? '') : '';
-                            });
-                            setQuoteForm({
-                              ...quoteForm,
-                              rfqId: selectedId,
-                              unitPrices,
-                              gstRate: ownBid?.gstRate || quoteForm.gstRate,
-                              deliveryLeadTime: ownBid ? String(ownBid.deliveryLeadTimeDays ?? '') : quoteForm.deliveryLeadTime,
-                              freight: ownBid ? String(ownBid.freight ?? '0') : quoteForm.freight,
-                              validityDate: ownBid?.validityDate
-                                ? new Date(ownBid.validityDate).toISOString().split('T')[0]
-                                : quoteForm.validityDate,
-                            });
-                            setQuoteErrors(prev => ({ ...prev, rfqId: false, unitPrices: undefined }));
-                          }}
-                          className={`w-[25ch] max-w-full font-semibold ${
-                            quoteErrors.rfqId ? 'border-rose-500' : ''
-                          }`}
-                        >
-                          <option value="">-- Choose RFQ Document --</option>
-                          {state.rfqs.map(r => (
-                            <option key={r.id} value={r.id}>
-                              {r.id} - {r.description} ({r.status})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+            {/* RFQ selection and its lines */}
+            {(() => {
+              const selectedRfq = state.rfqs.find(r => r.id === quoteForm.rfqId);
+              const priceColumns = [
+                { key: 'line', header: 'Line', mono: true, primary: true },
+                { key: 'materialCode', header: 'Item code', render: (item) => <span className="mono">{item.materialCode}</span> },
+                { key: 'description', header: 'Description', wrap: true },
+                { key: 'quantity', header: 'Quantity', align: 'right', mono: true, render: (item) => `${item.quantity.toLocaleString()} ${item.uom}` },
+                { key: 'targetPrice', header: 'Target price (₹)', align: 'right', mono: true, render: (item) => (item.targetPrice ? item.targetPrice.toFixed(2) : '—') },
+                {
+                  key: 'unitPrice',
+                  header: 'Your unit price (₹) *',
+                  align: 'right',
+                  render: (item) => (
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      required
+                      aria-label={`Unit price (₹) for line ${item.line}`}
+                      aria-invalid={quoteErrors.unitPrices?.[item.line] ? true : undefined}
+                      placeholder="0.00"
+                      value={quoteForm.unitPrices[item.line] ?? ''}
+                      onChange={e => {
+                        setQuoteForm({
+                          ...quoteForm,
+                          unitPrices: { ...quoteForm.unitPrices, [item.line]: e.target.value },
+                        });
+                        if (quoteErrors.unitPrices?.[item.line]) {
+                          setQuoteErrors(prev => {
+                            const rest = { ...prev.unitPrices };
+                            delete rest[item.line];
+                            return { ...prev, unitPrices: Object.keys(rest).length ? rest : undefined };
+                          });
+                        }
+                      }}
+                      className="mono w-[12ch]! min-h-8! py-1! text-right"
+                    />
+                  ),
+                },
+              ];
+              return (
+                <section className="space-y-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                    <div>
+                      <h3 id="quote-rfq-label" className="text-base font-semibold text-fg">Choose a request</h3>
+                      <p className="text-sm text-fg-muted">Pick one of the open requests you have been invited to quote for.</p>
                     </div>
-
-                    {selectedRfq && (
-                      <div className="border-t border-border pt-3 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <h5 className="text-[9px] font-bold text-text-tertiary uppercase tracking-wider">RFQ Line Item Details (Selected for Quotation)</h5>
-                          <span className="font-mono text-[9px] text-text-secondary font-bold bg-surface2 px-2 py-0.5 rounded">
-                            Status: {selectedRfq.status}
-                          </span>
-                        </div>
-
-                        {/* Every line, priced together — submitBid refuses a
-                            bid that leaves any line unpriced, so a single
-                            "pick one line" selector could never actually
-                            quote a multi-line RFQ. */}
-                        <div className="border border-border rounded-md overflow-hidden">
-                          <table className="w-full text-left border-collapse">
-                            <thead>
-                              <tr>
-                                <th className="text-[9px]">Line</th>
-                                <th className="text-[9px]">Material</th>
-                                <th className="text-[9px]">Description</th>
-                                <th className="text-[9px] text-right">Qty</th>
-                                <th className="text-[9px] text-right">Target price</th>
-                                <th className="text-[9px] text-right">Your unit price (₹) *</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {selectedRfq.items.map((item) => (
-                                <tr key={item.line}>
-                                  <td className="font-mono font-bold text-text-tertiary">{item.line}</td>
-                                  <td className="font-mono font-bold text-text-primary whitespace-nowrap">{item.materialCode}</td>
-                                  <td className="text-text-secondary truncate max-w-[200px]">{item.description}</td>
-                                  <td className="text-right font-mono tabular-nums text-text-secondary whitespace-nowrap">{item.quantity.toLocaleString()} {item.uom}</td>
-                                  <td className="text-right font-mono tabular-nums text-text-secondary whitespace-nowrap">
-                                    {item.targetPrice ? `₹${item.targetPrice.toFixed(2)}` : '—'}
-                                  </td>
-                                  <td className="text-right">
-                                    <input
-                                      type="number"
-                                      min="0.01"
-                                      step="0.01"
-                                      required
-                                      aria-label={`Unit price (₹) for line ${item.line}`}
-                                      aria-invalid={quoteErrors.unitPrices?.[item.line] ? true : undefined}
-                                      placeholder="0.00"
-                                      value={quoteForm.unitPrices[item.line] ?? ''}
-                                      onChange={e => {
-                                        setQuoteForm({
-                                          ...quoteForm,
-                                          unitPrices: { ...quoteForm.unitPrices, [item.line]: e.target.value },
-                                        });
-                                        if (quoteErrors.unitPrices?.[item.line]) {
-                                          setQuoteErrors(prev => {
-                                            const rest = { ...prev.unitPrices };
-                                            delete rest[item.line];
-                                            return { ...prev, unitPrices: Object.keys(rest).length ? rest : undefined };
-                                          });
-                                        }
-                                      }}
-                                      className={`w-[12ch] text-right font-mono font-semibold ${
-                                        quoteErrors.unitPrices?.[item.line] ? 'border-rose-500' : ''
-                                      }`}
-                                    />
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )}
+                    {/* Named by the heading beside it rather than by a <label>
+                        — pointed at rather than duplicated, so the two cannot
+                        drift. */}
+                    <select
+                      id="quote-rfq"
+                      aria-labelledby="quote-rfq-label"
+                      aria-required="true"
+                      aria-invalid={quoteErrors.rfqId ? true : undefined}
+                      value={quoteForm.rfqId}
+                      onChange={e => {
+                        const selectedId = e.target.value;
+                        const rfq = state.rfqs.find(r => r.id === selectedId);
+                        // A quotation already submitted for this RFQ shows its
+                        // own numbers back rather than a blank form — the gap
+                        // that left an earlier submission with nowhere to
+                        // confirm it had gone in at all.
+                        const ownBid = ownBidFor(rfq);
+                        const unitPrices = {};
+                        (rfq?.items || []).forEach((item) => {
+                          unitPrices[item.line] = ownBid ? String(ownBid.unitPrices?.[item.line] ?? '') : '';
+                        });
+                        setQuoteForm({
+                          ...quoteForm,
+                          rfqId: selectedId,
+                          unitPrices,
+                          gstRate: ownBid?.gstRate || quoteForm.gstRate,
+                          deliveryLeadTime: ownBid ? String(ownBid.deliveryLeadTimeDays ?? '') : quoteForm.deliveryLeadTime,
+                          freight: ownBid ? String(ownBid.freight ?? '0') : quoteForm.freight,
+                          validityDate: ownBid?.validityDate
+                            ? new Date(ownBid.validityDate).toISOString().split('T')[0]
+                            : quoteForm.validityDate,
+                        });
+                        setQuoteErrors(prev => ({ ...prev, rfqId: false, unitPrices: undefined }));
+                      }}
+                      className="w-full max-w-md"
+                    >
+                      <option value="">Choose a request…</option>
+                      {state.rfqs.map(r => (
+                        <option key={r.id} value={r.id}>
+                          {r.id} - {r.description} ({r.status})
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                );
-              })()}
+                  {quoteErrors.rfqId && (
+                    <p className="flex items-center gap-1.5 text-sm text-danger">
+                      <AlertCircle className="size-4" strokeWidth={1.5} aria-hidden="true" /> Choose the request you are quoting for.
+                    </p>
+                  )}
 
-              {/* 1. QUOTATION HEADER */}
-              <FormSection number="01" title="Quotation header">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4">
-                  <EnterpriseFieldCard
-                    label="Your quote reference"
-                    error={quoteErrors.quoteRef}
-                  >
-                    <input
-                      type="text"
-                      maxLength={12}
-                      placeholder="QT-2026-001"
-                      value={quoteForm.quoteRef}
-                      onChange={e => setQuoteForm({ ...quoteForm, quoteRef: e.target.value })}
-                      className="w-[14ch] max-w-full font-mono uppercase font-semibold"
-                    />
-                  </EnterpriseFieldCard>
+                  {selectedRfq && (
+                    // Every line, priced together — submitBid refuses a bid
+                    // that leaves any line unpriced, so a single "pick one
+                    // line" selector could never actually quote a multi-line RFQ.
+                    <div className="space-y-2">
+                      <p className="flex items-center gap-2 text-sm text-fg-muted">
+                        Lines to price <StatusBadge label={selectedRfq.status} variant={rfqStatusVariant(selectedRfq.status)} />
+                      </p>
+                      <DataTable
+                        caption="Lines to price"
+                        columns={priceColumns}
+                        rows={selectedRfq.items}
+                        getRowId={(item) => item.line}
+                        rowLabel={(item) => `line ${item.line}`}
+                      />
+                    </div>
+                  )}
+                </section>
+              );
+            })()}
 
-                  <EnterpriseFieldCard
-                    label="Quotation date"
+            <FormSection title="Quotation header">
+              <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2 lg:grid-cols-3">
+                <FieldCard label="Your quote reference" error={quoteErrors.quoteRef}>
+                  <input
+                    type="text"
+                    maxLength={12}
+                    placeholder="QT-2026-001"
+                    value={quoteForm.quoteRef}
+                    onChange={e => setQuoteForm({ ...quoteForm, quoteRef: e.target.value })}
+                    className="mono w-[16ch] max-w-full uppercase"
+                  />
+                </FieldCard>
+
+                <FieldCard label="Quotation date" required error={quoteErrors.quoteDate}>
+                  <input
+                    type="date"
                     required
-                    error={quoteErrors.quoteDate}
-                  >
-                    <input
-                      type="date"
-                      required
-                      value={quoteForm.quoteDate}
-                      onChange={e => {
-                        setQuoteForm({ ...quoteForm, quoteDate: e.target.value });
-                        if (quoteErrors.quoteDate) setQuoteErrors(prev => ({ ...prev, quoteDate: false }));
-                      }}
-                      className="w-full font-mono font-semibold"
-                    />
-                  </EnterpriseFieldCard>
-
-                  <EnterpriseFieldCard
-                    label="Validity date"
-                    required
-                    error={quoteErrors.validityDate}
-                  >
-                    <input
-                      type="date"
-                      required
-                      value={quoteForm.validityDate}
-                      onChange={e => {
-                        setQuoteForm({ ...quoteForm, validityDate: e.target.value });
-                        if (quoteErrors.validityDate) setQuoteErrors(prev => ({ ...prev, validityDate: false }));
-                      }}
-                      className="w-full font-mono font-semibold"
-                    />
-                  </EnterpriseFieldCard>
-                </div>
-              </FormSection>
-
-
-              {/* 2. GST & DISCOUNT — per-line unit price is entered in the
-                  line item table above; these apply to the whole quotation. */}
-              <FormSection number="02" title="GST & discount">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4">
-                  <EnterpriseFieldCard
-                    label="GST rate (%)"
-                    required
-                    error={quoteErrors.gstRate}
-                  >
-                    <select
-                      value={quoteForm.gstRate}
-                      onChange={e => {
-                        setQuoteForm({ ...quoteForm, gstRate: e.target.value });
-                        if (quoteErrors.gstRate) setQuoteErrors(prev => ({ ...prev, gstRate: false }));
-                      }}
-                      className="w-[25ch] max-w-full font-semibold"
-                    >
-                      <option value="18%">18% - G1</option>
-                      <option value="12%">12% - G2</option>
-                      <option value="5%">5% - G3</option>
-                      <option value="28%">28% - G4</option>
-                      <option value="Exempt">Exempt - G0</option>
-                    </select>
-                  </EnterpriseFieldCard>
-
-                  <EnterpriseFieldCard label="Discount (%)">
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="0.01"
-                      placeholder="0"
-                      value={quoteForm.discount}
-                      onChange={e => setQuoteForm({ ...quoteForm, discount: e.target.value })}
-                      className="w-[9ch] max-w-full font-mono font-semibold"
-                    />
-                  </EnterpriseFieldCard>
-                </div>
-              </FormSection>
-
-
-              {/* 3. DELIVERY TERMS */}
-              <FormSection number="03" title="Delivery terms">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4">
-                  <EnterpriseFieldCard
-                    label="Delivery lead time (days)"
-                    required
-                    error={quoteErrors.deliveryLeadTime}
-                  >
-                    <input
-                      type="number"
-                      min="1"
-                      required
-                      placeholder="7"
-                      value={quoteForm.deliveryLeadTime}
-                      onChange={e => {
-                        setQuoteForm({ ...quoteForm, deliveryLeadTime: e.target.value });
-                        if (quoteErrors.deliveryLeadTime) setQuoteErrors(prev => ({ ...prev, deliveryLeadTime: false }));
-                      }}
-                      className="w-[9ch] max-w-full font-mono font-semibold"
-                    />
-                  </EnterpriseFieldCard>
-
-                  <EnterpriseFieldCard label="Freight / packing (₹)">
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="0"
-                      value={quoteForm.freight}
-                      onChange={e => setQuoteForm({ ...quoteForm, freight: e.target.value })}
-                      className="w-[13ch] max-w-full font-mono font-semibold"
-                    />
-                  </EnterpriseFieldCard>
-
-                  <EnterpriseFieldCard label="Incoterms">
-                    <select
-                      value={quoteForm.incoterms}
-                      onChange={e => setQuoteForm({ ...quoteForm, incoterms: e.target.value })}
-                      className="w-[25ch] max-w-full font-semibold"
-                    >
-                      <option value="EXW">EXW - Ex Works</option>
-                      <option value="FOB">FOB - Free on Board</option>
-                      <option value="CIF">CIF - Cost, Insurance &amp; Freight</option>
-                      <option value="FOR">FOR - Free on Rail</option>
-                      <option value="DDP">DDP - Delivered Duty Paid</option>
-                    </select>
-                  </EnterpriseFieldCard>
-                </div>
-              </FormSection>
-
-
-              {/* STICKY BOTTOM ACTION BAR */}
-              <footer className="sticky bottom-0 z-30 -mx-6 bg-surface border-t border-border py-3.5 px-4 md:px-6 select-none">
-                <div className="flex items-center justify-between gap-4">
-                  <Button
-                    type="button"
-                    onClick={() => {
-                      try {
-                        localStorage.setItem(QUOTE_DRAFT_KEY, JSON.stringify({ quoteForm }));
-                        addToast('success', 'Quotation draft saved. It will be restored next time you open this form.');
-                      } catch (e) {
-                        addToast('error', 'Failed to save quotation draft.');
-                      }
+                    value={quoteForm.quoteDate}
+                    onChange={e => {
+                      setQuoteForm({ ...quoteForm, quoteDate: e.target.value });
+                      if (quoteErrors.quoteDate) setQuoteErrors(prev => ({ ...prev, quoteDate: false }));
                     }}
-                    variant="outline"
+                    className="w-48 max-w-full"
+                  />
+                </FieldCard>
+
+                <FieldCard label="Validity date" required error={quoteErrors.validityDate}>
+                  <input
+                    type="date"
+                    required
+                    value={quoteForm.validityDate}
+                    onChange={e => {
+                      setQuoteForm({ ...quoteForm, validityDate: e.target.value });
+                      if (quoteErrors.validityDate) setQuoteErrors(prev => ({ ...prev, validityDate: false }));
+                    }}
+                    className="w-48 max-w-full"
+                  />
+                </FieldCard>
+              </div>
+            </FormSection>
+
+            {/* Per-line unit price is entered in the line table above; these
+                apply to the whole quotation. */}
+            <FormSection title="GST and discount">
+              <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2 lg:grid-cols-3">
+                <FieldCard label="GST rate (%)" required error={quoteErrors.gstRate}>
+                  <select
+                    value={quoteForm.gstRate}
+                    onChange={e => {
+                      setQuoteForm({ ...quoteForm, gstRate: e.target.value });
+                      if (quoteErrors.gstRate) setQuoteErrors(prev => ({ ...prev, gstRate: false }));
+                    }}
+                    className="w-56 max-w-full"
                   >
-                    Save Draft
-                  </Button>
-                  <Button
-                    type="submit"
-                    variant="default"
+                    <option value="18%">18% - G1</option>
+                    <option value="12%">12% - G2</option>
+                    <option value="5%">5% - G3</option>
+                    <option value="28%">28% - G4</option>
+                    <option value="Exempt">Exempt - G0</option>
+                  </select>
+                </FieldCard>
+
+                <FieldCard label="Discount (%)">
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    placeholder="0"
+                    value={quoteForm.discount}
+                    onChange={e => setQuoteForm({ ...quoteForm, discount: e.target.value })}
+                    className="mono w-[10ch] max-w-full"
+                  />
+                </FieldCard>
+              </div>
+            </FormSection>
+
+            <FormSection title="Delivery terms">
+              <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2 lg:grid-cols-3">
+                <FieldCard label="Delivery lead time (days)" required error={quoteErrors.deliveryLeadTime}>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    placeholder="7"
+                    value={quoteForm.deliveryLeadTime}
+                    onChange={e => {
+                      setQuoteForm({ ...quoteForm, deliveryLeadTime: e.target.value });
+                      if (quoteErrors.deliveryLeadTime) setQuoteErrors(prev => ({ ...prev, deliveryLeadTime: false }));
+                    }}
+                    className="mono w-[10ch] max-w-full"
+                  />
+                </FieldCard>
+
+                <FieldCard label="Freight / packing (₹)">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="0"
+                    value={quoteForm.freight}
+                    onChange={e => setQuoteForm({ ...quoteForm, freight: e.target.value })}
+                    className="mono w-[14ch] max-w-full"
+                  />
+                </FieldCard>
+
+                <FieldCard label="Incoterms">
+                  <select
+                    value={quoteForm.incoterms}
+                    onChange={e => setQuoteForm({ ...quoteForm, incoterms: e.target.value })}
+                    className="w-56 max-w-full"
                   >
-                    Submit Quotation
-                  </Button>
-                </div>
-              </footer>
-            </form>
-          )}
-        </div>
+                    <option value="EXW">EXW - Ex Works</option>
+                    <option value="FOB">FOB - Free on Board</option>
+                    <option value="CIF">CIF - Cost, Insurance &amp; Freight</option>
+                    <option value="FOR">FOR - Free on Rail</option>
+                    <option value="DDP">DDP - Delivered Duty Paid</option>
+                  </select>
+                </FieldCard>
+              </div>
+            </FormSection>
+
+            {/* Sticky action bar: the one primary action on this tab. */}
+            <div className="sticky bottom-0 z-20 -mx-4 flex items-center justify-end gap-3 border-t border-border bg-canvas px-4 py-3 md:-mx-6 md:px-6">
+              <p className="mr-auto hidden text-sm text-fg-muted sm:block">Your buyer sees the quotation as soon as you submit it.</p>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  try {
+                    localStorage.setItem(QUOTE_DRAFT_KEY, JSON.stringify({ quoteForm }));
+                    addToast('success', 'Quotation draft saved. It will be restored next time you open this form.');
+                  } catch (e) {
+                    addToast('error', 'Failed to save quotation draft.');
+                  }
+                }}
+              >
+                Save draft
+              </Button>
+              <Button type="submit">Submit quotation</Button>
+            </div>
+          </form>
+        )
       )}
 
       {/* UPDATE PRICE (ME47) MODAL — pushes a net price to a SAP-native
@@ -1228,15 +969,14 @@ export default function RfqView({
       <Modal
         open={!!priceUpdateDoc}
         onClose={closePriceUpdate}
-        title={`Update Price (ME47) — ${priceUpdateDoc?.documentNumber || ''}`}
+        title={`Update price — ${priceUpdateDoc?.documentNumber || ''}`}
         footer={
           <>
-            <Button type="button" variant="outline" onClick={closePriceUpdate} disabled={priceUpdateLoading}>
+            <Button type="button" variant="ghost" onClick={closePriceUpdate} disabled={priceUpdateLoading}>
               Cancel
             </Button>
             <Button
               type="button"
-              variant="default"
               onClick={submitPriceUpdate}
               disabled={priceUpdateLoading || !priceUpdateRfq}
               className="gap-1.5"
@@ -1252,16 +992,19 @@ export default function RfqView({
             const candidates = priceUpdateCandidates(priceUpdateDoc);
             if (!candidates.length) {
               return (
-                <p className="text-[11px] text-rose-400">
-                  No RFQ in this workspace is matched to SAP document {priceUpdateDoc?.documentNumber} — there is
-                  nothing to price yet. This document may not have been discovered as a portal RFQ (or was
-                  discovered on an earlier sweep before an SAP correlation existed).
+                <p className="flex items-start gap-2 text-sm text-danger">
+                  <AlertCircle className="mt-0.5 size-4 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+                  <span>
+                    No RFQ in this workspace is matched to SAP document {priceUpdateDoc?.documentNumber} — there is
+                    nothing to price yet. This document may not have been discovered as a portal RFQ (or was
+                    discovered on an earlier sweep before an SAP correlation existed).
+                  </span>
                 </p>
               );
             }
             return (
               <>
-                <p className="text-[11px] text-text-tertiary">
+                <p className="text-sm text-fg-muted">
                   Line items below are RFQ {candidates[0].id}&rsquo;s own — the one SAP has matched to this document
                   ({priceUpdateDoc?.documentNumber}). Enter the net price per line to send to your buyer&rsquo;s system.
                 </p>
@@ -1272,14 +1015,14 @@ export default function RfqView({
                     than silently guessing one. */}
                 {candidates.length > 1 && (
                   <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-text-secondary uppercase tracking-wide" htmlFor="quote-linked-rfq">Linked RFQ</label>
+                    <label className="block text-sm font-medium text-fg" htmlFor="quote-linked-rfq">Linked RFQ</label>
                     <select id="quote-linked-rfq"
                       value={priceUpdateRfqId}
                       onChange={(e) => handlePriceUpdateRfqChange(e.target.value)}
-                      className="w-full font-semibold"
+                      className="w-full"
                       disabled={priceUpdateLoading}
                     >
-                      <option value="">-- Choose RFQ --</option>
+                      <option value="">Choose an RFQ…</option>
                       {candidates.map((r) => (
                         <option key={r.id} value={r.id}>
                           {r.id} - {r.description}
@@ -1293,38 +1036,35 @@ export default function RfqView({
           })()}
 
           {priceUpdateRfq && (
-            <div className="border border-border rounded-md overflow-hidden">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr>
-                    <th>Line</th>
-                    <th>Material</th>
-                    <th className="text-right">Net Price (₹)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {priceUpdateRfq.items.map((item) => (
-                    <tr key={item.line}>
-                      <td className="font-mono font-bold text-text-tertiary">{item.line}</td>
-                      <td className="font-mono font-bold text-text-primary whitespace-nowrap">{item.materialCode}</td>
-                      <td className="text-right">
-                        <input
-                          type="number"
-                          min="0.01"
-                          step="0.01"
-                          value={priceUpdatePrices[item.line] ?? ''}
-                          onChange={(e) =>
-                            setPriceUpdatePrices((prev) => ({ ...prev, [item.line]: e.target.value }))
-                          }
-                          disabled={priceUpdateLoading}
-                          className="w-[12ch] text-right font-mono font-semibold"
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              caption="Net price per line"
+              columns={[
+                { key: 'line', header: 'Line', mono: true, primary: true },
+                { key: 'materialCode', header: 'Item code', render: (item) => <span className="mono">{item.materialCode}</span> },
+                {
+                  key: 'netPrice',
+                  header: 'Net price (₹)',
+                  align: 'right',
+                  render: (item) => (
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      aria-label={`Net price (₹) for line ${item.line}`}
+                      value={priceUpdatePrices[item.line] ?? ''}
+                      onChange={(e) =>
+                        setPriceUpdatePrices((prev) => ({ ...prev, [item.line]: e.target.value }))
+                      }
+                      disabled={priceUpdateLoading}
+                      className="mono w-[12ch]! min-h-8! py-1! text-right"
+                    />
+                  ),
+                },
+              ]}
+              rows={priceUpdateRfq.items}
+              getRowId={(item) => item.line}
+              rowLabel={(item) => `line ${item.line}`}
+            />
           )}
         </div>
       </Modal>

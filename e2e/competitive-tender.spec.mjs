@@ -24,9 +24,8 @@ const quoteField = (page, label) => page.getByLabel(label);
 // that one price field.
 const submitQuote = async (page, rfqId, { unitPrice, leadTimeDays }) => {
   // The tab and the form's submit button share a label; the tab is the one
-  // that is not a submit control.
-  await page.getByRole('button', { name: 'Submit Quotation', exact: true })
-    .and(page.locator('button:not([type="submit"])')).click();
+  // with the tab role.
+  await page.getByRole('tab', { name: 'Submit quotation', exact: true }).click();
 
   // The tab shows a skeleton for a deliberate 800ms before the form appears.
   await expect(page.getByLabel('Choose a request')).toBeVisible();
@@ -37,7 +36,7 @@ const submitQuote = async (page, rfqId, { unitPrice, leadTimeDays }) => {
   await quoteField(page, 'Delivery lead time (days)').fill(String(leadTimeDays));
   await quoteField(page, 'Validity date').fill('2099-06-30');
 
-  await page.locator('button[type="submit"]', { hasText: 'Submit Quotation' }).click();
+  await page.getByRole('button', { name: 'Submit quotation', exact: true }).click();
 };
 
 test.describe('a competitive tender with two invited suppliers', () => {

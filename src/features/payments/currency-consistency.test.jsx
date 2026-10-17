@@ -53,8 +53,9 @@ describe('/payments, the same amount across both tables', () => {
     });
 
     // Gross and Net both read 1,77,000.00 (no TDS on this payment), once per
-    // table — four matches total, all formatted the same way.
-    await waitFor(() => expect(screen.getAllByText('₹ 1,77,000.00').length).toBe(4));
-    expect(screen.queryByText('₹ 1,77,000')).not.toBeInTheDocument();
+    // table — four matches total, all formatted the same way. (The currency
+    // sits in each column header, "Gross (₹)", not in every cell.)
+    await waitFor(() => expect(screen.getAllByText('1,77,000.00').length).toBe(4));
+    expect(screen.queryByText('1,77,000')).not.toBeInTheDocument();
   });
 });

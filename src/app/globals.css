@@ -87,6 +87,18 @@
   --shadow-modal: 0 16px 48px rgb(14 23 38 / 0.18);
   --scrim: rgb(11 15 21 / 0.36);
 
+  /* Charts (docs/redesign/design-system.md § Charts). Validated with the
+     dataviz skill's validate_palette.js against each theme's surface:
+     single series ≥ 3:1; the ordinal ramp is one hue, monotone lightness,
+     light end ≥ 2:1. Not the accent: a tenant's brand colour is for actions. */
+  --chart-series: #4170B5;
+  --chart-seq-1: #98B4DE;
+  --chart-seq-2: #6A90CC;
+  --chart-seq-3: #4170B5;
+  --chart-seq-4: #204C8C;
+  --chart-grid: var(--border);
+  --chart-axis: var(--fg-subtle);
+
   /* ── 3. Legacy (triplets) → Ledger ───────────────────────────────────── */
   --color-base-rgb: 246, 247, 249;
   --color-surface-rgb: 255, 255, 255;
@@ -128,6 +140,13 @@
   --shadow-popover: 0 8px 24px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(255 255 255 / 0.04);
   --shadow-modal: 0 16px 48px rgb(0 0 0 / 0.6);
   --scrim: rgb(0 0 0 / 0.6);
+
+  /* Dark chart steps — their own values, validated against #11161E, not a flip. */
+  --chart-series: #5E88C8;
+  --chart-seq-1: #34578E;
+  --chart-seq-2: #4874B4;
+  --chart-seq-3: #6E98D6;
+  --chart-seq-4: #A8C3EC;
 
   --color-base-rgb: 11, 15, 21;
   --color-surface-rgb: 17, 22, 30;

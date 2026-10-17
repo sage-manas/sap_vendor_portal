@@ -3,11 +3,14 @@
 import React, { useState, useEffect } from 'react';
 import {
   CalendarClock, Repeat, SplitSquareHorizontal, Lock, Unlock, Check, Loader2,
-  RefreshCw, Settings2, AlertTriangle, CircleDot
+  RefreshCw, Settings2, AlertTriangle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Modal from '@/components/ui/Modal';
 import EmptyState from '@/components/ui/EmptyState';
+import StatusBadge from '@/components/ui/StatusBadge';
+import KPICard, { KPIStrip } from '@/components/ui/KPICard';
+import DataTable from '@/components/ui/DataTable';
 import { poService } from '../services/poService';
 
 // The invoicing plan on a purchase order's line items — SAP's FPLA header and
@@ -51,18 +54,21 @@ const lineState = (line) => {
 };
 
 const STATE_CHIP = {
-  due:       { label: 'Due now',   className: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  invoiced:  { label: 'Invoiced',  className: 'bg-blue-50 text-blue-700 border-blue-200' },
-  blocked:   { label: 'Blocked',   className: 'bg-amber-50 text-amber-700 border-amber-200' },
-  scheduled: { label: 'Scheduled', className: 'bg-surface2 text-text-secondary border-border' },
+  due:       { label: 'Due now',   tone: 'action' },
+  invoiced:  { label: 'Invoiced',  tone: 'done' },
+  blocked:   { label: 'Blocked',   tone: 'warn' },
+  scheduled: { label: 'Scheduled', tone: 'neutral' },
 };
 
-function Stat({ label, value, hint, accent = '' }) {
+function Notice({ tone, children }) {
+  const error = tone === 'error';
+  const Icon = error ? AlertTriangle : Check;
   return (
-    <div className="px-4 py-3">
-      <div className="text-[10px] font-extrabold text-text-tertiary uppercase tracking-widest">{label}</div>
-      <div className={`text-sm font-bold font-mono tabular-nums mt-1 ${accent || 'text-text-primary'}`}>{value}</div>
-      {hint && <div className="text-[10px] text-text-tertiary mt-0.5">{hint}</div>}
+    <div role={error ? 'alert' : 'status'} className={`flex items-start gap-2 rounded-md border px-3.5 py-3 text-sm ${error
+      ? 'border-danger/30 bg-danger-tint text-danger'
+      : 'border-success/30 bg-success-tint text-success'}`}>
+      <Icon className="mt-0.5 size-4 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+      <p className="text-fg">{children}</p>
     </div>
   );
 }
@@ -156,8 +162,8 @@ function ConfigureDialog({ po, item, existingPlan, mode = 'manage', onClose, onS
     }
   };
 
-  const inputClass = 'w-full px-3 py-2 text-xs font-medium bg-base border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition-all duration-150';
-  const labelClass = 'block text-[10px] font-extrabold text-text-secondary uppercase tracking-widest mb-1.5';
+  const inputClass = 'w-full';
+  const labelClass = 'mb-1.5 block text-sm font-medium text-fg';
 
   return (
     <Modal
@@ -167,16 +173,16 @@ function ConfigureDialog({ po, item, existingPlan, mode = 'manage', onClose, onS
       className="max-w-3xl"
     >
       <div className="space-y-5 p-5 overflow-y-auto">
-        <div className="card px-4 py-3 bg-surface2/40">
-          <div className="text-xs font-bold text-text-primary">{item.materialCode} · {item.description}</div>
-          <div className="text-[11px] text-text-secondary mt-0.5 font-mono tabular-nums">
+        <div className="rounded-md border border-border bg-subtle px-4 py-3">
+          <div className="text-sm font-medium text-fg">{item.materialCode} · {item.description}</div>
+          <div className="mono mt-0.5 text-sm text-fg-muted">
             Line value {money(netValue, po.currency)} · {item.quantity} {item.uom || 'EA'}
           </div>
         </div>
 
-        <div className="flex items-start gap-2 px-3.5 py-3 rounded-lg bg-blue-50 border border-blue-200">
-          <CalendarClock className="size-4 text-blue-600 flex-shrink-0 mt-0.5" />
-          <p className="text-xs font-medium text-blue-700">
+        <div className="flex items-start gap-2 rounded-md border border-info/30 bg-info-tint px-3.5 py-3">
+          <CalendarClock className="mt-0.5 size-4 shrink-0 text-info" strokeWidth={1.5} aria-hidden="true" />
+          <p className="text-sm text-fg">
             {mode === 'propose'
               ? 'You can propose new dates only — descriptions, percentages and amounts stay as they are. Your buyer must approve the new dates before anything reaches SAP, and nothing below is billable until then.'
               : 'Only the dates can be changed here — descriptions, percentages, amounts and the plan type stay as they are. This saves straight to SAP.'}
@@ -213,7 +219,7 @@ function ConfigureDialog({ po, item, existingPlan, mode = 'manage', onClose, onS
               <input id="plan-amount" disabled type="number" min="0" step="0.01" className={inputClass}
                 placeholder={`Defaults to the line value, ${money(netValue, po.currency)}`}
                 value={periodic.periodicAmount} onChange={() => {}} />
-              <p className="text-[10px] text-text-tertiary mt-1.5">
+              <p className="mt-1.5 text-xs text-fg-subtle">
                 A periodic plan invoices this amount on every date — the plan total is the amount times the number of periods, not the line value.
               </p>
             </div>
@@ -222,8 +228,7 @@ function ConfigureDialog({ po, item, existingPlan, mode = 'manage', onClose, onS
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <label className={labelClass + ' mb-0'} htmlFor="plan-instalments">Instalments</label>
-              <span className={`text-[11px] font-bold font-mono tabular-nums ${Math.abs(milestoneTotal - 100) < 0.01 ? 'text-emerald-600' : 'text-amber-600'
-                }`}>
+              <span className={`mono text-sm ${Math.abs(milestoneTotal - 100) < 0.01 ? 'text-success' : 'text-warning'}`}>
                 {milestoneTotal.toFixed(2)}% of 100%
               </span>
             </div>
@@ -235,9 +240,9 @@ function ConfigureDialog({ po, item, existingPlan, mode = 'manage', onClose, onS
                   onChange={(e) => updateMilestone(index, { settlementDate: e.target.value })} />
                 <div className="relative sm:w-28">
                   <input type="number" disabled min="0" max="100" step="0.01" className={inputClass + ' pr-7'} value={milestone.percentage} onChange={() => {}} />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-text-tertiary">%</span>
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-fg-subtle">%</span>
                 </div>
-                <div className="sm:w-28 text-right text-[11px] font-mono tabular-nums text-text-secondary self-center">
+                <div className="mono self-center text-right text-sm text-fg-muted sm:w-28">
                   {money((netValue * (Number(milestone.percentage) || 0)) / 100, po.currency)}
                 </div>
               </div>
@@ -245,18 +250,13 @@ function ConfigureDialog({ po, item, existingPlan, mode = 'manage', onClose, onS
           </div>
         )}
 
-        {error && (
-          <div className="flex items-start gap-2 px-3.5 py-3 rounded-lg bg-red-50 border border-red-200">
-            <AlertTriangle className="size-4 text-red-600 flex-shrink-0 mt-0.5" />
-            <p className="text-xs font-medium text-red-700">{error}</p>
-          </div>
-        )}
+        {error && <Notice tone="error">{error}</Notice>}
 
         <div className="flex items-center justify-end gap-2 pt-1">
           <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button onClick={save} disabled={saving}>
             {saving
-              ? <><Loader2 className="size-4 mr-2 animate-spin" /> {mode === 'propose' ? 'Sending…' : 'Saving to SAP…'}</>
+              ? <><Loader2 className="mr-2 size-4 animate-spin" /> {mode === 'propose' ? 'Sending…' : 'Saving to SAP…'}</>
               : (mode === 'propose' ? 'Send proposal to buyer' : 'Save invoicing plan')}
           </Button>
         </div>
@@ -291,25 +291,21 @@ function RejectProposalDialog({ po, entry, onClose, onRejected }) {
   return (
     <Modal open onClose={onClose} title={`Reject proposed change — line ${entry.line}`} className="max-w-lg">
       <div className="space-y-4 p-5">
-        <p className="text-xs text-text-secondary">
+        <p className="text-sm text-fg-muted">
           The live invoicing plan is left exactly as it is. Your reason is shown to the supplier so they know what to change if they resubmit.
         </p>
         <textarea
-          className="w-full px-3 py-2 text-xs font-medium bg-base border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition-all duration-150 min-h-24"
+          aria-label="Reason for rejecting"
+          className="min-h-24 w-full"
           placeholder="Why this proposal is being rejected…"
           value={reason}
           onChange={(e) => setReason(e.target.value)}
         />
-        {error && (
-          <div className="flex items-start gap-2 px-3.5 py-3 rounded-lg bg-red-50 border border-red-200">
-            <AlertTriangle className="size-4 text-red-600 flex-shrink-0 mt-0.5" />
-            <p className="text-xs font-medium text-red-700">{error}</p>
-          </div>
-        )}
+        {error && <Notice tone="error">{error}</Notice>}
         <div className="flex items-center justify-end gap-2 pt-1">
           <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button variant="destructive" onClick={submit} disabled={saving}>
-            {saving ? <><Loader2 className="size-4 mr-2 animate-spin" /> Rejecting…</> : 'Reject proposal'}
+            {saving ? <><Loader2 className="mr-2 size-4 animate-spin" /> Rejecting…</> : 'Reject proposal'}
           </Button>
         </div>
       </div>
@@ -329,38 +325,79 @@ function PlanCard({
   const progress = summary?.totalValue ? (summary.invoicedValue / summary.totalValue) * 100 : 0;
   const pending = plan.pendingChange;
 
+  const columns = [
+    { key: 'lineNumber', header: 'Date', mono: true, primary: true },
+    { key: 'description', header: 'Description', wrap: true, render: (line) => line.description || '—' },
+    { key: 'settlementDate', header: 'Settlement', render: (line) => prettyDay(line.settlementDate) },
+    { key: 'percentage', header: '%', align: 'right', mono: true, render: (line) => (line.percentage ? `${line.percentage}%` : '—') },
+    { key: 'amount', header: `Amount (${currency === 'INR' ? '₹' : currency})`, align: 'right', mono: true, render: (line) => money(line.amount, currency) },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (line) => {
+        const chip = STATE_CHIP[lineState(line)];
+        return (
+          <span className="flex flex-col items-start gap-0.5">
+            <StatusBadge label={chip.label} tone={chip.tone} />
+            {line.invoiceNumber && <span className="mono text-xs text-fg-subtle">{line.invoiceNumber}</span>}
+          </span>
+        );
+      },
+    },
+    {
+      key: 'action',
+      header: canManage ? 'Billing block' : 'Invoice',
+      align: 'right',
+      render: (line) => {
+        const state = lineState(line);
+        if (canManage) {
+          if (state === 'invoiced') return <span className="text-sm text-fg-subtle">Billed</span>;
+          return (
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => onToggleBlock(entry, line, !line.blocked)}>
+              {line.blocked
+                ? <><Unlock className="mr-1.5 size-3.5" strokeWidth={1.5} /> Release</>
+                : <><Lock className="mr-1.5 size-3.5" strokeWidth={1.5} /> Block</>}
+            </Button>
+          );
+        }
+        if (state === 'due') return <span className="text-sm font-medium text-fg">Due — awaiting invoice</span>;
+        return (
+          <span className="text-sm text-fg-subtle">
+            {state === 'invoiced' ? (line.sapMiroDoc ? `MIRO ${line.sapMiroDoc}` : 'Submitted') : STATE_CHIP[state].label}
+          </span>
+        );
+      },
+    },
+  ];
+
   return (
-    <div className="card overflow-hidden">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-3.5 border-b border-border bg-surface2/40">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <PlanIcon className="size-4 text-blue-600 flex-shrink-0" />
+    <section className="space-y-4">
+      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+        <div className="flex min-w-0 items-start gap-2.5">
+          <PlanIcon className="mt-1 size-4 shrink-0 text-fg-muted" strokeWidth={1.5} aria-hidden="true" />
           <div className="min-w-0">
-            <div className="text-xs font-bold text-text-primary truncate">
-              Line {entry.line} · {entry.materialCode} — {entry.description}
-            </div>
-            <div className="text-[10px] font-semibold text-text-tertiary uppercase tracking-widest mt-0.5">
+            <h3 className="text-base font-semibold text-fg">
+              Line {entry.line} · <span className="mono">{entry.materialCode}</span> — {entry.description}
+            </h3>
+            <p className="mt-0.5 text-sm text-fg-muted">
               {plan.type} plan
               {plan.frequency ? ` · ${plan.frequency}` : ''}
               {plan.invoicingRule ? ` · in ${plan.invoicingRule.toLowerCase()}` : ''}
-              {plan.planNumber ? ` · FPLA ${plan.planNumber}` : ''}
-            </div>
+              {plan.planNumber ? <> · plan <span className="mono">{plan.planNumber}</span></> : null}
+            </p>
           </div>
         </div>
 
         {canManage && (
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <Button variant="outline" size="sm" onClick={() => onConfigure(entry)} disabled={busy}>
-              <Settings2 className="size-3.5 mr-1.5" /> Move dates
-            </Button>
-          </div>
+          <Button variant="secondary" size="sm" onClick={() => onConfigure(entry)} disabled={busy}>
+            <Settings2 className="mr-1.5 size-3.5" strokeWidth={1.5} /> Move dates
+          </Button>
         )}
 
         {canPropose && !canManage && (
-          <div className="flex-shrink-0">
-            <Button variant="outline" size="sm" onClick={() => onPropose(entry)} disabled={busy}>
-              <Settings2 className="size-3.5 mr-1.5" /> {pending ? 'Update your proposal' : 'Propose a change'}
-            </Button>
-          </div>
+          <Button variant="secondary" size="sm" onClick={() => onPropose(entry)} disabled={busy}>
+            <Settings2 className="mr-1.5 size-3.5" strokeWidth={1.5} /> {pending ? 'Update your proposal' : 'Propose a change'}
+          </Button>
         )}
       </div>
 
@@ -369,13 +406,13 @@ function PlanCard({
           the buyer approves or rejects it here; the supplier just sees that
           it is pending, since a re-propose already overwrites it. */}
       {pending && (
-        <div className="px-5 py-3.5 border-b border-border bg-amber-50/60">
-          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+        <div className="rounded-md border border-warning/30 bg-warning-tint px-4 py-3.5">
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
             <div className="min-w-0">
-              <div className="flex items-center gap-1.5 text-[10px] font-extrabold text-amber-700 uppercase tracking-widest">
-                <CalendarClock className="size-3" /> Proposed change awaiting approval
-              </div>
-              <p className="text-[11px] text-amber-800 mt-1">
+              <p className="flex items-center gap-1.5 text-sm font-medium text-fg">
+                <CalendarClock className="size-4 text-warning" strokeWidth={1.5} aria-hidden="true" /> Proposed change awaiting approval
+              </p>
+              <p className="mt-1 text-sm text-fg-muted">
                 {canManage
                   ? `Proposed by ${pending.requestedBy} on ${prettyDay(pending.requestedAt)}. The schedule below is still what SAP holds — nothing changes until you approve or reject it.`
                   : `Sent ${prettyDay(pending.requestedAt)}. Your buyer has not decided yet — the schedule below is still what is actually billable.`}
@@ -386,17 +423,17 @@ function PlanCard({
                   : (pending.input.milestones || []).map((m, i) =>
                     `${m.description || `Instalment ${i + 1}`} · ${day(m.settlementDate)} · ${m.percentage}%`)
                 ).map((line, i) => (
-                  <li key={i} className="text-[11px] font-mono text-amber-900">{line}</li>
+                  <li key={i} className="mono text-sm text-fg">{line}</li>
                 ))}
               </ul>
             </div>
             {canManage && (
-              <div className="flex items-center gap-2 flex-shrink-0">
+              <div className="flex shrink-0 items-center gap-2">
                 <Button variant="ghost" size="sm" disabled={busy} onClick={() => onRejectProposal(entry)}>
                   Reject
                 </Button>
                 <Button size="sm" disabled={busy} onClick={() => onApproveProposal(entry)}>
-                  <Check className="size-3.5 mr-1.5" /> Approve & save to SAP
+                  <Check className="mr-1.5 size-3.5" strokeWidth={1.5} /> Approve & save to SAP
                 </Button>
               </div>
             )}
@@ -404,82 +441,38 @@ function PlanCard({
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0 divide-border border-b border-border">
-        <Stat label="Plan total" value={money(summary?.totalValue, currency)} hint={`${summary?.totalLines || 0} invoicing dates`} />
-        <Stat label="Invoiced" value={money(summary?.invoicedValue, currency)} hint={`${summary?.invoicedLines || 0} of ${summary?.totalLines || 0}`} accent="text-blue-700" />
-        <Stat label="Outstanding" value={money(summary?.openValue, currency)} hint={summary?.blockedLines ? `${summary.blockedLines} blocked` : 'Not yet invoiced'} />
-        <Stat
+      <KPIStrip>
+        <KPICard label="Plan total" value={money(summary?.totalValue, currency)} hint={`${summary?.totalLines || 0} invoicing dates`} />
+        <KPICard label="Invoiced" value={money(summary?.invoicedValue, currency)} hint={`${summary?.invoicedLines || 0} of ${summary?.totalLines || 0}`} />
+        <KPICard label="Outstanding" value={money(summary?.openValue, currency)} hint={summary?.blockedLines ? `${summary.blockedLines} blocked` : 'Not yet invoiced'} />
+        <KPICard
           label={summary?.dueLines ? 'Billable now' : 'Next date'}
           value={summary?.dueLines ? money(summary.dueValue, currency) : prettyDay(summary?.nextDueDate)}
           hint={summary?.dueLines ? `${summary.dueLines} date${summary.dueLines === 1 ? '' : 's'} open` : (summary?.complete ? 'Plan complete' : 'Not yet due')}
-          accent={summary?.dueLines ? 'text-emerald-700' : ''}
+          empty={false}
         />
+      </KPIStrip>
+
+      <div
+        className="h-1 overflow-hidden rounded-full bg-subtle"
+        role="progressbar"
+        aria-label={`Line ${entry.line} invoiced`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(Math.min(100, progress))}
+      >
+        <div className="h-full bg-accent-solid" style={{ width: `${Math.min(100, progress)}%` }} />
       </div>
 
-      <div className="h-1 bg-surface2">
-        <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${Math.min(100, progress)}%` }} />
-      </div>
-
-      <div className="w-full overflow-x-auto">
-        <table className="w-full text-left border-collapse min-w-[720px]">
-          <thead>
-            <tr>
-              <th className="w-16">Date</th>
-              <th className="min-w-[180px]">Description</th>
-              <th className="w-36">Settlement</th>
-              <th className="w-20 text-right">%</th>
-              <th className="w-36 text-right">Amount</th>
-              <th className="w-32">Status</th>
-              <th className="w-44 text-right">{canManage ? 'Billing block' : 'Invoice'}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(plan.lines || []).map((line) => {
-              const state = lineState(line);
-              const chip = STATE_CHIP[state];
-              return (
-                <tr key={line.lineNumber}>
-                  <td className="font-semibold font-mono tabular-nums">{line.lineNumber}</td>
-                  <td className="text-text-primary font-medium">{line.description || '—'}</td>
-                  <td className="font-medium font-mono tabular-nums">{prettyDay(line.settlementDate)}</td>
-                  <td className="text-right font-mono tabular-nums">{line.percentage ? `${line.percentage}%` : '—'}</td>
-                  <td className="text-right font-bold text-text-primary font-mono tabular-nums">{money(line.amount, currency)}</td>
-                  <td>
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold ${chip.className}`}>
-                      {state === 'invoiced' ? <Check className="size-3" /> : state === 'blocked' ? <Lock className="size-3" /> : <CircleDot className="size-3" />}
-                      {chip.label}
-                    </span>
-                    {line.invoiceNumber && (
-                      <div className="text-[10px] text-text-tertiary font-mono mt-0.5">{line.invoiceNumber}</div>
-                    )}
-                  </td>
-                  <td className="text-right">
-                    {canManage ? (
-                      state === 'invoiced' ? (
-                        <span className="text-[11px] text-text-tertiary">Billed</span>
-                      ) : (
-                        <Button variant="ghost" size="sm" disabled={busy}
-                          onClick={() => onToggleBlock(entry, line, !line.blocked)}>
-                          {line.blocked
-                            ? <><Unlock className="size-3.5 mr-1.5" /> Release</>
-                            : <><Lock className="size-3.5 mr-1.5" /> Block</>}
-                        </Button>
-                      )
-                    ) : state === 'due' ? (
-                      <span className="text-[11px] font-semibold text-emerald-700">Due — awaiting invoice</span>
-                    ) : (
-                      <span className="text-[11px] text-text-tertiary">
-                        {state === 'invoiced' ? (line.sapMiroDoc ? `MIRO ${line.sapMiroDoc}` : 'Submitted') : chip.label}
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
+      <DataTable
+        caption={`Invoicing dates for line ${entry.line}`}
+        columns={columns}
+        rows={plan.lines || []}
+        getRowId={(line) => line.lineNumber}
+        rowLabel={(line) => `date ${line.lineNumber}`}
+        empty="No invoicing dates on this plan."
+      />
+    </section>
   );
 }
 
@@ -538,13 +531,11 @@ export default function InvoicePlanPanel({ po, canManage = false, canPropose = f
   };
 
   return (
-    <div className="space-y-5 animate-fade-in">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-2">
-        <div>
-          <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider flex items-center gap-2">
-            <CalendarClock className="size-4 text-blue-600" /> Invoicing plan
-          </h4>
-          <p className="text-[11px] text-text-secondary mt-1">
+    <div className="space-y-8">
+      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+        <div className="max-w-3xl">
+          <h2 className="text-lg font-semibold text-fg">Invoicing plan</h2>
+          <p className="mt-1 text-sm text-fg-muted">
             {canManage
               ? 'Line items billed on a schedule rather than against a goods receipt, as SAP configured it. You can move a plan\'s dates and sync what SAP holds — the schedule itself is set in SAP.'
               : canPropose
@@ -553,26 +544,18 @@ export default function InvoicePlanPanel({ po, canManage = false, canPropose = f
           </p>
         </div>
         {canManage && (
-          <Button variant="outline" size="sm" disabled={busy}
+          <Button variant="secondary" size="sm" disabled={busy}
             onClick={() => run(() => poService.syncInvoicePlan(po.id))}>
-            <RefreshCw className={`size-3.5 mr-1.5 ${busy ? 'animate-spin' : ''}`} /> Sync from SAP
+            <RefreshCw className={`mr-1.5 size-3.5 ${busy ? 'animate-spin' : ''}`} strokeWidth={1.5} /> Sync from SAP
           </Button>
         )}
       </div>
 
-      {notice && (
-        <div className={`flex items-start gap-2 px-3.5 py-3 rounded-lg border ${notice.tone === 'error'
-          ? 'bg-red-50 border-red-200 text-red-700'
-          : 'bg-emerald-50 border-emerald-200 text-emerald-700'
-          }`}>
-          {notice.tone === 'error' ? <AlertTriangle className="size-4 flex-shrink-0 mt-0.5" /> : <Check className="size-4 flex-shrink-0 mt-0.5" />}
-          <p className="text-xs font-medium">{notice.text}</p>
-        </div>
-      )}
+      {notice?.text && <Notice tone={notice.tone}>{notice.text}</Notice>}
 
       {loading ? (
-        <div className="flex items-center justify-center py-14 text-text-tertiary">
-          <Loader2 className="size-5 animate-spin" />
+        <div className="flex items-center justify-center py-14 text-fg-subtle" role="status" aria-label="Loading the invoicing plan">
+          <Loader2 className="size-5 animate-spin" strokeWidth={1.5} />
         </div>
       ) : !data?.items?.length ? (
         <EmptyState
