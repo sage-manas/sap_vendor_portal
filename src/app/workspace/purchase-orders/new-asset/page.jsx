@@ -214,8 +214,8 @@ export default function NewAssetPoPage() {
     return (
       <>
         <PageHeader title="Asset purchase order created" caption={`SAP order ${created.sapPoNumber}`} />
-        <div className="card p-6">
-          <p className="text-sm">
+        <div className="rounded-lg border border-border bg-surface p-5">
+          <p className="text-sm text-fg">
             SAP created order <span className="mono">{created.sapPoNumber}</span>, recorded here as{' '}
             <span className="mono">{created.id}</span>.
           </p>
@@ -253,8 +253,8 @@ export default function NewAssetPoPage() {
         <Loading label="Loading suppliers" />
       ) : (
         <>
-          <div className="card p-5">
-            <h3 className="text-sm font-semibold mb-4">Order</h3>
+          <section className="space-y-4">
+            <h2 className="text-base font-semibold text-fg">Order</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <Field label="Supplier" error={fieldErrors.vendorId}>
                 <select className="w-full" value={header.vendorId} onChange={setField('vendorId')}>
@@ -276,16 +276,16 @@ export default function NewAssetPoPage() {
               <Field label="Delivery address" value={header.deliveryAddress} onChange={setField('deliveryAddress')} error={fieldErrors.deliveryAddress} />
             </div>
             {vendors.length === 0 && (
-              <p className="mt-4 text-[11px] text-text-tertiary">
+              <p className="mt-4 text-xs text-fg-subtle">
                 No supplier here is both approved and carries an SAP vendor master. An order can
                 only be raised against one that is.
               </p>
             )}
-          </div>
+          </section>
 
-          <div className="card p-5 mt-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold">Lines</h3>
+          <section className="mt-8 space-y-4 border-t border-border pt-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold text-fg">Lines</h2>
               <button type="button" className="btn btn-o h-8"
                 onClick={() => setLines((prev) => [...prev, { ...BLANK_LINE }])}>
                 Add a line
@@ -295,9 +295,9 @@ export default function NewAssetPoPage() {
             {lines.map((line, index) => (
               <div key={index} className="border-t border-border pt-4 mt-4 first:border-0 first:pt-0 first:mt-0">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-[11px] text-text-tertiary mono">Line {(index + 1) * 10}</span>
+                  <span className="mono text-sm text-fg-muted">Line {(index + 1) * 10}</span>
                   {lines.length > 1 && (
-                    <button type="button" className="btn btn-o h-7 text-[11px]"
+                    <button type="button" className="btn btn-o h-7 text-xs"
                       onClick={() => setLines((prev) => prev.filter((_, i) => i !== index))}>
                       Remove
                     </button>
@@ -319,17 +319,20 @@ export default function NewAssetPoPage() {
                   <Field label="Price unit" type="number" step="1" min="1" value={line.priceUnit} onChange={setLine(index, 'priceUnit')} error={fieldErrors[`items.${index}.priceUnit`]}
                     hint="SAP PEINH — the unit price is per this many units" />
                   <Field label="Tax code" value={line.taxCode} onChange={setLine(index, 'taxCode')} error={fieldErrors[`items.${index}.taxCode`]} placeholder="e.g. V0" />
-                  <Field label="Line value">
-                    <div className="mono text-sm pt-2">{money(lineValue(line), header.currency)}</div>
-                  </Field>
+                  {/* Computed, not entered — a value beside its label, not a field. */}
+                  <div>
+                    <p className="label">Line value</p>
+                    <p className="mono pt-2 text-sm text-fg">{money(lineValue(line), header.currency)}</p>
+                  </div>
                 </div>
               </div>
             ))}
-          </div>
+          </section>
 
-          <div className="flex items-center justify-between mt-4">
-            <span className="text-sm">
-              Order total <span className="mono font-semibold">{money(total, header.currency)}</span>
+          {/* Sticky action bar: the order total beside the one primary action. */}
+          <div className="sticky bottom-0 z-10 -mx-4 mt-8 flex items-center justify-between gap-3 border-t border-border bg-canvas px-4 py-3 md:-mx-6 md:px-6">
+            <span className="text-sm text-fg-muted">
+              Order total <span className="mono font-semibold text-fg">{money(total, header.currency)}</span>
             </span>
             <div className="flex gap-2">
               <button type="button" className="btn btn-o h-9" disabled={busy}

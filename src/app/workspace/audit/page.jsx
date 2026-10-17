@@ -22,15 +22,15 @@ export default function WorkspaceAuditPage() {
   );
 
   const columns = [
-    { key: 'at', header: 'When', render: (row) => <span className="mono text-[11px]">{formatDate(row.at)}</span> },
-    { key: 'action', header: 'What', render: (row) => <span className="mono text-[12px] text-text-primary">{row.action}</span> },
+    { key: 'at', header: 'When', render: (row) => <span className="whitespace-nowrap text-sm">{formatDate(row.at)}</span> },
+    { key: 'action', header: 'What', render: (row) => <span className="mono text-xs text-fg">{row.action}</span> },
     {
       key: 'actor',
       header: 'Who',
       render: (row) => (
         <div>
-          <p className="text-[12px] text-text-primary">{row.actor.email || row.actor.role}</p>
-          {row.actor.email && <p className="mono text-[10px] text-text-tertiary">{row.actor.role}</p>}
+          <p className="text-sm text-fg">{row.actor.email || row.actor.role}</p>
+          {row.actor.email && <p className="mono text-xs text-fg-subtle">{row.actor.role}</p>}
         </div>
       ),
     },
@@ -40,10 +40,10 @@ export default function WorkspaceAuditPage() {
       render: (row) => (
         row.target ? (
           <div>
-            <p className="text-[12px] text-text-primary">{row.target.label || row.target.id}</p>
-            <p className="mono text-[10px] text-text-tertiary">{row.target.type}</p>
+            <p className="text-sm text-fg">{row.target.label || row.target.id}</p>
+            <p className="mono text-xs text-fg-subtle">{row.target.type}</p>
           </div>
-        ) : <span className="text-text-tertiary">—</span>
+        ) : <span className="text-fg-subtle">—</span>
       ),
     },
     {
@@ -51,8 +51,8 @@ export default function WorkspaceAuditPage() {
       header: 'Detail',
       render: (row) => (
         Object.keys(row.meta || {}).length
-          ? <span className="mono text-[11px] text-text-secondary">{JSON.stringify(row.meta)}</span>
-          : <span className="text-text-tertiary">—</span>
+          ? <span className="mono text-xs text-fg-muted">{JSON.stringify(row.meta)}</span>
+          : <span className="text-fg-subtle">—</span>
       ),
     },
   ];
@@ -76,7 +76,8 @@ export default function WorkspaceAuditPage() {
 
       <div className="mb-4 flex items-center gap-2">
         <select
-          className="h-9"
+          aria-label="Show entries about"
+          className="h-9 w-auto! min-w-56"
           value={subject}
           onChange={(event) => { setSubject(event.target.value); setPage(1); }}
         >
@@ -86,7 +87,7 @@ export default function WorkspaceAuditPage() {
         </select>
 
         {data && (
-          <span className="ml-auto text-[11px] text-text-tertiary">
+          <span className="ml-auto text-xs text-fg-subtle">
             {data.total} {data.total === 1 ? 'entry' : 'entries'}
           </span>
         )}
@@ -107,7 +108,7 @@ export default function WorkspaceAuditPage() {
               <button type="button" className="btn btn-o h-8 px-2.5" disabled={page <= 1} onClick={() => setPage(page - 1)}>
                 Previous
               </button>
-              <span className="mono text-[11px] text-text-tertiary">{page} / {pages}</span>
+              <span className="mono text-xs text-fg-subtle">{page} / {pages}</span>
               <button type="button" className="btn btn-o h-8 px-2.5" disabled={page >= pages} onClick={() => setPage(page + 1)}>
                 Next
               </button>

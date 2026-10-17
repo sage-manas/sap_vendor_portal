@@ -33,15 +33,17 @@ export default function WorkspaceRfqsPage() {
         <Table
           columns={[
             { key: 'id', header: 'RFQ', render: (row) => <span className="mono">{row.id}</span> },
-            { key: 'description', header: 'Description' },
+            { key: 'description', header: 'Description', mono: false },
             {
               key: 'invited',
               header: 'Invited',
+          align: 'right',
               render: (row) => <span className="mono">{(row.invitedVendors || []).length}</span>,
             },
             {
               key: 'bids',
               header: 'Bids received',
+          align: 'right',
               render: (row) => <span className="mono">{(row.bids || []).length}</span>,
             },
             {
@@ -50,7 +52,7 @@ export default function WorkspaceRfqsPage() {
               render: (row) => (row.awardedVendorName ? <span className="mono">{row.awardedVendorName}</span> : '—'),
             },
             { key: 'status', header: 'Status', render: (row) => <Status value={row.status} /> },
-            { key: 'deadlineDate', header: 'Deadline', render: (row) => <span className="mono text-[11px]">{formatDateOnly(row.deadlineDate)}</span> },
+            { key: 'deadlineDate', header: 'Deadline', render: (row) => <span className="whitespace-nowrap">{formatDateOnly(row.deadlineDate)}</span> },
           ]}
           rows={rfqs.map((rfq) => ({ ...rfq, key: rfq.id }))}
           empty="No RFQs discovered from SAP yet."

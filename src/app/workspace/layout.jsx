@@ -107,8 +107,8 @@ function Gate({ children }) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-base px-4">
         <div className="card max-w-[440px] p-8">
-          <h1 className="text-xl font-semibold tracking-tight text-text-primary">Not your workspace</h1>
-          <p className="mt-2 text-[13px] leading-relaxed text-text-secondary">
+          <h1 className="text-xl font-semibold tracking-tight text-fg">Not your workspace</h1>
+          <p className="mt-2 text-sm leading-relaxed text-fg-muted">
             The back office belongs to the buying organisation. Your supplier portal has everything
             your account can act on.
           </p>
@@ -120,7 +120,7 @@ function Gate({ children }) {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-base">
-      <Loader2 className="size-5 animate-spin text-text-tertiary" />
+      <Loader2 className="size-5 animate-spin text-fg-subtle" />
     </div>
   );
 }

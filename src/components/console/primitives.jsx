@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, AlertTriangle, CheckCircle2, Info, Loader2, X } from 'lucide-react';
+import { AlertCircle, AlertTriangle, CheckCircle2, ChevronRight, Info, Loader2, X } from 'lucide-react';
 import { PageHeader as SharedPageHeader } from '@/components/ui/Page';
 import StatusBadge from '@/components/ui/StatusBadge';
+import { useLabelledControl } from '@/components/ui/FieldCard';
 
 // The back-office vocabulary, shared by the platform console and the tenant
 // workspace. Two planes, two navs, two sessions — but one set of tables,
@@ -14,8 +15,8 @@ import StatusBadge from '@/components/ui/StatusBadge';
 // status vocabulary are the supplier portal's own components, so the three
 // surfaces cannot drift apart.
 
-export const PageHeader = ({ title, caption, children }) => (
-  <SharedPageHeader title={title} description={caption}>{children}</SharedPageHeader>
+export const PageHeader = ({ title, caption, breadcrumb, children }) => (
+  <SharedPageHeader title={title} description={caption} breadcrumb={breadcrumb}>{children}</SharedPageHeader>
 );
 
 const NOTICE = {
@@ -48,18 +49,30 @@ export const Notice = ({ tone = 'error', children, onDismiss }) => {
 // `type="text"` comes first so a caller's own `type` (password, email …)
 // still wins. Without any type the field used to miss the input styles in
 // globals.css and render borderless (redesign audit §4.2).
-export const Field = ({ label, hint, error, children, ...props }) => (
-  <div>
-    <label className="label">{label}</label>
-    {children || <input type="text" className="w-full" aria-invalid={error ? true : undefined} {...props} />}
-    {error && (
-      <p className="mt-1.5 flex items-start gap-1.5 text-xs text-danger" role="alert">
-        <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />{error}
-      </p>
-    )}
-    {hint && <p className="mt-1.5 text-xs text-fg-subtle">{hint}</p>}
-  </div>
-);
+//
+// The label is attached to its control (htmlFor/id, plus aria-invalid and
+// aria-describedby) through the same helper the supplier forms use; it used
+// to be a bare <label> beside the input, named nothing.
+export const Field = ({ label, hint, error, children, ...props }) => {
+  const { id, control } = useLabelledControl({
+    label,
+    error,
+    hint,
+    children: children || <input type="text" className="w-full" {...props} />,
+  });
+  return (
+    <div>
+      <label className="label" htmlFor={id}>{label}</label>
+      {control}
+      {error && (
+        <p id={`${id}-error`} className="mt-1.5 flex items-start gap-1.5 text-xs text-danger" role="alert">
+          <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />{error}
+        </p>
+      )}
+      {hint && !error && <p id={`${id}-hint`} className="mt-1.5 text-xs text-fg-subtle">{hint}</p>}
+    </div>
+  );
+};
 
 // Tenant, operator, supplier and sync statuses go through the one shared
 // status map (components/ui/status.js), so a state looks the same on every
@@ -72,7 +85,11 @@ export const Status = ({ value }) => <StatusBadge label={value} variant="pending
  * without `render` prints its raw value in mono (they are identifiers) unless
  * it passes `mono: false`.
  */
-export const Table = ({ columns, rows, empty = 'Nothing here yet.', onRowClick }) => (
+//
+// With `onRowClick`, each row also gets a labelled chevron button: the row's
+// own click is a pointer shortcut, the button is the keyboard and
+// screen-reader way in. `rowLabel(row)` names it ("Open …").
+export const Table = ({ columns, rows, empty = 'Nothing here yet.', onRowClick, rowLabel = (row) => String(row.key ?? '') }) => (
   <div className="card overflow-x-auto">
     <table className="w-full border-collapse">
       <thead className="table-sticky">
@@ -82,24 +99,47 @@ export const Table = ({ columns, rows, empty = 'Nothing here yet.', onRowClick }
               {column.header}
             </th>
           ))}
+          {onRowClick && <th><span className="sr-only">Open</span></th>}
         </tr>
       </thead>
       <tbody>
         {rows.length === 0 ? (
-          <tr><td colSpan={columns.length} className="text-fg-muted">{empty}</td></tr>
+          <tr><td colSpan={columns.length + (onRowClick ? 1 : 0)} className="text-fg-muted">{empty}</td></tr>
         ) : rows.map((row, index) => (
           <tr
             key={row.key ?? index}
             onClick={onRowClick ? () => onRowClick(row) : undefined}
             className={onRowClick ? 'cursor-pointer' : undefined}
           >
-            {columns.map((column) => (
-              <td key={column.key} className={column.align === 'right' ? 'text-right whitespace-nowrap' : undefined}>
-                {column.render
-                  ? column.render(row)
-                  : column.mono === false ? row[column.key] : <span className="mono">{row[column.key]}</span>}
+            {columns.map((column) => {
+              const mono = !column.render && column.mono !== false;
+              return (
+                <td
+                  key={column.key}
+                  className={[
+                    column.align === 'right' ? 'text-right tabular-nums' : '',
+                    // An identifier never breaks mid-token; a number never wraps.
+                    mono || column.align === 'right' ? 'whitespace-nowrap' : '',
+                  ].filter(Boolean).join(' ') || undefined}
+                >
+                  {column.render
+                    ? column.render(row)
+                    : mono ? <span className="mono">{row[column.key]}</span> : row[column.key]}
+                </td>
+              );
+            })}
+            {onRowClick && (
+              <td className="w-10 py-0 pl-0 text-right">
+                <button
+                  type="button"
+                  onClick={(event) => { event.stopPropagation(); onRowClick(row); }}
+                  aria-label={`Open ${rowLabel(row)}`}
+                  className="grid size-8 cursor-pointer place-items-center rounded-md text-fg-subtle hover:bg-subtle hover:text-fg"
+                >
+                  <ChevronRight className="size-4" strokeWidth={1.5} />
+                </button>
               </td>
-            ))}
+            )}
           </tr>
         ))}
       </tbody>
