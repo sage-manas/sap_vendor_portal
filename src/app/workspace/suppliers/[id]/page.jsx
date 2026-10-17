@@ -62,7 +62,9 @@ function Section({ title, action, children }) {
 // default. Tenant staff are entitled to it — it is already in the directory
 // payload — but this screen gets shown in review meetings and on shared
 // screens, and an account number does not need to be on every one of them.
-function AccountNumber({ value }) {
+// `which` names the account in the toggle's label when a page shows more
+// than one ("the current account number", "the requested account number").
+function AccountNumber({ value, which = 'the account number' }) {
   const [shown, setShown] = useState(false);
   if (!value) return '—';
 
@@ -73,7 +75,7 @@ function AccountNumber({ value }) {
         type="button"
         onClick={() => setShown((current) => !current)}
         className="cursor-pointer rounded p-0.5 text-fg-subtle hover:text-fg"
-        aria-label={shown ? 'Hide the account number' : 'Show the account number'}
+        aria-label={`${shown ? 'Hide' : 'Show'} ${which}`}
       >
         {shown ? <EyeOff className="size-4" strokeWidth={1.5} /> : <Eye className="size-4" strokeWidth={1.5} />}
       </button>
@@ -182,10 +184,15 @@ function PendingBankChange({ vendor, canDecide, onDone, onError }) {
               return (
                 <tr key={label}>
                   <th scope="row" className="font-normal text-fg-muted">{label}</th>
-                  <td className="text-fg-muted">{secret ? <AccountNumber value={before} /> : (before || '—')}</td>
+                  <td className="text-fg-muted">{secret ? <AccountNumber value={before} which="the current account number" /> : (before || '—')}</td>
                   <td className={changed ? 'font-medium text-fg' : 'text-fg-muted'}>
-                    {secret ? <AccountNumber value={after} /> : (after || '—')}
+                    {secret ? <AccountNumber value={after} which="the requested account number" /> : (after || '—')}
                     {changed && <span className="ml-2 text-xs font-normal text-warning">changed</span>}
+                    {/* Both masks end in the same four digits: say so, or the
+                        two cells read as identical. */}
+                    {changed && secret && (before || '').slice(-4) === (after || '').slice(-4) && (
+                      <span className="block text-xs font-normal text-fg-muted">Same last four digits — show both to compare</span>
+                    )}
                   </td>
                 </tr>
               );
@@ -210,7 +217,7 @@ function PendingBankChange({ vendor, canDecide, onDone, onError }) {
           {rejecting ? (
             <>
               <input
-                className="min-h-8! min-w-0 flex-1 py-1!"
+                className="h-7! min-h-7! min-w-0 flex-1 py-0.5! text-sm"
                 placeholder="Reason (shared in the audit log)"
                 aria-label="Reason for rejecting the bank change"
                 value={reason}

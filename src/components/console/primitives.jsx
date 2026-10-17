@@ -99,6 +99,9 @@ const cellValue = (column, row) => {
 // the first column is the card's title, the rest are label/value pairs.
 const TableCards = ({ columns, rows, empty, onRowClick, rowLabel }) => {
   const [title, ...rest] = columns;
+  // Header-less columns are row actions; on a card they sit below the fields.
+  const fields = rest.filter((column) => column.header);
+  const actions = rest.filter((column) => !column.header);
   return (
     <ul className="card divide-y divide-border">
       {rows.length === 0 ? (
@@ -111,15 +114,14 @@ const TableCards = ({ columns, rows, empty, onRowClick, rowLabel }) => {
           >
             <div className="text-sm font-medium text-fg">{cellValue(title, row)}</div>
             <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-              {rest.filter((column) => column.header).map((column) => (
+              {fields.map((column) => (
                 <div key={column.key} className="contents">
                   <dt className="text-fg-subtle">{column.header}</dt>
                   <dd className="min-w-0 break-words text-fg">{cellValue(column, row)}</dd>
                 </div>
               ))}
             </dl>
-            {/* Header-less columns are row actions; on a card they sit below. */}
-            {rest.filter((column) => !column.header).map((column) => (
+            {actions.map((column) => (
               <div key={column.key} className="mt-2">{cellValue(column, row)}</div>
             ))}
           </div>
@@ -174,13 +176,13 @@ const TableGrid = ({ columns, rows, empty, onRowClick, rowLabel }) => (
                   key={column.key}
                   className={[
                     column.align === 'right' ? 'text-right tabular-nums' : '',
-                    // An identifier never breaks mid-token; a number never wraps.
+                    // Default-mono columns are identifiers, emails and codes (prose
+                    // opts out with mono: false); none of them should break mid-token,
+                    // and a number never wraps.
                     mono || column.align === 'right' ? 'whitespace-nowrap' : '',
                   ].filter(Boolean).join(' ') || undefined}
                 >
-                  {column.render
-                    ? column.render(row)
-                    : mono ? <span className="mono">{row[column.key]}</span> : row[column.key]}
+                  {cellValue(column, row)}
                 </td>
               );
             })}

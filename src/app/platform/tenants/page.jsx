@@ -152,6 +152,7 @@ export default function TenantsPage() {
           columns={columns}
           rows={(data?.tenants || []).map((tenant) => ({ ...tenant, key: tenant.clientId }))}
           empty="No workspaces match."
+          rowLabel={(row) => row.companyName || row.clientId}
           onRowClick={(row) => router.push(`/platform/tenants/${row.clientId}`)}
         />
       )}

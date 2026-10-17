@@ -16,10 +16,10 @@ import KPICard, { KPIStrip } from '@/components/ui/KPICard';
 const money = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 // One row of "Needs a decision": the count, what it means, and where to act.
-const Task = ({ count, children, href, cta, overdue }) => (
+const Task = ({ count, children, href, cta }) => (
   <li>
     <Link href={href} className="group flex items-center gap-3 px-4 py-3 hover:bg-subtle">
-      <span className={`mono w-10 shrink-0 text-right text-lg ${overdue ? 'text-danger' : 'text-fg'}`}>{count}</span>
+      <span className="mono w-10 shrink-0 text-right text-lg text-fg">{count}</span>
       <span className="min-w-0 flex-1 text-sm text-fg">{children}</span>
       <span className="flex shrink-0 items-center gap-1 text-sm text-accent-text">
         {cta} <ChevronRight className="size-4" strokeWidth={1.5} aria-hidden="true" />
@@ -76,6 +76,8 @@ export default function WorkspaceOverviewPage() {
                 label="Past the SLA"
                 value={data.suppliers.overdueDecision}
                 hint={`Older than ${data.thresholds.supplierApprovalSlaHours}h`}
+                delta={data.suppliers.overdueDecision > 0 ? 'Overdue' : undefined}
+                deltaTone="down"
                 href="/workspace/suppliers?status=Under+Review"
                 linkLabel="Review"
               />
@@ -106,6 +108,8 @@ export default function WorkspaceOverviewPage() {
                 label="Above the review amount"
                 value={data.finance.invoicesOverThreshold}
                 hint={`At or above ${money(data.finance.reviewAmount)}`}
+                delta={data.finance.invoicesOverThreshold > 0 ? 'Needs review' : undefined}
+                deltaTone="down"
                 href="/workspace/invoices"
                 linkLabel="Invoices"
               />
@@ -132,17 +136,21 @@ export default function WorkspaceOverviewPage() {
               per-document screen in this app to send it to yet. */}
           {data.usage?.storageMb && (
             <Section title="Plan">
-              <KPIStrip>
+              {/* One figure: a card of its own, not a strip with empty cells. */}
+              <div className="max-w-sm overflow-hidden rounded-lg border border-border bg-surface">
                 <KPICard
+                  className="border-0!"
                   label="Storage used"
                   value={data.usage.storageMb.limit
                     ? `${data.usage.storageMb.used} / ${data.usage.storageMb.limit} MB`
                     : `${data.usage.storageMb.used} MB`}
+                  delta={data.usage.storageMb.breached ? 'Over your plan limit' : undefined}
+                  deltaTone="down"
                   hint={data.usage.storageMb.breached
-                    ? 'Over your plan limit'
+                    ? undefined
                     : data.usage.storageMb.limit ? 'Used against your plan limit' : 'No storage limit set'}
                 />
-              </KPIStrip>
+              </div>
             </Section>
           )}
         </div>

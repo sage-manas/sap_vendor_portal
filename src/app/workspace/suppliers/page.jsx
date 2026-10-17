@@ -243,6 +243,7 @@ export default function SuppliersPage() {
           columns={columns}
           rows={(data?.vendors || []).map((vendor) => ({ ...vendor, key: vendor.pk }))}
           empty={query || status ? 'No supplier matches that.' : 'No suppliers yet.'}
+          rowLabel={(row) => row.companyName}
           onRowClick={(row) => router.push(`/workspace/suppliers/${row.pk}`)}
         />
       )}
