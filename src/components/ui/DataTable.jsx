@@ -217,6 +217,12 @@ export default function DataTable({
                     </div>
                   ))}
                 </dl>
+                {/* Inline actions are hover-revealed in the table; on a card
+                    there is no hover, so they are always shown. */}
+                {inlineActions && (() => {
+                  const actions = inlineActions(row);
+                  return actions ? <div className="mt-2" onClick={(e) => e.stopPropagation()}>{actions}</div> : null;
+                })()}
               </div>
               {rowActions && <DropdownMenu items={rowActions(row)} label={`Actions for ${rowLabel(row)}`} />}
               {/* The card's own click is a pointer shortcut; this is the

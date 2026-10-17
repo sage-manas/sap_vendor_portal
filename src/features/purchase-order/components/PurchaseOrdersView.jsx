@@ -20,18 +20,20 @@ import { rfqService } from '@/features/rfq/services/rfqService';
 import InvoicePlanPanel from './InvoicePlanPanel';
 
 import { useLabelledControl } from '@/components/ui/FieldCard';
+import { displayDate } from '@/lib/displayDate';
 
 // A read-only value beside its label. Mono only for identifiers and amounts;
 // the decorative tints callers used to pass (containerClassName) are no
 // longer applied — status belongs to StatusBadge, not to a coloured box.
 function SapReadOnlyField({ label, value, isFile, isMonospace = true, valueClassName = '' }) {
   return (
+    // Always rendered inside a <dl>: a div grouping one dt/dd pair is valid there.
     <div className="flex min-w-0 items-baseline gap-3 text-sm">
-      <span className="w-36 shrink-0 text-fg-muted">{label}</span>
-      <span className={`min-w-0 break-words text-fg ${isMonospace ? 'mono' : ''} ${valueClassName}`} title={value || ''}>
+      <dt className="w-36 shrink-0 text-fg-muted">{label}</dt>
+      <dd className={`min-w-0 break-words text-fg ${isMonospace ? 'mono' : ''} ${valueClassName}`} title={value || ''}>
         {isFile && <FileText className="mr-1 inline size-3.5 align-[-2px] text-fg-subtle" strokeWidth={1.5} aria-hidden="true" />}
         {value || '—'}
-      </span>
+      </dd>
     </div>
   );
 }
@@ -52,12 +54,6 @@ function SapInputField({ label, required, children }) {
   );
 }
 
-// 10 May 2026 — the app's one display format for a date.
-const displayDate = (value) => {
-  if (!value) return '—';
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-};
 
 // A YYYY-MM-DD date `days` from today, for the shipment form's defaults.
 // Module-level so the clock read stays out of anything React renders.
@@ -743,7 +739,7 @@ export default function PurchaseOrdersView({
             value={poSubTab}
             onValueChange={(tab) => { setPoSubTab(tab); setCurrentPage(1); }}
             items={[
-              { value: 'list', label: 'Orders', count: cleanPOs.length },
+              { value: 'list', label: 'Orders', count: allPOs.length },
               { value: 'grn', label: 'Delivery receipts', count: cleanGrns.length },
             ]}
           />
@@ -853,7 +849,7 @@ export default function PurchaseOrdersView({
                 // The detail page opens for it either way, read-only.
                 <Button size="sm" variant="secondary" onClick={() => handleOpenAsnForm(po)}>Send shipment</Button>
               ) : null)}
-              empty={cleanPOs.length
+              empty={allPOs.length
                 ? 'No orders match these filters.'
                 : 'No purchase orders yet — they appear here as soon as your buyer issues one to your company.'}
             />
@@ -1229,10 +1225,12 @@ export default function PurchaseOrdersView({
                           <SapReadOnlyField label="Received by" value={grn.receivedBy || 'Receiving team'} isMonospace={false} />
                           <SapReadOnlyField label="Purchase order" value={activePo.id} />
                           <div className="flex min-w-0 items-baseline gap-3 text-sm">
-                            <span className="w-36 shrink-0 text-fg-muted">Inspection</span>
-                            {hasRejections
-                              ? <StatusBadge label="QC Discrepancy" variant="suspended" />
-                              : <StatusBadge label="QC Passed" variant="active" />}
+                            <dt className="w-36 shrink-0 text-fg-muted">Inspection</dt>
+                            <dd>
+                              {hasRejections
+                                ? <StatusBadge label="QC Discrepancy" variant="suspended" />
+                                : <StatusBadge label="QC Passed" variant="active" />}
+                            </dd>
                           </div>
                         </dl>
 

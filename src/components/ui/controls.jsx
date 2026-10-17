@@ -43,7 +43,9 @@ export const TabPanel = ({ value, children, className = '' }) => (
 /* ── Segmented control: 2–4 mutually exclusive views ─────────────────────── */
 export function SegmentedControl({ options, value, onChange, 'aria-label': ariaLabel, size = 'md' }) {
   return (
-    <div role="radiogroup" aria-label={ariaLabel} className="inline-flex rounded-md border border-border bg-subtle p-0.5">
+    <div role="radiogroup" aria-label={ariaLabel} className="inline-flex max-w-full overflow-x-auto rounded-md border border-border bg-subtle p-0.5">
+      {/* Segments keep their label on one line; on a narrow screen the group
+          scrolls sideways rather than wrapping into uneven two-line buttons. */}
       {options.map((opt) => {
         const on = opt.value === value;
         return (
@@ -54,7 +56,7 @@ export function SegmentedControl({ options, value, onChange, 'aria-label': ariaL
             aria-checked={on}
             onClick={() => onChange?.(opt.value)}
             className={cx(
-              'rounded-[5px] px-2.5 text-sm transition-colors cursor-pointer',
+              'shrink-0 whitespace-nowrap rounded-[5px] px-2.5 text-sm transition-colors cursor-pointer',
               size === 'sm' ? 'h-6 text-xs' : 'h-7',
               on ? 'bg-surface font-medium text-fg shadow-[0_0_0_1px_var(--border)]' : 'text-fg-muted hover:text-fg',
             )}

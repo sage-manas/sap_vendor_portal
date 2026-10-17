@@ -10,9 +10,11 @@ import TableSkeleton from '@/components/ui/TableSkeleton';
 import { PageHeader } from '@/components/ui/Page';
 import { Section } from '@/components/ui/Card';
 import { Meter } from '@/components/ui/controls';
+import { MEASURES } from './PerformanceView';
 import { poStatusVariant, invoiceStatusVariant } from '@/lib/statusColors';
 import { downloadFromApi } from '@/lib/download';
 import { CheckCircle2, ChevronRight, Download, RefreshCw, X } from 'lucide-react';
+import { displayDate } from '@/lib/displayDate';
 
 // Amounts arrive as Decimal strings from the API (utils/money.js on the server).
 const money = (value) => Number(value) || 0;
@@ -22,13 +24,6 @@ const inr = (value) =>
 
 const amount = (value) => money(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const shortDate = (value) => {
-  if (!value) return '—';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? String(value)
-    : date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-};
 
 // Indian fiscal year runs April to March; Q1 is April–June.
 const fiscalLabel = (date) => {
@@ -226,7 +221,7 @@ export default function DashboardView({ state, setActiveTab }) {
   const orderColumns = [
     { key: 'id', header: 'Order', mono: true, primary: true },
     { key: 'material', header: 'Material', wrap: true, render: (row) => <span className="text-fg">{row.items?.[0]?.description || '—'}</span> },
-    { key: 'date', header: 'Raised', render: (row) => shortDate(row.createdDate) },
+    { key: 'date', header: 'Raised', render: (row) => displayDate(row.createdDate) },
     { key: 'value', header: 'Value (₹)', align: 'right', render: (row) => <span className="mono">{amount(poTotal(row))}</span> },
     { key: 'status', header: 'Status', render: (row) => <StatusBadge label={row.status} variant={poStatusVariant(row.status)} /> },
   ];
@@ -234,7 +229,7 @@ export default function DashboardView({ state, setActiveTab }) {
   const invoiceColumns = [
     { key: 'no', header: 'Invoice', primary: true, render: (row) => <span className="mono">{invoiceKey(row)}</span> },
     { key: 'poId', header: 'Order', mono: true },
-    { key: 'date', header: 'Date', render: (row) => shortDate(row.invoiceDate) },
+    { key: 'date', header: 'Date', render: (row) => displayDate(row.invoiceDate) },
     { key: 'value', header: 'Value (₹)', align: 'right', render: (row) => <span className="mono">{amount(row.totalAmount)}</span> },
     { key: 'status', header: 'Status', render: (row) => <StatusBadge label={row.status} variant={invoiceStatusVariant(row.status)} /> },
   ];
@@ -255,7 +250,7 @@ export default function DashboardView({ state, setActiveTab }) {
               <span aria-hidden="true">·</span>
               <span>GSTIN <span className="mono text-fg">{profile.gstin || '—'}</span></span>
               {profile.status && <StatusBadge label={profile.status} />}
-              <span className="basis-full text-fg-subtle">{shortDate(today)} · {fiscalLabel(today)}</span>
+              <span className="basis-full text-fg-subtle">{displayDate(today)} · {fiscalLabel(today)}</span>
             </span>
           )}
           secondary={(
@@ -386,10 +381,11 @@ export default function DashboardView({ state, setActiveTab }) {
                 <p className="text-sm text-fg-muted">Scores appear once you have delivered and invoiced against a purchase order.</p>
               ) : (
                 <div className="card space-y-4 p-4">
-                  {/* The three measures GET /vendors/performance computes. */}
-                  <Meter label="On-time in full" value={money(performance.deliveryOTIF)} target={95} />
-                  <Meter label="Quality acceptance" value={money(performance.qualityAcceptance)} target={95} />
-                  <Meter label="Invoice accuracy" value={money(performance.invoiceAccuracy)} target={90} />
+                  {/* Same measures and targets as the Performance page; one
+                      the API has not computed is left out, not drawn as 0%. */}
+                  {MEASURES.filter((m) => performance[m.key] != null).map((m) => (
+                    <Meter key={m.key} label={m.name} value={money(performance[m.key])} target={m.target} />
+                  ))}
                 </div>
               )}
             </Section>
@@ -420,7 +416,7 @@ export default function DashboardView({ state, setActiveTab }) {
                           <p className="mono truncate text-fg" title="UTR">{row.utrCode || row.utr || '—'}</p>
                           <p className="text-xs text-fg-subtle">
                             {(row.invoiceNumber || row.invoiceId) && <><span className="mono">{row.invoiceNumber || row.invoiceId}</span> · </>}
-                            {shortDate(row.paymentDate)} · {row.paymentMethod || '—'}
+                            {displayDate(row.paymentDate)} · {row.paymentMethod || '—'}
                           </p>
                         </div>
                         <div className="text-right">
@@ -445,7 +441,7 @@ export default function DashboardView({ state, setActiveTab }) {
         isOpen={!!drawerContent}
         onClose={() => setDrawerContent(null)}
         title={drawerContent ? (drawerContent.type === 'PO' ? drawerContent.data.id : (drawerContent.data.invoiceNumber || drawerContent.data.no)) : ''}
-        description={drawerContent ? `${drawerContent.type === 'PO' ? 'Purchase order' : 'Invoice'} · ${shortDate(drawerContent.type === 'PO' ? drawerContent.data.createdDate : drawerContent.data.invoiceDate)}` : undefined}
+        description={drawerContent ? `${drawerContent.type === 'PO' ? 'Purchase order' : 'Invoice'} · ${displayDate(drawerContent.type === 'PO' ? drawerContent.data.createdDate : drawerContent.data.invoiceDate)}` : undefined}
         footer={drawerContent && (
           <>
             <Button variant="ghost" onClick={() => setDrawerContent(null)}>Close</Button>

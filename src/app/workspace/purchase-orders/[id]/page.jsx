@@ -77,9 +77,10 @@ export default function WorkspacePurchaseOrderPage({ params }) {
           />
         </Section>
 
-        <Section title="Invoicing plan">
+        {/* The panel carries its own "Invoicing plan" heading. */}
+        <section className="card p-4">
           <InvoicePlanPanel po={po} canManage={can('po:manage')} />
-        </Section>
+        </section>
       </div>
     </div>
   );

@@ -13,6 +13,7 @@ import { Section } from '@/components/ui/Card';
 import { Tabs } from '@/components/ui/controls';
 import { paymentStatusVariant } from '@/lib/statusColors';
 import { usePortal } from '@/lib/portal-context';
+import { displayDate } from '@/lib/displayDate';
 
 const formatInr = (amount) =>
   Number(amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -32,12 +33,6 @@ const formatDate = (dateStr) => {
   return `${day}.${month}.${year}`;
 };
 
-// 10 May 2026 — the app's one display format for a date.
-const displayDate = (value) => {
-  if (!value) return '—';
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-};
 
 const sum = (rows, pick) => rows.reduce((total, row) => total + (Number(pick(row)) || 0), 0);
 

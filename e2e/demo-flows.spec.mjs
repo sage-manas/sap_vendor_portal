@@ -167,7 +167,7 @@ test.describe('demo flows, through the UI', () => {
 
     // --- Acknowledge ----------------------------------------------------------
     await page.goto('/pos');
-    await page.getByPlaceholder('PO # or material description...').fill(po.id);
+    await page.getByPlaceholder('PO number or material').fill(po.id);
     await page.getByRole('button', { name: `Open ${po.id}` }).click();
 
     // --- The awarded PO downloads under the name the server chose --------------
@@ -178,22 +178,22 @@ test.describe('demo flows, through the UI', () => {
     // RFQ Monitor & History — the export lives on the PO's own detail page.
     const download = await Promise.all([
       page.waitForEvent('download'),
-      // The button's text is styled with CSS `uppercase` (`text-transform`),
-      // which Chromium folds into the accessible name — match case-insensitively.
-      page.getByRole('button', { name: /^csv$/i }).click(),
+      // The export formats sit in the "Download for SAP import" menu.
+      page.getByRole('button', { name: 'Download for SAP import' }).click()
+        .then(() => page.getByRole('menuitem', { name: 'Download CSV' }).click()),
     ]).then(([d]) => d);
     expect(download.suggestedFilename()).toBe(`${po.id}.csv`);
 
-    await page.getByRole('button', { name: 'Acknowledge Purchase Order' }).click();
+    await page.getByRole('button', { name: 'Acknowledge purchase order' }).click();
     await expect(page.getByRole('heading', { name: new RegExp(`${po.id}.*Acknowledged`) })).toBeVisible();
 
     // --- Ship -------------------------------------------------------------------
     await page.getByRole('tab', { name: 'Send shipment' }).click();
     // Nothing is invented on the supplier's behalf: the references start empty.
-    await expect(page.getByLabel('Carrier / Transporter')).toHaveValue('');
-    await expect(page.getByLabel('E-Way Bill Number')).toHaveValue('');
-    await page.getByLabel('Carrier / Transporter').fill('Safexpress');
-    await page.getByLabel('Vehicle / Tracking No.').fill('MH-14-KL-2211');
+    await expect(page.getByLabel('Carrier', { exact: true })).toHaveValue('');
+    await expect(page.getByLabel('E-way bill number')).toHaveValue('');
+    await page.getByLabel('Carrier', { exact: true }).fill('Safexpress');
+    await page.getByLabel('Vehicle or tracking number').fill('MH-14-KL-2211');
     await page.getByRole('button', { name: 'Submit Inbound Delivery' }).click();
 
     await expect.poll(async () => {

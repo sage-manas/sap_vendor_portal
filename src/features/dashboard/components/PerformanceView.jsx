@@ -5,8 +5,8 @@ import { Section } from '@/components/ui/Card';
 import { Meter } from '@/components/ui/controls';
 
 // The three measures GET /vendors/performance computes, and the targets they
-// are scored against.
-const MEASURES = [
+// are scored against. The Overview's meters read the same list.
+export const MEASURES = [
   { key: 'deliveryOTIF', name: 'On-time in full (OTIF)', target: 95 },
   { key: 'qualityAcceptance', name: 'Quality acceptance', target: 98 },
   { key: 'invoiceAccuracy', name: 'Invoice accuracy', target: 90 },

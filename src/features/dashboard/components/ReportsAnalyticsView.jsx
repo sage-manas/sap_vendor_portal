@@ -14,6 +14,7 @@ import { msmeStatusVariant, paymentStatusVariant } from '@/lib/statusColors';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { usePortal } from '@/lib/portal-context';
 import { downloadCsv, downloadFromApi } from '@/lib/download';
+import { displayDate } from '@/lib/displayDate';
 
 // The supplier's reports, computed from their own documents.
 //
@@ -45,12 +46,6 @@ const formatDate = (dateStr) => {
   return `${day}.${month}.${d.getFullYear()}`;
 };
 
-// 10 May 2026 — what the screen shows.
-const displayDate = (value) => {
-  if (!value) return '—';
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-};
 
 const monthKey = (value) => {
   const d = new Date(value);

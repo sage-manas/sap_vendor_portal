@@ -5,15 +5,8 @@ import Spinner from '@/components/ui/Spinner';
 import DataTable from '@/components/ui/DataTable';
 import { PageHeader } from '@/components/ui/Page';
 import { invoiceStatusVariant } from '@/lib/statusColors';
+import { displayDate } from '@/lib/displayDate';
 
-// 13 Sept 2026 — documents arrive with ISO timestamps; nobody reads those.
-const displayDate = (value) => {
-  if (!value) return '—';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? String(value)
-    : date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-};
 
 const inr = (value) => Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
