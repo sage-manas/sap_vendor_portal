@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { RefreshCw } from 'lucide-react';
 import { platformApi } from '@/lib/platform-client';
 import { PageHeader, Notice, Status, Table, Loading, useResource, formatDate } from '@/components/console/primitives';
+import KPICard, { KPIStrip } from '@/components/ui/KPICard';
 
 // The SAP board: every tenant's connection in one place, which is the screen an
 // sap_manager lives on.
@@ -116,24 +117,12 @@ export default function PlatformSapPage() {
 
       <Notice>{error}</Notice>
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="metric-panel p-3">
-          <p className="text-xs font-bold text-fg-subtle">Tenants</p>
-          <p className="mono mt-1.5 text-lg">{tenants.length}</p>
-        </div>
-        <div className="metric-panel p-3">
-          <p className="text-xs font-bold text-fg-subtle">On production</p>
-          <p className="mono mt-1.5 text-lg">{onProduction}</p>
-        </div>
-        <div className="metric-panel p-3">
-          <p className="text-xs font-bold text-fg-subtle">Never configured</p>
-          <p className={`mono mt-1.5 text-lg ${unconfigured ? 'text-warning' : ''}`}>{unconfigured}</p>
-        </div>
-        <div className="metric-panel p-3">
-          <p className="text-xs font-bold text-fg-subtle">Circuits open</p>
-          <p className={`mono mt-1.5 text-lg ${breakersOpen ? 'text-danger' : ''}`}>{breakersOpen}</p>
-        </div>
-      </div>
+      <KPIStrip className="mb-6">
+        <KPICard label="Tenants" value={tenants.length} />
+        <KPICard label="On production" value={onProduction} />
+        <KPICard label="Never configured" value={unconfigured} delta={unconfigured ? 'Running on the simulator' : undefined} deltaTone="down" />
+        <KPICard label="Circuits open" value={breakersOpen} delta={breakersOpen ? 'Calls are being refused' : undefined} deltaTone="down" />
+      </KPIStrip>
 
       <Table columns={columns} rows={tenants.map((row) => ({ ...row, key: row.clientId }))} empty="No tenants yet." />
     </div>

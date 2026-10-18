@@ -34,8 +34,8 @@ function ResetForm() {
 
   return (
     <div className="w-full max-w-[440px] card p-8">
-      <p className="text-xs font-mono text-fg-subtle">VendorConnect Platform</p>
-      <h1 className="mb-6 mt-2 text-xl font-semibold tracking-tight text-fg">Choose a new password</h1>
+      <p className="text-sm text-fg-muted">VendorConnect · Platform console</p>
+      <h1 className="mb-6 mt-1 text-xl font-semibold text-fg">Choose a new password</h1>
 
       <Notice onDismiss={() => setError('')}>{error}</Notice>
 

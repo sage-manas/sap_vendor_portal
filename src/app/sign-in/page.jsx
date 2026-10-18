@@ -87,7 +87,7 @@ export default function SignInPage() {
   return (
     <div className="w-full max-w-[420px] p-8 card animate-fadeUp">
       {/* Whose front door this is (workspace-realm.js) */}
-      <WorkspaceBrand workspace={workspace} caption="Supplier portal · VendorConnect" naming={naming} />
+      <WorkspaceBrand workspace={workspace} caption={workspace ? 'Supplier portal · VendorConnect' : 'Supplier portal'} naming={naming} />
 
       {/* Form Error Message */}
       {error && (

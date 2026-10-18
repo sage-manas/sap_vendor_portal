@@ -27,14 +27,14 @@ const Field = ({ label, hint, ...props }) => {
 const Panel = ({ title, caption, error, children }) => (
   <div className="w-full max-w-[440px] card p-8">
     <div className="mb-6">
-      <p className="text-xs font-mono text-fg-subtle">VendorConnect Platform</p>
-      <h1 className="mt-2 text-xl font-semibold tracking-tight text-fg">{title}</h1>
+      <p className="text-sm text-fg-muted">VendorConnect · Platform console</p>
+      <h1 className="mt-1 text-xl font-semibold text-fg">{title}</h1>
       {caption && <p className="mt-1.5 text-sm leading-relaxed text-fg-muted">{caption}</p>}
     </div>
 
     {error && (
-      <div role="alert" className="mb-5 flex items-start gap-2.5 border border-danger/30 bg-danger-tint p-3 text-xs text-danger">
-        <AlertCircle className="mt-0.5 size-4 shrink-0" />
+      <div role="alert" className="mb-5 flex items-start gap-2.5 rounded-md border border-danger/30 bg-danger-tint p-3 text-sm text-fg">
+        <AlertCircle className="mt-0.5 size-4 shrink-0 text-danger" strokeWidth={1.5} aria-hidden="true" />
         <span>{error}</span>
       </div>
     )}
