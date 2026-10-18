@@ -610,7 +610,7 @@ export default function RfqView({
 
                            return (
                              <div key={v.id} className="p-3.5 bg-surface border border-border rounded-xl flex items-center gap-3 text-xs shadow-xs hover:border-border-em hover:shadow-sm transition-all duration-200">
-                               <span className="size-9 rounded-full flex items-center justify-center font-bold text-[11px] shrink-0" style={{ backgroundColor: 'var(--color-emerald-dim)', color: 'rgb(var(--color-emerald-text-rgb))' }}>
+                               <span className="size-9 rounded-full flex items-center justify-center font-bold text-[11px] shrink-0" style={{ backgroundColor: 'var(--color-emerald-dim)', color: 'var(--accent-text)' }}>
                                  {initials}
                                </span>
                                <div className="min-w-0 flex-1">
@@ -654,24 +654,24 @@ export default function RfqView({
                                       : stepActive[i]
                                         ? 'border-primary text-primary bg-primary/10'
                                         : 'border-border text-text-tertiary bg-surface'
-                                  }`} style={done ? { backgroundColor: 'rgb(var(--color-emerald-default-rgb))' } : undefined}>
+                                  }`} style={done ? { backgroundColor: 'var(--accent-solid)' } : undefined}>
                                     {done ? <CheckCircle2 className="size-3.5" /> : i + 1}
                                   </span>
                                   {i < stepDone.length - 1 && (
-                                    <span className={`flex-1 h-0.5 mx-1.5 rounded-full transition-colors duration-150 ${stepDone[i + 1] || stepDone[i] ? 'bg-[rgb(var(--color-emerald-default-rgb))]' : 'bg-border'}`} />
+                                    <span className={`flex-1 h-0.5 mx-1.5 rounded-full transition-colors duration-150 ${stepDone[i + 1] || stepDone[i] ? 'bg-[var(--accent-solid)]' : 'bg-border'}`} />
                                   )}
                                 </React.Fragment>
                               ))}
                             </div>
 
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                              <div className="p-3 border-t-2 border-t-[rgb(var(--color-emerald-default-rgb))] border-x border-b border-border rounded-md bg-surface2/30">
+                              <div className="p-3 border-t-2 border-t-[var(--accent-solid)] border-x border-b border-border rounded-md bg-surface2/30">
                                 <span className="text-[9px] text-text-tertiary uppercase block font-bold">Request published</span>
                                 <span className="font-bold text-text-primary block mt-1.5">Published</span>
                                 <span className="text-[9px] font-mono text-text-tertiary block mt-1 whitespace-nowrap">{formatDate(activeRfq.createdDate)}</span>
                               </div>
 
-                              <div className={`p-3 border-t-2 rounded-md bg-surface2/30 border-x border-b border-border ${hasBids ? 'border-t-[rgb(var(--color-emerald-default-rgb))]' : 'border-t-primary/60'}`}>
+                              <div className={`p-3 border-t-2 rounded-md bg-surface2/30 border-x border-b border-border ${hasBids ? 'border-t-[var(--accent-solid)]' : 'border-t-primary/60'}`}>
                                 <span className="text-[9px] text-text-tertiary uppercase block font-bold">Quotes received</span>
                                 <span className={`font-bold block mt-1.5 ${hasBids ? 'text-text-primary' : 'text-text-tertiary'}`}>
                                   {hasBids ? `${activeRfq.bids.length} bid(s) received` : 'Pending bids'}
@@ -685,7 +685,7 @@ export default function RfqView({
                                 </span>
                               </div>
 
-                              <div className={`p-3 border-t-2 rounded-md bg-surface2/30 border-x border-b border-border ${isAwarded ? 'border-t-[rgb(var(--color-emerald-default-rgb))]' : hasBids ? 'border-t-primary/60' : 'border-t-border'}`}>
+                              <div className={`p-3 border-t-2 rounded-md bg-surface2/30 border-x border-b border-border ${isAwarded ? 'border-t-[var(--accent-solid)]' : hasBids ? 'border-t-primary/60' : 'border-t-border'}`}>
                                 <span className="text-[9px] text-text-tertiary uppercase block font-bold">Evaluation</span>
                                 <span className={`font-bold block mt-1.5 ${isAwarded || activeRfq.status === 'Under Review' ? 'text-text-primary' : 'text-text-tertiary'}`}>
                                   {isAwarded ? 'Evaluated' : hasBids ? 'Review ready' : 'Pending review'}
@@ -693,7 +693,7 @@ export default function RfqView({
                                 <span className="text-[9px] text-text-tertiary block mt-1">Score weights active</span>
                               </div>
 
-                              <div className={`p-3 border-t-2 rounded-md bg-surface2/30 border-x border-b border-border ${isAwarded ? 'border-t-[rgb(var(--color-emerald-default-rgb))]' : 'border-t-border'}`}>
+                              <div className={`p-3 border-t-2 rounded-md bg-surface2/30 border-x border-b border-border ${isAwarded ? 'border-t-[var(--accent-solid)]' : 'border-t-border'}`}>
                                 <span className="text-[9px] text-text-tertiary uppercase block font-bold">Order raised</span>
                                 <span className={`font-bold block mt-1.5 ${isAwarded ? 'text-text-primary' : 'text-text-tertiary'}`}>
                                   {isAwarded ? 'Order raised' : 'PO pending'}

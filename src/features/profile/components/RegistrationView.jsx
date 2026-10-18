@@ -300,7 +300,7 @@ function CustomDatePicker({ value, onChange, placeholder }) {
             ? 'text-white font-bold'
             : 'text-text-secondary hover:bg-surface2 hover:text-text-primary'
             }`}
-          style={isSelected ? { backgroundColor: 'rgb(var(--color-emerald-default-rgb))' } : undefined}
+          style={isSelected ? { backgroundColor: 'var(--accent-solid)' } : undefined}
         >
           {day}
         </button>
@@ -428,7 +428,7 @@ function ProgressIndicator({ steps, currentStep, onStepClick, errors }) {
                         ? 'bg-rose-50 text-rose-600 border border-rose-200'
                         : 'bg-surface2 text-text-tertiary border border-border group-hover:border-text-tertiary'
                 }`}
-                style={isActive ? { backgroundColor: 'rgb(var(--color-emerald-default-rgb))' } : undefined}
+                style={isActive ? { backgroundColor: 'var(--accent-solid)' } : undefined}
                 >
                   {isCompleted ? <Check className="size-4 stroke-[3]" /> : stepNum}
                 </div>
@@ -1383,7 +1383,7 @@ export default function RegistrationView({
             </p>
           </div>
           <div className="w-full bg-surface2 h-1.5 rounded-full overflow-hidden border border-border">
-            <div className="h-full w-2/3 rounded-full animate-[pulse_1.5s_infinite]" style={{ backgroundColor: 'rgb(var(--color-emerald-default-rgb))' }}></div>
+            <div className="h-full w-2/3 rounded-full animate-[pulse_1.5s_infinite]" style={{ backgroundColor: 'var(--accent-solid)' }}></div>
           </div>
         </div>
       )}

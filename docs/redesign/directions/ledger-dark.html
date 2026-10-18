@@ -1,0 +1,277 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>A · Ledger · dark</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap"><style>
+@font-face{font-family:'Geist';src:url('file:///C:/Users/pc/Desktop/sap_vendor_portal/src/app/fonts/Geist-Variable.woff2') format('woff2');font-weight:100 900}
+@font-face{font-family:'Geist Mono';src:url('file:///C:/Users/pc/Desktop/sap_vendor_portal/src/app/fonts/GeistMono-Variable.woff2') format('woff2');font-weight:100 900}
+:root{--canvas:#0B0F15;--surface:#11161E;--subtle:#171D27;--hover:#1A2130;--border:#232B37;--borderStrong:#323C4B;--inputBorder:#5E6A7D;--fg:#E7EBF1;--fgMuted:#A9B2C0;--fgSubtle:#8A94A4;--accent:#7C9DFF;--accentFg:#0B0F15;--accentText:#9AB4FF;--accentTint:#1A2440;--success:#62C08F;--warning:#D9A54C;--danger:#F07C72;--info:#72AADB;--successTint:#14261D;--warningTint:#2A2112;--dangerTint:#2E1715;--infoTint:#132232;--navBg:#0E131A;--navFg:#A9B2C0;--navActiveBg:#1A2130;--navActiveFg:#E7EBF1;--navIdentity:#171D27;--r1:6px;--r2:10px;--r3:14px;--row:40px;--sans:'IBM Plex Sans', system-ui, sans-serif;--mono:'IBM Plex Mono', ui-monospace, monospace;color-scheme:dark}
+*{box-sizing:border-box;margin:0}
+svg:not(.spark){width:16px;height:16px;stroke-width:1.5;flex:none}
+.rowact{white-space:nowrap}.rowact .btn{vertical-align:middle}
+body{font:400 14px/20px var(--sans);color:var(--fg);background:var(--canvas);font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+.id,.num{font-family:var(--mono);font-size:13px;letter-spacing:-.01em}
+.num{text-align:right;white-space:nowrap}
+.muted{color:var(--fgMuted)} .subtle{color:var(--fgSubtle)}
+.t12{font-size:12px;line-height:16px}.t13{font-size:13px;line-height:20px}.t16{font-size:16px;line-height:24px}.t20{font-size:20px;line-height:28px}.t24{font-size:24px;line-height:32px}
+.w5{font-weight:500}.w6{font-weight:600}
+.app{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
+nav.side{background:var(--navBg);color:var(--navFg);border-right:1px solid var(--border);padding:12px 8px;display:flex;flex-direction:column;gap:2px}
+.ident{display:flex;align-items:center;gap:10px;padding:8px 10px 14px}
+.mark{width:28px;height:28px;border-radius:var(--r1);background:var(--accent);color:var(--accentFg);display:grid;place-items:center;font-weight:600;font-size:13px}
+.ident b{color:var(--navActiveFg);font-weight:600;font-size:13px;display:block;line-height:16px}
+.ident span{font-size:12px;line-height:16px}
+.group{font-size:12px;padding:14px 10px 4px;color:var(--navFg);opacity:.85}
+.nl{display:flex;align-items:center;gap:10px;height:32px;padding:0 10px;border-radius:var(--r1);color:var(--navFg);text-decoration:none;font-size:13px}
+.nl svg{width:16px;height:16px;stroke-width:1.5}
+.nl.on{background:var(--navActiveBg);color:var(--navActiveFg);font-weight:500}
+.nl .count{margin-left:auto;font-size:12px;font-family:var(--mono);padding:0 6px;border-radius:999px;background:var(--navActiveBg);color:var(--navActiveFg)}
+.side .foot{margin-top:auto;border-top:1px solid var(--border);padding-top:8px}
+main{min-width:0}
+header.top{height:52px;display:flex;align-items:center;gap:12px;padding:0 24px;border-bottom:1px solid var(--border);background:var(--surface)}
+.search{display:flex;align-items:center;gap:8px;height:32px;padding:0 8px 0 10px;border:1px solid var(--border);border-radius:var(--r1);color:var(--fgSubtle);width:280px;font-size:13px}
+.search kbd{margin-left:auto;font:500 12px var(--mono);color:var(--fgMuted);border:1px solid var(--border);border-radius:4px;padding:0 4px}
+.sap{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--fgMuted);margin-left:auto}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.iconbtn{width:32px;height:32px;display:grid;place-items:center;border-radius:var(--r1);color:var(--fgMuted);border:0;background:none}
+.iconbtn svg{width:16px;height:16px;stroke-width:1.5}
+.avatar{width:28px;height:28px;border-radius:var(--r1);background:var(--subtle);color:var(--fgMuted);display:grid;place-items:center;font-size:12px;font-weight:600}
+.page{padding:24px;max-width:1240px}
+.crumb{font-size:13px;color:var(--fgSubtle);margin-bottom:4px}
+.ph{display:flex;align-items:flex-start;gap:16px;margin-bottom:24px}
+.ph h1{font-size:24px;line-height:32px;font-weight:600;letter-spacing:-.015em}
+.ph p{color:var(--fgMuted);margin-top:2px}
+.ph .acts{margin-left:auto;display:flex;gap:8px}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--border);border-radius:var(--r2);background:var(--surface);margin-bottom:24px}
+.kpi{padding:16px;border-left:1px solid var(--border)} .kpi:first-child{border-left:0}
+.kpi .l{font-size:13px;color:var(--fgMuted)}
+.kpi .v{font-size:24px;line-height:32px;font-weight:600;margin-top:4px;letter-spacing:-.01em}
+.kpi .v.zero{color:var(--fgSubtle);font-weight:400;font-size:20px}
+.kpi .h{font-size:12px;line-height:16px;color:var(--fgSubtle);margin-top:2px}
+.kpi .h a{color:var(--accentText);text-decoration:none}
+.kpi svg.spark{display:block;margin-top:6px}
+.tabs{display:flex;gap:20px;border-bottom:1px solid var(--border);margin-bottom:12px}
+.tab{padding:8px 0;font-size:13px;color:var(--fgMuted);border-bottom:2px solid transparent;margin-bottom:-1px;display:flex;gap:6px;align-items:center}
+.tab.on{color:var(--fg);border-color:var(--fg);font-weight:500}
+.tab .c{font:500 12px var(--mono);color:var(--fgSubtle)}
+.toolbar{display:flex;gap:8px;align-items:center;margin-bottom:12px}
+.input,.select{height:32px;border:1px solid var(--inputBorder);border-radius:var(--r1);background:var(--surface);color:var(--fg);padding:0 10px;font:inherit;font-size:13px;display:flex;align-items:center;gap:8px}
+.select::after{content:'';margin-left:auto;width:6px;height:6px;border-right:1.5px solid var(--fgMuted);border-bottom:1.5px solid var(--fgMuted);transform:rotate(45deg) translateY(-2px)}
+.chip{height:28px;border:1px dashed var(--borderStrong);border-radius:var(--r1);padding:0 10px;font-size:13px;color:var(--fgMuted);display:flex;align-items:center;gap:6px}
+.chip.set{border-style:solid;color:var(--fg);background:var(--subtle)}
+.tablewrap{border:1px solid var(--border);border-radius:var(--r2);background:var(--surface);overflow:hidden}
+table{width:100%;border-collapse:collapse}
+th{position:sticky;top:0;text-align:left;font-size:12px;line-height:16px;font-weight:500;color:var(--fgMuted);padding:10px 12px;border-bottom:1px solid var(--border);background:var(--surface);white-space:nowrap}
+th.num{text-align:right}
+th .sort{display:inline-block;margin-left:4px;color:var(--fg)}
+td{height:var(--row);padding:0 12px;border-bottom:1px solid var(--border);font-size:13px;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+tbody tr:hover td{background:var(--hover)}
+td.sel,th.sel{width:36px;padding-right:0}
+.cb{width:16px;height:16px;border:1px solid var(--inputBorder);border-radius:4px;display:inline-block;vertical-align:middle;background:var(--surface)}
+.cb.on{background:var(--accent);border-color:var(--accent);position:relative}
+.cb.on::after{content:'';position:absolute;left:5px;top:2px;width:4px;height:8px;border:solid var(--accentFg);border-width:0 1.5px 1.5px 0;transform:rotate(45deg)}
+tr.selected td{background:var(--accentTint)}
+.rowact{color:var(--fgSubtle);text-align:right;width:72px}
+.rowact .kebab{opacity:1}
+tfoot td{font-weight:600;background:var(--subtle);border-top:1px solid var(--border)}
+.status{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--fg)}
+.status.fill{padding:1px 8px 1px 6px;border-radius:var(--r1)}
+.s-neutral .dot{background:var(--fgSubtle)}
+.s-progress .dot{background:var(--info)}
+.s-done .dot{background:var(--success)}
+.s-warn{background:var(--warningTint);color:var(--warning)} .s-warn .dot{background:var(--warning)}
+.s-danger{background:var(--dangerTint);color:var(--danger)} .s-danger .dot{background:var(--danger)}
+.s-action{background:var(--accentTint);color:var(--accentText)} .s-action .dot{background:var(--accent)}
+.s-muted{color:var(--fgSubtle)} .s-muted .dot{background:transparent;border:1.5px solid var(--fgSubtle)}
+section.block{margin-top:40px}
+section.block > h2{font-size:16px;line-height:24px;font-weight:600;margin-bottom:4px}
+section.block > p.sub{color:var(--fgMuted);margin-bottom:16px;font-size:13px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.panel{border:1px solid var(--border);border-radius:var(--r2);background:var(--surface);padding:20px}
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
+.field label{font-size:13px;font-weight:500}
+.field .help{font-size:12px;line-height:16px;color:var(--fgSubtle)}
+.field .err{font-size:12px;line-height:16px;color:var(--danger);display:flex;gap:6px;align-items:center}
+.field .input{height:36px;font-size:14px}
+.field .input.bad{border-color:var(--danger);box-shadow:inset 0 0 0 1px var(--danger)}
+.field .input.focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accentTint)}
+.field .input.dis{background:var(--subtle);color:var(--fgSubtle);border-color:var(--border)}
+.formrow{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.formfoot{display:flex;justify-content:flex-end;gap:8px;border-top:1px solid var(--border);padding-top:16px;margin-top:4px}
+.btn{height:32px;padding:0 12px;border-radius:var(--r1);font:500 13px var(--sans);display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid transparent;cursor:pointer;white-space:nowrap}
+.btn svg{width:16px;height:16px;stroke-width:1.5}
+.btn.sm{height:28px;padding:0 10px;font-size:12px}.btn.lg{height:40px;padding:0 16px;font-size:14px}
+.btn.icon{width:32px;padding:0}
+.b-primary{background:var(--accent);color:var(--accentFg)}
+.b-primary.hover{background:color-mix(in srgb,var(--accent) 88%,var(--fg))}
+.b-secondary{background:var(--surface);border-color:var(--borderStrong);color:var(--fg)}
+.b-secondary.hover{background:var(--hover)}
+.b-ghost{background:transparent;color:var(--fgMuted)}
+.b-ghost.hover{background:var(--hover);color:var(--fg)}
+.b-danger{background:var(--surface);border-color:var(--borderStrong);color:var(--danger)}
+.b-danger.hover{background:var(--dangerTint)}
+.b-link{background:none;color:var(--accentText);padding:0;height:auto;text-decoration:underline;text-underline-offset:3px;text-decoration-color:color-mix(in srgb,var(--accentText) 40%,transparent)}
+.focus{outline:2px solid var(--accent);outline-offset:2px}
+.disabled{opacity:.45;cursor:not-allowed}
+.spin{width:14px;height:14px;border:1.5px solid currentColor;border-right-color:transparent;border-radius:50%}
+.matrix{display:grid;grid-template-columns:96px repeat(5,1fr);gap:12px 16px;align-items:center}
+.matrix .h{font-size:12px;color:var(--fgSubtle)}
+.badges{display:flex;flex-wrap:wrap;gap:20px 28px}
+.badges .grp{min-width:200px}
+.badges .grp h3{font-size:12px;font-weight:500;color:var(--fgSubtle);margin-bottom:8px}
+.badges .grp div{display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.empty-row td{height:auto;padding:16px 12px;color:var(--fgMuted)}
+.empty-row a{color:var(--accentText);text-decoration:none;font-weight:500;margin-left:8px}
+.stage{position:relative;height:440px;border:1px solid var(--border);border-radius:var(--r2);overflow:hidden;background:var(--canvas)}
+.stage .ghost{padding:20px;opacity:.6}
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.6)}
+.drawer{position:absolute;top:0;right:0;bottom:0;width:440px;background:var(--surface);border-left:1px solid var(--border);box-shadow:0 16px 48px rgba(0,0,0,.5);display:flex;flex-direction:column}
+.drawer .dh{display:flex;align-items:flex-start;gap:12px;padding:16px 20px;border-bottom:1px solid var(--border)}
+.drawer .db{padding:16px 20px;flex:1}
+.drawer .df{padding:12px 20px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px}
+dl.kv{display:grid;grid-template-columns:140px 1fr;gap:10px 12px;font-size:13px}
+dl.kv dt{color:var(--fgMuted)}
+.timeline{display:flex;gap:4px;margin:4px 0 16px}
+.timeline .st{flex:1;font-size:12px;line-height:16px;color:var(--fgSubtle);border-top:2px solid var(--border);padding-top:6px}
+.timeline .st.done{border-color:var(--fg);color:var(--fg)}
+.timeline .st.now{border-color:var(--accent);color:var(--accentText);font-weight:500}
+.toast{position:absolute;left:20px;bottom:20px;width:360px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r2);box-shadow:0 8px 24px rgba(0,0,0,.5);padding:12px 12px 12px 14px;display:flex;gap:10px;align-items:flex-start;font-size:13px}
+.toast svg{width:16px;height:16px;stroke-width:1.5;flex:none;margin-top:2px}
+.meter{height:6px;background:var(--subtle);border-radius:3px;position:relative;margin:8px 0 4px}
+.meter i{position:absolute;left:0;top:0;bottom:0;border-radius:3px;background:var(--fgMuted)}
+.meter i.ok{background:var(--success)}
+.meter b{position:absolute;top:-4px;width:2px;height:14px;background:var(--fg)}
+.attn li{display:flex;align-items:center;gap:12px;height:44px;border-bottom:1px solid var(--border);list-style:none;font-size:13px}
+.attn li:last-child{border-bottom:0}
+.attn ul{padding:0}
+.attn .what{flex:1}
+.label-strip{position:fixed;top:0;right:0;font:500 12px var(--mono);padding:4px 10px;background:var(--fg);color:var(--canvas);border-bottom-left-radius:var(--r1);z-index:9}
+</style></head><body>
+<div class="label-strip">A · Ledger · dark</div>
+<div class="app">
+<nav class="side">
+  <div class="ident"><div class="mark">K</div><div><b>Kaveri Forge &amp; Fittings</b><span>Supplier to Nucleus Mfg.</span></div></div>
+  <a class="nl" href="#"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>Overview</span></a><a class="nl on" href="#"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h8M9 17h8"/></svg><span>Orders</span><span class="count" aria-label="5 orders need acknowledgement">5</span></a><a class="nl" href="#"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h12v10H2zM14 10h4l3 3v3h-7"/><circle cx="6" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg><span>Deliveries</span></a><a class="nl" href="#"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2h14v20l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 7h6M9 11h6M9 15h4"/></svg><span>Invoices</span></a><a class="nl" href="#"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg><span>Payments</span></a><a class="nl" href="#"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6v4H9z"/><path d="M16 4h3v18H5V4h3M9 12h6M9 16h4"/></svg><span>RFQs</span></a><a class="nl" href="#"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 14l4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/></svg><span>Performance</span></a><a class="nl" href="#"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg><span>Reports</span></a>
+  <div class="foot"><a class="nl" href="#"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22V3h10v19M14 9h6v13M8 7h2M8 11h2M8 15h2"/></svg><span>Company profile</span></a><a class="nl" href="#"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/></svg><span>Documents</span></a></div>
+</nav>
+<main>
+<header class="top">
+  <button class="iconbtn" aria-label="Collapse sidebar"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
+  <div class="search"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><span>Search orders, invoices…</span><kbd>Ctrl K</kbd></div>
+  <div class="sap"><span class="dot" style="background:var(--success)"></span>SAP synced 4 min ago</div>
+  <button class="iconbtn" aria-label="Notifications"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10 21a2 2 0 0 0 4 0"/></svg></button>
+  <button class="iconbtn" aria-label="Theme"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z"/></svg></button>
+  <div class="avatar">AR</div>
+</header>
+<div class="page">
+  <div class="crumb">Nucleus Manufacturing Pvt Ltd</div>
+  <div class="ph"><div><h1>Purchase orders</h1><p>Acknowledge new orders, send shipment notices, and track what your buyer has received.</p></div>
+    <div class="acts"><button class="btn b-secondary"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg>Export CSV</button><button class="btn b-ghost icon" aria-label="More actions"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button></div></div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="l">Open orders</div><div class="v">12</div><div class="h"><a href="#">5 need acknowledgement</a></div></div>
+    <div class="kpi"><div class="l">To invoice</div><div class="v num" style="text-align:left">₹4,07,936.50</div><div class="h">3 goods receipts</div></div>
+    <div class="kpi"><div class="l">Awaiting payment</div><div class="v zero">₹0</div><div class="h">Nothing outstanding</div></div>
+    <div class="kpi"><div class="l">Supplier score</div><div class="v">78 <span class="t13 muted w5">/ 100 · C</span></div>
+      <svg class="spark" width="120" height="20" viewBox="0 0 120 20" fill="none"><polyline points="0,14 20,12 40,15 60,9 80,10 100,6 120,7" stroke="var(--fgMuted)" stroke-width="1.5"/><circle cx="120" cy="7" r="2" fill="var(--fg)"/></svg></div>
+  </div>
+
+  <div class="tabs"><div class="tab on">Needs acknowledgement <span class="c">5</span></div><div class="tab">In delivery <span class="c">4</span></div><div class="tab">Completed <span class="c">31</span></div><div class="tab">All <span class="c">40</span></div></div>
+  <div class="toolbar">
+    <div class="input" style="width:260px"><svg width="16" height="16" style="color:var(--fgSubtle)" class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><span class="subtle">PO number or material</span></div>
+    <span class="chip set">Plant: Chakan Works <span class="subtle">×</span></span><span class="chip">+ Buyer</span><span class="chip">+ Delivery date</span>
+    <span style="margin-left:auto" class="t13 subtle">2 selected</span><button class="btn b-secondary sm">Acknowledge 2</button>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th class="sel"><span class="cb"></span></th><th>Order</th><th>Material</th><th>Plant</th><th>Delivery <span class="sort">↓</span></th><th class="num">Value (₹)</th><th>Status</th><th></th></tr></thead>
+    <tbody><tr class="selected"><td class="sel"><span class="cb on"></span></td><td class="id">PO-2026-0080</td><td>Steel pipe 3" SCH40</td><td class="muted">Chakan Works</td><td class="muted">24 Oct 2026</td><td class="num">5,64,000.00</td><td><span class="status s-action fill"><span class="dot"></span>Needs acknowledgement</span></td><td class="rowact"><button class="btn b-ghost icon sm kebab" aria-label="Row actions"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button></td></tr><tr class="selected"><td class="sel"><span class="cb on"></span></td><td class="id">PO-2026-0079</td><td>Gasket 3" non-asbestos</td><td class="muted">Chakan Works</td><td class="muted">22 Oct 2026</td><td class="num">41,250.00</td><td><span class="status s-action fill"><span class="dot"></span>Needs acknowledgement</span></td><td class="rowact"><button class="btn b-ghost icon sm kebab" aria-label="Row actions"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button></td></tr><tr class=""><td class="sel"><span class="cb"></span></td><td class="id">PO-2026-0077</td><td>Flange WN 4" #150</td><td class="muted">Ranjangaon</td><td class="muted">19 Oct 2026</td><td class="num">1,18,400.00</td><td><span class="status s-progress"><span class="dot"></span>In transit</span></td><td class="rowact"><button class="btn b-ghost sm">Ship</button><button class="btn b-ghost icon sm kebab" aria-label="Row actions"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button></td></tr><tr class=""><td class="sel"><span class="cb"></span></td><td class="id">PO-2026-0074</td><td>Ball valve 2" CF8M</td><td class="muted">Chakan Works</td><td class="muted">12 Oct 2026</td><td class="num">2,07,936.50</td><td><span class="status s-done"><span class="dot"></span>Delivered</span></td><td class="rowact"><button class="btn b-ghost icon sm kebab" aria-label="Row actions"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button></td></tr><tr class=""><td class="sel"><span class="cb"></span></td><td class="id">PO-2026-0071</td><td>Elbow 90° LR 3"</td><td class="muted">Ranjangaon</td><td class="muted">08 Oct 2026</td><td class="num">36,880.00</td><td><span class="status s-done"><span class="dot"></span>Invoiced</span></td><td class="rowact"><button class="btn b-ghost icon sm kebab" aria-label="Row actions"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button></td></tr><tr class=""><td class="sel"><span class="cb"></span></td><td class="id">PO-2026-0068</td><td>Stud bolt M16×90</td><td class="muted">Chakan Works</td><td class="muted">30 Sep 2026</td><td class="num">9,412.80</td><td><span class="status s-warn fill"><span class="dot"></span>Match warning</span></td><td class="rowact"><button class="btn b-ghost icon sm kebab" aria-label="Row actions"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button></td></tr><tr class=""><td class="sel"><span class="cb"></span></td><td class="id">PO-2026-0066</td><td>Reducer conc. 4"×3"</td><td class="muted">Ranjangaon</td><td class="muted">27 Sep 2026</td><td class="num">58,100.00</td><td><span class="status s-done"><span class="dot"></span>Paid</span></td><td class="rowact"><button class="btn b-ghost icon sm kebab" aria-label="Row actions"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button></td></tr><tr class=""><td class="sel"><span class="cb"></span></td><td class="id">PO-2026-0063</td><td>Pipe support clamp</td><td class="muted">Chakan Works</td><td class="muted">21 Sep 2026</td><td class="num">12,045.00</td><td><span class="status s-muted"><span class="dot"></span>Cancelled</span></td><td class="rowact"><button class="btn b-ghost icon sm kebab" aria-label="Row actions"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button></td></tr></tbody>
+    <tfoot><tr><td></td><td colspan="4">8 orders shown</td><td class="num">10,48,024.80</td><td colspan="2"></td></tr></tfoot>
+  </table></div>
+
+  <section class="block"><h2>Needs your attention</h2><p class="sub">Vendor overview task list — each row is actionable inline.</p>
+    <div class="panel attn" style="padding:4px 20px"><ul>
+      <li><span class="status s-action fill"><span class="dot"></span>Needs acknowledgement</span><span class="what"><span class="id">PO-2026-0080</span> · Steel pipe 3" SCH40 · due 24 Oct</span><button class="btn b-secondary sm">Acknowledge</button></li>
+      <li><span class="status s-warn fill"><span class="dot"></span>Match warning</span><span class="what"><span class="id">MC/2026-27/0148</span> · price differs from order by <span class="num">₹1,240.00</span></span><button class="btn b-ghost sm">Review</button></li>
+      <li><span class="status s-neutral"><span class="dot"></span>Ready to invoice</span><span class="what"><span class="id">GRN-180058903</span> · 400 EA received at Chakan Works</span><button class="btn b-ghost sm">Create invoice</button></li>
+    </ul></div></section>
+
+  <section class="block"><h2>Empty state</h2><p class="sub">One line inside the table body. No dashed box.</p>
+    <div class="tablewrap"><table><thead><tr><th>Invoice</th><th>Order</th><th class="num">Amount (₹)</th><th>Status</th></tr></thead>
+    <tbody><tr class="empty-row"><td colspan="4">No invoices yet — they appear here once your buyer posts a goods receipt.<a href="#">View deliveries →</a></td></tr></tbody></table></div></section>
+
+  <section class="block"><h2>Status</h2><p class="sub">Dot + sentence-case label, neutral text by default. Tinted fill only where someone must act.</p>
+    <div class="panel badges">
+      <div class="grp"><h3>Needs action (filled)</h3><div><span class="status s-action fill"><span class="dot"></span>Needs acknowledgement</span><span class="status s-warn fill"><span class="dot"></span>Match warning</span><span class="status s-danger fill"><span class="dot"></span>Sync failed</span></div></div>
+      <div class="grp"><h3>In progress</h3><div><span class="status s-neutral"><span class="dot"></span>Open</span><span class="status s-progress"><span class="dot"></span>In transit</span><span class="status s-progress"><span class="dot"></span>Under review</span><span class="status s-progress"><span class="dot"></span>Bidding open</span></div></div>
+      <div class="grp"><h3>Done</h3><div><span class="status s-done"><span class="dot"></span>Delivered</span><span class="status s-done"><span class="dot"></span>Invoiced</span><span class="status s-done"><span class="dot"></span>Paid</span><span class="status s-done"><span class="dot"></span>Approved</span><span class="status s-done"><span class="dot"></span>Synced</span></div></div>
+      <div class="grp"><h3>Ended / inactive</h3><div><span class="status s-muted"><span class="dot"></span>Cancelled</span><span class="status s-muted"><span class="dot"></span>Draft</span><span class="status s-muted"><span class="dot"></span>Closed</span><span class="status s-danger fill"><span class="dot"></span>Rejected</span></div></div>
+    </div></section>
+
+  <section class="block"><h2>Buttons</h2><p class="sub">Default · hover · focus-visible · disabled · loading (width held)</p>
+    <div class="panel"><div class="matrix">
+      <div></div><div class="h">Default</div><div class="h">Hover</div><div class="h">Focus</div><div class="h">Disabled</div><div class="h">Loading</div>
+      <div class="h">primary</div>
+      <button class="btn b-primary">Submit invoice</button>
+      <button class="btn b-primary hover">Submit invoice</button>
+      <button class="btn b-primary focus">Submit invoice</button>
+      <button class="btn b-primary disabled">Submit invoice</button>
+      <button class="btn b-primary" style="min-width:124px"><span class="spin"></span></button><div class="h">secondary</div>
+      <button class="btn b-secondary"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg>Export CSV</button>
+      <button class="btn b-secondary hover"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg>Export CSV</button>
+      <button class="btn b-secondary focus"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg>Export CSV</button>
+      <button class="btn b-secondary disabled"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg>Export CSV</button>
+      <button class="btn b-secondary" style="min-width:116px"><span class="spin"></span></button><div class="h">ghost</div>
+      <button class="btn b-ghost">Cancel</button>
+      <button class="btn b-ghost hover">Cancel</button>
+      <button class="btn b-ghost focus">Cancel</button>
+      <button class="btn b-ghost disabled">Cancel</button>
+      <button class="btn b-ghost" style="min-width:68px"><span class="spin"></span></button><div class="h">danger</div>
+      <button class="btn b-danger">Reject bid</button>
+      <button class="btn b-danger hover">Reject bid</button>
+      <button class="btn b-danger focus">Reject bid</button>
+      <button class="btn b-danger disabled">Reject bid</button>
+      <button class="btn b-danger" style="min-width:96px"><span class="spin"></span></button><div class="h">link</div>
+      <button class="btn b-link">View order</button>
+      <button class="btn b-link hover">View order</button>
+      <button class="btn b-link focus">View order</button>
+      <button class="btn b-link disabled">View order</button>
+      <button class="btn b-link" style="min-width:96px"><span class="spin"></span></button>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:20px"><button class="btn b-primary sm">Small</button><button class="btn b-primary">Medium</button><button class="btn b-primary lg">Large</button><button class="btn b-secondary icon" aria-label="Add"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button></div></div></section>
+
+  <section class="block grid2">
+    <div><h2 class="t16 w6" style="margin-bottom:4px">Form section</h2><p class="sub t13 muted" style="margin-bottom:16px">Labels above, help and errors below. Errors carry an icon and text, not colour alone.</p>
+      <div class="panel">
+        <div class="formrow">
+          <div class="field"><label>Invoice number</label><div class="input focus">MC/2026-27/0151</div><span class="help">As printed on your tax invoice.</span></div>
+          <div class="field"><label>Invoice date</label><div class="input">16 Oct 2026</div></div>
+        </div>
+        <div class="field"><label>GSTIN</label><div class="input bad"><span class="id">27AACCM4519R1Z</span></div><span class="err"><svg width="14" height="14" class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>GSTIN must be 15 characters — this one has 14.</span></div>
+        <div class="formrow">
+          <div class="field"><label>Taxable value (₹)</label><div class="input" style="justify-content:flex-end"><span class="num">4,07,936.50</span></div></div>
+          <div class="field"><label>Purchase order</label><div class="input dis"><span class="id">PO-2026-0074</span></div><span class="help">Fixed by the goods receipt.</span></div>
+        </div>
+        <div class="formfoot"><button class="btn b-ghost">Cancel</button><button class="btn b-primary">Submit invoice</button></div>
+      </div></div>
+    <div><h2 class="t16 w6" style="margin-bottom:4px">Performance meter</h2><p class="sub t13 muted" style="margin-bottom:16px">Value bar plus a visible target tick. Colour only once the target is met.</p>
+      <div class="panel">
+        <div class="t13" style="display:flex"><span>On-time in full</span><span class="num" style="margin-left:auto">66.67% <span class="subtle">/ 95%</span></span></div><div class="meter"><i style="width:66.67%"></i><b style="left:95%"></b></div>
+        <div class="t13" style="display:flex;margin-top:16px"><span>Quality acceptance</span><span class="num" style="margin-left:auto">95.00% <span class="subtle">/ 98%</span></span></div><div class="meter"><i style="width:95%"></i><b style="left:98%"></b></div>
+        <div class="t13" style="display:flex;margin-top:16px"><span>Invoice accuracy</span><span class="num" style="margin-left:auto">92.10% <span class="subtle">/ 90%</span></span></div><div class="meter"><i class="ok" style="width:92.1%"></i><b style="left:90%"></b></div>
+        <p class="t12 subtle" style="margin-top:12px"><svg width="12" height="12" style="vertical-align:-1px" class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg> How your score is calculated</p>
+      </div></div>
+  </section>
+
+  <section class="block"><h2>Drawer and toast</h2><p class="sub">The only two elevation levels: popover/toast and modal/drawer.</p>
+    <div class="stage">
+      <div class="ghost"><div class="t20 w6">Purchase orders</div><div class="t13 muted">…</div></div>
+      <div class="scrim"></div>
+      <aside class="drawer" role="dialog" aria-label="PO-2026-0077">
+        <div class="dh"><div><div class="id t13 muted">PO-2026-0077</div><div class="t16 w6">Flange WN 4" #150</div></div><button class="iconbtn" style="margin-left:auto" aria-label="Close"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+        <div class="db">
+          <div class="timeline"><div class="st done">Created</div><div class="st done">Acknowledged</div><div class="st now">Shipped</div><div class="st">Received</div><div class="st">Invoiced</div><div class="st">Paid</div></div>
+          <dl class="kv"><dt>Status</dt><dd><span class="status s-progress"><span class="dot"></span>In transit</span></dd><dt>Plant</dt><dd>Ranjangaon</dd><dt>Delivery date</dt><dd>19 Oct 2026</dd><dt>Shipment notice</dt><dd class="id">ASN-2026-0142</dd><dt>Value</dt><dd class="num" style="text-align:left">₹1,18,400.00</dd></dl>
+        </div>
+        <div class="df"><button class="btn b-ghost">Close</button><button class="btn b-primary">Open order</button></div>
+      </aside>
+      <div class="toast" role="status"><svg style="color:var(--success)" class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg><div style="flex:1"><div class="w5">Shipment notice sent</div><div class="muted t13">ASN-2026-0142 for PO-2026-0077</div></div><button class="iconbtn" style="width:24px;height:24px" aria-label="Dismiss"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    </div></section>
+</div></main></div></body></html>

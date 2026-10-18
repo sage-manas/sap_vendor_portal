@@ -43,7 +43,7 @@ export default function Header() {
     <header className="h-13 bg-surface text-text-primary border-b border-border px-4 flex items-center justify-between shrink-0 select-none z-10">
       {/* BRANDING SECTION */}
       <div className="flex items-center gap-2.5">
-        <div className="size-6 rounded-[5px] flex items-center justify-center font-bold text-[13px] shrink-0" style={{ backgroundColor: 'rgb(var(--color-emerald-default-rgb))', color: 'rgb(var(--color-on-emerald-rgb))' }}>
+        <div className="size-6 rounded-[5px] flex items-center justify-center font-bold text-[13px] shrink-0" style={{ backgroundColor: 'var(--accent-solid)', color: 'var(--accent-fg)' }}>
           V
         </div>
         <h1 className="font-semibold text-[13px] tracking-[-0.01em] text-text-primary">VendorConnect</h1>

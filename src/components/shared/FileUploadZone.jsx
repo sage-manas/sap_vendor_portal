@@ -209,7 +209,7 @@ export default function FileUploadZone({
           onDrop={handleDrop}
           onClick={() => fileInputRef.current?.click()}
           className={`border border-dashed rounded-none p-5 flex flex-col items-center justify-center text-center cursor-pointer transition-colors duration-150 min-h-[100px] bg-base hover:bg-surface2 border-border-em select-none ${
-            isDragActive ? 'border-[rgb(var(--color-emerald-default-rgb))] bg-surface2' : ''
+            isDragActive ? 'border-[var(--accent-solid)] bg-surface2' : ''
           } ${uploading ? 'pointer-events-none opacity-80' : ''}`}
         >
           <input
@@ -224,11 +224,11 @@ export default function FileUploadZone({
 
           {uploading ? (
             <div className="space-y-2 flex flex-col items-center">
-              <Loader2 className="size-6 animate-spin" style={{ color: 'rgb(var(--color-emerald-default-rgb))' }} />
+              <Loader2 className="size-6 animate-spin" style={{ color: 'var(--accent-solid)' }} />
               <div className="space-y-0.5">
                 <p className="text-xs font-bold text-text-secondary">Uploading attachment...</p>
                 <div className="w-24 bg-surface2 h-1 rounded-none overflow-hidden border border-border">
-                  <div className="h-full transition-all duration-300" style={{ width: `${progress}%`, backgroundColor: 'rgb(var(--color-emerald-default-rgb))' }}></div>
+                  <div className="h-full transition-all duration-300" style={{ width: `${progress}%`, backgroundColor: 'var(--accent-solid)' }}></div>
                 </div>
               </div>
             </div>

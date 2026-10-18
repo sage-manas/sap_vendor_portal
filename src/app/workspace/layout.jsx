@@ -39,7 +39,7 @@ function Chrome({ children }) {
             <>
               <span
                 className="flex size-6 shrink-0 items-center justify-center rounded-[5px] text-[13px] font-bold"
-                style={{ backgroundColor: 'rgb(var(--color-emerald-default-rgb))', color: 'rgb(var(--color-on-emerald-rgb))' }}
+                style={{ backgroundColor: 'var(--accent-solid)', color: 'var(--accent-fg)' }}
               >
                 V
               </span>
