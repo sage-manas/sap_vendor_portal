@@ -40,7 +40,7 @@ describe('what the purchase-order line-item table claims about GST', () => {
       },
     });
 
-    await userEvent.click(await screen.findByRole('button', { name: /view po/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /^Open PO-/ }));
 
     expect(await screen.findByText('V0')).toBeInTheDocument();
     expect(screen.queryByText(/G1 \(18%\)/)).not.toBeInTheDocument();
@@ -58,7 +58,7 @@ describe('what the purchase-order line-item table claims about GST', () => {
       },
     });
 
-    await userEvent.click(await screen.findByRole('button', { name: /view po/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /^Open PO-/ }));
 
     await waitFor(() => expect(screen.getByText('Hex bolts')).toBeInTheDocument());
     const row = screen.getByText('Hex bolts').closest('tr');
@@ -90,8 +90,9 @@ describe('what the invoice ledger claims about GST', () => {
       },
     });
 
-    expect(await screen.findByText('GST Invoice Value')).toBeInTheDocument();
-    expect(screen.queryByText(/GST Invoice Value \(18%\)/)).not.toBeInTheDocument();
+    // The column is the invoice's value; no column header asserts a rate.
+    expect(await screen.findByRole('columnheader', { name: 'Value (₹)' })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /\d+%/ })).not.toBeInTheDocument();
   });
 
   it('shows the invoice’s own effective rate, derived from its own totals', async () => {

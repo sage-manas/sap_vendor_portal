@@ -33,7 +33,7 @@ const GRN = {
   items: [{ line: 10, materialCode: 'MAT-001', description: 'Hex bolts', receivedQuantity: 100, acceptedQuantity: 95, rejectedQuantity: 5, uom: 'EA' }],
 };
 
-const TABS = ['1. Order details', '2. Send shipment', '3. Delivery status'];
+const TABS = ['Order details', 'Send shipment', 'Delivery status'];
 
 const renderLedger = (order, api = {}) => {
   const user = userEvent.setup();
@@ -50,14 +50,14 @@ const withGrn = { 'GET /grns': listOf('grns', [GRN]) };
 describe('the purchase-order detail view', () => {
   const openDetail = async (order, api) => {
     const { user } = renderLedger(order, api);
-    await user.click(await screen.findByRole('button', { name: 'View PO' }, { timeout: 4000 }));
-    await screen.findByRole('heading', { level: 2, name: /Purchase Order: PO-2026-0001/ });
+    await user.click(await screen.findByRole('button', { name: /^Open PO-/ }, { timeout: 4000 }));
+    await screen.findByRole('heading', { level: 1, name: /PO-2026-0001/ });
     return user;
   };
 
   const walkTabs = async (user) => {
     for (const tab of TABS) {
-      await user.click(screen.getByRole('button', { name: tab }));
+      await user.click(screen.getByRole('tab', { name: tab }));
       await waitFor(() => expectHeadingOutline(`the "${tab}" tab`));
     }
   };
@@ -68,10 +68,10 @@ describe('the purchase-order detail view', () => {
 
   it("nests the shipment form's sub-sections one level under it", async () => {
     const user = await openDetail(po({ status: 'Acknowledged' }));
-    await user.click(screen.getByRole('button', { name: '2. Send shipment' }));
+    await user.click(screen.getByRole('tab', { name: 'Send shipment' }));
 
-    expect(await screen.findByRole('heading', { level: 3, name: /Advanced Shipping Notice Form/i })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 4, name: /Dispatch Qty Allocation/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Shipment notice' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: 'Quantities to dispatch' })).toBeInTheDocument();
     await walkTabs(user);
   });
 
@@ -81,10 +81,10 @@ describe('the purchase-order detail view', () => {
 
   it('nests the inspection result one level under the delivery receipt', async () => {
     const user = await openDetail(po({ status: 'Delivered' }), withGrn);
-    await user.click(screen.getByRole('button', { name: '3. Delivery status' }));
+    await user.click(screen.getByRole('tab', { name: 'Delivery status' }));
 
-    expect(await screen.findByRole('heading', { level: 3, name: 'Delivery receipt' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 4, name: /Items received/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Delivery receipt' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: /Items received/i })).toBeInTheDocument();
     await walkTabs(user);
   });
 
@@ -93,12 +93,12 @@ describe('the purchase-order detail view', () => {
 
     // A call to action or an empty state may look like a heading; being one
     // puts it in a screen reader's heading list as a section to read.
-    await user.click(screen.getByRole('button', { name: '2. Send shipment' }));
-    expect(await screen.findByText('PO Acknowledgement Required')).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'PO Acknowledgement Required' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: 'Send shipment' }));
+    expect(await screen.findByText('Acknowledge the order first')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Acknowledge the order first' })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: '3. Delivery status' }));
-    expect(await screen.findByText('No delivery confirmed yet')).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'No delivery confirmed yet' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: 'Delivery status' }));
+    expect(await screen.findByText('No delivery confirmed yet.')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /No delivery confirmed yet/ })).not.toBeInTheDocument();
   });
 });

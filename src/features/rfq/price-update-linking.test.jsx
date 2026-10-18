@@ -46,7 +46,7 @@ const withDocs = {
 };
 
 const openMyDocumentsTab = async (user) => {
-  const tab = await screen.findByRole('button', { name: /my documents/i });
+  const tab = await screen.findByRole('tab', { name: /my documents/i });
   await user.click(tab);
   await waitFor(() => expect(screen.getByText('6000000074')).toBeInTheDocument());
 };

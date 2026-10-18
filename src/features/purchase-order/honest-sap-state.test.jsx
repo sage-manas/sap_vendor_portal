@@ -157,15 +157,15 @@ describe('when the SAP cross-check cannot be reached', () => {
     await settle();
     await screen.findByText('4500000999');
 
-    // The row's own View PO — the second one, after the tracked order's.
-    await user.click((await screen.findAllByRole('button', { name: /^View PO$/ }))[1]);
+    // The unrecorded order's own row (each row has a labelled open button).
+    await user.click(await screen.findByRole('button', { name: 'Open 4500000999' }));
 
-    expect(await screen.findByText(/Purchase Order: 4500000999/)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /4500000999/ })).toBeInTheDocument();
     expect(screen.getByText('Flanges')).toBeInTheDocument();
     // Nothing here addresses a PurchaseOrder row, because there isn't one.
     expect(screen.getByText(/Read-only — not recorded in this portal yet/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Acknowledge Purchase Order/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /2\. Send shipment/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /Send shipment/i })).not.toBeInTheDocument();
   });
 
   // The orders list is one table now, not a "Portal Orders"/"All SAP Orders"

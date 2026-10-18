@@ -6,21 +6,19 @@ import {
   CheckCircle2,
   AlertTriangle,
   Check,
-  Upload,
-  Trash2,
-  Calendar,
   FileText,
   ChevronRight,
   ChevronLeft,
   Eye,
   EyeOff,
   Search,
-  HelpCircle,
   RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import FileUploadZone from '@/components/shared/FileUploadZone';
 import FieldCard from '@/components/ui/FieldCard';
+import { PageHeader } from '@/components/ui/Page';
+import StatusBadge from '@/components/ui/StatusBadge';
 import { BankChangeRequest } from './BankChangeRequest';
 
 // --- INDIAN STATES CONSTANT ---
@@ -114,39 +112,18 @@ const regionsForCountry = (countryCode) =>
 
 // --- STATIC SUBCOMPONENTS ---
 
-// 1. Section Header Component
-function SectionHeader({ title, number }) {
+// One titled group of fields. Numbers are gone: the stepper already says
+// where the supplier is, and a heading per group is what a screen reader
+// lists.
+function FormSection({ title, children }) {
   return (
-    <div className="flex items-center gap-2.5 px-5 py-3 border-b border-border select-none">
-      {number && (
-        <span className="inline-flex items-center justify-center text-[11px] font-bold font-mono text-primary bg-primary/10 rounded px-2 py-1 tabular-nums shrink-0">
-          {number}
-        </span>
-      )}
-      <h3 className="text-[15px] font-bold text-text-primary">{title}</h3>
-    </div>
-  );
-}
-
-// 2. Card wrapper for a bordered, numbered form section
-function FormSection({ number, title, children }) {
-  return (
-    <div className="bg-surface border border-border rounded-xl shadow-xs">
-      <SectionHeader number={number} title={title} />
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4 p-4">
+    <section className="space-y-4">
+      <h2 className="text-lg font-semibold text-fg">{title}</h2>
+      <div className="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2 lg:grid-cols-3">
         {children}
       </div>
-    </div>
+    </section>
   );
-}
-
-const FIELD_INPUT_OVERRIDES = "[&_input]:!rounded-md [&_input]:!border [&_input]:!border-border [&_input]:!bg-surface [&_input]:!px-2.5 [&_input]:!py-1.5 [&_input]:!text-[13px] [&_input]:placeholder:!text-text-tertiary/50 [&_input:focus]:!border-primary [&_input:focus]:!bg-surface [&_input:focus]:!outline-none [&_select]:!rounded-md [&_select]:!border [&_select]:!border-border [&_select]:!bg-surface [&_select]:!px-2.5 [&_select]:!py-1.5 [&_select]:!text-[13px] [&_select:focus]:!border-primary [&_select:focus]:!bg-surface [&_select:focus]:!outline-none [&_textarea]:!rounded-md [&_textarea]:!border [&_textarea]:!border-border [&_textarea]:!bg-surface [&_textarea]:!px-2.5 [&_textarea]:!py-1.5 [&_textarea]:!text-[13px] [&_textarea]:placeholder:!text-text-tertiary/50 [&_textarea:focus]:!border-primary [&_textarea:focus]:!bg-surface [&_textarea:focus]:!outline-none";
-
-// Thin alias so the call sites below read unchanged. The label/control
-// association, aria-invalid and aria-describedby all live in the shared
-// primitive now — see components/ui/FieldCard.jsx.
-function EnterpriseFieldCard(props) {
-  return <FieldCard {...props} className={FIELD_INPUT_OVERRIDES} />;
 }
 
 // 5. Accessible Searchable Dropdown
@@ -184,20 +161,20 @@ function SearchableSelect({ value, onChange, options, placeholder, error, id, ..
           setIsOpen(!isOpen);
           setSearch('');
         }}
-        className="w-full flex items-center justify-between bg-surface border border-border rounded-md py-1.5 px-2.5 text-[13px] outline-none text-text-primary text-left transition-colors duration-150"
+        className="flex min-h-9 w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-border bg-surface px-3 text-left text-sm text-fg hover:border-fg-subtle focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent-solid)] aria-[invalid=true]:border-danger"
         aria-haspopup="listbox"
         aria-expanded={isOpen}
         {...aria}
       >
-        <span className={selectedOpt ? 'text-text-primary font-medium' : 'text-text-tertiary'}>
+        <span className={selectedOpt ? 'text-fg' : 'text-fg-subtle'}>
           {selectedOpt ? `${selectedOpt.name} (${selectedOpt.code})` : placeholder}
         </span>
-        <ChevronRight className={`size-3 text-text-tertiary transition-transform shrink-0 ${isOpen ? 'rotate-90' : ''}`} />
+        <ChevronRight className={`size-4 shrink-0 text-fg-subtle transition-transform ${isOpen ? 'rotate-90' : ''}`} strokeWidth={1.5} aria-hidden="true" />
       </button>
       {isOpen && (
-        <div className="absolute z-50 w-full mt-1 bg-surface border border-border rounded-none shadow-[0_1px_4px_rgba(10,15,46,0.08)] max-h-56 overflow-y-auto custom-scrollbar animate-slide-down">
-          <div className="p-1.5 border-b border-border sticky top-0 bg-surface flex items-center gap-1.5">
-            <Search className="size-3.5 text-text-tertiary shrink-0" />
+        <div className="absolute z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-border bg-surface shadow-popover">
+          <div className="sticky top-0 flex items-center gap-1.5 border-b border-border bg-surface px-2.5 py-1.5">
+            <Search className="size-4 shrink-0 text-fg-subtle" strokeWidth={1.5} aria-hidden="true" />
             <input
               type="search"
               value={search}
@@ -207,8 +184,9 @@ function SearchableSelect({ value, onChange, options, placeholder, error, id, ..
                   e.preventDefault();
                 }
               }}
-              placeholder="Search..."
-              className="w-full text-xs outline-none text-text-primary bg-transparent py-0.5"
+              placeholder="Search…"
+              aria-label="Search options"
+              className="min-h-0! w-full border-0! bg-transparent! px-0! py-1! text-sm shadow-none! outline-none!"
               autoFocus
             />
           </div>
@@ -223,156 +201,16 @@ function SearchableSelect({ value, onChange, options, placeholder, error, id, ..
                     onChange(opt.code);
                     setIsOpen(false);
                   }}
-                  className={`px-3 py-1.5 text-xs cursor-pointer flex items-center justify-between hover:bg-surface2 text-text-secondary transition-colors duration-150 ${opt.code === value ? 'bg-surface2 text-text-primary font-semibold' : ''
-                    }`}
+                  className={`flex cursor-pointer items-center justify-between gap-3 px-3 py-1.5 text-sm hover:bg-subtle ${opt.code === value ? 'bg-subtle font-medium text-fg' : 'text-fg'}`}
                 >
                   <span>{opt.name}</span>
-                  <span className="font-mono text-[10px] text-text-tertiary">{opt.code}</span>
+                  <span className="mono text-xs text-fg-subtle">{opt.code}</span>
                 </li>
               ))
             ) : (
-              <li className="px-3 py-2 text-xs text-text-tertiary text-center select-none">No states found</li>
+              <li className="px-3 py-2 text-sm text-fg-muted">No matches</li>
             )}
           </ul>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// 6. Accessible Interactive Date Picker (Calendar)
-function CustomDatePicker({ value, onChange, placeholder }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const containerRef = useRef(null);
-
-  useEffect(() => {
-    function handleClickOutside(event) {
-      if (containerRef.current && !containerRef.current.contains(event.target)) {
-        setIsOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  const years = [];
-  const startYear = new Date().getFullYear() - 50;
-  const endYear = new Date().getFullYear() + 10;
-  for (let y = startYear; y <= endYear; y++) {
-    years.push(y);
-  }
-
-  const handleYearChange = (year) => {
-    setCurrentDate(new Date(year, currentDate.getMonth(), 1));
-  };
-
-  const handleMonthChange = (month) => {
-    setCurrentDate(new Date(currentDate.getFullYear(), month, 1));
-  };
-
-  const daysInMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
-  const firstDayIndex = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1).getDay();
-
-  const handleSelectDay = (day) => {
-    const selected = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
-    const yyyy = selected.getFullYear();
-    const mm = String(selected.getMonth() + 1).padStart(2, '0');
-    const dd = String(selected.getDate()).padStart(2, '0');
-    onChange(`${yyyy}-${mm}-${dd}`);
-    setIsOpen(false);
-  };
-
-  const renderDays = () => {
-    const dayElements = [];
-    for (let i = 0; i < firstDayIndex; i++) {
-      dayElements.push(<div key={`empty-${i}`} className="h-6"></div>);
-    }
-    for (let day = 1; day <= daysInMonth; day++) {
-      const formattedDate = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      const isSelected = value === formattedDate;
-      dayElements.push(
-        <button
-          key={day}
-          type="button"
-          onClick={() => handleSelectDay(day)}
-          className={`h-6 w-full rounded-none text-[11px] font-medium flex items-center justify-center transition-colors duration-150 ${isSelected
-            ? 'text-white font-bold'
-            : 'text-text-secondary hover:bg-surface2 hover:text-text-primary'
-            }`}
-          style={isSelected ? { backgroundColor: 'var(--accent-solid)' } : undefined}
-        >
-          {day}
-        </button>
-      );
-    }
-    return dayElements;
-  };
-
-  const MONTHS = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
-  ];
-
-  return (
-    <div className="relative w-full" ref={containerRef}>
-      <button
-        type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between bg-surface border border-border rounded-md py-1.5 px-2.5 text-[13px] outline-none text-text-primary text-left transition-colors duration-150"
-      >
-        <span className={value ? 'text-text-primary font-medium' : 'text-text-tertiary'}>
-          {value ? value : placeholder}
-        </span>
-        <Calendar className="size-3.5 text-text-tertiary shrink-0" />
-      </button>
-
-      {isOpen && (
-        <div className="absolute z-50 left-0 mt-1 bg-surface border border-border rounded-none shadow-[0_1px_4px_rgba(10,15,46,0.08)] p-3 w-64 animate-slide-down">
-          <div className="flex items-center justify-between mb-2">
-            <button
-              type="button"
-              onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1))}
-              className="p-1 hover:bg-surface2 rounded-none text-text-secondary transition-colors duration-150"
-            >
-              <ChevronLeft className="size-3.5" />
-            </button>
-            <div className="flex items-center gap-1">
-              <select
-                value={currentDate.getMonth()}
-                onChange={(e) => handleMonthChange(Number(e.target.value))}
-                className="text-[11px] font-semibold text-text-secondary bg-transparent border-none outline-none cursor-pointer py-0.5 px-1 rounded hover:bg-surface2"
-              >
-                {MONTHS.map((m, idx) => (
-                  <option key={idx} value={idx}>{m}</option>
-                ))}
-              </select>
-              <select
-                value={currentDate.getFullYear()}
-                onChange={(e) => handleYearChange(Number(e.target.value))}
-                className="text-[11px] font-semibold text-text-secondary bg-transparent border-none outline-none cursor-pointer py-0.5 px-1 rounded hover:bg-surface2"
-              >
-                {years.map(y => (
-                  <option key={y} value={y}>{y}</option>
-                ))}
-              </select>
-            </div>
-            <button
-              type="button"
-              onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1))}
-              className="p-1 hover:bg-surface2 rounded-none text-text-secondary transition-colors duration-150"
-            >
-              <ChevronRight className="size-3.5" />
-            </button>
-          </div>
-
-          <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold text-text-tertiary mb-1 select-none border-b border-border pb-1">
-            <span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span>
-          </div>
-
-          <div className="grid grid-cols-7 gap-1 text-center">
-            {renderDays()}
-          </div>
         </div>
       )}
     </div>
@@ -401,114 +239,74 @@ function DocumentUploadZone({ fieldName, value, onChange, label, error, id, ...a
   );
 }
 
-// 8. Wizard Progress Indicator (Stepper)
+// The four registration steps. A step is a button: it moves the supplier
+// there, subject to the same validation as "Save and continue".
 function ProgressIndicator({ steps, currentStep, onStepClick, errors }) {
   return (
-    <div className="sticky top-0 z-30 bg-surface/95 backdrop-blur-md border-b border-border py-4 select-none">
-      <div className="max-w-4xl mx-auto px-4 md:px-6 flex items-center justify-between">
+    <nav aria-label="Registration steps">
+      <ol className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {steps.map((step, idx) => {
           const stepNum = idx + 1;
           const isActive = currentStep === stepNum;
           const isCompleted = currentStep > stepNum;
           const stepHasErrors = errors[stepNum] && Object.keys(errors[stepNum]).length > 0;
-          const isLast = idx === steps.length - 1;
-
           return (
-            <React.Fragment key={stepNum}>
-              <div 
+            <li key={stepNum}>
+              <button
+                type="button"
                 onClick={() => onStepClick && onStepClick(stepNum)}
-                className="flex items-center gap-2.5 cursor-pointer group shrink-0"
+                aria-current={isActive ? 'step' : undefined}
+                className={`block w-full cursor-pointer border-t-2 pt-2.5 text-left ${isActive
+                  ? 'border-accent-solid'
+                  : isCompleted ? 'border-fg' : stepHasErrors ? 'border-danger' : 'border-border hover:border-fg-subtle'}`}
               >
-                <div className={`size-7 rounded-full text-[12px] flex items-center justify-center font-bold transition-colors ${
-                  isActive 
-                    ? 'text-white shadow-sm' 
-                    : isCompleted
-                      ? 'bg-emerald-50 text-emerald-600 border border-emerald-200'
-                      : stepHasErrors
-                        ? 'bg-rose-50 text-rose-600 border border-rose-200'
-                        : 'bg-surface2 text-text-tertiary border border-border group-hover:border-text-tertiary'
-                }`}
-                style={isActive ? { backgroundColor: 'var(--accent-solid)' } : undefined}
-                >
-                  {isCompleted ? <Check className="size-4 stroke-[3]" /> : stepNum}
-                </div>
-                <span className={`text-[13px] hidden md:block transition-colors ${
-                  isActive ? 'text-text-primary font-bold' 
-                  : isCompleted ? 'text-emerald-700 font-medium'
-                  : stepHasErrors ? 'text-rose-600 font-medium'
-                  : 'text-text-tertiary font-medium'
-                }`}>
+                <span className="flex items-center gap-1.5 text-xs text-fg-muted">
+                  {isCompleted && <Check className="size-3.5 text-success" strokeWidth={2} aria-hidden="true" />}
+                  {stepHasErrors && !isCompleted && <AlertTriangle className="size-3.5 text-danger" strokeWidth={1.5} aria-hidden="true" />}
+                  Step {stepNum}
+                </span>
+                <span className={`mt-0.5 block text-sm ${isActive ? 'font-medium text-fg' : isCompleted ? 'text-fg' : 'text-fg-muted'}`}>
                   {step.name}
                 </span>
-              </div>
-              {!isLast && (
-                <div className={`flex-1 h-[2px] mx-4 transition-colors ${
-                  isCompleted ? 'bg-emerald-400' : 'bg-border-subtle'
-                }`} />
-              )}
-            </React.Fragment>
+              </button>
+            </li>
           );
         })}
+      </ol>
+    </nav>
+  );
+}
+
+// Sticky action bar: back and save on the left, the one forward action on
+// the right.
+function ActionFooter({ currentStep, onBack, onSaveDraft, onContinue, onSubmit, draftSaving }) {
+  return (
+    <div className="sticky bottom-0 z-20 -mx-4 flex items-center justify-between gap-3 border-t border-border bg-canvas px-4 py-3 md:-mx-6 md:px-6">
+      <div className="flex items-center gap-2">
+        <Button type="button" variant="ghost" disabled={currentStep === 1} onClick={onBack}>
+          <ChevronLeft className="size-4" strokeWidth={1.5} /> Back
+        </Button>
+        <Button type="button" variant="secondary" onClick={onSaveDraft} disabled={draftSaving}>
+          {draftSaving ? (
+            <>
+              <RefreshCw className="mr-1 size-3.5 animate-spin" strokeWidth={1.5} />
+              Saving…
+            </>
+          ) : 'Save draft'}
+        </Button>
       </div>
+      {currentStep < 4 ? (
+        <Button type="button" onClick={onContinue}>
+          Save and continue <ChevronRight className="size-4" strokeWidth={1.5} />
+        </Button>
+      ) : (
+        <Button type="button" onClick={onSubmit}>
+          Submit registration
+        </Button>
+      )}
     </div>
   );
 }
-
-// 9. Sticky action footer component
-function ActionFooter({ currentStep, onBack, onSaveDraft, onContinue, onSubmit, draftSaving }) {
-  return (
-    <footer className="sticky bottom-0 z-30 bg-surface border-t border-border py-3.5 px-4 md:px-6 select-none animate-slide-down">
-      <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
-        {/* Left Action Elements */}
-        <div className="flex items-center gap-2 sm:gap-3">
-          <Button
-            type="button"
-            variant="outline"
-            disabled={currentStep === 1}
-            onClick={onBack}
-          >
-            <ChevronLeft className="size-4" /> Back
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onSaveDraft}
-            disabled={draftSaving}
-          >
-            {draftSaving ? (
-              <>
-                <RefreshCw className="size-3.5 animate-spin mr-1" />
-                Saving...
-              </>
-            ) : 'Save Draft'}
-          </Button>
-        </div>
-
-        {/* Right Action Elements */}
-        <div className="flex items-center gap-2">
-          {currentStep < 4 ? (
-            <Button
-              type="button"
-              variant="default"
-              onClick={onContinue}
-            >
-              Save &amp; Continue <ChevronRight className="size-4" />
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              variant="default"
-              onClick={onSubmit}
-            >
-              Submit Registration
-            </Button>
-          )}
-        </div>
-      </div>
-    </footer>
-  );
-}
-
 
 // --- MAIN MODULE RENDERING VIEW ---
 export default function RegistrationView({
@@ -852,40 +650,24 @@ export default function RegistrationView({
     }
   }, []);
 
-  // Compute stats for current step header
-  const currentStepConfig = stepConfigs[currentStep - 1];
-  const currentFieldsCount = currentStepConfig.sections.reduce((acc, s) => acc + s.fields.length, 0);
-  const currentSectionsCount = currentStepConfig.sections.length;
-
   return (
-    <div className="space-y-4 max-w-full pb-8 animate-fade-in relative">
-      {/* 1. TOAST NOTIFICATION FOR SAVE DRAFT */}
+    <div className="relative space-y-8 pb-8">
       {showSaveToast && (
-        <div className="fixed top-4 right-4 z-50 flex items-center gap-2 bg-white text-slate-900 border border-slate-200 px-4 py-2.5 rounded-lg shadow-xl animate-slide-down">
-          <CheckCircle2 className="size-4 text-emerald-600 shrink-0" />
-          <span className="font-semibold select-none text-xs">Draft onboarding configurations saved successfully</span>
+        <div role="status" className="fixed right-4 top-4 z-50 flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-2.5 text-sm text-fg shadow-popover">
+          <CheckCircle2 className="size-4 shrink-0 text-success" strokeWidth={1.5} aria-hidden="true" />
+          Draft saved
         </div>
       )}
 
-      {/* 2. COMPONENT WIZARD HEADER */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-4 select-none">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <h2 className="page-title">Vendor Registration</h2>
-            {!isApproved && <ProgressBadge count={`${currentStep} / 4`} />}
-          </div>
-          <div className="flex items-center gap-2 text-text-tertiary text-xs font-semibold">
-            <span className="bg-surface2 border border-border text-text-secondary px-2 py-0.5 rounded font-mono uppercase tracking-wide">
-              Vendor
-            </span>
+      <PageHeader
+        title="Company profile"
+        description={isApproved
+          ? 'The details your buyer holds for your company.'
+          : isPending
+            ? 'Your registration is with your buyer for review.'
+            : `Register your company with your buyer — step ${currentStep} of ${stepConfigs.length}.`}
+      />
 
-          </div>
-        </div>
-
-        {/* 3. BUSINESS VIEW VS TECHNICAL VIEW TOGGLE REMOVED */}
-      </div>
-
-      {/* 4. TABBED PROGRESS INDICATOR */}
       {isDraft && (
         <ProgressIndicator
           steps={stepConfigs}
@@ -896,25 +678,25 @@ export default function RegistrationView({
       )}
 
       {blockedStepAlert && (
-        <div className="fixed top-4 right-4 z-50 flex items-center gap-2 bg-rose-900/90 border border-rose-700 text-white text-xs px-4 py-2.5 rounded-none shadow-[0_1px_4px_rgba(10,15,46,0.08)] animate-slide-down">
-          <AlertTriangle className="size-4 shrink-0" />
-          <span className="font-semibold select-none">{blockedStepAlert}</span>
+        <div role="alert" className="fixed right-4 top-4 z-50 flex max-w-md items-start gap-2 rounded-lg border border-danger/40 bg-danger-tint px-4 py-2.5 text-sm text-fg shadow-popover">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-danger" strokeWidth={1.5} aria-hidden="true" />
+          <span>{blockedStepAlert}</span>
         </div>
       )}
 
       {/* 5. DRAFT STATE: 4-STEP WIZARD BODY */}
       {isDraft && (
-        <form onSubmit={handleFinalSubmit} className="space-y-4">
+        <form onSubmit={handleFinalSubmit} className="space-y-8">
           {state.profile.status === 'Rejected' && (
-            <div className="p-4.5 rounded-none border border-rose-900/50 bg-rose-900/20 text-rose-400 flex items-start gap-3 shadow-sm select-none">
-              <AlertTriangle className="size-5 shrink-0 mt-0.5 text-rose-400" />
-              <div>
-                <h4 className="font-bold text-sm">Registration not approved</h4>
-                <p className="text-xs mt-1 text-rose-400/80">
+            <div className="flex items-start gap-3 rounded-lg border border-danger/30 bg-danger-tint p-4">
+              <AlertTriangle className="mt-0.5 size-5 shrink-0 text-danger" strokeWidth={1.5} aria-hidden="true" />
+              <div className="text-sm">
+                <p className="font-medium text-fg">Registration not approved</p>
+                <p className="mt-1 text-fg-muted">
                   Some of your documents or bank details did not pass your buyer’s checks. Reason:
-                  <span className="font-semibold block mt-0.5 text-rose-300 italic">
-                    &quot;{state.profile.rejectionReason || 'Your GST registration or bank details did not match.'}&quot;
-                  </span>
+                </p>
+                <p className="mt-1 text-fg">
+                  &quot;{state.profile.rejectionReason || 'Your GST registration or bank details did not match.'}&quot;
                 </p>
               </div>
             </div>
@@ -922,33 +704,30 @@ export default function RegistrationView({
 
           {/* WHAT'S LEFT — the full remaining checklist, not just this step's */}
           {outstandingCount > 0 ? (
-            <div className="p-4.5 rounded-none border border-amber-300 bg-amber-50 text-amber-900 space-y-3 shadow-sm select-none">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="size-5 shrink-0 mt-0.5 text-amber-600" />
-                <div>
-                  <h4 className="font-bold text-sm">
-                    {state.profile.status === 'Rejected' ? 'What to fix before resubmitting' : "What's left to complete your registration"}
-                  </h4>
-                  <p className="text-xs mt-0.5 text-amber-800/80">
-                    {outstandingCount} item{outstandingCount === 1 ? '' : 's'} still need{outstandingCount === 1 ? 's' : ''} your attention.
-                  </p>
-                </div>
+            <div className="space-y-3 rounded-lg border border-border bg-surface p-4">
+              <div>
+                <p className="text-sm font-medium text-fg">
+                  {state.profile.status === 'Rejected' ? 'What to fix before resubmitting' : "What's left to complete your registration"}
+                </p>
+                <p className="text-sm text-fg-muted">
+                  {outstandingCount} item{outstandingCount === 1 ? '' : 's'} still need{outstandingCount === 1 ? 's' : ''} your attention.
+                </p>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-8">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 {outstandingByStep.map(group => (
                   <button
                     key={group.stepNum}
                     type="button"
                     onClick={() => setCurrentStep(group.stepNum)}
-                    className="text-left p-3 rounded-md border border-amber-200 bg-white/60 hover:bg-white transition-colors duration-150 cursor-pointer"
+                    className="cursor-pointer rounded-md border border-border p-3 text-left hover:bg-subtle"
                   >
-                    <p className="text-[10px] font-bold uppercase tracking-wide text-amber-700 mb-1.5">
+                    <span className="mb-1.5 block text-xs text-fg-muted">
                       Step {group.stepNum} &middot; {group.stepName}
-                    </p>
+                    </span>
                     <ul className="space-y-1">
                       {group.items.map((msg, i) => (
-                        <li key={i} className="text-xs text-amber-900 flex items-start gap-1.5">
-                          <span className="mt-1.5 size-1 rounded-full bg-amber-500 shrink-0" />
+                        <li key={i} className="flex items-start gap-1.5 text-sm text-fg">
+                          <span className="mt-2 size-1 shrink-0 rounded-full bg-warning" aria-hidden="true" />
                           <span>{msg}</span>
                         </li>
                       ))}
@@ -958,44 +737,44 @@ export default function RegistrationView({
               </div>
             </div>
           ) : (
-            <div className="p-4 rounded-none border border-emerald-300 bg-emerald-50 text-emerald-900 flex items-center gap-3 shadow-sm select-none">
-              <CheckCircle2 className="size-5 shrink-0 text-emerald-600" />
-              <p className="text-xs font-semibold">Everything required is filled in. You can submit your registration.</p>
+            <div className="flex items-center gap-3 rounded-lg border border-success/30 bg-success-tint p-4">
+              <CheckCircle2 className="size-5 shrink-0 text-success" strokeWidth={1.5} aria-hidden="true" />
+              <p className="text-sm text-fg">Everything required is filled in. You can submit your registration.</p>
             </div>
           )}
 
           {/* STEP 1: COMPANY INFORMATION */}
           {currentStep === 1 && (
-            <div className="space-y-4">
+            <div className="space-y-10">
               <FormSection number="01" title="Company identity">
-                <EnterpriseFieldCard label="Legal entity name" required error={validationErrors[1]?.companyName}>
+                <FieldCard label="Legal entity name" required error={validationErrors[1]?.companyName}>
                   <input type="text" maxLength={35} value={companyForm.companyName} onChange={e => handleFieldChange('companyName', e.target.value)} placeholder="Bharat Steel Alloys Pvt. Ltd." className="w-[39ch] max-w-full" />
-                </EnterpriseFieldCard>
-                <EnterpriseFieldCard label="Trade / brand name" required error={validationErrors[1]?.tradeName}>
+                </FieldCard>
+                <FieldCard label="Trade / brand name" required error={validationErrors[1]?.tradeName}>
                   <input type="text" maxLength={35} value={companyForm.tradeName} onChange={e => handleFieldChange('tradeName', e.target.value)} placeholder="Bharat Steel" className="w-[39ch] max-w-full" />
-                </EnterpriseFieldCard>
-                <EnterpriseFieldCard label="Business type" required error={validationErrors[1]?.businessType}>
+                </FieldCard>
+                <FieldCard label="Business type" required error={validationErrors[1]?.businessType}>
                   <select value={companyForm.businessType} onChange={e => handleFieldChange('businessType', e.target.value)} className="w-[25ch] max-w-full">
-                    <option value="" disabled className="text-text-tertiary">Select Business Type</option>
+                    <option value="" disabled>Select business type</option>
                     <option value="MFGR">Manufacturer (MFGR)</option>
                     <option value="TRDR">Trader / Distributor (TRDR)</option>
                     <option value="SRVC">Service Provider (SRVC)</option>
                     <option value="MSME">Micro Enterprise (MSME)</option>
                   </select>
-                </EnterpriseFieldCard>
-                <EnterpriseFieldCard label="Incorporation date" error={validationErrors[1]?.incorporationDate}>
+                </FieldCard>
+                <FieldCard label="Incorporation date" error={validationErrors[1]?.incorporationDate}>
                   <input type="date" value={companyForm.incorporationDate || ''} onChange={e => handleFieldChange('incorporationDate', e.target.value)} className="w-full" />
-                </EnterpriseFieldCard>
+                </FieldCard>
               </FormSection>
 
               <FormSection number="02" title="Registered address">
-                <EnterpriseFieldCard label="Street / area" required error={validationErrors[1]?.address}>
+                <FieldCard label="Street / area" required error={validationErrors[1]?.address}>
                   <input type="text" maxLength={35} value={companyForm.address} onChange={e => handleFieldChange('address', e.target.value)} placeholder="102, Mittal Chambers, Nariman Point" className="w-[39ch] max-w-full" />
-                </EnterpriseFieldCard>
-                <EnterpriseFieldCard label="City" required error={validationErrors[1]?.city}>
+                </FieldCard>
+                <FieldCard label="City" required error={validationErrors[1]?.city}>
                   <input type="text" maxLength={35} value={companyForm.city} onChange={e => handleFieldChange('city', e.target.value)} placeholder="Mumbai" className="w-[39ch] max-w-full" />
-                </EnterpriseFieldCard>
-                <EnterpriseFieldCard label="Country" required error={validationErrors[1]?.country}>
+                </FieldCard>
+                <FieldCard label="Country" required error={validationErrors[1]?.country}>
                   <div className="w-[25ch] max-w-full">
                     <SearchableSelect
                       value={companyForm.country}
@@ -1008,8 +787,8 @@ export default function RegistrationView({
                       placeholder="Select Country"
                     />
                   </div>
-                </EnterpriseFieldCard>
-                <EnterpriseFieldCard label="State / Region" required error={validationErrors[1]?.region}>
+                </FieldCard>
+                <FieldCard label="State / Region" required error={validationErrors[1]?.region}>
                   <div className="w-[25ch] max-w-full">
                     <SearchableSelect
                       value={companyForm.region}
@@ -1026,25 +805,25 @@ export default function RegistrationView({
                       }
                     />
                   </div>
-                </EnterpriseFieldCard>
-                <EnterpriseFieldCard
+                </FieldCard>
+                <FieldCard
                   label="PIN code"
                   required
                   error={validationErrors[1]?.postalCode || (pincodeLookup.status === 'error' ? pincodeLookup.error : '')}
                   hint={pincodeLookup.status === 'loading' ? 'Looking up city & state...' : 'City, state & phone code auto-fill from PIN'}
                 >
-                  <input type="text" maxLength={6} value={companyForm.postalCode} onChange={e => handleFieldChange('postalCode', e.target.value.replace(/\D/g, ''))} placeholder="400021" className="font-mono w-[10ch] max-w-full" />
-                </EnterpriseFieldCard>
-                <EnterpriseFieldCard label="Contact email" required error={validationErrors[1]?.email}>
+                  <input type="text" maxLength={6} value={companyForm.postalCode} onChange={e => handleFieldChange('postalCode', e.target.value.replace(/\D/g, ''))} placeholder="400021" className="mono w-[10ch] max-w-full" />
+                </FieldCard>
+                <FieldCard label="Contact email" required error={validationErrors[1]?.email}>
                   <input type="email" maxLength={241} value={companyForm.email} onChange={e => handleFieldChange('email', e.target.value)} placeholder="billing@company.com" />
-                </EnterpriseFieldCard>
-                <EnterpriseFieldCard label="Mobile / phone" required error={validationErrors[1]?.phone}>
+                </FieldCard>
+                <FieldCard label="Mobile / phone" required error={validationErrors[1]?.phone}>
                   <input type="tel" maxLength={16} value={companyForm.phone} onChange={e => handleFieldChange('phone', e.target.value)} placeholder="+91 22 2345 6789" className="w-[20ch] max-w-full" />
-                </EnterpriseFieldCard>
+                </FieldCard>
               </FormSection>
 
               <FormSection number="03" title="Trade & payment terms">
-                <EnterpriseFieldCard label="Payment terms" required error={validationErrors[1]?.paymentTerms} hint="Choose one of the options your buyer accepts">
+                <FieldCard label="Payment terms" required error={validationErrors[1]?.paymentTerms} hint="Choose one of the options your buyer accepts">
                   <select
                     value={companyForm.paymentTerms || ''}
                     onChange={e => handleFieldChange('paymentTerms', e.target.value)}
@@ -1058,8 +837,8 @@ export default function RegistrationView({
                       <option key={code} value={code}>{code}</option>
                     ))}
                   </select>
-                </EnterpriseFieldCard>
-                <EnterpriseFieldCard label="Payment method" required error={validationErrors[1]?.paymentMethod} hint="Choose one of the options your buyer accepts">
+                </FieldCard>
+                <FieldCard label="Payment method" required error={validationErrors[1]?.paymentMethod} hint="Choose one of the options your buyer accepts">
                   <select
                     value={companyForm.paymentMethod || ''}
                     onChange={e => handleFieldChange('paymentMethod', e.target.value)}
@@ -1073,8 +852,8 @@ export default function RegistrationView({
                       <option key={code} value={code}>{label} ({code})</option>
                     ))}
                    </select>
-                </EnterpriseFieldCard>
-                <EnterpriseFieldCard label="Currency" required error={validationErrors[1]?.currency} hint="Currency you invoice in">
+                </FieldCard>
+                <FieldCard label="Currency" required error={validationErrors[1]?.currency} hint="Currency you invoice in">
                   <select value={companyForm.currency || ''} onChange={e => handleFieldChange('currency', e.target.value)} className="w-[20ch] max-w-full">
                     <option value="">Select currency</option>
                     <option value="INR">INR - Indian Rupee</option>
@@ -1084,19 +863,19 @@ export default function RegistrationView({
                     <option value="AED">AED - UAE Dirham</option>
                     <option value="SGD">SGD - Singapore Dollar</option>
                   </select>
-                </EnterpriseFieldCard>
-                <EnterpriseFieldCard label="Shipping terms 1" required error={validationErrors[1]?.incoterms1} hint="Incoterm, e.g. FOB">
+                </FieldCard>
+                <FieldCard label="Shipping terms 1" required error={validationErrors[1]?.incoterms1} hint="Incoterm, e.g. FOB">
                   <input type="text" maxLength={3} value={companyForm.incoterms1 || ''} onChange={e => handleFieldChange('incoterms1', e.target.value.toUpperCase())} placeholder="FOB" className="uppercase w-[10ch] max-w-full" />
-                </EnterpriseFieldCard>
-                <EnterpriseFieldCard label="Shipping terms 2" required error={validationErrors[1]?.incoterms2} hint="Named place, e.g. Mumbai Port — SAP requires this once Shipping terms 1 is set">
+                </FieldCard>
+                <FieldCard label="Shipping terms 2" required error={validationErrors[1]?.incoterms2} hint="Named place, e.g. Mumbai Port — SAP requires this once Shipping terms 1 is set">
                   <input type="text" maxLength={35} value={companyForm.incoterms2 || ''} onChange={e => handleFieldChange('incoterms2', e.target.value)} placeholder="Mumbai Port" className="w-[25ch] max-w-full" />
-                </EnterpriseFieldCard>
-                <div className="flex flex-col gap-2 justify-center">
-                  <label className="flex items-center gap-2 text-[13px] text-text-secondary select-none">
+                </FieldCard>
+                <div className="flex flex-col justify-center gap-2">
+                  <label className="flex items-center gap-2 text-sm text-fg">
                     <input type="checkbox" checked={!!companyForm.doubleInvoiceCheck} onChange={e => handleFieldChange('doubleInvoiceCheck', e.target.checked)} />
                     Flag duplicate invoices
                   </label>
-                  <label className="flex items-center gap-2 text-[13px] text-text-secondary select-none">
+                  <label className="flex items-center gap-2 text-sm text-fg">
                     <input type="checkbox" checked={!!companyForm.grBasedInvoiceVerification} onChange={e => handleFieldChange('grBasedInvoiceVerification', e.target.checked)} />
                     Require goods receipt before invoice
                   </label>
@@ -1107,9 +886,9 @@ export default function RegistrationView({
 
           {/* STEP 2: TAX & REGULATORY */}
           {currentStep === 2 && (
-            <div className="space-y-4">
+            <div className="space-y-10">
               <FormSection number="01" title="Indian tax IDs">
-                  <EnterpriseFieldCard
+                  <FieldCard
                     label="PAN number"
                     required
                     error={validationErrors[2]?.pan}
@@ -1120,10 +899,10 @@ export default function RegistrationView({
                       value={companyForm.pan}
                       onChange={e => handleFieldChange('pan', e.target.value.toUpperCase())}
                       placeholder="AABCB1234F"
-                      className="uppercase font-mono w-[14ch] max-w-full"
+                      className="mono uppercase w-[14ch] max-w-full"
                     />
-                  </EnterpriseFieldCard>
-                  <EnterpriseFieldCard
+                  </FieldCard>
+                  <FieldCard
                     label="GSTIN"
                     required
                     error={validationErrors[2]?.gstin}
@@ -1134,10 +913,10 @@ export default function RegistrationView({
                       value={companyForm.gstin}
                       onChange={e => handleFieldChange('gstin', e.target.value.toUpperCase())}
                       placeholder="27AABCB1234F1Z5"
-                      className="uppercase font-mono w-[19ch] max-w-full"
+                      className="mono uppercase w-[19ch] max-w-full"
                     />
-                  </EnterpriseFieldCard>
-                  <EnterpriseFieldCard
+                  </FieldCard>
+                  <FieldCard
                     label="GST Registration Type"
                     required
                     error={validationErrors[2]?.gstType}
@@ -1147,14 +926,14 @@ export default function RegistrationView({
                       onChange={e => handleFieldChange('gstType', e.target.value)}
                       className="w-[25ch] max-w-full"
                     >
-                      <option value="" disabled className="text-text-tertiary">Select Type</option>
+                      <option value="" disabled>Select type</option>
                       <option value="01">Regular Taxpayer (01)</option>
                       <option value="02">Composition Scheme (02)</option>
                       <option value="03">SEZ Developer (03)</option>
                       <option value="04">Exempt / Unregistered (04)</option>
                     </select>
-                  </EnterpriseFieldCard>
-                  <EnterpriseFieldCard
+                  </FieldCard>
+                  <FieldCard
                     label="CIN Number"
                     error={validationErrors[2]?.cin}
                   >
@@ -1164,10 +943,10 @@ export default function RegistrationView({
                       value={companyForm.cin}
                       onChange={e => handleFieldChange('cin', e.target.value.toUpperCase())}
                       placeholder="L01500MH1995PLC094858"
-                      className="uppercase font-mono w-[25ch] max-w-full"
+                      className="mono uppercase w-[25ch] max-w-full"
                     />
-                  </EnterpriseFieldCard>
-                  <EnterpriseFieldCard
+                  </FieldCard>
+                  <FieldCard
                     label="MSME / Udyam Number"
                     error={validationErrors[2]?.msmeNumber}
                   >
@@ -1177,10 +956,10 @@ export default function RegistrationView({
                       value={companyForm.msmeNumber}
                       onChange={e => handleFieldChange('msmeNumber', e.target.value.toUpperCase())}
                       placeholder="UDYAM-MH-12-0012345"
-                      className="uppercase font-mono w-[24ch] max-w-full"
+                      className="mono uppercase w-[24ch] max-w-full"
                     />
-                  </EnterpriseFieldCard>
-                  <EnterpriseFieldCard
+                  </FieldCard>
+                  <FieldCard
                     label="TDS Section"
                     required
                     error={validationErrors[2]?.tdsSection}
@@ -1190,23 +969,23 @@ export default function RegistrationView({
                       onChange={e => handleFieldChange('tdsSection', e.target.value)}
                       className="w-[25ch] max-w-full"
                     >
-                      <option value="" disabled className="text-text-tertiary">Select TDS mapping</option>
+                      <option value="" disabled>Select TDS section</option>
                       <option value="194C">194C - Contractor Payments</option>
                       <option value="194J">194J - Professional Service Fees</option>
                       <option value="194I">194I - Renting Clearances</option>
                       <option value="194Q">194Q - Goods Purchase Credits</option>
                       <option value="EXMP">EXMP - TDS Exempt status</option>
                     </select>
-                  </EnterpriseFieldCard>
+                  </FieldCard>
               </FormSection>
             </div>
           )}
 
           {/* STEP 3: BANK DETAILS */}
           {currentStep === 3 && (
-            <div className="space-y-4">
+            <div className="space-y-10">
               <FormSection number="01" title="Bank account">
-                  <EnterpriseFieldCard
+                  <FieldCard
                     label="Account holder name"
                     required
                     error={validationErrors[3]?.accountName}
@@ -1219,9 +998,9 @@ export default function RegistrationView({
                       placeholder="Bharat Steel Alloys Pvt. Ltd."
                       className="w-[64ch] max-w-full"
                     />
-                  </EnterpriseFieldCard>
+                  </FieldCard>
 
-                  <EnterpriseFieldCard
+                  <FieldCard
                     label="Bank account number"
                     required
                     error={validationErrors[3]?.accountNumber}
@@ -1233,18 +1012,19 @@ export default function RegistrationView({
                         value={companyForm.accountNumber}
                         onChange={e => handleFieldChange('accountNumber', e.target.value.replace(/\D/g, ''))}
                         placeholder="Enter Bank Account Number"
-                        className="font-mono pr-8 w-full"
+                        className="mono w-full pr-9!"
                       />
                       <button
                         type="button"
                         onClick={() => setPassVisible(!passVisible)}
-                        className="absolute right-2 top-[7px] hover:bg-surface2 rounded text-text-tertiary hover:text-text-primary transition-colors duration-150"
+                        aria-label={passVisible ? 'Hide account number' : 'Show account number'}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer rounded p-0.5 text-fg-subtle hover:text-fg"
                       >
-                        {passVisible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                        {passVisible ? <EyeOff className="size-4" strokeWidth={1.5} /> : <Eye className="size-4" strokeWidth={1.5} />}
                       </button>
                     </div>
-                  </EnterpriseFieldCard>
-                  <EnterpriseFieldCard
+                  </FieldCard>
+                  <FieldCard
                     label="IFSC code"
                     required
                     error={validationErrors[3]?.ifscCode}
@@ -1255,11 +1035,11 @@ export default function RegistrationView({
                       value={companyForm.ifscCode}
                       onChange={e => handleFieldChange('ifscCode', e.target.value.toUpperCase())}
                       placeholder="HDFC0000060"
-                      className="uppercase font-mono w-[15ch] max-w-full"
+                      className="mono uppercase w-[15ch] max-w-full"
                     />
-                  </EnterpriseFieldCard>
+                  </FieldCard>
 
-                  <EnterpriseFieldCard
+                  <FieldCard
                     label="Bank name (auto-fetched)"
                     required
                     error={validationErrors[3]?.bankName || (ifscLookup.status === 'error' ? ifscLookup.error : '')}
@@ -1272,14 +1052,14 @@ export default function RegistrationView({
                         readOnly={bankFieldsLocked}
                         onChange={e => handleFieldChange('bankName', e.target.value)}
                         placeholder={ifscLookup.status === 'loading' ? 'Fetching bank details...' : bankFieldsLocked ? 'Auto-populated from IFSC' : 'Bank name'}
-                        className={`${bankFieldsLocked ? 'bg-surface2 text-text-secondary select-none' : ''} w-full pr-8`}
+                        className={`${bankFieldsLocked ? 'bg-subtle! text-fg-muted' : ''} w-full pr-8`}
                       />
                       {ifscLookup.status === 'loading' && (
-                        <RefreshCw className="absolute right-2 top-1/2 -translate-y-1/2 size-3.5 text-text-tertiary animate-spin" />
+                        <RefreshCw className="absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 animate-spin text-fg-subtle" strokeWidth={1.5} aria-hidden="true" />
                       )}
                     </div>
-                  </EnterpriseFieldCard>
-                  <EnterpriseFieldCard
+                  </FieldCard>
+                  <FieldCard
                     label="Bank branch (auto-fetched)"
                     required
                     error={validationErrors[3]?.bankBranch}
@@ -1291,19 +1071,19 @@ export default function RegistrationView({
                       readOnly={bankFieldsLocked}
                       onChange={e => handleFieldChange('bankBranch', e.target.value)}
                       placeholder={bankFieldsLocked ? 'Auto-populated from IFSC' : 'Bank branch'}
-                      className={`${bankFieldsLocked ? 'bg-surface2 text-text-secondary select-none' : ''} w-[64ch] max-w-full`}
+                      className={`${bankFieldsLocked ? 'bg-subtle! text-fg-muted' : ''} w-[64ch] max-w-full`}
                     />
-                  </EnterpriseFieldCard>
-                  <EnterpriseFieldCard
+                  </FieldCard>
+                  <FieldCard
                     label="Account currency"
                   >
-                    <select disabled className="bg-surface2 text-text-secondary cursor-not-allowed w-[25ch] max-w-full">
+                    <select disabled className="w-[25ch] max-w-full">
                       <option value="INR">INR - Indian Rupee</option>
                     </select>
-                  </EnterpriseFieldCard>
+                  </FieldCard>
 
-                  <div className="lg:col-span-3 mt-2">
-                    <EnterpriseFieldCard
+                  <div className="md:col-span-2 lg:col-span-3">
+                    <FieldCard
                       label="Cancelled cheque copy"
                       required
                       error={validationErrors[3]?.cancelledCheque}
@@ -1314,7 +1094,7 @@ export default function RegistrationView({
                         onChange={val => handleFieldChange('cancelledCheque', val)}
                         error={validationErrors[3]?.cancelledCheque}
                       />
-                    </EnterpriseFieldCard>
+                    </FieldCard>
                   </div>
               </FormSection>
             </div>
@@ -1325,34 +1105,34 @@ export default function RegistrationView({
               { documentId, originalName, url } is what the profile stores —
               the same component the cancelled cheque on step 3 uses. */}
           {currentStep === 4 && (
-            <div className="space-y-4">
+            <div className="space-y-10">
               <FormSection number="01" title="Required for approval">
                 {[
                   { id: 'panCardCopy', label: 'PAN card copy' },
                   { id: 'gstCertificate', label: 'GST certificate' },
                 ].map(doc => (
-                  <div key={doc.id} className="lg:col-span-3">
-                    <EnterpriseFieldCard label={doc.label} required error={validationErrors[4]?.[doc.id]}>
+                  <div key={doc.id} className="md:col-span-2 lg:col-span-3">
+                    <FieldCard label={doc.label} required error={validationErrors[4]?.[doc.id]}>
                       <DocumentUploadZone
                         fieldName={doc.id}
                         value={companyForm[doc.id]}
                         onChange={val => handleFieldChange(doc.id, val)}
                         error={validationErrors[4]?.[doc.id]}
                       />
-                    </EnterpriseFieldCard>
+                    </FieldCard>
                   </div>
                 ))}
               </FormSection>
 
               <FormSection number="02" title="Optional">
-                <div className="lg:col-span-3">
-                  <EnterpriseFieldCard label="MSME certificate">
+                <div className="md:col-span-2 lg:col-span-3">
+                  <FieldCard label="MSME certificate">
                     <DocumentUploadZone
                       fieldName="msmeCertificate"
                       value={companyForm.msmeCertificate}
                       onChange={val => handleFieldChange('msmeCertificate', val)}
                     />
-                  </EnterpriseFieldCard>
+                  </FieldCard>
                 </div>
               </FormSection>
             </div>
@@ -1370,85 +1150,70 @@ export default function RegistrationView({
         </form>
       )}
 
-      {/* 6. PENDING APPROVAL COMPLIANCE CARD */}
+      {/* Awaiting the buyer's decision */}
       {isPending && (
-        <div className="p-8 card text-center space-y-6 flex flex-col items-center max-w-lg mx-auto">
-          <div className="size-14 rounded-full bg-surface2 border border-border flex items-center justify-center text-text-secondary">
-            <Clock className="size-6 animate-pulse" />
-          </div>
-          <div className="space-y-2">
-            <h3 className="text-base font-bold text-text-primary">Awaiting Approval</h3>
-            <p className="text-xs text-text-tertiary max-w-sm mx-auto leading-relaxed">
+        <div className="flex max-w-2xl items-start gap-4 rounded-lg border border-border bg-surface p-6">
+          <Clock className="mt-0.5 size-5 shrink-0 text-fg-muted" strokeWidth={1.5} aria-hidden="true" />
+          <div className="space-y-1.5">
+            <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-fg">
+              Awaiting approval <StatusBadge label={state.profile.status} />
+            </p>
+            <p className="text-sm text-fg-muted">
               Your registration is with your buyer&apos;s team for review. Your supplier account is set up once they approve it — this page updates automatically when a decision is made.
             </p>
-          </div>
-          <div className="w-full bg-surface2 h-1.5 rounded-full overflow-hidden border border-border">
-            <div className="h-full w-2/3 rounded-full animate-[pulse_1.5s_infinite]" style={{ backgroundColor: 'var(--accent-solid)' }}></div>
           </div>
         </div>
       )}
 
-      {/* 7. APPROVED / COMPLETED VIEW (supplier account summary) */}
+      {/* Approved: the supplier account summary */}
       {isApproved && (
-        <div className="space-y-6 animate-fade-in select-none">
-          <div className="p-6 card flex items-start gap-4">
-            <div className="size-11 rounded-full text-emerald-400 flex items-center justify-center shrink-0 border border-border" style={{ backgroundColor: 'var(--color-emerald-dim)' }}>
-              <CheckCircle2 className="size-5.5 stroke-[2.5]" />
-            </div>
+        <div className="space-y-8">
+          <div className="flex items-start gap-4 rounded-lg border border-border bg-surface p-5">
+            <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-success" strokeWidth={1.5} aria-hidden="true" />
             <div className="space-y-1">
-              <h3 className="text-base font-bold text-text-primary">Your supplier account is active</h3>
-              <p className="text-xs text-text-tertiary leading-normal">
-                Your tax and bank details have been accepted by your buyer. Your supplier ID:
-                <span className="font-mono text-text-primary font-bold bg-surface2 border border-border px-2 py-0.5 rounded ml-1.5 text-xs tabular-nums">
-                  {state.profile.sapVendorCode}
-                </span>
+              <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-fg">
+                Your supplier account is active <StatusBadge label="Active" />
               </p>
-              <div className="flex items-center gap-4 text-[10px] text-text-tertiary mt-2.5 font-semibold font-mono">
-                <span className="tabular-nums">APPROVED: {state.profile.approvedAt ? new Date(state.profile.approvedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</span>
-                <span>&bull;</span>
-                <span className="text-emerald-400 px-1.5 py-0.5 border border-border rounded text-[9px] font-bold" style={{ backgroundColor: 'var(--color-emerald-dim)' }}>STATUS: ACTIVE</span>
-              </div>
+              <p className="text-sm text-fg-muted">
+                Your tax and bank details have been accepted by your buyer. Supplier ID{' '}
+                <span className="mono text-fg">{state.profile.sapVendorCode}</span>
+                {' · '}approved {state.profile.approvedAt ? new Date(state.profile.approvedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+              </p>
             </div>
           </div>
 
-          {/* DETAILED LEDGER PROFILE INFORMATION */}
-          <div className="p-6 card space-y-4">
-            <h3 className="label mb-0 border-b border-border pb-2">
-              Your registered details
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3.5 text-xs text-text-secondary">
+          <section className="space-y-4">
+            <h2 className="text-lg font-semibold text-fg">Your registered details</h2>
+            <dl className="grid grid-cols-1 gap-x-10 border-t border-border md:grid-cols-2">
               {[
                 { label: 'Registered company name', val: state.profile.companyName },
-                { label: 'Trade / Brand Name', val: state.profile.tradeName || 'Not Provided' },
-                { label: 'Type of business', val: state.profile.businessType || 'Not Provided' },
-                { label: 'Incorporation Date', val: state.profile.incorporationDate || 'Not Provided' },
-                { label: 'Supplier ID', val: state.profile.sapVendorCode, isMono: true, isGreen: true },
-                { label: 'GSTIN / Tax Registration', val: state.profile.gstin, isMono: true },
-                { label: 'PAN number', val: state.profile.pan, isMono: true },
-                { label: 'CIN number', val: state.profile.cin || 'Not Applicable', isMono: true },
-                { label: 'MSME Registration Number', val: state.profile.msmeNumber || 'Not Applicable', isMono: true },
-                { label: 'TDS Section', val: state.profile.tdsSection || 'Not Mapped' },
+                { label: 'Trade / brand name', val: state.profile.tradeName || 'Not provided' },
+                { label: 'Type of business', val: state.profile.businessType || 'Not provided' },
+                { label: 'Incorporation date', val: state.profile.incorporationDate || 'Not provided' },
+                { label: 'Supplier ID', val: state.profile.sapVendorCode, isMono: true },
+                { label: 'GSTIN', val: state.profile.gstin, isMono: true },
+                { label: 'PAN', val: state.profile.pan, isMono: true },
+                { label: 'CIN', val: state.profile.cin || 'Not applicable', isMono: !!state.profile.cin },
+                { label: 'MSME registration number', val: state.profile.msmeNumber || 'Not applicable', isMono: !!state.profile.msmeNumber },
+                { label: 'TDS section', val: state.profile.tdsSection || 'Not mapped' },
                 { label: 'Finance contact email', val: state.profile.email },
                 { label: 'Phone number', val: state.profile.phone },
                 { label: 'Business address', val: `${state.profile.address}, ${state.profile.city}, ${state.profile.region || state.profile.state}, ${state.profile.country || ''} - ${state.profile.postalCode}` },
-                { label: 'Cancelled Cheque Copy Document', val: documentName(state.profile.cancelledCheque), isFile: true },
-                { label: 'PAN Card Copy Document', val: documentName(state.profile.panCardCopy), isFile: true },
-                { label: 'GST Certificate Document', val: documentName(state.profile.gstCertificate), isFile: true },
-                { label: 'MSME Compliance Certificate', val: documentName(state.profile.msmeCertificate), isFile: true }
-              ].map((row, idx) => (
-                <div key={idx} className="flex justify-between items-center border-b border-border-subtle pb-2 gap-4">
-                  <span className="text-text-secondary font-bold shrink-0">{row.label}</span>
-                  <span className={`font-semibold text-right truncate max-w-[220px] ${row.isMono || row.isFile ? 'font-mono' : ''
-                    } ${row.isGreen ? 'text-text-primary font-bold' : 'text-text-primary'
-                    } ${row.isFile ? 'text-emerald-400 bg-surface2 px-2 py-0.5 border border-border rounded text-[10px] flex items-center gap-1 select-none font-semibold' : ''
-                    }`}>
-                    {row.isFile && <FileText className="size-3 text-emerald-400 inline shrink-0" />}
+                { label: 'Cancelled cheque', val: documentName(state.profile.cancelledCheque), isFile: true },
+                { label: 'PAN card copy', val: documentName(state.profile.panCardCopy), isFile: true },
+                { label: 'GST certificate', val: documentName(state.profile.gstCertificate), isFile: true },
+                { label: 'MSME certificate', val: documentName(state.profile.msmeCertificate), isFile: true }
+              ].map((row) => (
+                <div key={row.label} className="flex items-baseline justify-between gap-4 border-b border-border py-2.5 text-sm">
+                  <dt className="shrink-0 text-fg-muted">{row.label}</dt>
+                  <dd className={`min-w-0 truncate text-right text-fg ${row.isMono ? 'mono' : ''}`} title={typeof row.val === 'string' ? row.val : undefined}>
+                    {row.isFile && <FileText className="mr-1 inline size-3.5 align-[-2px] text-fg-subtle" strokeWidth={1.5} aria-hidden="true" />}
                     {row.val}
-                  </span>
+                  </dd>
                 </div>
               ))}
-            </div>
-          </div>
+            </dl>
+          </section>
 
           {/* Finding 4.2. The payout account used to be three read-only rows
               in the list above, with no way to ask for a change -- so the
@@ -1469,13 +1234,4 @@ function documentName(doc) {
   if (!doc) return 'Not Uploaded';
   if (typeof doc === 'string') return doc;
   return doc.originalName || doc.documentId || 'Uploaded';
-}
-
-// 10. Progress badge component for UI header
-function ProgressBadge({ count }) {
-  return (
-    <span className="bg-surface2 text-text-primary border border-border text-[10px] font-bold font-mono px-2 py-0.5 rounded-full select-none shrink-0 tabular-nums">
-      {count}
-    </span>
-  );
 }

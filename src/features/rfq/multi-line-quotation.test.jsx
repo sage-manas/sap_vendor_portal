@@ -32,15 +32,13 @@ const field = (label) => screen.getByLabelText(label, { exact: false });
 const unitPriceField = (line) => screen.getByLabelText(`Unit price (₹) for line ${line}`, { exact: false });
 
 const openQuotationTab = async (user) => {
-  const tab = (await screen.findAllByRole('button', { name: /^Submit Quotation$/i }))
-    .find((button) => button.getAttribute('type') !== 'submit');
+  const tab = await screen.findByRole('tab', { name: /^Submit quotation$/i });
   await user.click(tab);
   await waitFor(() => expect(screen.getByLabelText('Choose a request')).toBeInTheDocument(), { timeout: 4000 });
 };
 
 const submitForm = (user) => user.click(
-  screen.getAllByRole('button', { name: /^Submit Quotation$/i })
-    .find((button) => button.getAttribute('type') === 'submit')
+  screen.getByRole('button', { name: /^Submit quotation$/i })
 );
 
 const renderRfqs = (api = withRfq) =>

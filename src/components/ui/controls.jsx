@@ -25,7 +25,7 @@ export function Tabs({ items, value, defaultValue, onValueChange, children, clas
             value={item.value}
             className="-mb-px flex h-9 shrink-0 items-center gap-1.5 border-b-2 border-transparent text-sm text-fg-muted outline-none
               hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--accent-solid)]
-              data-[selected]:border-fg data-[selected]:font-medium data-[selected]:text-fg cursor-pointer"
+              data-[active]:border-fg data-[active]:font-medium data-[active]:text-fg cursor-pointer"
           >
             {item.label}
             {item.count != null && <span className="mono text-xs text-fg-subtle">{item.count}</span>}
@@ -43,7 +43,9 @@ export const TabPanel = ({ value, children, className = '' }) => (
 /* ── Segmented control: 2–4 mutually exclusive views ─────────────────────── */
 export function SegmentedControl({ options, value, onChange, 'aria-label': ariaLabel, size = 'md' }) {
   return (
-    <div role="radiogroup" aria-label={ariaLabel} className="inline-flex rounded-md border border-border bg-subtle p-0.5">
+    <div role="radiogroup" aria-label={ariaLabel} className="inline-flex max-w-full overflow-x-auto rounded-md border border-border bg-subtle p-0.5">
+      {/* Segments keep their label on one line; on a narrow screen the group
+          scrolls sideways rather than wrapping into uneven two-line buttons. */}
       {options.map((opt) => {
         const on = opt.value === value;
         return (
@@ -54,7 +56,7 @@ export function SegmentedControl({ options, value, onChange, 'aria-label': ariaL
             aria-checked={on}
             onClick={() => onChange?.(opt.value)}
             className={cx(
-              'rounded-[5px] px-2.5 text-sm transition-colors cursor-pointer',
+              'shrink-0 whitespace-nowrap rounded-[5px] px-2.5 text-sm transition-colors cursor-pointer',
               size === 'sm' ? 'h-6 text-xs' : 'h-7',
               on ? 'bg-surface font-medium text-fg shadow-[0_0_0_1px_var(--border)]' : 'text-fg-muted hover:text-fg',
             )}

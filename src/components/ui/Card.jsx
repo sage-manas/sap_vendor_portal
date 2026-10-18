@@ -28,7 +28,7 @@ export function CardHeader({ title, description, actions, className = '' }) {
  */
 export function Section({ title, description, actions, children, className = '' }) {
   return (
-    <section className={`mt-8 first:mt-0 ${className}`}>
+    <section className={className}>
       {(title || actions) && (
         <div className="mb-3 flex items-end gap-3">
           <div className="min-w-0 flex-1">
