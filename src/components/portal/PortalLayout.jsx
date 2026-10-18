@@ -110,11 +110,11 @@ export default function PortalLayout({ children }) {
             <button
               type="button"
               onClick={openPalette}
-              className="flex h-8 w-full max-w-72 items-center gap-2 rounded-md border border-border bg-canvas px-2.5 text-sm text-fg-subtle hover:border-border-strong hover:text-fg-muted cursor-pointer"
+              className="flex h-9 shrink-0 items-center gap-2 rounded-pill border border-border bg-surface px-2.5 text-sm text-fg-subtle hover:border-border-strong hover:text-fg-muted cursor-pointer 2xl:w-64 2xl:px-3.5"
             >
               <Search className="size-4 shrink-0" strokeWidth={1.5} aria-hidden="true" />
-              <span className="flex-1 truncate text-left">Search orders, invoices…</span>
-              <kbd className="hidden rounded border border-border px-1 font-mono text-xs text-fg-muted sm:inline">Ctrl K</kbd>
+              <span className="sr-only 2xl:not-sr-only 2xl:flex-1 2xl:truncate 2xl:text-left">Search orders, invoices…</span>
+              <kbd className="hidden rounded border border-border px-1 font-mono text-xs text-fg-muted 2xl:inline">Ctrl K</kbd>
             </button>
           ),
           end: (
