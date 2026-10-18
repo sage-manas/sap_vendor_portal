@@ -35,15 +35,15 @@ export default function AuditPage() {
   const pages = data ? Math.max(Math.ceil(data.total / PAGE_SIZE), 1) : 1;
 
   const columns = [
-    { key: 'at', header: 'When', render: (row) => <span className="mono text-text-secondary">{formatDate(row.at)}</span> },
-    { key: 'action', header: 'Action', render: (row) => <span className="mono text-emerald-text">{row.action}</span> },
+    { key: 'at', header: 'When', render: (row) => <span className="mono text-fg-muted">{formatDate(row.at)}</span> },
+    { key: 'action', header: 'Action', render: (row) => <span className="mono text-fg">{row.action}</span> },
     {
       key: 'actor',
       header: 'Actor',
       render: (row) => (
         <div>
-          <p className="text-[12px] text-text-primary">{row.actor.email || row.actor.id}</p>
-          <p className="mono text-[10px] uppercase tracking-[0.05em] text-text-tertiary">{row.actor.role} · {row.actor.plane}</p>
+          <p className="text-xs text-fg">{row.actor.email || row.actor.id}</p>
+          <p className="mono text-xs text-fg-subtle">{row.actor.role} · {row.actor.plane}</p>
         </div>
       ),
     },
@@ -52,14 +52,14 @@ export default function AuditPage() {
       key: 'target',
       header: 'Target',
       render: (row) => (row.target?.id
-        ? <span className="mono text-[12px]">{row.target.type}: {row.target.label || row.target.id}</span>
-        : <span className="text-text-tertiary">—</span>),
+        ? <span className="mono text-xs">{row.target.type}: {row.target.label || row.target.id}</span>
+        : <span className="text-fg-subtle">—</span>),
     },
     {
       key: 'meta',
       header: 'Detail',
       render: (row) => (
-        <span className="mono text-[11px] text-text-secondary">
+        <span className="mono text-xs text-fg-muted">
           {Object.keys(row.meta || {}).length ? JSON.stringify(row.meta) : '—'}
         </span>
       ),
@@ -104,11 +104,11 @@ export default function AuditPage() {
           <Table columns={columns} rows={(data?.entries || []).map((entry) => ({ ...entry, key: entry.id }))} empty="Nothing matches those filters." />
 
           {pages > 1 && (
-            <div className="mt-3 flex items-center justify-between text-[11px] text-text-tertiary">
+            <div className="mt-3 flex items-center justify-between text-xs text-fg-subtle">
               <span className="mono">Page {page} of {pages}</span>
               <div className="flex gap-2">
-                <button type="button" className="btn btn-o h-7 text-[11px]" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button>
-                <button type="button" className="btn btn-o h-7 text-[11px]" disabled={page >= pages} onClick={() => setPage(page + 1)}>Next</button>
+                <button type="button" className="btn btn-o h-7 text-xs" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button>
+                <button type="button" className="btn btn-o h-7 text-xs" disabled={page >= pages} onClick={() => setPage(page + 1)}>Next</button>
               </div>
             </div>
           )}

@@ -35,15 +35,15 @@ const writePath = (object, path, value) => {
 };
 
 const TestResult = ({ result }) => {
-  if (!result) return <span className="text-[11px] text-text-tertiary">Never tested</span>;
+  if (!result) return <span className="text-xs text-fg-subtle">Never tested</span>;
 
   const Icon = result.ok ? CheckCircle2 : XCircle;
   return (
-    <span className={`flex items-start gap-1.5 text-[11px] ${result.ok ? 'text-emerald-text' : 'text-rose-400'}`}>
+    <span className={`flex items-start gap-1.5 text-xs ${result.ok ? 'text-success' : 'text-danger'}`}>
       <Icon className="mt-px size-3.5 shrink-0" />
       <span>
         {result.message}
-        <span className="text-text-tertiary">
+        <span className="text-fg-subtle">
           {' · '}{formatDate(result.at)}
           {result.latencyMs != null && ` · ${result.latencyMs}ms`}
           {result.testedBy && ` · ${result.testedBy}`}
@@ -83,7 +83,7 @@ const ConnectionForm = ({ draft, setDraft, drivers, configuredSecrets, busy, onS
           ))}
         </select>
       </Field>
-      <p className="-mt-2 text-[11px] text-text-tertiary">{definition.description}</p>
+      <p className="-mt-2 text-xs text-fg-subtle">{definition.description}</p>
 
       {definition.configFields.map((field) => (
         <Field
@@ -148,10 +148,10 @@ const ConnectionCard = ({ environment, connection, drivers, busy, onSave, onTest
   return (
     <section className={`card p-4 ${active ? 'border-border-em' : ''}`}>
       <div className="mb-1 flex items-center justify-between gap-3">
-        <h2 className="text-[15px] font-semibold capitalize text-text-primary">{environment}</h2>
+        <h2 className="text-base font-semibold capitalize text-fg">{environment}</h2>
         {active && <span className="status-badge status-badge-active">live</span>}
       </div>
-      <p className="mb-4 text-[11px] text-text-tertiary">{ENVIRONMENT_CAPTION[environment]}</p>
+      <p className="mb-4 text-xs text-fg-subtle">{ENVIRONMENT_CAPTION[environment]}</p>
 
       {draft ? (
         <ConnectionForm
@@ -164,23 +164,23 @@ const ConnectionCard = ({ environment, connection, drivers, busy, onSave, onTest
         />
       ) : (
         <>
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-[13px]">
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
             <div>
               <dt className="label mb-0.5">Driver</dt>
-              <dd className="mono text-text-primary">
+              <dd className="mono text-fg">
                 {connectedDriver ? (drivers.find((entry) => entry.key === connectedDriver)?.label ?? connectedDriver) : '—'}
               </dd>
             </div>
             <div>
               <dt className="label mb-0.5">Credentials</dt>
-              <dd className="mono text-text-primary">
+              <dd className="mono text-fg">
                 {configuredSecrets.length ? configuredSecrets.join(', ') : 'none'}
               </dd>
             </div>
             {Object.entries(connectedConfig || {}).map(([key, value]) => (
               <div key={key}>
                 <dt className="label mb-0.5">{key}</dt>
-                <dd className="mono text-text-primary break-all">
+                <dd className="mono text-fg break-all">
                   {typeof value === 'object' ? JSON.stringify(value) : String(value)}
                 </dd>
               </div>
@@ -269,11 +269,12 @@ export default function TenantSapPage({ params }) {
 
   return (
     <div>
-      <Link href={`/platform/tenants/${clientId}`} className="mb-3 inline-flex items-center gap-1.5 text-[11px] text-text-tertiary hover:text-text-primary">
-        <ArrowLeft className="size-3.5" /> {data.companyName}
-      </Link>
-
       <PageHeader
+        breadcrumb={(
+          <Link href={`/platform/tenants/${clientId}`} className="inline-flex items-center gap-1 hover:text-fg">
+            <ArrowLeft className="size-4" strokeWidth={1.5} aria-hidden="true" /> {data.companyName}
+          </Link>
+        )}
         title="SAP connection"
         caption={`${data.clientId} · running against ${data.activeEnvironment}`}
       />
@@ -297,11 +298,11 @@ export default function TenantSapPage({ params }) {
         ))}
       </div>
 
-      <section className="mt-5">
-        <h2 className="mb-3 text-[15px] font-semibold text-text-primary">Change history</h2>
+      <section className="mt-8 border-t border-border pt-5">
+        <h2 className="mb-3 text-base font-semibold text-fg">Change history</h2>
         <Table
           columns={[
-            { key: 'at', header: 'When', render: (row) => <span className="mono text-text-secondary">{formatDate(row.at)}</span> },
+            { key: 'at', header: 'When', render: (row) => <span className="mono text-fg-muted">{formatDate(row.at)}</span> },
             { key: 'action', header: 'Action' },
             { key: 'environment', header: 'Environment' },
             { key: 'driver', header: 'Driver' },
@@ -309,7 +310,7 @@ export default function TenantSapPage({ params }) {
               key: 'detail',
               header: 'Detail',
               render: (row) => (
-                <span className="text-[11px] text-text-secondary">
+                <span className="text-xs text-fg-muted">
                   {[
                     ...Object.entries(row.changes || {}).map(([field, change]) => `${field}: ${change.from ?? '—'} → ${change.to ?? '—'}`),
                     ...(row.secretsChanged?.length ? [`credentials set: ${row.secretsChanged.join(', ')}`] : []),
@@ -318,7 +319,7 @@ export default function TenantSapPage({ params }) {
                 </span>
               ),
             },
-            { key: 'actorEmail', header: 'Who', render: (row) => <span className="mono text-text-secondary">{row.actorEmail || 'system'}</span> },
+            { key: 'actorEmail', header: 'Who', render: (row) => <span className="mono text-fg-muted">{row.actorEmail || 'system'}</span> },
           ]}
           rows={(trail.data?.entries || []).map((entry) => ({ ...entry, key: entry.pk }))}
           empty="Nothing has been configured yet."

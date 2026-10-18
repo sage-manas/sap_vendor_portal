@@ -31,7 +31,7 @@ export default function KPICard({
 }) {
   const muted = empty ?? isZero(value);
   const note = hint ?? sub;
-  const deltaClass = { up: 'text-success', down: 'text-danger', neutral: 'text-fg-muted' }[deltaTone] || 'text-fg-muted';
+  const deltaClass = { up: 'text-success', down: 'text-danger', warn: 'text-warning', neutral: 'text-fg-muted' }[deltaTone] || 'text-fg-muted';
 
   return (
     <div className={`metric-panel ${className}`}>

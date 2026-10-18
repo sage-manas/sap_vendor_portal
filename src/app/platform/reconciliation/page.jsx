@@ -49,31 +49,32 @@ export default function ReconciliationPage() {
   const retryable = new Set(['ASN', 'Invoice']);
 
   const columns = [
-    { key: 'type', header: 'Type', render: (row) => <span className="mono text-[11px] uppercase tracking-[0.05em] text-text-tertiary">{row.type}</span> },
-    { key: 'id', header: 'Document', render: (row) => <span className="mono text-[12px] text-text-primary">{row.id}</span> },
+    { key: 'type', header: 'Type', render: (row) => <span className="text-fg-muted">{row.type}</span> },
+    { key: 'id', header: 'Document', render: (row) => <span className="mono whitespace-nowrap text-fg">{row.id}</span> },
     { key: 'clientId', header: 'Tenant', render: (row) => <span className="mono">{row.clientId}</span> },
     { key: 'sapSyncState', header: 'State', render: (row) => <Status value={capitalize(row.sapSyncState)} /> },
     {
       key: 'sapSyncError',
       header: 'Last error',
       render: (row) => (row.sapSyncError
-        ? <span className="text-[12px] text-rose-400">{row.sapSyncError}</span>
-        : <span className="text-text-tertiary">—</span>),
+        ? <span className="block max-w-md text-sm text-danger">{row.sapSyncError}</span>
+        : <span className="text-fg-subtle">—</span>),
     },
-    { key: 'updatedAt', header: 'Since', render: (row) => <span className="mono text-text-secondary">{formatDate(row.updatedAt)}</span> },
+    { key: 'updatedAt', header: 'Since', render: (row) => <span className="whitespace-nowrap text-fg-muted">{formatDate(row.updatedAt)}</span> },
     {
       key: 'retry',
       header: '',
       render: (row) => (retryable.has(row.type) ? (
         <button
           type="button"
-          className="btn btn-o h-7 text-[11px]"
+          className="btn btn-o h-7 text-xs"
+          aria-label={`Retry ${row.type} ${row.id}`}
           disabled={retrying === row.pk}
           onClick={() => retry(row)}
         >
           {retrying === row.pk ? 'Retrying…' : 'Retry'}
         </button>
-      ) : <span className="text-text-tertiary">—</span>),
+      ) : <span className="text-fg-subtle">—</span>),
     },
   ];
 
@@ -86,19 +87,19 @@ export default function ReconciliationPage() {
 
       <Notice onDismiss={() => setRetryError('')}>{error || retryError}</Notice>
 
-      <div className="mb-3 grid gap-2 md:grid-cols-3">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         <input
           value={filters.clientId}
           onChange={(e) => set('clientId', e.target.value)}
           placeholder="Tenant (clientId)"
-          className="h-9"
+          className="h-9 w-56!"
           aria-label="Filter by tenant"
         />
-        <select value={filters.type} onChange={(e) => set('type', e.target.value)} className="h-9">
+        <select value={filters.type} onChange={(e) => set('type', e.target.value)} className="h-9 w-auto!" aria-label="Filter by document type">
           <option value="">All document types</option>
           {DOCUMENT_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
         </select>
-        <select value={filters.state} onChange={(e) => set('state', e.target.value)} className="h-9">
+        <select value={filters.state} onChange={(e) => set('state', e.target.value)} className="h-9 w-auto!" aria-label="Filter by state">
           <option value="">All states</option>
           {SYNC_STATES.map((state) => <option key={state} value={state}>{capitalize(state)}</option>)}
         </select>
