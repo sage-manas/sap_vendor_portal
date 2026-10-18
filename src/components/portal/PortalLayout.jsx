@@ -135,7 +135,13 @@ export default function PortalLayout({ children }) {
           ),
         }}
       >
-        <div className="px-4 py-5 md:px-6 md:py-6">{children}</div>
+        <div className="px-4 py-5 md:px-6 md:py-6">
+          {/* The old supplier header carried the page's h1 ("VendorConnect");
+              the new shell has no header, so it is kept here, unseen, until the
+              pages own their h1 (phase 5a moves it into each PageHeader). */}
+          <h1 className="sr-only">VendorConnect</h1>
+          {children}
+        </div>
       </AppShell>
     </>
   );
