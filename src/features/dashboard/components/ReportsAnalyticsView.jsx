@@ -300,17 +300,17 @@ export default function ReportsAnalyticsView({ state }) {
 
         {detailTab === 'procurement' && (
           <div className="pt-6">
-            <KPIStrip>
-              <KPICard label="Total order value" value={<span className="mono">{inrFull(totalOrderValue)}</span>} empty={!totalOrderValue} />
-              <KPICard label="Purchase orders" value={pos.length} />
-              <KPICard label="Open orders" value={openPos.length} hint={openPos.length ? `${inrFull(openPoValue)} still open` : 'Nothing open'} />
-              <KPICard
+            <div className="flex flex-wrap gap-x-12 gap-y-5">
+              <KPICard size="hero" label="Total order value" value={<span className="mono">{inrFull(totalOrderValue)}</span>} empty={!totalOrderValue} />
+              <KPICard size="hero" label="Purchase orders" value={pos.length} />
+              <KPICard size="hero" label="Open orders" value={openPos.length} hint={openPos.length ? `${inrFull(openPoValue)} still open` : 'Nothing open'} />
+              <KPICard size="hero"
                 label="RFQs you quoted on"
                 value={rfqs.length ? percent(bidOn.length, rfqs.length) : '—'}
                 empty={!rfqs.length}
                 hint={rfqs.length ? `${bidOn.length} of ${rfqs.length} RFQs` : 'No RFQs yet'}
               />
-            </KPIStrip>
+            </div>
 
             <Section className="mt-8" title="Order value by month" description="By the month each order was raised.">
               <div className="card p-4">

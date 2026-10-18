@@ -57,7 +57,7 @@ export default function DataTable({
   const someSelected = !allSelected && ids.some((id) => selected.includes(id));
   const hasActions = Boolean(inlineActions || rowActions || onRowClick);
   const colCount = visible.length + (selectable ? 1 : 0) + (hasActions ? 1 : 0);
-  const rowH = density === 'compact' ? 'h-9' : 'h-10';
+  const rowH = density === 'compact' ? 'h-10' : 'h-12';
 
   const toggle = (id) => onSelectedChange?.(selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id]);
   const toggleAll = () => onSelectedChange?.(allSelected ? [] : ids);
@@ -84,7 +84,7 @@ export default function DataTable({
   };
 
   return (
-    <div className={`rounded-lg border border-border bg-surface ${className}`}>
+    <div className={`rounded-lg border border-border bg-surface shadow-card ${className}`}>
       {/* ≥ 768px: a real table */}
       {/* A header can only stick inside a box that scrolls vertically, so the
           sticky header needs maxHeight; without it the page scrolls. */}
