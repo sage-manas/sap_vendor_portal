@@ -30,7 +30,7 @@ const money = (value, currency = 'INR') =>
     .format(Number(value || 0));
 
 const SectionTitle = ({ children }) => (
-  <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-tertiary">{children}</h2>
+  <h2 className="text-base font-semibold text-fg">{children}</h2>
 );
 
 export default function WorkspacePaymentsPage() {
@@ -59,14 +59,15 @@ export default function WorkspacePaymentsPage() {
                 { key: 'id', header: 'Payment', render: (row) => <span className="mono">{row.id}</span> },
                 { key: 'vendorId', header: 'Supplier' },
                 { key: 'invoiceId', header: 'Invoice', render: (row) => <span className="mono">{row.invoiceRef || row.invoiceId}</span> },
-                { key: 'grossAmount', header: 'Gross', render: (row) => <span className="mono">{money(row.grossAmount)}</span> },
-                { key: 'tdsDeducted', header: 'TDS', render: (row) => <span className="mono">{money(row.tdsDeducted)}</span> },
-                { key: 'netAmount', header: 'Net', render: (row) => <span className="mono">{money(row.netAmount)}</span> },
+                { key: 'grossAmount', header: 'Gross', align: 'right', render: (row) => <span className="mono">{money(row.grossAmount)}</span> },
+                { key: 'tdsDeducted', header: 'TDS', align: 'right', render: (row) => <span className="mono">{money(row.tdsDeducted)}</span> },
+                { key: 'netAmount', header: 'Net', align: 'right', render: (row) => <span className="mono">{money(row.netAmount)}</span> },
                 { key: 'utrCode', header: 'UTR', render: (row) => <span className="mono">{row.utrCode || '—'}</span> },
                 { key: 'paymentMethod', header: 'Method' },
-                { key: 'paymentDate', header: 'Paid', render: (row) => <span className="mono text-[11px]">{formatDate(row.paymentDate)}</span> },
+                { key: 'paymentDate', header: 'Paid', render: (row) => <span className="whitespace-nowrap">{formatDate(row.paymentDate)}</span> },
               ]}
               rows={paymentRows.map((payment) => ({ ...payment, key: payment.id }))}
+              rowLabel={(row) => `supplier ${row.vendorId}`}
               onRowClick={(row) => router.push(`/workspace/suppliers/${row.vendorId}`)}
               empty="No payments recorded yet."
             />
@@ -81,9 +82,9 @@ export default function WorkspacePaymentsPage() {
             <Table
               columns={[
                 { key: 'quarter', header: 'Quarter', render: (row) => `${row.fiscalYearLabel} ${row.quarterLabel}` },
-                { key: 'paymentCount', header: 'Payments', render: (row) => <span className="mono">{row.paymentCount}</span> },
-                { key: 'grossPaid', header: 'Gross paid', render: (row) => <span className="mono">{money(row.grossPaid)}</span> },
-                { key: 'taxWithheld', header: 'Tax withheld', render: (row) => <span className="mono">{money(row.taxWithheld)}</span> },
+                { key: 'paymentCount', header: 'Payments', align: 'right', render: (row) => <span className="mono">{row.paymentCount}</span> },
+                { key: 'grossPaid', header: 'Gross paid', align: 'right', render: (row) => <span className="mono">{money(row.grossPaid)}</span> },
+                { key: 'taxWithheld', header: 'Tax withheld', align: 'right', render: (row) => <span className="mono">{money(row.taxWithheld)}</span> },
                 { key: 'section', header: 'Section', render: (row) => row.section || '—' },
               ]}
               rows={quarterRows.map((row) => ({ ...row, key: row.id }))}
@@ -91,7 +92,7 @@ export default function WorkspacePaymentsPage() {
             />
           )}
           {tdsByQuarter.data?.disclaimer && (
-            <p className="text-[11px] text-text-tertiary">{tdsByQuarter.data.disclaimer}</p>
+            <p className="text-xs text-fg-subtle">{tdsByQuarter.data.disclaimer}</p>
           )}
         </section>
 
@@ -104,11 +105,12 @@ export default function WorkspacePaymentsPage() {
               columns={[
                 { key: 'quarter', header: 'Quarter', render: (row) => `${row.fiscalYearLabel} ${row.quarterLabel}` },
                 { key: 'vendorId', header: 'Supplier' },
-                { key: 'paymentCount', header: 'Payments', render: (row) => <span className="mono">{row.paymentCount}</span> },
-                { key: 'taxWithheld', header: 'Tax withheld', render: (row) => <span className="mono">{money(row.taxWithheld)}</span> },
+                { key: 'paymentCount', header: 'Payments', align: 'right', render: (row) => <span className="mono">{row.paymentCount}</span> },
+                { key: 'taxWithheld', header: 'Tax withheld', align: 'right', render: (row) => <span className="mono">{money(row.taxWithheld)}</span> },
                 { key: 'deducteePan', header: 'PAN', render: (row) => row.deducteePan || '—' },
               ]}
               rows={vendorRows.map((row) => ({ ...row, key: row.id }))}
+              rowLabel={(row) => `supplier ${row.vendorId}`}
               onRowClick={(row) => router.push(`/workspace/suppliers/${row.vendorId}`)}
               empty="No TDS deducted yet."
             />

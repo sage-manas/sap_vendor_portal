@@ -56,7 +56,7 @@ function InviteUser({ roles, onClose, onSent }) {
             {roles.map(({ role }) => <option key={role} value={role}>{role}</option>)}
           </select>
         </Field>
-        <p className="text-[11px] leading-relaxed text-text-tertiary">
+        <p className="text-xs leading-relaxed text-fg-subtle">
           {roles.find((entry) => entry.role === form.role)?.description}
         </p>
       </form>
@@ -119,8 +119,8 @@ export default function UsersPage() {
       header: 'Person',
       render: (row) => (
         <div>
-          <p className="text-text-primary">{row.name || row.email}</p>
-          <p className="mono text-[11px] text-text-tertiary">{row.email}</p>
+          <p className="text-fg">{row.name || row.email}</p>
+          <p className="mono text-xs text-fg-subtle">{row.email}</p>
         </div>
       ),
     },
@@ -129,19 +129,19 @@ export default function UsersPage() {
       header: 'Role',
       render: (row) => (
         manageable && row.pk !== me?.pk ? (
-          <select className="h-8" value={row.role} onChange={(event) => changeRole(row, event.target.value)}>
+          <select className="min-h-8! w-auto! py-1!" aria-label={`Role for ${row.name || row.email}`} value={row.role} onChange={(event) => changeRole(row, event.target.value)}>
             {data.roles.map(({ role }) => <option key={role} value={role}>{role}</option>)}
           </select>
         ) : <span className="mono">{row.role}</span>
       ),
     },
     { key: 'status', header: 'Status', render: (row) => <Status value={row.status} /> },
-    { key: 'lastLoginAt', header: 'Last seen', render: (row) => <span className="mono text-[11px]">{formatDate(row.lastLoginAt)}</span> },
+    { key: 'lastLoginAt', header: 'Last seen', render: (row) => <span className="mono text-xs">{formatDate(row.lastLoginAt)}</span> },
     ...(manageable ? [{
       key: 'actions',
       header: '',
       render: (row) => (
-        row.pk === me?.pk ? <span className="text-[11px] text-text-tertiary">That’s you</span> : (
+        row.pk === me?.pk ? <span className="text-xs text-fg-subtle">That’s you</span> : (
           <div className="flex justify-end">
             <button
               type="button"
@@ -159,7 +159,7 @@ export default function UsersPage() {
   const invitationColumns = [
     { key: 'email', header: 'Invited' },
     { key: 'role', header: 'Role' },
-    { key: 'expiresAt', header: 'Expires', render: (row) => <span className="mono text-[11px]">{formatDate(row.expiresAt)}</span> },
+    { key: 'expiresAt', header: 'Expires', render: (row) => <span className="mono text-xs">{formatDate(row.expiresAt)}</span> },
     ...(manageable ? [{
       key: 'actions',
       header: '',
@@ -190,7 +190,7 @@ export default function UsersPage() {
         empty="No staff accounts yet."
       />
 
-      <h2 className="mb-2 mt-8 text-[11px] font-bold uppercase tracking-[0.08em] text-text-tertiary">
+      <h2 className="mb-3 mt-10 text-base font-semibold text-fg">
         Invitations outstanding
       </h2>
       <Table

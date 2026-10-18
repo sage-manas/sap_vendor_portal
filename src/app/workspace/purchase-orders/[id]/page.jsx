@@ -24,8 +24,8 @@ const money = (value, currency = 'INR') =>
 
 function Section({ title, children }) {
   return (
-    <section className="card p-4">
-      <h2 className="mb-4 text-[15px] font-semibold text-text-primary">{title}</h2>
+    <section className="border-t border-border pt-5">
+      <h2 className="mb-4 text-base font-semibold text-fg">{title}</h2>
       {children}
     </section>
   );
@@ -43,12 +43,13 @@ export default function WorkspacePurchaseOrderPage({ params }) {
 
   return (
     <div>
-      <Link href="/workspace/purchase-orders" className="mb-3 inline-flex items-center gap-1.5 text-[11px] text-text-tertiary hover:text-text-primary">
-        <ArrowLeft className="size-3.5" /> All purchase orders
-      </Link>
-
       <PageHeader
-        title={po.sapPoNumber || po.id}
+        breadcrumb={(
+          <Link href="/workspace/purchase-orders" className="inline-flex items-center gap-1 hover:text-fg">
+            <ArrowLeft className="size-4" strokeWidth={1.5} aria-hidden="true" /> All purchase orders
+          </Link>
+        )}
+        title={<span className="mono">{po.sapPoNumber || po.id}</span>}
         caption={`${po.vendorId} · raised ${formatDate(po.createdDate)}${po.acknowledgedAt ? ` · acknowledged ${formatDate(po.acknowledgedAt)}` : ''}`}
       >
         <Status value={po.status} />
@@ -56,7 +57,7 @@ export default function WorkspacePurchaseOrderPage({ params }) {
 
       <Notice tone="error">{error}</Notice>
 
-      <div className="space-y-5">
+      <div className="space-y-8">
         <Section title="Line items">
           <Table
             columns={[
@@ -64,13 +65,13 @@ export default function WorkspacePurchaseOrderPage({ params }) {
               { key: 'materialCode', header: 'Material', render: (row) => (
                 <div>
                   <div className="mono">{row.materialCode}</div>
-                  <div className="text-[11px] text-text-tertiary">{row.description}</div>
+                  <div className="text-xs text-fg-subtle">{row.description}</div>
                 </div>
               ) },
-              { key: 'quantity', header: 'Ordered', render: (row) => <span className="mono">{row.quantity} {row.uom}</span> },
-              { key: 'grnQuantity', header: 'Received', render: (row) => <span className="mono">{row.grnQuantity} {row.uom}</span> },
-              { key: 'unitPrice', header: 'Unit price', render: (row) => <span className="mono">{money(row.unitPrice, currency)}</span> },
-              { key: 'netValue', header: 'Net value', render: (row) => <span className="mono">{money(row.netValue, currency)}</span> },
+              { key: 'quantity', header: 'Ordered', align: 'right', render: (row) => <span className="mono">{row.quantity} {row.uom}</span> },
+              { key: 'grnQuantity', header: 'Received', align: 'right', render: (row) => <span className="mono">{row.grnQuantity} {row.uom}</span> },
+              { key: 'unitPrice', header: 'Unit price', align: 'right', render: (row) => <span className="mono">{money(row.unitPrice, currency)}</span> },
+              { key: 'netValue', header: 'Net value', align: 'right', render: (row) => <span className="mono">{money(row.netValue, currency)}</span> },
             ]}
             rows={(po.items || []).map((item) => ({ ...item, key: item.line }))}
             empty="This order has no line items."
@@ -78,7 +79,7 @@ export default function WorkspacePurchaseOrderPage({ params }) {
         </Section>
 
         {/* The panel carries its own "Invoicing plan" heading. */}
-        <section className="card p-4">
+        <section className="border-t border-border pt-5">
           <InvoicePlanPanel po={po} canManage={can('po:manage')} />
         </section>
       </div>

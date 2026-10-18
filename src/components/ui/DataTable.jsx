@@ -1,22 +1,11 @@
 'use client';
 
-import { useSyncExternalStore } from 'react';
 import { Menu } from '@base-ui/react/menu';
 import { ArrowDown, ArrowUp, ChevronRight, Columns3 } from 'lucide-react';
 import { Checkbox, DropdownMenu } from './controls';
 import TableSkeleton from './TableSkeleton';
+import { useNarrow } from './useNarrow';
 
-// One layout at a time — the table, or below 768px the card list — rather
-// than both in the DOM with CSS hiding one: duplicated rows would be read
-// twice by anything that ignores CSS. The server (and a test DOM without
-// matchMedia) renders the table.
-const NARROW = '(max-width: 767px)';
-const subscribeNarrow = (onChange) => {
-  const query = window.matchMedia?.(NARROW);
-  query?.addEventListener('change', onChange);
-  return () => query?.removeEventListener('change', onChange);
-};
-const isNarrow = () => Boolean(window.matchMedia?.(NARROW).matches);
 
 /**
  * The table every list screen should be built on.
@@ -61,7 +50,7 @@ export default function DataTable({
   maxHeight,
   className = '',
 }) {
-  const narrow = useSyncExternalStore(subscribeNarrow, isNarrow, () => false);
+  const narrow = useNarrow();
   const visible = columns.filter((c) => !hiddenColumns.includes(c.key));
   const ids = rows.map(getRowId);
   const allSelected = ids.length > 0 && ids.every((id) => selected.includes(id));

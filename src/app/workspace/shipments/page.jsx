@@ -66,12 +66,12 @@ export default function WorkspaceShipmentsPage() {
               // number reads as absent rather than as an empty cell.
               render: (row) => <span className="mono">{row.trackingNumber || '—'}</span>,
             },
-            { key: 'shipDate', header: 'Dispatched', render: (row) => <span className="mono text-[11px]">{formatDate(row.shipDate)}</span> },
+            { key: 'shipDate', header: 'Dispatched', render: (row) => <span className="whitespace-nowrap">{formatDate(row.shipDate)}</span> },
             {
               key: 'estimatedDeliveryDate',
               header: 'Due',
               render: (row) => (
-                <span className={`mono text-[11px] ${dueTone(row) === 'overdue' ? 'text-red-600' : ''}`}>
+                <span className={`mono text-xs ${dueTone(row) === 'overdue' ? 'text-danger' : ''}`}>
                   {formatDate(row.estimatedDeliveryDate)}
                   {dueTone(row) === 'overdue' && <span className="ml-1.5 not-italic">(overdue)</span>}
                 </span>
@@ -90,6 +90,7 @@ export default function WorkspaceShipmentsPage() {
           rows={asns.map((asn) => ({ ...asn, key: asn.id }))}
           // Through to the supplier, same as the invoices list — that is where
           // the fuller trading history already lives.
+          rowLabel={(row) => `supplier ${row.vendorName || row.vendorId}`}
           onRowClick={(row) => router.push(`/workspace/suppliers/${row.vendorId}`)}
           empty="No shipments dispatched yet."
         />

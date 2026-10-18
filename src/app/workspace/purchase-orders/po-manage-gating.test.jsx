@@ -40,7 +40,7 @@ describe('the "New asset PO" entry point', () => {
       api: apiFor(sessionWithout('po:manage')),
     });
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Purchase Orders', level: 1 })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Purchase orders', level: 1 })).toBeInTheDocument());
     expect(screen.queryByRole('button', { name: /new asset po/i })).not.toBeInTheDocument();
   });
 
@@ -51,7 +51,7 @@ describe('the "New asset PO" entry point', () => {
       api: apiFor(sessionWith('po:manage')),
     });
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Purchase Orders', level: 1 })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Purchase orders', level: 1 })).toBeInTheDocument());
     expect(await screen.findByRole('button', { name: /new asset po/i })).toBeInTheDocument();
   });
 });

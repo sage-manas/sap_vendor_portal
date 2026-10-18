@@ -105,7 +105,7 @@ export default function CommandPalette() {
       if (matches(search, q)) {
         out.push({
           key: `po-${po.id}`,
-          group: 'Purchase Orders',
+          group: 'Purchase orders',
           name: String(po.id ?? 'PO'),
           subtitle: po.status ? `PO · ${po.status}` : 'Purchase Order',
           icon: ShoppingBag,

@@ -2,33 +2,53 @@
 
 import React from 'react';
 import Link from 'next/link';
+import { ChevronRight } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useWorkspaceSession } from '@/lib/workspace-session';
 import { PageHeader, Notice, Loading, useResource } from '@/components/console/primitives';
+import { Section } from '@/components/ui/Card';
+import KPICard, { KPIStrip } from '@/components/ui/KPICard';
 
 // The tenant overview: what needs a decision today, measured against the
 // thresholds this workspace set for itself. Every number is a link to the
 // screen that acts on it — a count with nowhere to go is a decoration.
 
-const Tile = ({ label, value, caption, href, tone = 'normal' }) => {
-  const body = (
-    <div className={`border p-4 ${tone === 'alert' ? 'border-rose-500/50' : 'border-border'} ${href ? 'hover:bg-surface2' : ''}`}>
-      <p className="text-[10px] font-bold uppercase tracking-[0.05em] text-text-tertiary">{label}</p>
-      <p className={`mono mt-2 text-2xl tabular-nums ${tone === 'alert' ? 'text-rose-400' : 'text-text-primary'}`}>{value}</p>
-      {caption && <p className="mt-1 text-[11px] text-text-tertiary">{caption}</p>}
-    </div>
-  );
-
-  return href ? <Link href={href}>{body}</Link> : body;
-};
-
 const money = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+// One row of "Needs a decision": the count, what it means, and where to act.
+const Task = ({ count, children, href, cta }) => (
+  <li>
+    <Link href={href} className="group flex items-center gap-3 px-4 py-3 hover:bg-subtle">
+      <span className="mono w-10 shrink-0 text-right text-lg text-fg">{count}</span>
+      <span className="min-w-0 flex-1 text-sm text-fg">{children}</span>
+      <span className="flex shrink-0 items-center gap-1 text-sm text-accent-text">
+        {cta} <ChevronRight className="size-4" strokeWidth={1.5} aria-hidden="true" />
+      </span>
+    </Link>
+  </li>
+);
 
 export default function WorkspaceOverviewPage() {
   const { workspace, can } = useWorkspaceSession();
   const { data, error, loading } = useResource(() => apiClient.get('/workspace/overview'));
 
   if (loading) return <Loading label="Loading the workspace" />;
+
+  const tasks = data ? [
+    data.suppliers.awaitingDecision > 0 && (
+      <Task key="review" count={data.suppliers.awaitingDecision} href="/workspace/suppliers?status=Under+Review" cta="Review">
+        Supplier registration{data.suppliers.awaitingDecision === 1 ? '' : 's'} waiting on your decision
+        {data.suppliers.overdueDecision > 0 && (
+          <span className="text-danger"> · {data.suppliers.overdueDecision} past the {data.thresholds.supplierApprovalSlaHours}h SLA</span>
+        )}
+      </Task>
+    ),
+    data.finance.invoicesOverThreshold > 0 && (
+      <Task key="invoices" count={data.finance.invoicesOverThreshold} href="/workspace/invoices" cta="Open invoices">
+        Invoice{data.finance.invoicesOverThreshold === 1 ? '' : 's'} at or above the {money(data.finance.reviewAmount)} review amount
+      </Task>
+    ),
+  ].filter(Boolean) : [];
 
   return (
     <>
@@ -40,90 +60,98 @@ export default function WorkspaceOverviewPage() {
       <Notice tone="error">{error}</Notice>
 
       {data && (
-        <div className="space-y-6">
-          <section className="space-y-2">
-            <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-tertiary">Suppliers</h2>
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <Tile
-                label="Awaiting a decision"
-                value={data.suppliers.awaitingDecision}
-                caption="Submitted and waiting on you"
-                href="/workspace/suppliers?status=Under+Review"
-              />
-              <Tile
+        <div className="space-y-8">
+          <Section title="Needs a decision">
+            {tasks.length ? (
+              <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface">{tasks}</ul>
+            ) : (
+              <p className="text-sm text-fg-muted">Nothing is waiting on you.</p>
+            )}
+          </Section>
+
+          <Section title="Suppliers">
+            <KPIStrip>
+              <KPICard label="Awaiting a decision" value={data.suppliers.awaitingDecision} hint="Submitted and waiting on you" href="/workspace/suppliers?status=Under+Review" linkLabel="Review" />
+              <KPICard
                 label="Past the SLA"
                 value={data.suppliers.overdueDecision}
-                caption={`Older than ${data.thresholds.supplierApprovalSlaHours}h`}
+                hint={`Older than ${data.thresholds.supplierApprovalSlaHours}h`}
+                delta={data.suppliers.overdueDecision > 0 ? 'Overdue' : undefined}
+                deltaTone="down"
                 href="/workspace/suppliers?status=Under+Review"
-                tone={data.suppliers.overdueDecision > 0 ? 'alert' : 'normal'}
+                linkLabel="Review"
               />
-              <Tile label="Approved" value={data.suppliers.approved} href="/workspace/suppliers?status=Approved" />
-              <Tile
+              <KPICard label="Approved" value={data.suppliers.approved} href="/workspace/suppliers?status=Approved" linkLabel="View" />
+              <KPICard
                 label="Directory"
                 value={data.suppliers.limit ? `${data.suppliers.total} / ${data.suppliers.limit}` : data.suppliers.total}
-                caption={data.suppliers.limit ? 'Used against your plan limit' : undefined}
+                hint={data.suppliers.limit ? 'Used against your plan limit' : undefined}
                 href="/workspace/suppliers"
+                linkLabel="All suppliers"
               />
-            </div>
-          </section>
+            </KPIStrip>
+          </Section>
 
-          <section className="space-y-2">
-            <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-tertiary">Sourcing</h2>
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <Tile label="RFQs open for bidding" value={data.sourcing.openRfqs} caption={`${data.sourcing.rfqsTotal} total`} href="/workspace/rfqs" />
-              <Tile label="RFQs awarded" value={data.sourcing.awardedRfqs} href="/workspace/rfqs" />
-              <Tile label="Purchase orders open" value={data.sourcing.openPos} caption={`${data.sourcing.posTotal} total`} href="/workspace/purchase-orders" />
-              <Tile label="Purchase orders, all" value={data.sourcing.posTotal} href="/workspace/purchase-orders" />
-            </div>
-          </section>
+          <Section title="Sourcing">
+            <KPIStrip>
+              <KPICard label="RFQs open for bidding" value={data.sourcing.openRfqs} hint={`${data.sourcing.rfqsTotal} total`} href="/workspace/rfqs" linkLabel="RFQs" />
+              <KPICard label="RFQs awarded" value={data.sourcing.awardedRfqs} href="/workspace/rfqs" linkLabel="RFQs" />
+              <KPICard label="Purchase orders open" value={data.sourcing.openPos} hint={`${data.sourcing.posTotal} total`} href="/workspace/purchase-orders" linkLabel="Purchase orders" />
+              <KPICard label="Purchase orders, all" value={data.sourcing.posTotal} href="/workspace/purchase-orders" linkLabel="Purchase orders" />
+            </KPIStrip>
+          </Section>
 
-          <section className="space-y-2">
-            <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-tertiary">Finance</h2>
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <Tile label="Invoices not yet cleared" value={data.finance.invoicesOpen} caption={money(data.finance.invoicesOpenValue)} href="/workspace/invoices" />
-              <Tile
+          <Section title="Finance">
+            <KPIStrip>
+              <KPICard label="Invoices not yet cleared" value={data.finance.invoicesOpen} hint={money(data.finance.invoicesOpenValue)} href="/workspace/invoices" linkLabel="Invoices" />
+              <KPICard
                 label="Above the review amount"
                 value={data.finance.invoicesOverThreshold}
-                caption={`At or above ${money(data.finance.reviewAmount)}`}
+                hint={`At or above ${money(data.finance.reviewAmount)}`}
+                delta={data.finance.invoicesOverThreshold > 0 ? 'Needs review' : undefined}
+                deltaTone="down"
                 href="/workspace/invoices"
-                tone={data.finance.invoicesOverThreshold > 0 ? 'alert' : 'normal'}
+                linkLabel="Invoices"
               />
-              <Tile label="Payments made" value={data.finance.payments.count} caption={money(data.finance.payments.netPaid)} href="/workspace/payments" />
-              <Tile label="TDS deducted" value={money(data.finance.payments.tdsDeducted)} href="/workspace/payments" />
-            </div>
-          </section>
+              <KPICard label="Payments made" value={data.finance.payments.count} hint={money(data.finance.payments.netPaid)} href="/workspace/payments" linkLabel="Payments" />
+              <KPICard label="TDS deducted" value={money(data.finance.payments.tdsDeducted)} href="/workspace/payments" linkLabel="Payments" />
+            </KPIStrip>
+          </Section>
 
-          {/* Staff numbers belong to whoever can act on them; a buyer's tile
+          {/* Staff numbers belong to whoever can act on them; a buyer's link
               would only lead to a 403. */}
           {can('user:read') && (
-            <section className="space-y-2">
-              <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-tertiary">People</h2>
-              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                <Tile label="Active staff" value={data.staff.active} href="/workspace/users" />
-                <Tile label="Invitations outstanding" value={data.staff.pendingInvitations} href="/workspace/users" />
-              </div>
-            </section>
+            <Section title="People">
+              <KPIStrip>
+                <KPICard label="Active staff" value={data.staff.active} href="/workspace/users" linkLabel="Users" />
+                <KPICard label="Invitations outstanding" value={data.staff.pendingInvitations} href="/workspace/users" linkLabel="Users" />
+              </KPIStrip>
+            </Section>
           )}
 
           {/* Issue #116: limitStorageMb was settable in the platform console
               and shown nowhere a workspace could see how much of it was
-              used. No href — like the platform health board's own Usage
+              used. No link — like the platform health board's own Usage
               badges, this is a quota gauge, not a work queue; there is no
               per-document screen in this app to send it to yet. */}
           {data.usage?.storageMb && (
-            <section className="space-y-2">
-              <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-tertiary">Plan</h2>
-              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                <Tile
+            <Section title="Plan">
+              {/* One figure: a card of its own, not a strip with empty cells. */}
+              <div className="max-w-sm overflow-hidden rounded-lg border border-border bg-surface">
+                <KPICard
+                  className="border-0!"
                   label="Storage used"
                   value={data.usage.storageMb.limit
                     ? `${data.usage.storageMb.used} / ${data.usage.storageMb.limit} MB`
                     : `${data.usage.storageMb.used} MB`}
-                  caption={data.usage.storageMb.limit ? 'Used against your plan limit' : 'No storage limit set'}
-                  tone={data.usage.storageMb.breached ? 'alert' : 'normal'}
+                  delta={data.usage.storageMb.breached ? 'Over your plan limit' : undefined}
+                  deltaTone="down"
+                  hint={data.usage.storageMb.breached
+                    ? undefined
+                    : data.usage.storageMb.limit ? 'Used against your plan limit' : 'No storage limit set'}
                 />
               </div>
-            </section>
+            </Section>
           )}
         </div>
       )}

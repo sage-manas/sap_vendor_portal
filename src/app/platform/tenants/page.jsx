@@ -139,7 +139,7 @@ export default function TenantsPage() {
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        <select className="h-9" value={status} onChange={(e) => setStatus(e.target.value)}>
+        <select className="h-9 w-auto! min-w-44" value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">All statuses</option>
           {['Trial', 'Active', 'Suspended', 'Terminated'].map((option) => (
             <option key={option} value={option}>{option}</option>
@@ -152,6 +152,7 @@ export default function TenantsPage() {
           columns={columns}
           rows={(data?.tenants || []).map((tenant) => ({ ...tenant, key: tenant.clientId }))}
           empty="No workspaces match."
+          rowLabel={(row) => row.companyName || row.clientId}
           onRowClick={(row) => router.push(`/platform/tenants/${row.clientId}`)}
         />
       )}

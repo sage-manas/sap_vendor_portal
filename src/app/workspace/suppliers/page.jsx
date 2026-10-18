@@ -59,7 +59,7 @@ function AddSupplier({ onClose, onCreated }) {
       }
     >
       <Notice tone="error">{failed}</Notice>
-      <p className="mb-4 text-[12px] leading-relaxed text-text-secondary">
+      <p className="mb-4 text-xs leading-relaxed text-fg-muted">
         The supplier receives a link to choose their own password and finish their onboarding —
         banking details and documents stay theirs to enter.
       </p>
@@ -74,7 +74,7 @@ function AddSupplier({ onClose, onCreated }) {
               disabled={busy}
               onChange={(event) => setForm({ ...form, [field.name]: event.target.value })}
             />
-            {errors[field.name] && <p className="mt-1 text-[11px] text-rose-400">{errors[field.name]}</p>}
+            {errors[field.name] && <p className="mt-1 text-xs text-danger">{errors[field.name]}</p>}
           </div>
         ))}
       </form>
@@ -116,7 +116,7 @@ function InviteSupplier({ onClose, onSent }) {
       }
     >
       <Notice tone="error">{failed}</Notice>
-      <p className="mb-4 text-[12px] leading-relaxed text-text-secondary">
+      <p className="mb-4 text-xs leading-relaxed text-fg-muted">
         They register themselves and land in this queue. An invitation works even when this
         workspace has closed self-service registration.
       </p>
@@ -172,15 +172,15 @@ export default function SuppliersPage() {
       header: 'Supplier',
       render: (row) => (
         <div>
-          <p className="text-text-primary hover:underline">{row.companyName}</p>
-          <p className="mono text-[11px] text-text-tertiary">{row.vendorId} · {row.email}</p>
+          <p className="font-medium text-fg hover:underline">{row.companyName}</p>
+          <p className="mono text-xs text-fg-subtle">{row.vendorId} · {row.email}</p>
         </div>
       ),
     },
     { key: 'gstin', header: 'GSTIN' },
     { key: 'sapVendorCode', header: 'Vendor code', render: (row) => <span className="mono">{row.sapVendorCode || '—'}</span> },
     { key: 'status', header: 'Status', render: (row) => <Status value={row.status} /> },
-    { key: 'submittedAt', header: 'Submitted', render: (row) => <span className="mono text-[11px]">{formatDate(row.submittedAt)}</span> },
+    { key: 'submittedAt', header: 'Submitted', render: (row) => formatDate(row.submittedAt) },
     ...(can('vendor:approve') ? [{
       key: 'actions',
       header: '',
@@ -189,8 +189,8 @@ export default function SuppliersPage() {
         // answer, and it arrives with the list.
         (data?.filters?.awaitingDecision || []).includes(row.status) ? (
           <div className="flex justify-end gap-2" onClick={(event) => event.stopPropagation()}>
-            <button type="button" className="btn btn-v h-8 px-2.5" onClick={() => approve(row)}>Approve</button>
-            <button type="button" className="btn btn-o h-8 px-2.5" onClick={() => setDialog({ kind: 'reject', supplier: row })}>Decline</button>
+            <button type="button" className="btn btn-o h-8 px-2.5" onClick={() => approve(row)}>Approve</button>
+            <button type="button" className="btn btn-g h-8 px-2.5" onClick={() => setDialog({ kind: 'reject', supplier: row })}>Decline</button>
           </div>
         ) : null
       ),
@@ -220,7 +220,7 @@ export default function SuppliersPage() {
           onSubmit={(event) => { event.preventDefault(); setQuery(search.trim()); }}
           className="relative"
         >
-          <Search className="pointer-events-none absolute left-2.5 top-2.5 size-3.5 text-text-tertiary" />
+          <Search className="pointer-events-none absolute left-2.5 top-2.5 size-3.5 text-fg-subtle" />
           <input
             className="h-9 w-64 pl-8"
             placeholder="Name, supplier ID, email or GSTIN"
@@ -229,7 +229,7 @@ export default function SuppliersPage() {
           />
         </form>
 
-        <select className="h-9" value={status} onChange={(event) => setStatus(event.target.value)}>
+        <select className="h-9 w-auto! min-w-44" value={status} onChange={(event) => setStatus(event.target.value)}>
           <option value="">Every status</option>
           {/* Offered by the API's registry, not listed here. */}
           {(data?.filters?.statuses || []).map((value) => <option key={value} value={value}>{value}</option>)}
@@ -243,6 +243,7 @@ export default function SuppliersPage() {
           columns={columns}
           rows={(data?.vendors || []).map((vendor) => ({ ...vendor, key: vendor.pk }))}
           empty={query || status ? 'No supplier matches that.' : 'No suppliers yet.'}
+          rowLabel={(row) => row.companyName}
           onRowClick={(row) => router.push(`/workspace/suppliers/${row.pk}`)}
         />
       )}

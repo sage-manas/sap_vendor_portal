@@ -32,7 +32,7 @@ export default function WorkspacePurchaseOrdersPage() {
 
   return (
     <>
-      <PageHeader title="Purchase Orders" caption="Every order SAP holds for this workspace's suppliers">
+      <PageHeader title="Purchase orders" caption="Every order SAP holds for this workspace's suppliers">
         {/* Issue #117: raising capex is the buying organisation's call, and
             finance does not hold po:manage — the button used to render for
             them anyway, so the only place they learned that was a 403 after
@@ -68,12 +68,12 @@ export default function WorkspacePurchaseOrdersPage() {
               render: (row) => (row.vendorName ? (
                 <span className="flex flex-col">
                   <span>{row.vendorName}</span>
-                  <span className="mono text-[10px] text-text-tertiary">{row.vendorId}</span>
+                  <span className="mono text-xs text-fg-subtle">{row.vendorId}</span>
                 </span>
               ) : <span className="mono">{row.vendorId}</span>),
             },
-            { key: 'lines', header: 'Lines', render: (row) => (row.items || []).length },
-            { key: 'value', header: 'Value', render: (row) => <span className="mono">{money(orderValue(row), row.currency)}</span> },
+            { key: 'lines', header: 'Lines', align: 'right', render: (row) => (row.items || []).length },
+            { key: 'value', header: 'Value', align: 'right', render: (row) => <span className="mono">{money(orderValue(row), row.currency)}</span> },
             { key: 'status', header: 'Status', render: (row) => <Status value={row.status} /> },
             // A supplier's proposed invoicing-plan change (approved/rejected
             // on the order's own detail page) was previously invisible from
@@ -83,14 +83,15 @@ export default function WorkspacePurchaseOrdersPage() {
             // approve/reject controls are: po:manage.
             ...(can('po:manage') ? [{
               key: 'invoicePlan',
-              header: 'Invoice Plan',
+              header: 'Invoicing plan',
               render: (row) => (hasPendingInvoicePlanChange(row)
                 ? <span className="status-badge status-badge-warn">Change Pending</span>
                 : null),
             }] : []),
-            { key: 'createdDate', header: 'Raised', render: (row) => <span className="mono text-[11px]">{formatDate(row.createdDate)}</span> },
+            { key: 'createdDate', header: 'Raised', render: (row) => <span className="whitespace-nowrap">{formatDate(row.createdDate)}</span> },
           ]}
           rows={pos.map((po) => ({ ...po, key: po.id }))}
+          rowLabel={(row) => row.sapPoNumber || row.id}
           onRowClick={(row) => router.push(`/workspace/purchase-orders/${row.id}`)}
           empty="No purchase orders yet."
         />

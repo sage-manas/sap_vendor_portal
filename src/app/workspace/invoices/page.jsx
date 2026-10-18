@@ -43,16 +43,17 @@ export default function WorkspaceInvoicesPage() {
               render: (row) => (row.vendorName ? (
                 <span className="flex flex-col">
                   <span>{row.vendorName}</span>
-                  <span className="mono text-[10px] text-text-tertiary">{row.vendorId}</span>
+                  <span className="mono text-xs text-fg-subtle">{row.vendorId}</span>
                 </span>
               ) : <span className="mono">{row.vendorId}</span>),
             },
             { key: 'poId', header: 'Order', render: (row) => <span className="mono">{row.poId}</span> },
-            { key: 'totalAmount', header: 'Amount', render: (row) => <span className="mono">{money(row.totalAmount, row.currency)}</span> },
+            { key: 'totalAmount', header: 'Amount', align: 'right', render: (row) => <span className="mono">{money(row.totalAmount, row.currency)}</span> },
             { key: 'status', header: 'Status', render: (row) => <Status value={row.status} /> },
-            { key: 'invoiceDate', header: 'Invoiced', render: (row) => <span className="mono text-[11px]">{formatDate(row.invoiceDate)}</span> },
+            { key: 'invoiceDate', header: 'Invoiced', render: (row) => <span className="whitespace-nowrap">{formatDate(row.invoiceDate)}</span> },
           ]}
           rows={invoices.map((invoice) => ({ ...invoice, key: invoice.id }))}
+          rowLabel={(row) => `supplier ${row.vendorName || row.vendorId}`}
           onRowClick={(row) => router.push(`/workspace/suppliers/${row.vendorId}`)}
           empty="No invoices submitted yet."
         />
