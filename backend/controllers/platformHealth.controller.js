@@ -9,6 +9,7 @@ const { AUDIT_ACTIONS } = require('../config/auditActions');
 const { jobKind } = require('../jobs/kinds');
 const { markPending } = require('../jobs/syncState');
 const { retryByPk } = require('../jobs/queue');
+const { sapTrafficFor, withCircuit } = require('../utils/sapHealth');
 
 // The platform health board: for every tenant, is its SAP working, how much of
 // its plan is it using, and is anyone actually signing in.
@@ -26,33 +27,6 @@ const WINDOW_HOURS = 24;
 const ACTIVE_USER_DAYS = 30;
 
 const since = (hours) => new Date(Date.now() - hours * 3600 * 1000);
-
-const sapHealthFor = async (clientId) => runWithTenant(clientId, async () => {
-  const windowStart = since(WINDOW_HOURS);
-
-  const [total, failed, latest] = await Promise.all([
-    prisma.sapLog.count({ where: { timestamp: { gte: windowStart } } }),
-    prisma.sapLog.count({ where: { timestamp: { gte: windowStart }, status: 'FAILED' } }),
-    prisma.sapLog.findFirst({
-      orderBy: { timestamp: 'desc' },
-      select: { status: true, timestamp: true, name: true, errorMessage: true },
-    }),
-  ]);
-
-  // No traffic is not the same as no problem, and the board must not paint an
-  // idle tenant green.
-  const status = total === 0 ? 'unknown'
-    : failed === 0 ? 'healthy'
-      : failed / total > 0.25 ? 'failing' : 'degraded';
-
-  return {
-    status,
-    calls: total,
-    failures: failed,
-    errorRate: total ? Number((failed / total).toFixed(4)) : null,
-    lastCall: latest ? { name: latest.name, status: latest.status, at: latest.timestamp, error: latest.errorMessage } : null,
-  };
-});
 
 // The configuration half. Reads the tenant's own adapter, so what the board
 // shows is exactly what its traffic is running through — including the circuit
@@ -141,7 +115,7 @@ const platformHealth = asyncHandler(async (req, res) => {
 
   const tenants = await Promise.all(clients.map(async (client) => {
     const [traffic, connection, usage, jobs] = await Promise.all([
-      sapHealthFor(client.clientId),
+      sapTrafficFor(client.clientId, WINDOW_HOURS, { includeLatest: true }),
       sapConnectionFor(client),
       usageFor(client),
       jobsFor(client.clientId),
@@ -155,10 +129,7 @@ const platformHealth = asyncHandler(async (req, res) => {
       plan: client.plan,
       sap: {
         ...traffic,
-        // An open breaker outranks the traffic counts. We stopped calling, so
-        // the counts have stopped moving, and a board that read them alone
-        // would quietly turn green at the worst possible moment.
-        status: connection.circuit.state === 'open' ? 'failing' : traffic.status,
+        status: withCircuit(traffic.status, connection.circuit),
         connection,
         source: connection.driver,
         syncedAt: new Date().toISOString(),

@@ -36,7 +36,7 @@ const NOT_A_LIST = new Set([
   'GET /pos/:id', 'GET /pos/:id/invoice-plan', 'GET /pos/:id/asn',
   'GET /grns/:id', 'GET /invoices/:id', 'GET /payments/:id', 'GET /payments/tds-summary',
   'GET /uploads/:id', 'GET /uploads/:id/link', 'GET /uploads/signed/:id', 'GET /reports/statement', 'GET /reports/invoice/:id', 'GET /reports/metrics',
-  'GET /dashboard/summary',
+  'GET /dashboard/summary', 'GET /dashboard/sap-status',
 ]);
 
 // Lists that read `page`/`limit` themselves and clamp them in the controller

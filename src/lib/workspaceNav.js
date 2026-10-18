@@ -31,7 +31,7 @@ export const WORKSPACE_NAV = [
   },
   {
     href: '/workspace/purchase-orders',
-    label: 'Purchase Orders',
+    label: 'Purchase orders',
     description: 'Every order this workspace has raised, and their invoicing plans',
     permission: 'po:read',
   },
@@ -58,22 +58,26 @@ export const WORKSPACE_NAV = [
     permission: 'payment:read',
   },
   {
+    href: '/workspace/audit',
+    label: 'Audit',
+    description: 'Everything that happened in this workspace',
+    permission: 'audit:read',
+  },
+  // `group: 'admin'` entries configure the workspace rather than work in it;
+  // the shell puts them at the foot of the sidebar.
+  {
     href: '/workspace/users',
     label: 'Users',
     description: 'Buyers, finance and administrators',
     permission: 'user:read',
+    group: 'admin',
   },
   {
     href: '/workspace/settings',
     label: 'Settings',
     description: 'Branding, features, thresholds and notifications',
     permission: 'settings:manage',
-  },
-  {
-    href: '/workspace/audit',
-    label: 'Audit',
-    description: 'Everything that happened in this workspace',
-    permission: 'audit:read',
+    group: 'admin',
   },
 ];
 
