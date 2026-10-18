@@ -190,9 +190,9 @@ test.describe('demo flows, through the UI', () => {
     // --- Ship -------------------------------------------------------------------
     await page.getByRole('tab', { name: 'Send shipment' }).click();
     // Nothing is invented on the supplier's behalf: the references start empty.
-    await expect(page.getByLabel('Carrier', { exact: true })).toHaveValue('');
+    await expect(page.getByLabel(/^Carrier\b/)).toHaveValue('');
     await expect(page.getByLabel('E-way bill number')).toHaveValue('');
-    await page.getByLabel('Carrier', { exact: true }).fill('Safexpress');
+    await page.getByLabel(/^Carrier\b/).fill('Safexpress');
     await page.getByLabel('Vehicle or tracking number').fill('MH-14-KL-2211');
     await page.getByRole('button', { name: 'Submit Inbound Delivery' }).click();
 
