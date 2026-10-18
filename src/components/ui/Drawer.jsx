@@ -64,7 +64,7 @@ export default function Drawer({ isOpen, onClose, title, description, footer, ch
         aria-label={typeof title === 'string' ? title : undefined}
         aria-hidden={!isOpen}
         inert={!isOpen}
-        className={`fixed inset-y-0 right-0 z-50 flex w-full max-w-[480px] flex-col outline-none border-l border-border bg-surface transition-[translate,visibility] duration-200 ease-out ${
+        className={`fixed inset-y-0 right-0 z-50 flex w-full max-w-[480px] flex-col outline-none border-l border-border bg-surface sm:rounded-l-xl transition-[translate,visibility] duration-200 ease-out ${
           isOpen ? 'translate-x-0 shadow-modal' : 'invisible translate-x-full'
         }`}
       >

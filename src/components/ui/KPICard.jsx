@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { DeltaChip } from './dashboard';
 
 // A figure with its label — and, when it helps, a delta, a sparkline or a link.
 //
@@ -27,11 +28,29 @@ export default function KPICard({
   onClick,
   linkLabel,
   empty,
+  size = 'md',
   className = '',
 }) {
   const muted = empty ?? isZero(value);
   const note = hint ?? sub;
   const deltaClass = { up: 'text-success', down: 'text-danger', warn: 'text-warning', neutral: 'text-fg-muted' }[deltaTone] || 'text-fg-muted';
+
+  // `size="hero"`: the v2 dashboard figure — a big light numeral with its
+  // delta as a chip beside it, the label underneath.
+  if (size === 'hero') {
+    return (
+      <div className={`flex flex-col gap-1 ${className}`}>
+        <span className="flex items-center gap-2">
+          {delta && <DeltaChip value={delta} tone={deltaTone} />}
+          <span className={muted ? 'text-3xl font-light text-fg-subtle tabular-nums' : 'text-[44px] leading-[48px] font-light tracking-[-0.02em] text-fg tabular-nums'}>
+            {value}
+          </span>
+        </span>
+        <span className="text-sm text-fg-muted">{label}</span>
+        {note && <span className="text-xs text-fg-subtle">{note}</span>}
+      </div>
+    );
+  }
 
   return (
     <div className={`metric-panel ${className}`}>
