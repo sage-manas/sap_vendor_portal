@@ -11,6 +11,7 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import TableSkeleton from '@/components/ui/TableSkeleton';
 import DataTable from '@/components/ui/DataTable';
 import { PageHeader } from '@/components/ui/Page';
+import { DocumentHero } from '@/components/ui/dashboard';
 import { DropdownMenu, Pagination, SegmentedControl, Tabs } from '@/components/ui/controls';
 import { poStatusVariant } from '@/lib/statusColors';
 import { describeSyncState } from '@/lib/syncState';
@@ -903,7 +904,7 @@ export default function PurchaseOrdersView({
                       <ArrowLeft className="size-4" strokeWidth={1.5} aria-hidden="true" /> Purchase orders
                     </button>
                   )}
-                  title={<span className="inline-flex flex-wrap items-center gap-3"><span className="mono">{activePo.id}</span> {renderStatusChip(activePo.status)}</span>}
+                  className="mb-4"
                   description={(
                     <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                       <span title={kind.hint}>{kind.orderLabel}</span>
@@ -921,8 +922,6 @@ export default function PurchaseOrdersView({
                           </span>
                         </>
                       )}
-                      <span aria-hidden="true">·</span>
-                      <span>Raised {displayDate(activePo.createdDate)}</span>
                     </span>
                   )}
                   secondary={!activePoIsSapOnly && activePo.fromRfqId ? (
@@ -949,6 +948,19 @@ export default function PurchaseOrdersView({
                 />
               );
             })()}
+
+            {/* Reference header (redesign v2 §3 Phase E): status, the order
+                number and when it was raised, and the order's value — the sum
+                of its own lines, the same figure as the line-items total. */}
+            <DocumentHero
+              className="mb-6"
+              status={renderStatusChip(activePo.status)}
+              id={activePo.id}
+              idAs="h1"
+              age={`Raised ${displayDate(activePo.createdDate)}`}
+              amount={`${!activePo.currency || activePo.currency === 'INR' ? '₹' : `${activePo.currency} `}${money2((activePo.items || []).reduce((s, i) => s + (Number(i?.netValue) || 0), 0))}`}
+              amountLabel={`Order value · ${(activePo.items || []).filter(Boolean).length} ${(activePo.items || []).filter(Boolean).length === 1 ? 'line' : 'lines'}`}
+            />
 
             {/* Where the order is: created → paid. */}
             {(() => {
