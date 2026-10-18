@@ -108,7 +108,7 @@ export default function SignUpPage() {
           naming={workspaceName ? `Your registration was sent to ${workspaceName}'s workspace on VendorConnect.` : null}
         />
         <div role="status" className="flex items-start gap-2.5 rounded-md border border-success/30 bg-success-tint p-4 text-sm text-fg">
-          <MailCheck className="size-4 shrink-0 mt-0.5" />
+          <MailCheck className="mt-0.5 size-4 shrink-0 text-success" strokeWidth={1.5} aria-hidden="true" />
           <span>
             Check your email. If {submittedTo} can be registered, a confirmation link is on its way —
             open it and enter your password to finish creating your account.
@@ -189,7 +189,7 @@ export default function SignUpPage() {
           {/* Email */}
           <div>
             <label className="label" htmlFor="signup-email">
-              Corporate Contact Email
+              Corporate contact email
             </label>
             <div className="relative">
               <input id="signup-email"
@@ -230,7 +230,7 @@ export default function SignUpPage() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label" htmlFor="signup-gstin">
-                GSTIN Number (India)
+                GSTIN number (India)
               </label>
               <input id="signup-gstin"
                 type="text"
@@ -286,7 +286,7 @@ export default function SignUpPage() {
             href={withWorkspace('/sign-in', slug)}
             className="text-accent-text hover:underline transition-colors duration-150 font-medium ml-1"
           >
-            Sign In here
+            Sign in here
           </Link>
         </p>
       </div>

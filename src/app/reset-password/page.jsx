@@ -3,7 +3,7 @@
 import React, { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Building2, KeyRound, ArrowRight, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { KeyRound, ArrowRight, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { AuthHeader } from '@/components/portal/WorkspaceBrand';
 import PasswordChecklist from '@/components/ui/PasswordChecklist';
 
@@ -96,7 +96,7 @@ function ResetPasswordForm() {
 
           <div>
             <label className="label" htmlFor="reset-2">
-              Confirm New password
+              Confirm new password
             </label>
             <div className="relative">
               <input id="reset-2"

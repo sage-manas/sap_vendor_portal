@@ -3,7 +3,7 @@
 import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Building2, KeyRound, User, ArrowRight, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { KeyRound, User, ArrowRight, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { forgetWhoami } from '@/lib/whoami';
 import { AuthHeader } from '@/components/portal/WorkspaceBrand';
 import PasswordChecklist from '@/components/ui/PasswordChecklist';
@@ -235,9 +235,7 @@ function AcceptInvitationForm() {
       <div className="mt-8 border-t border-border pt-6 text-center">
         <p className="text-sm text-fg-muted">
           Already have an account?{' '}
-          <Link href="/sign-in" className="text-accent-text hover:underline transition-colors duration-150 font-medium">
-            Sign In
-          </Link>
+          <Link href="/sign-in" className="text-accent-text hover:underline transition-colors duration-150 font-medium">Sign in</Link>
         </p>
       </div>
     </div>

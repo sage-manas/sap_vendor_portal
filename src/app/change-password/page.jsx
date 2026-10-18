@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Building2, KeyRound, ArrowRight, Loader2, AlertCircle, ShieldAlert } from 'lucide-react';
+import { KeyRound, ArrowRight, Loader2, AlertCircle, ShieldAlert } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useWhoami, forgetWhoami } from '@/lib/whoami';
 import { AuthHeader } from '@/components/portal/WorkspaceBrand';
@@ -64,7 +64,7 @@ export default function ChangePasswordPage() {
 
         {mustChangePassword && (
           <div role="status" className="mb-5 flex items-start gap-2.5 rounded-md border border-warning/30 bg-warning-tint p-3 text-sm text-fg">
-            <ShieldAlert className="size-4 shrink-0 mt-0.5" />
+            <ShieldAlert className="mt-0.5 size-4 shrink-0 text-warning" strokeWidth={1.5} aria-hidden="true" />
             <span>
               You are signed in with the temporary password from your invitation
               email. Choose your own before continuing.

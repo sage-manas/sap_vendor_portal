@@ -120,7 +120,7 @@ export default function PlatformSapPage() {
       <KPIStrip className="mb-6">
         <KPICard label="Tenants" value={tenants.length} />
         <KPICard label="On production" value={onProduction} />
-        <KPICard label="Never configured" value={unconfigured} delta={unconfigured ? 'Running on the simulator' : undefined} deltaTone="down" />
+        <KPICard label="Never configured" value={unconfigured} delta={unconfigured ? 'Running on the simulator' : undefined} deltaTone="warn" />
         <KPICard label="Circuits open" value={breakersOpen} delta={breakersOpen ? 'Calls are being refused' : undefined} deltaTone="down" />
       </KPIStrip>
 

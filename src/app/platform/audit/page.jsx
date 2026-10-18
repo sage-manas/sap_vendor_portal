@@ -36,7 +36,7 @@ export default function AuditPage() {
 
   const columns = [
     { key: 'at', header: 'When', render: (row) => <span className="mono text-fg-muted">{formatDate(row.at)}</span> },
-    { key: 'action', header: 'Action', render: (row) => <span className="mono text-success">{row.action}</span> },
+    { key: 'action', header: 'Action', render: (row) => <span className="mono text-fg">{row.action}</span> },
     {
       key: 'actor',
       header: 'Actor',

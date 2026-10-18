@@ -4,7 +4,7 @@ import { Check, Circle } from 'lucide-react';
 
 // The password policy, shown while the password is typed. Display only: the
 // rules are enforced by the API (backend/validators/auth.validator.js,
-// passwordSchema), and these mirror them so a person sees what is asked of
+// passwordField), and these mirror them so a person sees what is asked of
 // them before the form is refused. If the policy changes there, change it here.
 export const PASSWORD_RULES = [
   { label: 'At least 10 characters', test: (value) => value.length >= 10 },

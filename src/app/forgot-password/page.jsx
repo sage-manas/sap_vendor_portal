@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { Building2, Mail, ArrowRight, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Mail, ArrowRight, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { AuthHeader } from '@/components/portal/WorkspaceBrand';
 
 export default function ForgotPasswordPage() {
@@ -101,9 +101,7 @@ export default function ForgotPasswordPage() {
           <Link
             href="/sign-in"
             className="text-accent-text hover:underline transition-colors duration-150 font-medium ml-1"
-          >
-            Sign In
-          </Link>
+          >Sign in</Link>
         </p>
       </div>
     </div>

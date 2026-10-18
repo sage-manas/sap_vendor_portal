@@ -83,7 +83,7 @@ export default function PlatformOverviewPage() {
             <KPICard label="Tenants" value={data.platform.tenants.total} />
             <KPICard label="Active" value={data.platform.tenants.byStatus.Active || 0} />
             <KPICard label="SAP failing" value={data.platform.sapFailing} delta={data.platform.sapFailing ? 'Needs a look' : undefined} deltaTone="down" />
-            <KPICard label="Over limit" value={data.platform.limitsBreached} delta={data.platform.limitsBreached ? 'Plan limit reached' : undefined} deltaTone="down" />
+            <KPICard label="Over limit" value={data.platform.limitsBreached} delta={data.platform.limitsBreached ? 'Plan limit reached' : undefined} deltaTone="warn" />
           </KPIStrip>
 
           <Table

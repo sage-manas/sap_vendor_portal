@@ -44,7 +44,8 @@ export default function WorkspaceBrand({ workspace, caption, naming }) {
     <div className="mb-8 flex flex-col items-center text-center">
       <Mark logo={logo} name={name} />
       <h1 className="text-xl font-semibold text-fg">{name}</h1>
-      <p className="mt-1 text-sm text-fg-muted">{caption}</p>
+      {/* Unbranded, the heading is already "VendorConnect"; don't say it twice. */}
+      <p className="mt-1 text-sm text-fg-muted">{name === 'VendorConnect' ? caption?.replace(/ · VendorConnect$/, '') : caption}</p>
       {naming ? <p className="mt-3 text-sm text-fg-muted">{naming}</p> : null}
     </div>
   );

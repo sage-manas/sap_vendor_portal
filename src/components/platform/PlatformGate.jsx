@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { KeyRound, Loader2, AlertCircle, ShieldCheck, Mail } from 'lucide-react';
 import { platformApi } from '@/lib/platform-client';
 import { usePlatformSession, STAGE } from '@/lib/platform-session';
+import PasswordChecklist from '@/components/ui/PasswordChecklist';
 
 // The sign-in flow, in the order the server dictates it: password → forced
 // change (if the credentials were issued) → enrol a second factor (if there
@@ -144,9 +145,9 @@ function ChangePassword() {
       <form onSubmit={submit} className="space-y-4">
         <Field label="Temporary password" type="password" required autoComplete="current-password" disabled={busy}
           value={form.currentPassword} onChange={(e) => setForm({ ...form, currentPassword: e.target.value })} />
-        <Field label="New password" type="password" required minLength={6} autoComplete="new-password" disabled={busy}
-          hint="At least six characters."
+        <Field label="New password" type="password" required minLength={10} autoComplete="new-password" disabled={busy}
           value={form.newPassword} onChange={(e) => setForm({ ...form, newPassword: e.target.value })} />
+          <PasswordChecklist value={form.newPassword} />
         <Field label="Confirm new password" type="password" required autoComplete="new-password" disabled={busy}
           value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} />
         <Submit busy={busy}><span>Set password</span></Submit>
