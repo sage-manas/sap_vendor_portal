@@ -135,6 +135,7 @@ export default function PortalLayout({ children }) {
           ),
         }}
       >
+        {/* Each page's PageHeader is its h1. */}
         <div className="px-4 py-5 md:px-6 md:py-6">{children}</div>
       </AppShell>
     </>
