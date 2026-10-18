@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { Building2, Mail, ArrowRight, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { AuthHeader } from '@/components/portal/WorkspaceBrand';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
@@ -39,34 +40,25 @@ export default function ForgotPasswordPage() {
 
   return (
     <div className="w-full max-w-[420px] p-8 card animate-fadeUp">
-      {/* Brand Header */}
-      <div className="flex flex-col items-center mb-8">
-        <div className="size-12 rounded-none flex items-center justify-center text-white mb-3 shrink-0" style={{ backgroundColor: 'var(--accent-solid)' }}>
-          <Building2 className="size-6" />
-        </div>
-        <h1 className="text-xl font-bold text-text-primary tracking-wide">Reset Your Password</h1>
-        <p className="text-[10px] text-text-tertiary font-mono tracking-wider uppercase mt-1">
-          SUPPLIER PARTNER PORTAL
-        </p>
-      </div>
+      <AuthHeader title="Reset your password" />
 
       {error && (
-        <div className="p-3 mb-5 rounded-none bg-rose-900/20 border border-rose-900/50 flex items-start gap-2.5 text-xs text-rose-400">
-          <AlertCircle className="size-4 shrink-0 mt-0.5" />
+        <div role="alert" className="mb-5 flex items-start gap-2.5 rounded-md border border-danger/30 bg-danger-tint p-3 text-sm text-fg">
+          <AlertCircle className="mt-0.5 size-4 shrink-0 text-danger" strokeWidth={1.5} aria-hidden="true" />
           <span>{error}</span>
         </div>
       )}
 
       {submitted ? (
-        <div className="p-4 rounded-none bg-emerald-900/10 border border-emerald-900/40 flex items-start gap-2.5 text-xs text-emerald-400">
-          <CheckCircle2 className="size-4 shrink-0 mt-0.5" />
+        <div role="status" className="flex items-start gap-2.5 rounded-md border border-success/30 bg-success-tint p-4 text-sm text-fg">
+          <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" strokeWidth={1.5} aria-hidden="true" />
           <span>If an account exists for that email, a password reset link has been sent.</span>
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="label" htmlFor="forgot-1">
-              Registered Email
+              Registered email
             </label>
             <div className="relative">
               <input id="forgot-1"
@@ -78,7 +70,7 @@ export default function ForgotPasswordPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 className="pl-9 disabled:opacity-55"
               />
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-text-tertiary" />
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-fg-subtle" strokeWidth={1.5} aria-hidden="true" />
             </div>
           </div>
 
@@ -90,11 +82,11 @@ export default function ForgotPasswordPage() {
             {loading ? (
               <>
                 <Loader2 className="size-4 animate-spin" />
-                <span>Sending Reset Link...</span>
+                <span>Sending…</span>
               </>
             ) : (
               <>
-                <span>Send Reset Link</span>
+                <span>Send reset link</span>
                 <ArrowRight className="size-4" />
               </>
             )}
@@ -103,12 +95,12 @@ export default function ForgotPasswordPage() {
       )}
 
       {/* Footer nav */}
-      <div className="mt-8 pt-6 border-t border-border text-center">
-        <p className="text-[11px] text-text-tertiary">
+      <div className="mt-8 border-t border-border pt-6 text-center">
+        <p className="text-sm text-fg-muted">
           Remembered your password?{' '}
           <Link
             href="/sign-in"
-            className="text-emerald-400 hover:underline transition-colors duration-150 font-medium ml-1"
+            className="text-accent-text hover:underline transition-colors duration-150 font-medium ml-1"
           >
             Sign In
           </Link>

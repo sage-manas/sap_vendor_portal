@@ -19,7 +19,7 @@ const Field = ({ label, hint, ...props }) => {
     <div>
       <label htmlFor={id} className="label">{label}</label>
       <input id={id} className="w-full" {...props} />
-      {hint && <p className="mt-1.5 text-[11px] text-text-tertiary">{hint}</p>}
+      {hint && <p className="mt-1.5 text-xs text-fg-subtle">{hint}</p>}
     </div>
   );
 };
@@ -27,13 +27,13 @@ const Field = ({ label, hint, ...props }) => {
 const Panel = ({ title, caption, error, children }) => (
   <div className="w-full max-w-[440px] card p-8">
     <div className="mb-6">
-      <p className="text-[10px] font-mono uppercase tracking-[0.14em] text-text-tertiary">VendorConnect Platform</p>
-      <h1 className="mt-2 text-xl font-semibold tracking-tight text-text-primary">{title}</h1>
-      {caption && <p className="mt-1.5 text-[13px] leading-relaxed text-text-secondary">{caption}</p>}
+      <p className="text-xs font-mono text-fg-subtle">VendorConnect Platform</p>
+      <h1 className="mt-2 text-xl font-semibold tracking-tight text-fg">{title}</h1>
+      {caption && <p className="mt-1.5 text-sm leading-relaxed text-fg-muted">{caption}</p>}
     </div>
 
     {error && (
-      <div role="alert" className="mb-5 flex items-start gap-2.5 border border-rose-500/50 bg-rose-500/10 p-3 text-xs text-rose-400">
+      <div role="alert" className="mb-5 flex items-start gap-2.5 border border-danger/30 bg-danger-tint p-3 text-xs text-danger">
         <AlertCircle className="mt-0.5 size-4 shrink-0" />
         <span>{error}</span>
       </div>
@@ -96,7 +96,7 @@ function SignIn() {
       error={error}
     >
       {sentTo && (
-        <p className="mb-5 flex items-start gap-2.5 border border-border p-3 text-xs text-text-secondary">
+        <p className="mb-5 flex items-start gap-2.5 border border-border p-3 text-xs text-fg-muted">
           <Mail className="mt-0.5 size-4 shrink-0" />
           If an operator account exists for {sentTo}, a reset link is on its way.
         </p>
@@ -114,7 +114,7 @@ function SignIn() {
         <Submit busy={busy}><span>Continue</span><KeyRound className="size-4" /></Submit>
       </form>
 
-      <button type="button" onClick={forgot} disabled={busy} className="mt-5 text-[11px] text-text-tertiary hover:text-text-primary">
+      <button type="button" onClick={forgot} disabled={busy} className="mt-5 text-xs text-fg-subtle hover:text-fg">
         Forgot your password?
       </button>
     </Panel>
@@ -152,7 +152,7 @@ function ChangePassword() {
         <Submit busy={busy}><span>Set password</span></Submit>
       </form>
 
-      <button type="button" onClick={signOut} className="mt-5 text-[11px] text-text-tertiary hover:text-text-primary">
+      <button type="button" onClick={signOut} className="mt-5 text-xs text-fg-subtle hover:text-fg">
         Sign out
       </button>
     </Panel>
@@ -195,12 +195,12 @@ function EnrolMfa() {
       ) : (
         <>
           <div className="mb-5 border border-border-em p-4">
-            <p className="text-[11px] text-text-secondary">
+            <p className="text-xs text-fg-muted">
               Scan this code with your authenticator app, or add an account for{' '}
               <span className="mono">{operator?.email}</span> using the key below. It is shown once and never again.
             </p>
             {qr && <img src={qr} alt="Authenticator QR code" width={176} height={176} className="mt-3 bg-white" />}
-            <p className="mono mt-3 break-all text-[13px] text-emerald-text">{enrolment.secret}</p>
+            <p className="mono mt-3 break-all text-sm text-fg">{enrolment.secret}</p>
           </div>
 
           <form onSubmit={confirm} className="space-y-4">
@@ -214,7 +214,7 @@ function EnrolMfa() {
         </>
       )}
 
-      <button type="button" onClick={signOut} className="mt-5 text-[11px] text-text-tertiary hover:text-text-primary">
+      <button type="button" onClick={signOut} className="mt-5 text-xs text-fg-subtle hover:text-fg">
         Sign out
       </button>
     </Panel>
@@ -245,7 +245,7 @@ function VerifyMfa() {
         <Submit busy={busy}><span>Enter console</span></Submit>
       </form>
 
-      <button type="button" onClick={signOut} className="mt-5 text-[11px] text-text-tertiary hover:text-text-primary">
+      <button type="button" onClick={signOut} className="mt-5 text-xs text-fg-subtle hover:text-fg">
         Sign out
       </button>
     </Panel>
@@ -279,15 +279,15 @@ export default function PlatformGate({ children }) {
 
   if (stage === STAGE.LOADING) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-base">
-        <Loader2 className="size-5 animate-spin text-text-tertiary" />
+      <div className="flex min-h-screen items-center justify-center bg-canvas">
+        <Loader2 className="size-5 animate-spin text-fg-subtle" />
       </div>
     );
   }
 
   const Step = STEPS[stage] || SignIn;
   return (
-    <div className="flex min-h-screen items-center justify-center bg-base px-4 py-10">
+    <div className="flex min-h-screen items-center justify-center bg-canvas px-4 py-10">
       <Step />
     </div>
   );

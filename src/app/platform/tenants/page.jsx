@@ -48,7 +48,7 @@ function CreateTenant({ onCreated, onCancel }) {
 
   return (
     <form onSubmit={submit} className="card mb-5 p-4">
-      <h2 className="mb-4 text-[15px] font-semibold text-text-primary">New workspace</h2>
+      <h2 className="mb-4 text-base font-semibold text-fg">New workspace</h2>
       <Notice onDismiss={() => setError('')}>{error}</Notice>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -94,15 +94,15 @@ export default function TenantsPage() {
       header: 'Company',
       render: (row) => (
         <div>
-          <p className="text-text-primary">{row.companyName}</p>
-          <p className="mono text-[11px] text-text-tertiary">{row.clientId} · {row.slug}</p>
+          <p className="text-fg">{row.companyName}</p>
+          <p className="mono text-xs text-fg-subtle">{row.clientId} · {row.slug}</p>
         </div>
       ),
     },
     { key: 'status', header: 'Status', render: (row) => <Status value={row.status} /> },
     { key: 'plan', header: 'Plan' },
     { key: 'limits', header: 'Supplier limit', render: (row) => <span className="mono">{row.limits?.vendors ?? '—'}</span> },
-    { key: 'createdAt', header: 'Created', render: (row) => <span className="mono text-text-secondary">{formatDate(row.createdAt)}</span> },
+    { key: 'createdAt', header: 'Created', render: (row) => <span className="mono text-fg-muted">{formatDate(row.createdAt)}</span> },
   ];
 
   return (
@@ -131,7 +131,7 @@ export default function TenantsPage() {
 
       <div className="mb-3 flex items-center gap-2">
         <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-text-tertiary" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-fg-subtle" />
           <input
             className="w-full pl-9"
             placeholder="Search by company, address or ID"

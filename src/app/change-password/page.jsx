@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { Building2, KeyRound, ArrowRight, Loader2, AlertCircle, ShieldAlert } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useWhoami, forgetWhoami } from '@/lib/whoami';
+import { AuthHeader } from '@/components/portal/WorkspaceBrand';
+import PasswordChecklist from '@/components/ui/PasswordChecklist';
 
 // Where an account provisioned with a temporary password lands. Tenant
 // administrators are created by the platform console and suppliers by their
@@ -58,18 +60,10 @@ export default function ChangePasswordPage() {
   return (
     <div className="flex items-start justify-center py-10 px-4">
       <div className="w-full max-w-[420px] p-8 card animate-fadeUp">
-        <div className="flex flex-col items-center mb-8">
-          <div className="size-12 rounded-none flex items-center justify-center text-white mb-3 shrink-0" style={{ backgroundColor: 'var(--accent-solid)' }}>
-            <Building2 className="size-6" />
-          </div>
-          <h1 className="text-xl font-bold text-text-primary tracking-wide">Change Your Password</h1>
-          <p className="text-[10px] text-text-tertiary font-mono tracking-wider uppercase mt-1">
-            SUPPLIER PARTNER PORTAL
-          </p>
-        </div>
+        <AuthHeader title="Change your password" />
 
         {mustChangePassword && (
-          <div className="p-3 mb-5 rounded-none bg-amber-900/20 border border-amber-900/50 flex items-start gap-2.5 text-xs text-amber-400">
+          <div role="status" className="mb-5 flex items-start gap-2.5 rounded-md border border-warning/30 bg-warning-tint p-3 text-sm text-fg">
             <ShieldAlert className="size-4 shrink-0 mt-0.5" />
             <span>
               You are signed in with the temporary password from your invitation
@@ -79,15 +73,15 @@ export default function ChangePasswordPage() {
         )}
 
         {error && (
-          <div className="p-3 mb-5 rounded-none bg-rose-900/20 border border-rose-900/50 flex items-start gap-2.5 text-xs text-rose-400">
-            <AlertCircle className="size-4 shrink-0 mt-0.5" />
+          <div role="alert" className="mb-5 flex items-start gap-2.5 rounded-md border border-danger/30 bg-danger-tint p-3 text-sm text-fg">
+            <AlertCircle className="mt-0.5 size-4 shrink-0 text-danger" strokeWidth={1.5} aria-hidden="true" />
             <span>{error}</span>
           </div>
         )}
 
         <form onSubmit={submit} className="space-y-4">
           <div>
-            <label className="label" htmlFor="change-password-1">Current Password</label>
+            <label className="label" htmlFor="change-password-1">Current password</label>
             <div className="relative">
               <input id="change-password-1"
                 type="password"
@@ -98,29 +92,30 @@ export default function ChangePasswordPage() {
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 className="pl-9 disabled:opacity-55"
               />
-              <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-text-tertiary" />
+              <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-fg-subtle" strokeWidth={1.5} aria-hidden="true" />
             </div>
           </div>
 
           <div>
-            <label className="label" htmlFor="change-password-2">New Password</label>
+            <label className="label" htmlFor="change-password-2">New password</label>
             <div className="relative">
               <input id="change-password-2"
+                aria-describedby="change-password-2-rules"
                 type="password"
                 required
                 minLength={10}
                 disabled={busy}
-                placeholder="Min 10 chars, incl. upper, lower & a number"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 className="pl-9 disabled:opacity-55"
               />
-              <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-text-tertiary" />
+              <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-fg-subtle" strokeWidth={1.5} aria-hidden="true" />
             </div>
+            <PasswordChecklist value={newPassword} id="change-password-2-rules" />
           </div>
 
           <div>
-            <label className="label" htmlFor="change-password-3">Confirm New Password</label>
+            <label className="label" htmlFor="change-password-3">Confirm new password</label>
             <div className="relative">
               <input id="change-password-3"
                 type="password"
@@ -131,7 +126,7 @@ export default function ChangePasswordPage() {
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 className="pl-9 disabled:opacity-55"
               />
-              <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-text-tertiary" />
+              <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-fg-subtle" strokeWidth={1.5} aria-hidden="true" />
             </div>
           </div>
 
@@ -147,7 +142,7 @@ export default function ChangePasswordPage() {
               </>
             ) : (
               <>
-                <span>Change Password</span>
+                <span>Change password</span>
                 <ArrowRight className="size-4" />
               </>
             )}

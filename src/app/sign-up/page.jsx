@@ -7,6 +7,7 @@ import { Building2, KeyRound, Mail, ArrowRight, Loader2, AlertCircle, MailCheck 
 import WorkspaceBrand from '@/components/portal/WorkspaceBrand';
 import { useWorkspaceRealm } from '@/lib/workspace-realm';
 import { currentSlug, withWorkspace } from '@/lib/workspace-slug';
+import PasswordChecklist from '@/components/ui/PasswordChecklist';
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -106,7 +107,7 @@ export default function SignUpPage() {
           caption="Supplier registration"
           naming={workspaceName ? `Your registration was sent to ${workspaceName}'s workspace on VendorConnect.` : null}
         />
-        <div className="p-4 rounded-none bg-emerald-900/10 border border-emerald-900/40 flex items-start gap-2.5 text-xs text-emerald-400">
+        <div role="status" className="flex items-start gap-2.5 rounded-md border border-success/30 bg-success-tint p-4 text-sm text-fg">
           <MailCheck className="size-4 shrink-0 mt-0.5" />
           <span>
             Check your email. If {submittedTo} can be registered, a confirmation link is on its way —
@@ -114,7 +115,7 @@ export default function SignUpPage() {
           </span>
         </div>
         <div className="mt-6 pt-5 border-t border-border text-center">
-          <Link href={withWorkspace('/sign-in', slug)} className="text-[11px] text-emerald-400 hover:underline font-medium">
+          <Link href={withWorkspace('/sign-in', slug)} className="text-sm font-medium text-accent-text hover:underline">
             Back to sign in
           </Link>
         </div>
@@ -135,13 +136,13 @@ export default function SignUpPage() {
           caption={workspaceRequired ? 'No workspace named' : 'Registration by invitation'}
           naming={workspaceName ? `${workspaceName}'s supplier workspace on VendorConnect.` : null}
         />
-        <p className="text-xs text-text-secondary text-center leading-relaxed">
+        <p className="text-center text-sm text-fg-muted">
           {workspaceRequired
             ? 'This address names no workspace, so there is nothing to register into. Registration starts from the link your buying organisation shares with its suppliers. Ask your contact there to send it — it brings you straight to onboarding.'
             : 'This workspace admits suppliers by invitation. Ask your contact in the buying organisation to send you one — the invitation link brings you straight to onboarding.'}
         </p>
         <div className="mt-6 pt-5 border-t border-border text-center">
-          <Link href={withWorkspace('/sign-in', slug)} className="text-[11px] text-emerald-400 hover:underline font-medium">
+          <Link href={withWorkspace('/sign-in', slug)} className="text-sm font-medium text-accent-text hover:underline">
             Back to sign in
           </Link>
         </div>
@@ -157,8 +158,8 @@ export default function SignUpPage() {
 
       {/* Error Output */}
       {error && (
-        <div className="p-3 mb-4 rounded-none bg-rose-900/20 border border-rose-900/50 flex items-start gap-2.5 text-xs text-rose-400">
-          <AlertCircle className="size-4 shrink-0 mt-0.5" />
+        <div role="alert" className="mb-4 flex items-start gap-2.5 rounded-md border border-danger/30 bg-danger-tint p-3 text-sm text-fg">
+          <AlertCircle className="mt-0.5 size-4 shrink-0 text-danger" strokeWidth={1.5} aria-hidden="true" />
           <span>{error}</span>
         </div>
       )}
@@ -169,7 +170,7 @@ export default function SignUpPage() {
           {/* Company Name */}
           <div>
             <label className="label" htmlFor="signup-company">
-              Company Registered Name
+              Company registered name
             </label>
             <div className="relative">
               <input id="signup-company"
@@ -181,7 +182,7 @@ export default function SignUpPage() {
                 onChange={(e) => setCompanyName(e.target.value)}
                 className="pl-8.5"
               />
-              <Building2 className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-text-tertiary" />
+              <Building2 className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-fg-subtle" />
             </div>
           </div>
 
@@ -200,28 +201,29 @@ export default function SignUpPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 className="pl-8.5"
               />
-              <Mail className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-text-tertiary" />
+              <Mail className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-fg-subtle" />
             </div>
           </div>
 
           {/* Password */}
           <div>
             <label className="label" htmlFor="signup-password">
-              Create Password
+              Create password
             </label>
             <div className="relative">
               <input id="signup-password"
+                aria-describedby="signup-password-rules"
                 type="password"
                 required
                 minLength={10}
                 disabled={loading}
-                placeholder="Min 10 chars, incl. upper, lower & a number"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="pl-8.5"
               />
-              <KeyRound className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-text-tertiary" />
+              <KeyRound className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-fg-subtle" />
             </div>
+            <PasswordChecklist value={password} id="signup-password-rules" />
           </div>
 
           {/* GSTIN & PAN Grid */}
@@ -265,11 +267,11 @@ export default function SignUpPage() {
           {loading ? (
             <>
               <Loader2 className="size-4 animate-spin" />
-              <span>Verifying and Onboarding...</span>
+              <span>Creating your account…</span>
             </>
           ) : (
             <>
-              <span>Create Account</span>
+              <span>Create account</span>
               <ArrowRight className="size-4" />
             </>
           )}
@@ -278,11 +280,11 @@ export default function SignUpPage() {
 
       {/* Footer login redirect */}
       <div className="mt-6 pt-5 border-t border-border text-center">
-        <p className="text-[11px] text-text-tertiary">
+        <p className="text-sm text-fg-muted">
           Already registered?{' '}
           <Link
             href={withWorkspace('/sign-in', slug)}
-            className="text-emerald-400 hover:underline transition-colors duration-150 font-medium ml-1"
+            className="text-accent-text hover:underline transition-colors duration-150 font-medium ml-1"
           >
             Sign In here
           </Link>

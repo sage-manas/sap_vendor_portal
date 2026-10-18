@@ -15,9 +15,9 @@ import { PageHeader, Notice, Status, Table, Loading, useResource, formatDate } f
 // usage there.
 
 const CIRCUIT_TONE = {
-  closed: 'text-text-secondary',
-  'half-open': 'text-amber-400',
-  open: 'text-rose-400',
+  closed: 'text-fg-muted',
+  'half-open': 'text-warning',
+  open: 'text-danger',
 };
 
 const CIRCUIT_LABEL = {
@@ -41,9 +41,9 @@ export default function PlatformSapPage() {
       key: 'companyName',
       header: 'Tenant',
       render: (row) => (
-        <Link href={`/platform/tenants/${row.clientId}/sap`} className="hover:text-emerald-text">
-          <span className="text-text-primary">{row.companyName}</span>
-          <span className="mono ml-2 text-[11px] text-text-tertiary">{row.clientId}</span>
+        <Link href={`/platform/tenants/${row.clientId}/sap`} className="hover:text-accent-text">
+          <span className="text-fg">{row.companyName}</span>
+          <span className="mono ml-2 text-xs text-fg-subtle">{row.clientId}</span>
         </Link>
       ),
     },
@@ -54,7 +54,7 @@ export default function PlatformSapPage() {
       render: (row) => (
         <span className="mono">
           {row.sap.connection.driver}
-          {!row.sap.connection.configured && <span className="ml-2 text-[11px] text-text-tertiary">(default)</span>}
+          {!row.sap.connection.configured && <span className="ml-2 text-xs text-fg-subtle">(default)</span>}
         </span>
       ),
     },
@@ -62,7 +62,7 @@ export default function PlatformSapPage() {
       key: 'environment',
       header: 'Environment',
       render: (row) => (
-        <span className={`mono ${row.sap.connection.environment === 'production' ? 'text-emerald-text' : 'text-text-secondary'}`}>
+        <span className={`mono ${row.sap.connection.environment === 'production' ? 'text-success' : 'text-fg-muted'}`}>
           {row.sap.connection.environment}
         </span>
       ),
@@ -72,10 +72,10 @@ export default function PlatformSapPage() {
       header: 'Last test',
       render: (row) => {
         const test = row.sap.connection.lastTest;
-        if (!test) return <span className="text-[11px] text-text-tertiary">never tested</span>;
+        if (!test) return <span className="text-xs text-fg-subtle">never tested</span>;
         return (
-          <span className={`mono text-[11px] ${test.ok ? 'text-emerald-text' : 'text-rose-400'}`}>
-            {test.ok ? 'passed' : 'failed'} <span className="text-text-tertiary">{formatDate(test.at)}</span>
+          <span className={`mono text-xs ${test.ok ? 'text-success' : 'text-danger'}`}>
+            {test.ok ? 'passed' : 'failed'} <span className="text-fg-subtle">{formatDate(test.at)}</span>
           </span>
         );
       },
@@ -86,7 +86,7 @@ export default function PlatformSapPage() {
       render: (row) => {
         const { state, failures } = row.sap.connection.circuit;
         return (
-          <span className={`mono text-[11px] ${CIRCUIT_TONE[state]}`}>
+          <span className={`mono text-xs ${CIRCUIT_TONE[state]}`}>
             {CIRCUIT_LABEL[state]}{failures ? ` · ${failures} failed` : ''}
           </span>
         );
@@ -96,7 +96,7 @@ export default function PlatformSapPage() {
       key: 'traffic',
       header: `Failures / ${data?.windowHours ?? 24}h`,
       render: (row) => (
-        <span className={`mono ${row.sap.failures ? 'text-rose-400' : 'text-text-secondary'}`}>
+        <span className={`mono ${row.sap.failures ? 'text-danger' : 'text-fg-muted'}`}>
           {row.sap.failures} / {row.sap.calls}
         </span>
       ),
@@ -118,20 +118,20 @@ export default function PlatformSapPage() {
 
       <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="metric-panel p-3">
-          <p className="text-[10px] font-bold uppercase tracking-[0.05em] text-text-tertiary">Tenants</p>
+          <p className="text-xs font-bold text-fg-subtle">Tenants</p>
           <p className="mono mt-1.5 text-lg">{tenants.length}</p>
         </div>
         <div className="metric-panel p-3">
-          <p className="text-[10px] font-bold uppercase tracking-[0.05em] text-text-tertiary">On production</p>
+          <p className="text-xs font-bold text-fg-subtle">On production</p>
           <p className="mono mt-1.5 text-lg">{onProduction}</p>
         </div>
         <div className="metric-panel p-3">
-          <p className="text-[10px] font-bold uppercase tracking-[0.05em] text-text-tertiary">Never configured</p>
-          <p className={`mono mt-1.5 text-lg ${unconfigured ? 'text-amber-400' : ''}`}>{unconfigured}</p>
+          <p className="text-xs font-bold text-fg-subtle">Never configured</p>
+          <p className={`mono mt-1.5 text-lg ${unconfigured ? 'text-warning' : ''}`}>{unconfigured}</p>
         </div>
         <div className="metric-panel p-3">
-          <p className="text-[10px] font-bold uppercase tracking-[0.05em] text-text-tertiary">Circuits open</p>
-          <p className={`mono mt-1.5 text-lg ${breakersOpen ? 'text-rose-400' : ''}`}>{breakersOpen}</p>
+          <p className="text-xs font-bold text-fg-subtle">Circuits open</p>
+          <p className={`mono mt-1.5 text-lg ${breakersOpen ? 'text-danger' : ''}`}>{breakersOpen}</p>
         </div>
       </div>
 

@@ -12,7 +12,7 @@ import { PageHeader, Notice, Status, Table, Loading, useResource, formatDate } f
 
 const Metric = ({ label, value, tone = '' }) => (
   <div className="metric-panel p-3">
-    <p className="text-[10px] font-bold uppercase tracking-[0.05em] text-text-tertiary">{label}</p>
+    <p className="text-xs font-bold text-fg-subtle">{label}</p>
     <p className={`mono mt-1.5 text-lg ${tone}`}>{value}</p>
   </div>
 );
@@ -20,9 +20,9 @@ const Metric = ({ label, value, tone = '' }) => (
 // "2 / 50" reads as usage; "2" alone does not. A tenant with no limit shows the
 // count and an explicit dash rather than a fabricated ceiling.
 const Usage = ({ entry }) => {
-  if (!entry) return <span className="mono text-text-tertiary">—</span>;
+  if (!entry) return <span className="mono text-fg-subtle">—</span>;
   return (
-    <span className={`mono ${entry.breached ? 'text-rose-400' : ''}`}>
+    <span className={`mono ${entry.breached ? 'text-danger' : ''}`}>
       {entry.used}{entry.limit ? ` / ${entry.limit}` : ' / ∞'}
     </span>
   );
@@ -38,9 +38,9 @@ export default function PlatformOverviewPage() {
       key: 'companyName',
       header: 'Tenant',
       render: (row) => (
-        <Link href={`/platform/tenants/${row.clientId}`} className="hover:text-emerald-text">
-          <span className="text-text-primary">{row.companyName}</span>
-          <span className="mono ml-2 text-[11px] text-text-tertiary">{row.clientId}</span>
+        <Link href={`/platform/tenants/${row.clientId}`} className="hover:text-accent-text">
+          <span className="text-fg">{row.companyName}</span>
+          <span className="mono ml-2 text-xs text-fg-subtle">{row.clientId}</span>
         </Link>
       ),
     },
@@ -50,7 +50,7 @@ export default function PlatformOverviewPage() {
       key: 'errorRate',
       header: `Failures / ${data?.windowHours ?? 24}h`,
       render: (row) => (
-        <span className={`mono ${row.sap.failures ? 'text-rose-400' : 'text-text-secondary'}`}>
+        <span className={`mono ${row.sap.failures ? 'text-danger' : 'text-fg-muted'}`}>
           {row.sap.failures} / {row.sap.calls}
         </span>
       ),
@@ -86,8 +86,8 @@ export default function PlatformOverviewPage() {
           <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">
             <Metric label="Tenants" value={data.platform.tenants.total} />
             <Metric label="Active" value={data.platform.tenants.byStatus.Active || 0} />
-            <Metric label="SAP failing" value={data.platform.sapFailing} tone={data.platform.sapFailing ? 'text-rose-400' : ''} />
-            <Metric label="Over limit" value={data.platform.limitsBreached} tone={data.platform.limitsBreached ? 'text-amber-500' : ''} />
+            <Metric label="SAP failing" value={data.platform.sapFailing} tone={data.platform.sapFailing ? 'text-danger' : ''} />
+            <Metric label="Over limit" value={data.platform.limitsBreached} tone={data.platform.limitsBreached ? 'text-warning' : ''} />
           </div>
 
           <Table

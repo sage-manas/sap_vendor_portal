@@ -49,8 +49,8 @@ export default function OperatorsPage() {
       header: 'Operator',
       render: (row) => (
         <div>
-          <p className="text-text-primary">{row.name}</p>
-          <p className="mono text-[11px] text-text-tertiary">{row.email}</p>
+          <p className="text-fg">{row.name}</p>
+          <p className="mono text-xs text-fg-subtle">{row.email}</p>
         </div>
       ),
     },
@@ -59,7 +59,7 @@ export default function OperatorsPage() {
       header: 'Role',
       render: (row) => (
         <select
-          className="h-8 text-[12px]" value={row.role} disabled={busy}
+          className="h-8 text-xs" value={row.role} disabled={busy}
           onChange={(e) => act(() => platformApi.updateOperator(row.id, { role: e.target.value }))}
         >
           {ROLES.map((role) => <option key={role.value} value={role.value}>{role.value}</option>)}
@@ -71,12 +71,12 @@ export default function OperatorsPage() {
       key: 'mfaEnabled',
       header: 'Second factor',
       render: (row) => (
-        <span className={`mono text-[11px] ${row.mfaEnabled ? 'text-emerald-text' : 'text-amber-500'}`}>
+        <span className={`mono text-xs ${row.mfaEnabled ? 'text-success' : 'text-warning'}`}>
           {row.mfaEnabled ? `enrolled ${formatDate(row.mfaEnrolledAt)}` : 'not enrolled — cannot use the console'}
         </span>
       ),
     },
-    { key: 'lastLoginAt', header: 'Last sign-in', render: (row) => <span className="mono text-text-secondary">{formatDate(row.lastLoginAt)}</span> },
+    { key: 'lastLoginAt', header: 'Last sign-in', render: (row) => <span className="mono text-fg-muted">{formatDate(row.lastLoginAt)}</span> },
     {
       key: 'actions',
       header: '',
@@ -84,7 +84,7 @@ export default function OperatorsPage() {
         <div className="flex justify-end gap-1.5">
           {row.mfaEnabled && (
             <button
-              type="button" className="btn btn-o h-7 text-[11px]" disabled={busy}
+              type="button" className="btn btn-o h-7 text-xs" disabled={busy}
               title="Clear their authenticator so they can enrol a new device"
               onClick={() => {
                 const reason = window.prompt('Reset this operator\'s second factor?\n\nReason (recorded in the audit trail):');
@@ -95,7 +95,7 @@ export default function OperatorsPage() {
             </button>
           )}
           <button
-            type="button" className={`btn h-7 text-[11px] ${row.status === 'Active' ? 'btn-r' : 'btn-g'}`} disabled={busy}
+            type="button" className={`btn h-7 text-xs ${row.status === 'Active' ? 'btn-r' : 'btn-g'}`} disabled={busy}
             onClick={() => act(() => platformApi.operatorLifecycle(row.id, row.status === 'Active' ? 'suspend' : 'reactivate'))}
           >
             {row.status === 'Active' ? 'Suspend' : 'Reactivate'}

@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Building2, KeyRound, User, ArrowRight, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { forgetWhoami } from '@/lib/whoami';
+import { AuthHeader } from '@/components/portal/WorkspaceBrand';
+import PasswordChecklist from '@/components/ui/PasswordChecklist';
 
 // Where an invited colleague or supplier lands from their email. The backend
 // decides which of the two they are: `POST /auth/invitations/accept` creates the
@@ -111,25 +113,17 @@ function AcceptInvitationForm() {
 
   return (
     <div className="w-full max-w-[420px] p-8 card animate-fadeUp">
-      <div className="flex flex-col items-center mb-8">
-        <div className="size-12 rounded-none flex items-center justify-center text-white mb-3 shrink-0" style={{ backgroundColor: 'var(--accent-solid)' }}>
-          <Building2 className="size-6" />
-        </div>
-        <h1 className="text-xl font-bold text-text-primary tracking-wide">Accept Your Invitation</h1>
-        <p className="text-[10px] text-text-tertiary font-mono tracking-wider uppercase mt-1">
-          SUPPLIER PARTNER PORTAL
-        </p>
-      </div>
+      <AuthHeader title="Accept your invitation" />
 
       {loadError && (
-        <div className="p-3 mb-5 rounded-none bg-rose-900/20 border border-rose-900/50 flex items-start gap-2.5 text-xs text-rose-400">
-          <AlertCircle className="size-4 shrink-0 mt-0.5" />
+        <div role="alert" className="mb-5 flex items-start gap-2.5 rounded-md border border-danger/30 bg-danger-tint p-3 text-sm text-fg">
+          <AlertCircle className="mt-0.5 size-4 shrink-0 text-danger" strokeWidth={1.5} aria-hidden="true" />
           <span>{loadError}</span>
         </div>
       )}
 
       {!loadError && !invitation && (
-        <div className="flex items-center justify-center gap-2 py-8 text-xs text-text-tertiary">
+        <div className="flex items-center justify-center gap-2 py-8 text-sm text-fg-muted" role="status">
           <Loader2 className="size-4 animate-spin" />
           <span>Checking your invitation…</span>
         </div>
@@ -137,37 +131,37 @@ function AcceptInvitationForm() {
 
       {invitation && (
         <>
-          <div className="mb-5 p-3 border border-border bg-surface2 text-xs space-y-1">
-            <p className="text-text-secondary">
-              <span className="text-text-tertiary">Joining</span>{' '}
-              <span className="font-bold text-text-primary">{invitation.companyName}</span>
+          <div className="mb-5 space-y-1 rounded-md border border-border bg-subtle p-3 text-sm">
+            <p className="text-fg-muted">
+              <span className="text-fg-subtle">Joining</span>{' '}
+              <span className="font-bold text-fg">{invitation.companyName}</span>
             </p>
-            <p className="text-text-secondary">
-              <span className="text-text-tertiary">As</span>{' '}
-              <span className="mono text-text-primary">{invitation.role}</span>
+            <p className="text-fg-muted">
+              <span className="text-fg-subtle">As</span>{' '}
+              <span className="mono text-fg">{invitation.role}</span>
             </p>
-            <p className="text-text-secondary">
-              <span className="text-text-tertiary">Email</span>{' '}
-              <span className="mono text-text-primary">{invitation.email}</span>
+            <p className="text-fg-muted">
+              <span className="text-fg-subtle">Email</span>{' '}
+              <span className="mono text-fg">{invitation.email}</span>
             </p>
           </div>
 
           {error && (
-            <div className="p-3 mb-5 rounded-none bg-rose-900/20 border border-rose-900/50 flex items-start gap-2.5 text-xs text-rose-400">
-              <AlertCircle className="size-4 shrink-0 mt-0.5" />
+            <div role="alert" className="mb-5 flex items-start gap-2.5 rounded-md border border-danger/30 bg-danger-tint p-3 text-sm text-fg">
+              <AlertCircle className="mt-0.5 size-4 shrink-0 text-danger" strokeWidth={1.5} aria-hidden="true" />
               <span>{error}</span>
             </div>
           )}
 
           {done ? (
-            <div className="p-4 rounded-none bg-emerald-900/10 border border-emerald-900/40 flex items-start gap-2.5 text-xs text-emerald-400">
-              <CheckCircle2 className="size-4 shrink-0 mt-0.5" />
+            <div role="status" className="flex items-start gap-2.5 rounded-md border border-success/30 bg-success-tint p-4 text-sm text-fg">
+              <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" strokeWidth={1.5} aria-hidden="true" />
               <span>{done}</span>
             </div>
           ) : (
             <form onSubmit={submit} className="space-y-4">
               <div>
-                <label className="label" htmlFor="invite-1">Your Name</label>
+                <label className="label" htmlFor="invite-1">Your name</label>
                 <div className="relative">
                   <input id="invite-1"
                     type="text"
@@ -178,29 +172,30 @@ function AcceptInvitationForm() {
                     onChange={(e) => setName(e.target.value)}
                     className="pl-9 disabled:opacity-55"
                   />
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-text-tertiary" />
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-fg-subtle" strokeWidth={1.5} aria-hidden="true" />
                 </div>
               </div>
 
               <div>
-                <label className="label" htmlFor="invite-2">Choose a Password</label>
+                <label className="label" htmlFor="invite-2">Choose a password</label>
                 <div className="relative">
                   <input id="invite-2"
+                aria-describedby="invite-2-rules"
                     type="password"
                     required
                     minLength={10}
                     disabled={busy}
-                    placeholder="Min 10 chars, incl. upper, lower & a number"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="pl-9 disabled:opacity-55"
                   />
-                  <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-text-tertiary" />
+                  <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-fg-subtle" strokeWidth={1.5} aria-hidden="true" />
                 </div>
+                <PasswordChecklist value={password} id="invite-2-rules" />
               </div>
 
               <div>
-                <label className="label" htmlFor="invite-3">Confirm Password</label>
+                <label className="label" htmlFor="invite-3">Confirm password</label>
                 <div className="relative">
                   <input id="invite-3"
                     type="password"
@@ -211,7 +206,7 @@ function AcceptInvitationForm() {
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     className="pl-9 disabled:opacity-55"
                   />
-                  <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-text-tertiary" />
+                  <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-fg-subtle" strokeWidth={1.5} aria-hidden="true" />
                 </div>
               </div>
 
@@ -223,11 +218,11 @@ function AcceptInvitationForm() {
                 {busy ? (
                   <>
                     <Loader2 className="size-4 animate-spin" />
-                    <span>Creating Your Account…</span>
+                    <span>Creating your account…</span>
                   </>
                 ) : (
                   <>
-                    <span>Accept Invitation</span>
+                    <span>Accept invitation</span>
                     <ArrowRight className="size-4" />
                   </>
                 )}
@@ -237,10 +232,10 @@ function AcceptInvitationForm() {
         </>
       )}
 
-      <div className="mt-8 pt-6 border-t border-border text-center">
-        <p className="text-[11px] text-text-tertiary">
+      <div className="mt-8 border-t border-border pt-6 text-center">
+        <p className="text-sm text-fg-muted">
           Already have an account?{' '}
-          <Link href="/sign-in" className="text-emerald-400 hover:underline transition-colors duration-150 font-medium">
+          <Link href="/sign-in" className="text-accent-text hover:underline transition-colors duration-150 font-medium">
             Sign In
           </Link>
         </p>
