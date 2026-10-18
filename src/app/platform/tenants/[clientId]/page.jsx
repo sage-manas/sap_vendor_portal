@@ -97,11 +97,12 @@ export default function TenantDetailPage({ params }) {
 
   return (
     <div>
-      <Link href="/platform/tenants" className="mb-3 inline-flex items-center gap-1.5 text-[11px] text-text-tertiary hover:text-text-primary">
-        <ArrowLeft className="size-3.5" /> All tenants
-      </Link>
-
       <PageHeader
+        breadcrumb={(
+          <Link href="/platform/tenants" className="inline-flex items-center gap-1 hover:text-fg">
+            <ArrowLeft className="size-4" strokeWidth={1.5} aria-hidden="true" /> All tenants
+          </Link>
+        )}
         title={tenant.companyName}
         caption={`${tenant.clientId} · ${tenant.slug} · created ${formatDate(tenant.createdAt)}${tenant.createdBy ? ` by ${tenant.createdBy}` : ''}`}
       >
@@ -129,12 +130,12 @@ export default function TenantDetailPage({ params }) {
       <Notice tone="success" onDismiss={() => setMessage('')}>{message}</Notice>
       <Notice onDismiss={() => setFailure('')}>{failure || error}</Notice>
 
-      <div className="grid gap-5 lg:grid-cols-3">
-        <section className="card p-4 lg:col-span-2">
+      <div className="grid gap-x-10 gap-y-8 lg:grid-cols-3">
+        <section className="border-t border-border pt-5 lg:col-span-2">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-[15px] font-semibold text-text-primary">Configuration</h2>
+            <h2 className="text-base font-semibold text-fg">Configuration</h2>
             {can('tenant:manage') && !edit && (
-              <button type="button" className="btn btn-o h-7 text-[11px]" onClick={() => setEdit({
+              <button type="button" className="btn btn-o h-7 text-xs" onClick={() => setEdit({
                 companyName: tenant.companyName,
                 plan: tenant.plan,
                 vendors: tenant.limits?.vendors ?? '',
@@ -207,7 +208,7 @@ export default function TenantDetailPage({ params }) {
               </div>
             </form>
           ) : (
-            <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-[13px] md:grid-cols-3">
+            <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
               {[
                 ['Workspace address', tenant.slug],
                 ['Plan', tenant.plan],
@@ -225,19 +226,19 @@ export default function TenantDetailPage({ params }) {
               ].map(([label, value]) => (
                 <div key={label}>
                   <dt className="label mb-0.5">{label}</dt>
-                  <dd className="mono text-text-primary">{value ?? '—'}</dd>
+                  <dd className="mono text-fg">{value ?? '—'}</dd>
                 </div>
               ))}
             </dl>
           )}
         </section>
 
-        <section className="card p-4">
-          <h2 className="mb-4 text-[15px] font-semibold text-text-primary">Contents</h2>
-          <dl className="space-y-1.5 text-[13px]">
+        <section className="border-t border-border pt-5">
+          <h2 className="mb-4 text-base font-semibold text-fg">Contents</h2>
+          <dl className="space-y-1.5 text-sm">
             {Object.entries(counts).map(([name, count]) => (
               <div key={name} className="flex items-center justify-between border-b border-border pb-1.5 last:border-0">
-                <dt className="text-text-secondary">{name}</dt>
+                <dt className="text-fg-muted">{name}</dt>
                 <dd className="mono">{count}</dd>
               </div>
             ))}
@@ -245,29 +246,29 @@ export default function TenantDetailPage({ params }) {
         </section>
       </div>
 
-      <section className="mt-5">
-        <h2 className="mb-3 text-[15px] font-semibold text-text-primary">Administrators</h2>
+      <section className="mt-8 border-t border-border pt-5">
+        <h2 className="mb-3 text-base font-semibold text-fg">Administrators</h2>
         <Table
           columns={[
             { key: 'email', header: 'Email' },
-            { key: 'name', header: 'Name', render: (row) => <span className="text-text-primary">{row.name}</span> },
+            { key: 'name', header: 'Name', render: (row) => <span className="text-fg">{row.name}</span> },
             { key: 'status', header: 'Status', render: (row) => <Status value={row.status} /> },
             {
               key: 'mustChangePassword',
               header: 'Credentials',
               render: (row) => (
-                <span className="mono text-[11px] text-text-tertiary">
+                <span className="mono text-xs text-fg-subtle">
                   {row.mustChangePassword ? 'temporary — not yet changed' : 'set by the user'}
                 </span>
               ),
             },
-            { key: 'lastLoginAt', header: 'Last sign-in', render: (row) => <span className="mono text-text-secondary">{formatDate(row.lastLoginAt)}</span> },
+            { key: 'lastLoginAt', header: 'Last sign-in', render: (row) => <span className="mono text-fg-muted">{formatDate(row.lastLoginAt)}</span> },
             ...(can('tenant:manage') ? [{
               key: 'actions',
               header: '',
               render: (row) => (
                 <button
-                  type="button" className="btn btn-o h-7 text-[11px]" disabled={busy}
+                  type="button" className="btn btn-o h-7 text-xs" disabled={busy}
                   onClick={() => act(() => platformApi.reissueCredentials(clientId, row.id))}
                 >
                   <Mail className="size-3" /> Re-issue

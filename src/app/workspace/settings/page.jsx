@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { apiClient } from '@/lib/api-client';
 import { useWorkspaceSession } from '@/lib/workspace-session';
 import { PageHeader, Notice, Loading, useResource } from '@/components/console/primitives';
+import { Switch } from '@/components/ui/controls';
 
 // Workspace settings, rendered entirely from the registry the API serves. This
 // screen knows how to draw a boolean, a number and a string — it does not know
@@ -13,16 +14,7 @@ import { PageHeader, Notice, Loading, useResource } from '@/components/console/p
 const Control = ({ setting, value, onChange, disabled }) => {
   if (setting.type === 'boolean') {
     return (
-      <button
-        type="button"
-        role="switch"
-        aria-checked={value}
-        disabled={disabled}
-        onClick={() => onChange(!value)}
-        className={`h-6 w-11 border transition-colors ${value ? 'border-transparent bg-emerald-500/80' : 'border-border-em bg-surface2'}`}
-      >
-        <span className={`block size-4 bg-surface transition-transform ${value ? 'translate-x-6' : 'translate-x-1'}`} />
-      </button>
+      <Switch checked={Boolean(value)} onCheckedChange={(next) => onChange(next)} disabled={disabled} aria-label={setting.label} />
     );
   }
 
@@ -31,7 +23,8 @@ const Control = ({ setting, value, onChange, disabled }) => {
       <input
         type="number"
         min="0"
-        className="mono h-9 w-40 text-right"
+        aria-label={setting.label}
+        className="mono h-9 w-40! text-right"
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value === '' ? '' : Number(event.target.value))}
@@ -41,7 +34,8 @@ const Control = ({ setting, value, onChange, disabled }) => {
 
   return (
     <input
-      className="h-9 w-72"
+      aria-label={setting.label}
+      className="h-9 w-72! max-w-full"
       type={setting.type === 'url' ? 'url' : 'text'}
       placeholder={setting.type === 'color' ? '#2f6f4e' : ''}
       value={value}
@@ -113,18 +107,18 @@ export default function SettingsPage() {
       <div className="space-y-8">
         {data.groups.map((group) => (
           <section key={group.key}>
-            <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-tertiary">{group.label}</h2>
-            <p className="mb-3 mt-1 text-[12px] text-text-secondary">{group.caption}</p>
+            <h2 className="text-base font-semibold text-fg">{group.label}</h2>
+            <p className="mb-3 mt-1 text-sm text-fg-muted">{group.caption}</p>
 
             <div className="card overflow-hidden">
               {group.settings.map((setting) => (
                 <div key={setting.key} className="flex items-start justify-between gap-6 border-b border-border p-4 last:border-0">
                   <div className="min-w-0">
-                    <p className="text-[13px] text-text-primary">{setting.label}</p>
-                    <p className="mt-1 text-[11px] leading-relaxed text-text-tertiary">{setting.hint}</p>
-                    <p className="mono mt-1 text-[10px] text-text-tertiary">{setting.key}</p>
+                    <p className="text-sm text-fg">{setting.label}</p>
+                    <p className="mt-1 text-sm text-fg-muted">{setting.hint}</p>
+                    <p className="mono mt-1 text-xs text-fg-subtle">{setting.key}</p>
                     {fieldErrors[setting.key] && (
-                      <p className="mt-1 text-[11px] text-rose-400">{fieldErrors[setting.key]}</p>
+                      <p className="mt-1 text-xs text-danger">{fieldErrors[setting.key]}</p>
                     )}
                   </div>
 

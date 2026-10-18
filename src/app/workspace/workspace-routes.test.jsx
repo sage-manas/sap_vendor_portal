@@ -31,7 +31,7 @@ const ROUTES = [
   ['/workspace/invoices', WorkspaceInvoicesPage, 'Invoices'],
   ['/workspace/payments', WorkspacePaymentsPage, 'Payments'],
   ['/workspace/shipments', WorkspaceShipmentsPage, 'Shipments'],
-  ['/workspace/purchase-orders', WorkspacePurchaseOrdersPage, 'Purchase Orders'],
+  ['/workspace/purchase-orders', WorkspacePurchaseOrdersPage, 'Purchase orders'],
   ['/workspace/purchase-orders/new-asset', WorkspaceNewAssetPoPage, 'New asset purchase order'],
 ];
 

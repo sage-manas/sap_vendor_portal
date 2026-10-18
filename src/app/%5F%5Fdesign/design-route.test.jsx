@@ -76,11 +76,14 @@ describe('Drawer', () => {
 
 describe('DataTable on a phone', () => {
   it('gives a clickable row a labelled button, not just a clickable card', () => {
+    vi.stubGlobal('matchMedia', (query) => ({ matches: query === '(max-width: 767px)', addEventListener() {}, removeEventListener() {} }));
     const onRowClick = vi.fn();
     render(<DataTable caption="Orders" columns={[{ key: 'id', header: 'Order' }]} rows={[{ id: 'PO-1' }]} onRowClick={onRowClick} rowLabel={(r) => r.id} />);
-    // The card list and the table both render in jsdom (CSS decides which shows).
-    fireEvent.click(screen.getAllByRole('button', { name: 'Open PO-1' })[1]);
+
+    expect(screen.queryByRole('table')).not.toBeInTheDocument(); // one layout, not both
+    fireEvent.click(screen.getByRole('button', { name: 'Open PO-1' }));
     expect(onRowClick).toHaveBeenCalledWith({ id: 'PO-1' });
+    vi.unstubAllGlobals();
   });
 });
 

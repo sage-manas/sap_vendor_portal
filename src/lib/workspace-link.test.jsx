@@ -113,7 +113,7 @@ describe('sign-in under account tenancy', () => {
       },
     });
 
-    await user.type(await screen.findByLabelText(/vendor id or registered email/i), 'supplier@example.com');
+    await user.type(await screen.findByLabelText(/supplier id or registered email/i), 'supplier@example.com');
     await user.type(screen.getByLabelText(/^password/i), 'Passw0rd-long');
     await user.click(screen.getByRole('button', { name: /sign in|authenticate|log in/i }));
 
@@ -134,7 +134,7 @@ describe('sign-in under account tenancy', () => {
       },
     });
 
-    await user.type(await screen.findByLabelText(/vendor id or registered email/i), 'supplier@example.com');
+    await user.type(await screen.findByLabelText(/supplier id or registered email/i), 'supplier@example.com');
     await user.type(screen.getByLabelText(/^password/i), 'Passw0rd-long');
     await user.click(screen.getByRole('button', { name: /sign in|authenticate|log in/i }));
 

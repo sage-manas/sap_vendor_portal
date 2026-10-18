@@ -65,9 +65,10 @@ describe('the supplier onboarding gate', () => {
     expect(isRegistrationComplete(undefined)).toBe(false);
   });
 
-  it('drops the registration tab for an approved supplier, keeping everything else', () => {
+  it('keeps the company profile (registration) for an approved supplier, alongside everything else', () => {
     const shown = modulesFor(MODULES, { isSupplier: true, profile: { status: 'Approved' } });
-    expect(shown.map((item) => item.id)).toEqual(MODULES.filter((m) => m.id !== ONBOARDING_MODULE).map((m) => m.id));
+    expect(shown).toEqual(MODULES);
+    expect(shown.map((item) => item.id)).toContain(ONBOARDING_MODULE);
   });
 
   it('never hides the registration tab from tenant staff, approved or not', () => {

@@ -210,7 +210,6 @@ export function PortalProvider({ children }) {
     performance: dashboardHook.performance
   };
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [selectedRfqId, setSelectedRfqId] = useState(null);
   const [selectedPoId, setSelectedPoId] = useState(null);
   // Forms states managed locally
@@ -398,8 +397,6 @@ export function PortalProvider({ children }) {
       value={{
         activeTab,
         setActiveTab,
-        sidebarCollapsed,
-        setSidebarCollapsed,
         state,
         profileHook,
         poHook,

@@ -20,22 +20,19 @@ export const ONBOARDING_MODULE = 'registration';
 export const isOnboarding = (profile) =>
   Boolean(profile?.status) && PRE_SUBMISSION_STATUSES.includes(profile.status);
 
-// True once a supplier's vendor master exists in SAP — the registration
-// module has nothing left to offer them at that point, so it drops out of
-// the nav. This is a display rule only, not an access gate: the route still
-// renders (it shows the approved record), unlike the pre-submission modules
-// the server actually refuses.
+// True once a supplier's vendor master exists in SAP.
 export const isRegistrationComplete = (profile) => profile?.status === 'Approved';
 
 // The modules to show. Suppliers mid-onboarding get the registration tab alone;
-// suppliers already approved lose it, since there is nothing left to do there;
-// everyone else — including all tenant staff — gets the full list.
+// everyone else — approved suppliers and all tenant staff — gets the full list.
+//
+// Approved suppliers used to lose the registration tab ("nothing left to do
+// there"). It stays: it is their company profile — bank details, documents,
+// the record their buyer approved — and the redesign gives it a permanent
+// place at the foot of the sidebar (product decision, 2026-10-16).
 export const modulesFor = (modules, { isSupplier, profile }) => {
   if (isSupplier && isOnboarding(profile)) {
     return modules.filter((item) => item.id === ONBOARDING_MODULE);
-  }
-  if (isSupplier && isRegistrationComplete(profile)) {
-    return modules.filter((item) => item.id !== ONBOARDING_MODULE);
   }
   return modules;
 };

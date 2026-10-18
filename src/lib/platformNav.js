@@ -24,15 +24,15 @@ export const PLATFORM_NAV = [
   },
   {
     href: '/platform/sap',
-    label: 'SAP',
+    label: 'SAP connections',
     description: 'Every tenant’s connection, driver and last test',
     permission: 'sap:configure',
   },
   {
-    href: '/platform/operators',
-    label: 'Operators',
-    description: 'Platform accounts and their second factors',
-    permission: 'operator:manage',
+    href: '/platform/reconciliation',
+    label: 'Reconciliation',
+    description: 'Documents SAP hasn’t confirmed, failed or given up on',
+    permission: 'platform:health:read',
   },
   {
     href: '/platform/audit',
@@ -40,11 +40,13 @@ export const PLATFORM_NAV = [
     description: 'Everything that happened, and who did it',
     permission: 'platform:audit:read',
   },
+  // Configures the console itself; the shell puts it at the foot of the sidebar.
   {
-    href: '/platform/reconciliation',
-    label: 'Reconciliation',
-    description: 'Documents SAP hasn’t confirmed, failed or given up on',
-    permission: 'platform:health:read',
+    href: '/platform/operators',
+    label: 'Operators',
+    description: 'Platform accounts and their second factors',
+    permission: 'operator:manage',
+    group: 'admin',
   },
 ];
 

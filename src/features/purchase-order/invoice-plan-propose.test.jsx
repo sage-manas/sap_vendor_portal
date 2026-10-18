@@ -86,7 +86,7 @@ describe('a supplier proposing a change to their own invoicing plan', () => {
     });
 
     await user.dblClick(await screen.findByText('PO-2026-0001'));
-    await user.click(await screen.findByRole('button', { name: /Invoicing plan/i }));
+    await user.click(await screen.findByRole('tab', { name: /Invoicing plan/i }));
 
     const proposeButton = await screen.findByRole('button', { name: /Propose a change/i });
     // A supplier must never see the buyer's own direct-edit control.

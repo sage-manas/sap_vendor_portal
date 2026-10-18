@@ -1,3 +1,5 @@
+import Link from 'next/link';
+
 // A figure with its label — and, when it helps, a delta, a sparkline or a link.
 //
 // No coloured rail, no icon chip: four KPIs side by side are told apart by
@@ -29,7 +31,7 @@ export default function KPICard({
 }) {
   const muted = empty ?? isZero(value);
   const note = hint ?? sub;
-  const deltaClass = { up: 'text-success', down: 'text-danger', neutral: 'text-fg-muted' }[deltaTone] || 'text-fg-muted';
+  const deltaClass = { up: 'text-success', down: 'text-danger', warn: 'text-warning', neutral: 'text-fg-muted' }[deltaTone] || 'text-fg-muted';
 
   return (
     <div className={`metric-panel ${className}`}>
@@ -48,10 +50,13 @@ export default function KPICard({
         </span>
       )}
       {spark && <div className="mt-1.5">{spark}</div>}
+      {/* Named with the figure it belongs to: a row of cards otherwise reads
+          as "Review, Review, Invoices, Invoices" to a screen reader. A Next
+          Link, so it navigates in place rather than reloading the app. */}
       {(href || onClick) && linkLabel && (
         href
-          ? <a href={href} className="mt-1 text-xs font-medium text-accent-text hover:underline w-fit">{linkLabel}</a>
-          : <button type="button" onClick={onClick} className="mt-1 text-xs font-medium text-accent-text hover:underline w-fit text-left cursor-pointer">{linkLabel}</button>
+          ? <Link href={href} aria-label={`${linkLabel}: ${label}`} className="mt-1 text-xs font-medium text-accent-text hover:underline w-fit">{linkLabel}</Link>
+          : <button type="button" onClick={onClick} aria-label={`${linkLabel}: ${label}`} className="mt-1 text-xs font-medium text-accent-text hover:underline w-fit text-left cursor-pointer">{linkLabel}</button>
       )}
     </div>
   );

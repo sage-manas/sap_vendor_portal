@@ -2,85 +2,50 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  ShoppingBag, Clock, CheckCircle2, Truck, ChevronRight, ChevronLeft, Search, Filter,
-  Calendar, User, Download, AlertTriangle, Plus,
-  FileText, ChevronDown, Check, MapPin, CreditCard, ArrowLeft,
-  Building, Building2, TrendingUp, Percent, ShieldCheck, ShieldAlert, Loader2, RefreshCw, HelpCircle, Receipt, CalendarClock, AlertCircle
+  Clock, CheckCircle2, Search, Download, FileText, Check, ArrowLeft, Loader2, CalendarClock, AlertCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import FileUploadZone from '@/components/shared/FileUploadZone';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import StatusBadge from '@/components/ui/StatusBadge';
-import EmptyState from '@/components/ui/EmptyState';
 import TableSkeleton from '@/components/ui/TableSkeleton';
-import KPICard from '@/components/ui/KPICard';
-import Modal from '@/components/ui/Modal';
+import DataTable from '@/components/ui/DataTable';
+import { PageHeader } from '@/components/ui/Page';
+import { DropdownMenu, Pagination, SegmentedControl, Tabs } from '@/components/ui/controls';
 import { poStatusVariant } from '@/lib/statusColors';
 import { describeSyncState } from '@/lib/syncState';
-import { poKind, lineKind, kindTone, lineHasInvoicePlan, hasInvoicePlan as poHasInvoicePlan, hasPendingInvoicePlanChange, invoicePlanNumbers } from '@/features/purchase-order/poKind';
+import { poKind, lineKind, lineHasInvoicePlan, hasInvoicePlan as poHasInvoicePlan, hasPendingInvoicePlanChange, invoicePlanNumbers } from '@/features/purchase-order/poKind';
 import { useWhoami } from '@/lib/whoami';
 import { rfqService } from '@/features/rfq/services/rfqService';
 import InvoicePlanPanel from './InvoicePlanPanel';
 
 import { useLabelledControl } from '@/components/ui/FieldCard';
+import { displayDate } from '@/lib/displayDate';
 
-// The shipment form's own card. Different layout from components/ui/FieldCard
-// — boxed, with an icon — but the label/control association is the same
-// problem, so it comes from the same place.
-function EnterpriseFieldCard({ label, required, error, children, icon: Icon }) {
-  const { id, control } = useLabelledControl({ label, required, error, children });
-
+// A read-only value beside its label. Mono only for identifiers and amounts;
+// the decorative tints callers used to pass (containerClassName) are no
+// longer applied — status belongs to StatusBadge, not to a coloured box.
+function SapReadOnlyField({ label, value, isFile, isMonospace = true, valueClassName = '' }) {
   return (
-    <div className={`h-full p-3 rounded-lg border border-border bg-surface hover:border-border-em transition-all duration-150 flex flex-col justify-between relative min-h-[76px] select-none ${error ? 'border-red-300 bg-red-50/10' : ''
-      }`}>
-      <div className="flex justify-between items-start w-full gap-2">
-        <label htmlFor={id} className="text-[10px] font-bold text-text-secondary uppercase tracking-wider block leading-tight" title={label}>
-          {label} {required && <span aria-hidden="true" className="text-red-500 font-bold select-none ml-0.5">*</span>}
-        </label>
-        {Icon && <Icon className="size-3.5 text-text-tertiary shrink-0" />}
-      </div>
-      <div className="w-full min-w-0 mt-1.5 flex flex-col justify-end text-text-secondary font-medium [&_span:not(.rounded)]:font-medium [&_span:not(.rounded)]:text-text-secondary [&_input]:font-medium [&_input]:text-text-secondary">
-        {control}
-        {error && (
-          <span id={`${id}-error`} className="text-[10px] font-bold text-red-600 mt-1 select-none">{error}</span>
-        )}
-      </div>
+    // Always rendered inside a <dl>: a div grouping one dt/dd pair is valid there.
+    <div className="flex min-w-0 items-baseline gap-3 text-sm">
+      <dt className="w-36 shrink-0 text-fg-muted">{label}</dt>
+      <dd className={`min-w-0 break-words text-fg ${isMonospace ? 'mono' : ''} ${valueClassName}`} title={value || ''}>
+        {isFile && <FileText className="mr-1 inline size-3.5 align-[-2px] text-fg-subtle" strokeWidth={1.5} aria-hidden="true" />}
+        {value || '—'}
+      </dd>
     </div>
   );
 }
 
-// Side-by-side: label on left, value box on right
-function SapReadOnlyField({ label, value, isFile, isMonospace = true, valueClassName = '', containerClassName = '', icon: Icon }) {
-  return (
-    <div className="flex items-center justify-start gap-2 select-none focus-within:outline-none w-full">
-      <span className="w-36 text-[11px] font-extrabold text-text-secondary uppercase tracking-wider flex items-center gap-1.5 leading-none shrink-0 truncate" title={label}>
-        {Icon && <Icon className="size-3 text-text-tertiary shrink-0" />}
-        <span className="truncate">{label}</span>
-      </span>
-      <div
-        className={`inline-flex items-center gap-1.5 border rounded-[3px] px-2.5 text-xs h-6.5 font-semibold cursor-default box-border w-fit max-w-full overflow-hidden text-ellipsis whitespace-nowrap focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-400 focus-visible:ring-offset-1 select-all transition-all duration-150 tabular-nums ${isMonospace ? 'font-mono' : 'font-sans'
-          } ${containerClassName || 'bg-base text-text-primary border-border'} ${valueClassName}`}
-        title={value || ''}
-        tabIndex={0}
-      >
-        {isFile && <FileText className="size-3.5 text-text-tertiary shrink-0" />}
-        <span>{value || '—'}</span>
-      </div>
-    </div>
-  );
-}
-
-// Vertical stack: label on top, input below — mirrors SapReadOnlyField for grid alignment
-function SapInputField({ label, required, children, icon: Icon }) {
+// Label above the control, like every other field.
+function SapInputField({ label, required, children }) {
   const { id, control } = useLabelledControl({ label, required, children });
   return (
-    <div className="flex flex-col gap-1 focus-within:outline-none">
-      <label htmlFor={id} className="text-[9px] font-extrabold text-text-secondary uppercase tracking-wider flex items-center gap-1 leading-none">
-        {Icon && <Icon className="size-3 text-text-tertiary shrink-0" />}
-        <span>
-          {label}
-          {required && <span aria-hidden="true" className="text-red-500 font-bold ml-0.5">*</span>}
-        </span>
+    <div className="flex flex-col gap-1.5">
+      <label htmlFor={id} className="text-sm font-medium text-fg">
+        {label}
+        {required && <span aria-hidden="true" className="text-fg-subtle"> *</span>}
       </label>
       <div className="w-fit">
         {control}
@@ -89,31 +54,19 @@ function SapInputField({ label, required, children, icon: Icon }) {
   );
 }
 
-const formatDate = (dateStr) => {
-  if (!dateStr) return '';
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr;
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const year = d.getFullYear();
-  return `${day}.${month}.${year}`;
-};
 
-const parseDateSafe = (dateStr) => {
-  if (!dateStr) return new Date();
-  let d = new Date(dateStr);
-  if (isNaN(d.getTime())) {
-    const parts = String(dateStr).split(/[./-]/);
-    if (parts.length === 3) {
-      if (parts[2].length === 4) {
-        d = new Date(parts[2], parts[1] - 1, parts[0]);
-      } else if (parts[0].length === 4) {
-        d = new Date(parts[0], parts[1] - 1, parts[2]);
-      }
-    }
-  }
-  return isNaN(d.getTime()) ? new Date() : d;
-};
+// A YYYY-MM-DD date `days` from today, for the shipment form's defaults.
+// Module-level so the clock read stays out of anything React renders.
+const isoDateInDays = (days) => new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+// Saved views over the list — groups of the same statuses the status filter
+// already knows; their counts are what the old KPI cards showed.
+const SAVED_VIEWS = [
+  { value: 'all', label: 'All', match: () => true },
+  { value: 'ack', label: 'Needs acknowledgement', match: (s) => s === 'Open' },
+  { value: 'delivery', label: 'In delivery', match: (s) => s === 'Acknowledged' || s === 'Dispatched' },
+  { value: 'done', label: 'Completed', match: (s) => s === 'Delivered' || s === 'Invoiced' || s === 'Paid' },
+];
 
 export default function PurchaseOrdersView({
   state,
@@ -247,7 +200,6 @@ export default function PurchaseOrdersView({
   // currentView tracks detail sub-states: 'list' | 'detail' | 'asn' | 'asn_success' | 'grn_detail'
   const [currentView, setCurrentView] = useState('list');
   const [activePoState, setActivePo] = useState(null);
-  const [activeGrnState, setActiveGrn] = useState(null);
   // allPOs, not cleanPOs: an order SAP holds that the portal has not recorded
   // yet opens the same detail page as any other, so it has to be findable here
   // too or the page would fall back to a stale snapshot of it.
@@ -256,8 +208,6 @@ export default function PurchaseOrdersView({
   // addresses a PurchaseOrder row by id, and there is no such row for this
   // order until jobs/handlers/sweepPurchaseOrders.js records it.
   const activePoIsSapOnly = Boolean(activePo?.sapOnly);
-  const activeGrn = activeGrnState ? (cleanGrns.find(g => g.id === activeGrnState.id) || activeGrnState) : null;
-  const [localSubmissionTimes, setLocalSubmissionTimes] = useState({});
   // The export bridge (Phase 5.2): downloads the awarded PO as a file for
   // the buyer's own MM team to import into SAP on their own schedule — not
   // a live SAP write. Keyed by rfqId (the export endpoint is RFQ-scoped) so
@@ -274,28 +224,12 @@ export default function PurchaseOrdersView({
       setExportingFormat(null);
     }
   };
-  const [activeLineIdx, setActiveLineIdx] = useState(0);
-  const [asnLineIdx, setAsnLineIdx] = useState(0);
-  const [grnLineIdx, setGrnLineIdx] = useState(0);
-
-  // Selecting a different order restarts its ASN/GRN line cursors. Done as an
-  // adjustment during render rather than in an effect: an effect runs *after*
-  // the browser has already painted, so for one frame the new order was shown
-  // with the previous order's line highlighted. Comparing against the previous
-  // id and resetting inline is React's documented pattern for derived-from-prop
-  // state, and it re-renders before anything reaches the screen.
-  const [lineCursorPoId, setLineCursorPoId] = useState(activePo?.id);
-  if (activePo?.id !== lineCursorPoId) {
-    setLineCursorPoId(activePo?.id);
-    setAsnLineIdx(0);
-    setGrnLineIdx(0);
-  }
-
   // Search and Filters for Screen 1
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [plantFilter, setPlantFilter] = useState('all');
   const [buyerFilter, setBuyerFilter] = useState('all');
+  const [savedView, setSavedView] = useState('all');
 
   // Table Sorting
   const [sortField, setSortField] = useState('id');
@@ -307,7 +241,6 @@ export default function PurchaseOrdersView({
 
   // Local state for E-Way Bill uploads and validation errors
   const [ewayBillNo, setEwayBillNo] = useState('');
-  const [ewayBillFile, setEwayBillFile] = useState(null);
   const [dispatchQuantities, setDispatchQuantities] = useState({});
   const [validationErrors, setValidationErrors] = useState({});
 
@@ -345,36 +278,10 @@ export default function PurchaseOrdersView({
     ? 'po_detail'
     : (detailTab === 'invoice_plan' && !showInvoicePlanTab ? 'po_detail' : detailTab);
 
-  // Countdown timer for the delivery-confirmation simulation
-  const [countdown, setCountdown] = useState({});
-
   // Fetch unique plants and buyers from actual PO list for filters
   const uniquePlants = Array.from(new Set(cleanPOs.map(p => p.plant)));
   const uniqueBuyers = Array.from(new Set(cleanPOs.map(p => p.buyerName)));
 
-  // Monitor POs that are Dispatched and track countdowns for GRN sync
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const now = Date.now();
-      cleanPOs.forEach(po => {
-        if (po.status === 'Dispatched') {
-          // Calculate elapsed time since dispatch submission.
-          // Since submitASN creates the ASN and triggers GRN in 10 seconds,
-          // we can simulate a countdown from 10 seconds.
-          const asn = cleanAsns.find(a => a.poId === po.id);
-          const submittedDate = asn?.submittedAt || asn?.createdAt || localSubmissionTimes[po.id];
-          if (submittedDate) {
-            const elapsed = Math.floor((now - parseDateSafe(submittedDate).getTime()) / 1000);
-            const remaining = Math.max(0, 10 - elapsed);
-            setCountdown(prev => ({ ...prev, [po.id]: remaining }));
-          } else {
-            setCountdown(prev => ({ ...prev, [po.id]: 10 }));
-          }
-        }
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [cleanPOs, cleanAsns, localSubmissionTimes]);
 
   // Prefills the shipment form the first time an order's "Send shipment" tab is
   // opened. This used to be an effect watching `detailTab`, which meant a render
@@ -412,7 +319,7 @@ export default function PurchaseOrdersView({
       vehicleNumber: prev.vehicleNumber || '',
       invoiceReference: prev.invoiceReference || '',
       shipDate: prev.shipDate || new Date().toISOString().split('T')[0],
-      estimatedDeliveryDate: prev.estimatedDeliveryDate || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      estimatedDeliveryDate: prev.estimatedDeliveryDate || isoDateInDays(3),
       items: initialQtys
     }));
   };
@@ -422,27 +329,17 @@ export default function PurchaseOrdersView({
     setActivePo(po);
     setDetailTab('po_detail');
     setCurrentView('detail');
-    setActiveLineIdx(0);
   };
 
   const handleOpenGrnDetails = (grn) => {
     const po = cleanPOs.find(p => p.id === grn.poId);
-    setActiveGrn(grn);
     setActivePo(po);
     setDetailTab('grn_status');
     setCurrentView('detail');
-    setActiveLineIdx(0);
   };
 
-  // Sort POs
-  const handleSort = (field) => {
-    if (sortField === field) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortOrder('asc');
-    }
-  };
+
+
 
   // Filter and sort the PO list
   const getFilteredPOs = () => {
@@ -482,7 +379,7 @@ export default function PurchaseOrdersView({
       });
   };
 
-  const filteredPOs = getFilteredPOs();
+  const filteredPOs = getFilteredPOs().filter((po) => SAVED_VIEWS.find((v) => v.value === savedView).match(po.status));
   const totalPages = Math.ceil(filteredPOs.length / itemsPerPage);
   const paginatedPOs = filteredPOs.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
@@ -507,7 +404,7 @@ export default function PurchaseOrdersView({
       vehicleNumber: '',
       invoiceReference: '',
       shipDate: new Date().toISOString().split('T')[0],
-      estimatedDeliveryDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      estimatedDeliveryDate: isoDateInDays(3),
       items: initialQtys
     });
     setDetailTab('create_asn');
@@ -539,11 +436,6 @@ export default function PurchaseOrdersView({
     if (hasErrors) return;
 
     try {
-      // Record local submission timestamp to start countdown immediately
-      if (activePo) {
-        setLocalSubmissionTimes(prev => ({ ...prev, [activePo.id]: new Date().toISOString() }));
-      }
-
       // Call store dispatch
       const res = await handleAsnSubmit({
         ...activePo,
@@ -591,10 +483,237 @@ export default function PurchaseOrdersView({
     );
   };
 
+  const money2 = (value) => Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const lineColumns = [
+    { key: 'line', header: 'Line', mono: true, primary: true },
+    // SAP allows one order to mix categories, so the kind belongs on the
+    // line, not only in the header.
+    { key: 'kind', header: 'Type', render: (item) => { const kind = lineKind(item); return <span className="text-fg-muted" title={kind.hint}>{kind.label}</span>; } },
+    // An asset or service line is text-only in SAP — no MATNR — so the
+    // column is legitimately blank on one.
+    { key: 'materialCode', header: 'Item code', render: (item) => <span className="mono">{item.materialCode || '—'}</span> },
+    {
+      key: 'description',
+      header: 'Description',
+      wrap: true,
+      render: (item) => (
+        <span>
+          {item.description}
+          {item.assetNumber && (
+            <span className="mono ml-2 text-xs text-fg-subtle" title="The fixed asset in SAP this capex posts to (ANLN1/ANLN2)">
+              asset {item.assetNumber}{item.assetSubNumber ? `-${item.assetSubNumber}` : ''}
+            </span>
+          )}
+          {lineHasInvoicePlan(item) && (
+            <button
+              type="button"
+              onClick={() => setDetailTab('invoice_plan')}
+              title="This line is billed on an invoicing plan, not against a goods receipt"
+              className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-accent-text hover:underline cursor-pointer"
+            >
+              <CalendarClock className="size-3.5" strokeWidth={1.5} aria-hidden="true" />
+              {/* The portal's own plan knows its type; a plan read from SAP is
+                  only a number until its dates are fetched. */}
+              {item.invoicePlan?.type ? `${item.invoicePlan.type} plan` : `plan ${item.invoicePlanNumber}`}
+            </button>
+          )}
+        </span>
+      ),
+    },
+    { key: 'quantity', header: 'Quantity', align: 'right', render: (item) => <span className="mono">{item.quantity}</span> },
+    { key: 'uom', header: 'Unit', render: (item) => item.uom || 'EA' },
+    { key: 'unitPrice', header: 'Net price (₹)', align: 'right', render: (item) => <span className="mono">{money2(item.unitPrice)}</span> },
+    // Issue #113: this used to be the literal "G1 (18%)" for every line
+    // regardless of the line's real tax code. taxCode is SAP's raw MWSKZ
+    // (config/gstCodes.js's G1..G6 registry is for the RFQ bid → invoice GST
+    // path, not this field — an asset line's code like 'V0' isn't in it, so
+    // this renders the code itself rather than guessing a rate for it) and is
+    // null on every line except an asset PO's own (ADR-0042); awardRfq never
+    // carries a bid's tax code onto the PO line it creates, so null is the
+    // honest, common case here, not a display gap.
+    { key: 'taxCode', header: 'Tax code', render: (item) => <span className="mono">{item.taxCode || '—'}</span> },
+    { key: 'deliveryDate', header: 'Delivery', render: (item) => displayDate(item.deliveryDate || activePo?.createdDate) },
+    { key: 'netValue', header: 'Net value (₹)', align: 'right', render: (item) => <span className="mono">{money2(item.netValue)}</span> },
+  ];
+
+  const dispatchColumns = [
+    { key: 'line', header: 'Line', mono: true, primary: true },
+    { key: 'materialCode', header: 'Item code', render: (item) => <span className="mono">{item.materialCode || '—'}</span> },
+    { key: 'description', header: 'Description', wrap: true },
+    { key: 'quantity', header: 'Ordered', align: 'right', render: (item) => <span className="mono">{item.quantity}</span> },
+    { key: 'remaining', header: 'Remaining', align: 'right', render: (item) => <span className="mono">{item.quantity - (item.grnQuantity || 0)}</span> },
+    {
+      key: 'dispatch',
+      header: 'Dispatch now',
+      align: 'right',
+      render: (item) => {
+        const error = validationErrors[item.line];
+        return (
+          <div className="flex flex-col items-end gap-1 py-1">
+            <input
+              type="number"
+              aria-label={`Quantity to dispatch for line ${item.line}`}
+              aria-invalid={error ? true : undefined}
+              value={dispatchQuantities[item.line] || ''}
+              onChange={e => {
+                const val = e.target.value;
+                setDispatchQuantities(prev => ({ ...prev, [item.line]: val }));
+                setAsnForm(prev => ({ ...prev, items: { ...prev.items, [item.line]: val } }));
+              }}
+              className="mono w-28! min-h-8! py-1! text-right"
+              placeholder="0"
+            />
+            {error && (
+              <span className="flex max-w-48 items-start gap-1 whitespace-normal text-left text-xs text-danger">
+                <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />{error}
+              </span>
+            )}
+          </div>
+        );
+      },
+    },
+    { key: 'uom', header: 'Unit', render: (item) => item.uom || 'EA' },
+    { key: 'unitPrice', header: 'Net price (₹)', align: 'right', render: (item) => <span className="mono">{money2(item.unitPrice)}</span> },
+    { key: 'deliveryDate', header: 'Delivery', render: (item) => displayDate(item.deliveryDate || activePo?.createdDate) },
+  ];
+
+  const receivedColumns = (grn) => [
+    { key: 'line', header: 'Line', mono: true, primary: true },
+    { key: 'materialCode', header: 'Item code', render: (item) => <span className="mono">{item.materialCode || '—'}</span> },
+    { key: 'description', header: 'Description', wrap: true },
+    { key: 'received', header: 'Received', align: 'right', render: (item) => <span className="mono">{item.receivedQuantity || (item.acceptedQuantity + (item.rejectedQuantity || 0))}</span> },
+    { key: 'accepted', header: 'Accepted', align: 'right', render: (item) => <span className="mono">{item.acceptedQuantity}</span> },
+    { key: 'rejected', header: 'Rejected', align: 'right', render: (item) => <span className={`mono ${(item.rejectedQuantity || 0) > 0 ? 'text-danger' : 'text-fg-subtle'}`}>{item.rejectedQuantity || 0}</span> },
+    { key: 'uom', header: 'Unit', render: (item) => item.uom || 'EA' },
+    { key: 'qc', header: 'Inspection', render: (item) => ((item.rejectedQuantity || 0) > 0 ? <StatusBadge label="QC Discrepancy" variant="suspended" /> : <StatusBadge label="QC Passed" variant="active" />) },
+    { key: 'date', header: 'Received on', render: () => displayDate(grn.postingDate) },
+  ];
+
+  // ── List columns ──────────────────────────────────────────────────────
+  const poAmount = (po) => Number((po.items || []).reduce((s, i) => s + (i.netValue || 0), 0) || 0)
+    .toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const confirmedCell = (po) => {
+    // An order carrying its own sapSyncState is answerable without this
+    // lookup — that field travels on the PO record. Only the
+    // isConfirmedInSap fallback below needs the vendorPoGrnDisplay read, so
+    // only it is left unknown when that read fails.
+    if (!po.sapSyncState && sapPoStatus === 'error') {
+      return (
+        <span className="text-fg-muted" title="Could not reach your buyer's system to check this order. Nothing about the order has changed.">
+          Could not check
+        </span>
+      );
+    }
+    if (!po.sapSyncState && (sapPoStatus === 'loading' || !Array.isArray(sapPoOrders))) {
+      return <Loader2 className="inline-block size-4 animate-spin text-fg-subtle" strokeWidth={1.5} aria-label="Checking" />;
+    }
+    // Dual identity / sync state (Phase 3 of
+    // docs/04-sap-runtime-engineering-plan.md, invariant I5): a number shown
+    // to a supplier is either from SAP or clearly marked as not.
+    // sapSyncState is the honest source now; isConfirmedInSap's own
+    // cross-check against the vendorPoGrnDisplay read stays as the fallback
+    // for a PO fetched before this field existed on the response shape.
+    const { label, tone } = po.sapSyncState
+      ? describeSyncState(po.sapSyncState)
+      : (isConfirmedInSap(po)
+        ? { label: 'Confirmed', tone: 'active' }
+        : { label: 'Not confirmed yet', tone: 'pending' });
+    const toneClass = tone === 'active' ? 'text-success' : tone === 'suspended' ? 'text-danger' : 'text-fg-muted';
+    return (
+      <span className={`inline-flex items-center gap-1.5 ${toneClass}`} title={label}>
+        {tone === 'active' && <CheckCircle2 className="size-4" strokeWidth={1.5} aria-hidden="true" />}
+        {tone === 'suspended' && <AlertCircle className="size-4" strokeWidth={1.5} aria-hidden="true" />}
+        {label}
+      </span>
+    );
+  };
+
+  const poColumns = [
+    {
+      key: 'id',
+      header: 'Order',
+      sortable: true,
+      primary: true,
+      render: (po) => (
+        <span className="mono text-fg">
+          {po.id}
+          {po.sapOnly && (
+            <span
+              className="ml-2 font-sans text-xs text-fg-subtle"
+              title="Your buyer has raised this in SAP. It is not recorded in this portal yet, so there is nothing here to acknowledge or ship against."
+            >
+              not recorded here yet
+            </span>
+          )}
+        </span>
+      ),
+    },
+    { key: 'createdDate', header: 'Raised', sortable: true, render: (po) => displayDate(po.createdDate) },
+    {
+      key: 'type',
+      header: 'Type',
+      render: (po) => {
+        const kind = poKind(po);
+        return (
+          <span className="inline-flex items-center gap-1.5 text-fg-muted" title={kind.hint}>
+            {kind.label}
+            {poHasInvoicePlan(po) && (
+              <CalendarClock className="size-4 text-fg-subtle" strokeWidth={1.5} aria-label="Invoiced against an invoicing plan, not on goods receipt" />
+            )}
+            {/* The one signal on this list that a supplier's proposed plan
+                change is sitting unapproved — without it, the only way to
+                find one was to already know which order to open. */}
+            {canManagePlans && hasPendingInvoicePlanChange(po) && (
+              <Clock className="size-4 text-warning" strokeWidth={1.5} aria-label="A supplier has proposed an invoicing-plan change here, awaiting your approval" />
+            )}
+          </span>
+        );
+      },
+    },
+    { key: 'buyerName', header: 'Buyer', wrap: true, render: (po) => po.buyerName || '—' },
+    { key: 'plant', header: 'Plant', wrap: true, render: (po) => po.plant || '—' },
+    { key: 'itemsCount', header: 'Lines', align: 'right', sortable: true, render: (po) => <span className="mono">{(po.items || []).length}</span> },
+    { key: 'value', header: 'Value (₹)', align: 'right', sortable: true, render: (po) => <span className="mono">{poAmount(po)}</span> },
+    { key: 'status', header: 'Status', sortable: true, render: (po) => renderStatusChip(po.status) },
+    { key: 'confirmed', header: 'In buyer’s system', render: confirmedCell },
+  ];
+
+  const grnColumns = [
+    { key: 'id', header: 'Receipt', mono: true, primary: true },
+    { key: 'sapMigoDoc', header: 'Buyer’s document', render: (grn) => <span className="mono">{grn.sapMigoDoc || '—'}</span> },
+    { key: 'poId', header: 'Order', mono: true },
+    { key: 'postingDate', header: 'Posted', render: (grn) => displayDate(grn.postingDate) },
+    { key: 'receivedBy', header: 'Checked by', render: (grn) => grn.receivedBy || '—' },
+    {
+      key: 'accepted',
+      header: 'Accepted',
+      align: 'right',
+      render: (grn) => <span className="mono">{(grn.items || []).reduce((s, i) => s + (i.acceptedQuantity || 0), 0)}</span>,
+    },
+    {
+      key: 'rejected',
+      header: 'Rejected',
+      align: 'right',
+      render: (grn) => {
+        const rejected = (grn.items || []).reduce((s, i) => s + (i.rejectedQuantity || 0), 0);
+        return <span className={`mono ${rejected > 0 ? 'text-danger' : 'text-fg-subtle'}`}>{rejected}</span>;
+      },
+    },
+    {
+      key: 'qc',
+      header: 'Inspection',
+      render: (grn) => ((grn.items || []).some(i => i.rejectedQuantity > 0)
+        ? <StatusBadge label="QC Discrepancy" variant="suspended" />
+        : <StatusBadge label="QC Passed" variant="active" />),
+    },
+  ];
+
   if (isLoading) {
     return (
       <ErrorBoundary>
-        <div className="p-4 space-y-4 card overflow-hidden">
+        <div className="card">
           <TableSkeleton rows={6} cols={5} />
         </div>
       </ErrorBoundary>
@@ -603,411 +722,145 @@ export default function PurchaseOrdersView({
 
   return (
     <ErrorBoundary>
-      <div className="space-y-6 max-w-full mx-auto animate-fade-in pb-16 relative">
+      <div className="pb-16">
 
-        {/* ==================== PAGE HEADER ====================
-            List view only — the detail view titles itself with the order it
-            is showing. Without this the ledger had no page-level heading at
-            all: the tab bar below is navigation within the page, not a name
-            for it, so the first heading on /pos was the filter panel's. */}
+        {/* PAGE HEADER — list view only; the detail view titles itself with
+            the order it is showing. */}
         {currentView === 'list' && (
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-4 select-none">
-            <div className="space-y-1">
-              <h2 className="page-title flex items-center gap-2">
-                <ShoppingBag className="size-5 text-primary shrink-0" /> Purchase Orders
-              </h2>
-              <p className="text-text-tertiary text-xs font-semibold">
-                Acknowledge new orders, send shipment notices, and track what your buyer has received
-              </p>
-            </div>
-          </div>
+          <PageHeader
+            title="Purchase orders"
+            description="Acknowledge new orders, send shipment notices, and track what your buyer has received."
+          />
         )}
 
-        {/* ==================== SUB-TABS NAVIGATION BAR ==================== */}
         {currentView === 'list' && (
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-border pb-2 gap-4">
-            <div className="flex items-center gap-6">
-              <button
-                onClick={() => { setPoSubTab('list'); setCurrentPage(1); }}
-                className={`pb-2.5 text-sm font-bold border-b-2 transition-all duration-150 cursor-pointer flex items-center gap-2 ${poSubTab === 'list' ? 'border-text-primary text-text-primary' : 'border-transparent text-text-tertiary hover:text-text-secondary'}`}
-              >
-                <ShoppingBag className="size-4.5" />
-                <span>Orders Monitor</span>
-                <span className="bg-surface2 text-text-secondary font-mono text-[10px] px-1.5 py-0.5 rounded-full border border-border tabular-nums">
-                  {cleanPOs.length}
-                </span>
-              </button>
-              <button
-                onClick={() => { setPoSubTab('grn'); }}
-                className={`pb-2.5 text-sm font-bold border-b-2 transition-all duration-150 cursor-pointer flex items-center gap-2 ${poSubTab === 'grn' ? 'border-text-primary text-text-primary' : 'border-transparent text-text-tertiary hover:text-text-secondary'}`}
-              >
-                <Truck className="size-4.5" />
-                <span>Delivery Receipts</span>
-                <span className="bg-surface2 text-text-secondary font-mono text-[10px] px-1.5 py-0.5 rounded-full border border-border tabular-nums">
-                  {cleanGrns.length}
-                </span>
-              </button>
-            </div>
-          </div>
+          <Tabs
+            aria-label="Purchase order screens"
+            value={poSubTab}
+            onValueChange={(tab) => { setPoSubTab(tab); setCurrentPage(1); }}
+            items={[
+              { value: 'list', label: 'Orders', count: allPOs.length },
+              { value: 'grn', label: 'Delivery receipts', count: cleanGrns.length },
+            ]}
+          />
         )}
 
         {/* ================================================================= */}
-        {/* SCREEN 1: ORDERS MONITOR TAB / PO LIST                          */}
+        {/* SCREEN 1: ORDERS                                                  */}
         {/* ================================================================= */}
         {currentView === 'list' && poSubTab === 'list' && (
-          <div className="space-y-6">
+          <div className="space-y-4 pt-4">
 
             {/* The SAP ledger read (zpo_grn_vendor/Detail) supplies both the
                 not-yet-recorded rows merged into the table below and the
                 per-row Confirmed badge. When it has not answered, say so once
                 here rather than leaving a quietly short list. */}
             {sapPoStatus === 'error' ? (
-              <div className="card flex items-center gap-3 py-3 px-4">
-                <AlertCircle className="size-4 text-amber-500 shrink-0" />
-                <p className="text-xs text-text-secondary flex-1">
+              <div className="flex items-start gap-2.5 rounded-lg border border-warning/30 bg-warning-tint px-3 py-2.5 text-sm text-warning" role="status">
+                <AlertCircle className="mt-0.5 size-4 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+                <p className="flex-1">
                   Could not reach your buyer&rsquo;s records, so any order they raised that this
                   portal has not recorded yet is missing from this list. Everything already
                   tracked here is unaffected.
                 </p>
                 {retrySapStatus && (
-                  <Button size="xs" variant="secondary" onClick={retrySapStatus}>Try again</Button>
+                  <Button size="sm" variant="secondary" onClick={retrySapStatus}>Try again</Button>
                 )}
               </div>
             ) : (sapPoStatus === 'loading' || !Array.isArray(sapPoOrders)) ? (
-              <div className="card flex items-center gap-2 text-xs text-text-tertiary py-3 px-4">
-                <Loader2 className="size-3.5 animate-spin" /> Checking your buyer&rsquo;s records for orders not yet listed here&hellip;
-              </div>
+              <p className="flex items-center gap-2 text-sm text-fg-subtle" role="status">
+                <Loader2 className="size-4 animate-spin" strokeWidth={1.5} /> Checking your buyer&rsquo;s records for orders not yet listed here&hellip;
+              </p>
             ) : null}
 
-            {/* KPI Cards Row */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <KPICard
-                label="Total orders"
-                value={<span className="tabular-nums">{allPOs.length}</span>}
-                sub="From your buyer’s system"
-                icon={ShoppingBag}
-              />
-              <KPICard
-                label="Orders awaiting acknowledgement"
-                value={<span className="tabular-nums">{allPOs.filter(p => p.status === 'Open').length}</span>}
-                sub="Requires attention"
-                icon={Clock}
-                tone="amber"
-              />
-              <KPICard
-                label="Shipments to send"
-                value={<span className="tabular-nums">{allPOs.filter(p => p.status === 'Acknowledged').length}</span>}
-                sub="Ready for shipment"
-                icon={Truck}
-                tone="info"
-              />
-              <KPICard
-                label="Completed Orders"
-                value={<span className="tabular-nums">{allPOs.filter(p => p.status === 'Delivered' || p.status === 'Invoiced' || p.status === 'Paid').length}</span>}
-                sub="Stores receipted & post"
-                tone="success"
-                icon={CheckCircle2}
-              />
-            </div>
+            {/* Saved views: the counts carry what the four KPI cards used to. */}
+            <SegmentedControl
+              aria-label="Show orders"
+              value={savedView}
+              onChange={(view) => { setSavedView(view); setCurrentPage(1); }}
+              options={SAVED_VIEWS.map((view) => ({
+                value: view.value,
+                label: <>{view.label} <span className="mono text-xs text-fg-subtle">{allPOs.filter((po) => view.match(po.status)).length}</span></>,
+              }))}
+            />
 
-            {/* Sticky Filter Bar */}
-            <div className="card p-4 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div className="flex items-center gap-2">
-                  <Filter className="size-4 text-text-tertiary" />
-                  {/* h3, matching the other panels in this view (Delivery
-                      Receipts, Deliveries ready to invoice) — it sits one
-                      level under the page title above. */}
-                  <h3 className="label mb-0">Search & Filter</h3>
-                </div>
-                {(searchQuery || statusFilter !== 'all' || plantFilter !== 'all' || buyerFilter !== 'all') && (
-                  <button
-                    onClick={() => {
-                      setSearchQuery('');
-                      setStatusFilter('all');
-                      setPlantFilter('all');
-                      setBuyerFilter('all');
-                    }}
-                    className="text-text-secondary hover:text-text-primary text-xs font-semibold hover:underline transition-colors duration-150"
-                  >
-                    Reset all filters
-                  </button>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3.5">
-                {/* Search Bar */}
-                <div className="relative">
-                  <Search className="absolute left-3 top-2.5 size-4 text-text-tertiary" />
-                  <input
-                    type="text"
-                    placeholder="PO # or material description..."
-                    value={searchQuery}
-                    onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-                    className="w-full pl-9"
-                  />
-                </div>
-
-                {/* Status Filter */}
-                <div className="flex items-center bg-base border border-border rounded-md px-2 py-1">
-                  <label htmlFor="po-filter-status" className="text-[10px] font-bold text-text-tertiary uppercase mr-2 shrink-0">Status</label>
-                  <select id="po-filter-status"
-                    value={statusFilter}
-                    onChange={e => { setStatusFilter(e.target.value); setCurrentPage(1); }}
-                    className="w-full !border-0 !p-0 bg-transparent text-xs text-text-secondary outline-none font-semibold cursor-pointer"
-                  >
-                    <option value="all">All Statuses</option>
-                    <option value="New">New (Open)</option>
-                    <option value="Acknowledged">Acknowledged</option>
-                    <option value="Shipment Sent">Shipment Sent</option>
-                    <option value="Delivery Confirmed">Delivery Confirmed</option>
-                  </select>
-                </div>
-
-                {/* Plant Filter */}
-                <div className="flex items-center bg-base border border-border rounded-md px-2 py-1">
-                  <label htmlFor="po-filter-plant" className="text-[10px] font-bold text-text-tertiary uppercase mr-2 shrink-0">Plant</label>
-                  <select id="po-filter-plant"
-                    value={plantFilter}
-                    onChange={e => { setPlantFilter(e.target.value); setCurrentPage(1); }}
-                    className="w-full !border-0 !p-0 bg-transparent text-xs text-text-secondary outline-none font-semibold cursor-pointer"
-                  >
-                    <option value="all">All Plants</option>
-                    {uniquePlants.map((plant, idx) => (
-                      <option key={idx} value={plant}>{plant}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Buyer Filter */}
-                <div className="flex items-center bg-base border border-border rounded-md px-2 py-1">
-                  <label htmlFor="po-filter-buyer" className="text-[10px] font-bold text-text-tertiary uppercase mr-2 shrink-0">Buyer</label>
-                  <select id="po-filter-buyer"
-                    value={buyerFilter}
-                    onChange={e => { setBuyerFilter(e.target.value); setCurrentPage(1); }}
-                    className="w-full !border-0 !p-0 bg-transparent text-xs text-text-secondary outline-none font-semibold cursor-pointer"
-                  >
-                    <option value="all">All Buyers</option>
-                    {uniqueBuyers.map((buyer, idx) => (
-                      <option key={idx} value={buyer}>{buyer}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            {/* PO List Table */}
-            {cleanPOs.length === 0 ? (
-              <div className="card">
-                <EmptyState
-                  icon={ShoppingBag}
-                  title="No Purchase Orders Found"
-                  description="No PO records synced yet. Complete onboarding checklist approval or bid conversion to sync your order schedule, or click the simulation button above."
+            {/* One toolbar row: search and compact filters. */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative min-w-56 flex-1">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-fg-subtle" strokeWidth={1.5} aria-hidden="true" />
+                <input
+                  type="search"
+                  aria-label="Search orders"
+                  placeholder="PO number or material"
+                  value={searchQuery}
+                  onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                  className="pl-8!"
                 />
               </div>
-            ) : (
-              <div className="card overflow-hidden">
-                <div className="overflow-x-auto custom-scrollbar border border-border">
-                  <table className="w-full text-left border-collapse table-sticky min-w-[1150px]">
-                    <thead>
-                      <tr>
-                        <th className="cursor-pointer" onClick={() => handleSort('id')}>
-                          PO Number {sortField === 'id' && (sortOrder === 'asc' ? '▲' : '▼')}
-                        </th>
-                        <th className="cursor-pointer" onClick={() => handleSort('createdDate')}>
-                          PO Date {sortField === 'createdDate' && (sortOrder === 'asc' ? '▲' : '▼')}
-                        </th>
-                        <th className="w-28">Type</th>
-                        <th>Buyer Group</th>
-                        <th>Plant</th>
-                        <th className="text-center cursor-pointer" onClick={() => handleSort('itemsCount')}>
-                          Items Count {sortField === 'itemsCount' && (sortOrder === 'asc' ? '▲' : '▼')}
-                        </th>
-                        <th className="text-right cursor-pointer" onClick={() => handleSort('value')}>
-                          Order Value {sortField === 'value' && (sortOrder === 'asc' ? '▲' : '▼')}
-                        </th>
-                        <th className="cursor-pointer" onClick={() => handleSort('status')}>
-                          Status {sortField === 'status' && (sortOrder === 'asc' ? '▲' : '▼')}
-                        </th>
-                        <th className="text-center">Confirmed</th>
-                        <th className="text-center w-40">Row Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {paginatedPOs.map(po => {
-                        if (!po) return null;
-                        const totalValue = (po.items || []).reduce((s, i) => s + (i.netValue || 0), 0);
-                        const plantName = po.plant || '—';
-                        const buyerName = po.buyerName || 'Amit Sharma (Lead Procurement)';
+              <label htmlFor="po-filter-status" className="sr-only">Status</label>
+              <select id="po-filter-status" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setCurrentPage(1); }} className="w-44!">
+                <option value="all">Any status</option>
+                <option value="New">New</option>
+                <option value="Acknowledged">Acknowledged</option>
+                <option value="Shipment Sent">Shipment sent</option>
+                <option value="Delivery Confirmed">Delivery confirmed</option>
+              </select>
+              <label htmlFor="po-filter-plant" className="sr-only">Plant</label>
+              <select id="po-filter-plant" value={plantFilter} onChange={e => { setPlantFilter(e.target.value); setCurrentPage(1); }} className="w-36!">
+                <option value="all">Any plant</option>
+                {uniquePlants.map((plant, idx) => (
+                  <option key={idx} value={plant}>{plant}</option>
+                ))}
+              </select>
+              <label htmlFor="po-filter-buyer" className="sr-only">Buyer</label>
+              <select id="po-filter-buyer" value={buyerFilter} onChange={e => { setBuyerFilter(e.target.value); setCurrentPage(1); }} className="w-44!">
+                <option value="all">Any buyer</option>
+                {uniqueBuyers.map((buyer, idx) => (
+                  <option key={idx} value={buyer}>{buyer}</option>
+                ))}
+              </select>
+              {(searchQuery || statusFilter !== 'all' || plantFilter !== 'all' || buyerFilter !== 'all') && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setStatusFilter('all');
+                    setPlantFilter('all');
+                    setBuyerFilter('all');
+                  }}
+                >
+                  Reset filters
+                </Button>
+              )}
+            </div>
 
-                        return (
-                          <tr
-                            key={po.id}
-                            onDoubleClick={() => handleOpenPoDetails(po)}
-                            className="group cursor-pointer"
-                          >
-                            <td className="font-mono font-bold text-text-primary group-hover:underline whitespace-nowrap">
-                              {po.id}
-                              {po.sapOnly && (
-                                <span
-                                  className="ml-2 font-sans text-[10px] font-bold text-text-tertiary"
-                                  title="Your buyer has raised this in SAP. It is not recorded in this portal yet, so there is nothing here to acknowledge or ship against."
-                                >
-                                  not recorded here yet
-                                </span>
-                              )}
-                            </td>
-                            <td className="font-mono whitespace-nowrap tabular-nums">{formatDate(po.createdDate)}</td>
-                            <td>
-                              {(() => {
-                                const kind = poKind(po);
-                                return (
-                                  <span className="inline-flex items-center gap-1">
-                                    <span
-                                      className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider ${kindTone(kind)}`}
-                                      title={kind.hint}
-                                    >
-                                      {kind.label}
-                                    </span>
-                                    {poHasInvoicePlan(po) && (
-                                      <CalendarClock
-                                        className="size-3 text-teal-500"
-                                        title="Invoiced against an invoicing plan, not on goods receipt"
-                                      />
-                                    )}
-                                    {/* The one signal on this list that a
-                                        supplier's proposed plan change is
-                                        sitting unapproved — without it, the
-                                        only way to find one was to already
-                                        know which order to open. */}
-                                    {canManagePlans && hasPendingInvoicePlanChange(po) && (
-                                      <Clock
-                                        className="size-3 text-amber-500 animate-pulse"
-                                        title="A supplier has proposed an invoicing-plan change here, awaiting your approval"
-                                      />
-                                    )}
-                                  </span>
-                                );
-                              })()}
-                            </td>
-                            <td className="font-semibold text-text-primary">{buyerName}</td>
-                            <td className="font-medium">{plantName}</td>
-                            <td className="text-center font-mono font-bold tabular-nums">{(po.items || []).length}</td>
-                            <td className="text-right font-mono font-bold text-text-primary whitespace-nowrap tabular-nums">
-                              ₹ {Number(totalValue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </td>
-                            <td>
-                              {renderStatusChip(po.status)}
-                            </td>
-                            <td className="text-center">
-                              {/* An order carrying its own sapSyncState is
-                                  answerable without this lookup — that field
-                                  travels on the PO record. Only the
-                                  isConfirmedInSap fallback below needs the
-                                  vendorPoGrnDisplay read, so only it is left
-                                  unknown when that read fails. */}
-                              {!po.sapSyncState && sapPoStatus === 'error' ? (
-                                <span
-                                  className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-400"
-                                  title="Could not reach your buyer's system to check this order. Nothing about the order has changed."
-                                >
-                                  <AlertCircle className="size-3.5" /> Could not check
-                                </span>
-                              ) : !po.sapSyncState && (sapPoStatus === 'loading' || !Array.isArray(sapPoOrders)) ? (
-                                <Loader2 className="size-3.5 animate-spin text-text-tertiary inline-block" />
-                              ) : (() => {
-                                // Dual identity / sync state (Phase 3 of
-                                // docs/04-sap-runtime-engineering-plan.md,
-                                // invariant I5): a number shown to a supplier
-                                // is either from SAP or clearly marked as not.
-                                // sapSyncState is the honest source now;
-                                // isConfirmedInSap's own cross-check against
-                                // the vendorPoGrnDisplay read stays as the
-                                // fallback for a PO fetched before this field
-                                // existed on the response shape.
-                                const { label, tone, showNumber } = po.sapSyncState
-                                  ? describeSyncState(po.sapSyncState)
-                                  : (isConfirmedInSap(po)
-                                    ? { label: 'Confirmed', tone: 'active', showNumber: true }
-                                    : { label: 'Not confirmed yet', tone: 'pending', showNumber: false });
-                                const toneClass = tone === 'active' ? 'text-emerald-400' : tone === 'suspended' ? 'text-rose-400' : 'text-amber-400';
-                                const Icon = showNumber ? ShieldCheck : ShieldAlert;
-                                return (
-                                  <span className={`inline-flex items-center gap-1 text-[10px] font-bold ${toneClass}`} title={label}>
-                                    <Icon className="size-3.5" /> {label}
-                                  </span>
-                                );
-                              })()}
-                            </td>
-                            <td className="text-center" onClick={e => e.stopPropagation()}>
-                              <div className="flex items-center justify-center gap-1.5">
-                                <Button
-                                  size="xs"
-                                  variant="secondary"
-                                  onClick={() => handleOpenPoDetails(po)}
-                                >
-                                  View PO
-                                </Button>
-
-                                {/* Shipment acts on a PurchaseOrder row,
-                                    which an order SAP holds but this portal
-                                    has not recorded yet does not have. The
-                                    detail page above opens for it either way,
-                                    read-only. */}
-                                {!po.sapOnly && po.status === 'Acknowledged' && (
-                                  <Button
-                                    size="xs"
-                                    variant="outline"
-                                    onClick={() => handleOpenAsnForm(po)}
-                                  >
-                                    Send shipment
-                                  </Button>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Pagination footer */}
-                {totalPages > 1 && (
-                  <div className="px-6 py-4 border-t border-border flex items-center justify-between bg-surface2/50 text-text-secondary text-xs font-semibold">
-                    <div>
-                      Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, filteredPOs.length)} of {filteredPOs.length} purchase orders
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={currentPage === 1}
-                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                      >
-                        Previous
-                      </Button>
-                      {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-                        <button
-                          key={page}
-                          onClick={() => setCurrentPage(page)}
-                          className={`size-7 rounded-md font-bold text-xs flex items-center justify-center transition-colors duration-150 border tabular-nums ${currentPage === page ? 'bg-[var(--accent-solid)] text-white border-transparent' : 'bg-surface border-border hover:bg-surface2 text-text-secondary'}`}
-                        >
-                          {page}
-                        </button>
-                      ))}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={currentPage === totalPages}
-                        onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                      >
-                        Next
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
+            <DataTable
+              caption="Purchase orders"
+              columns={poColumns}
+              rows={paginatedPOs.filter(Boolean)}
+              sort={{ key: sortField, dir: sortOrder }}
+              onSortChange={({ key, dir }) => { setSortField(key); setSortOrder(dir); }}
+              onRowClick={handleOpenPoDetails}
+              rowLabel={(po) => po.id}
+              inlineActions={(po) => (!po.sapOnly && po.status === 'Acknowledged' ? (
+                // Shipment acts on a PurchaseOrder row, which an order SAP
+                // holds but this portal has not recorded yet does not have.
+                // The detail page opens for it either way, read-only.
+                <Button size="sm" variant="secondary" onClick={() => handleOpenAsnForm(po)}>Send shipment</Button>
+              ) : null)}
+              empty={allPOs.length
+                ? 'No orders match these filters.'
+                : 'No purchase orders yet — they appear here as soon as your buyer issues one to your company.'}
+            />
+            {totalPages > 1 && (
+              <Pagination
+                page={currentPage}
+                pageCount={totalPages}
+                total={filteredPOs.length}
+                pageSize={itemsPerPage}
+                onPageChange={setCurrentPage}
+              />
             )}
           </div>
         )}
@@ -1016,77 +869,16 @@ export default function PurchaseOrdersView({
         {/* SCREEN 1: DELIVERY RECEIPTS TAB */}
         {/* ================================================================= */}
         {currentView === 'list' && poSubTab === 'grn' && (
-          <div className="space-y-4">
-            <div className="card p-4 flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-text-primary">Delivery Receipts</h3>
-                <p className="text-xs text-text-secondary">Every delivery your buyer has checked in and confirmed.</p>
-              </div>
-              <div className="text-xs text-text-secondary font-semibold font-mono tabular-nums">
-                Total Inbound Documents: {cleanGrns.length}
-              </div>
-            </div>
-
-            {cleanGrns.length === 0 ? (
-              <div className="card">
-                <EmptyState
-                  icon={Truck}
-                  title="No deliveries confirmed yet"
-                  description="Once you send shipment details, your buyer checks the goods in and inspects them. The delivery receipt appears here shortly afterwards."
-                />
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-3.5">
-                {cleanGrns.map(grn => {
-                  if (!grn) return null;
-                  const po = cleanPOs.find(p => p.id === grn.poId);
-                  const hasRejections = (grn.items || []).some(i => i.rejectedQuantity > 0);
-                  const acceptedCount = (grn.items || []).reduce((s, i) => s + (i.acceptedQuantity || 0), 0);
-                  const rejectedCount = (grn.items || []).reduce((s, i) => s + (i.rejectedQuantity || 0), 0);
-
-                  return (
-                    <div
-                      key={grn.id}
-                      onClick={() => handleOpenGrnDetails(grn)}
-                      className="card p-4 hover:border-border-em cursor-pointer transition-colors duration-150 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
-                    >
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-text-primary font-mono bg-base border border-border px-2 py-0.5 rounded">
-                            {grn.id}
-                          </span>
-                          <span className="text-[10px] text-text-tertiary font-mono">
-                            SAP Doc: {grn.sapMigoDoc}
-                          </span>
-                          {hasRejections ? (
-                            <StatusBadge label="QC Discrepancy" variant="suspended" />
-                          ) : (
-                            <StatusBadge label="QC Passed" variant="active" />
-                          )}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-[10px] text-text-tertiary font-bold">
-                          <span>Order: {grn.poId}</span>
-                          <span>&bull;</span>
-                          <span className="tabular-nums">Posting Date: {grn.postingDate}</span>
-                          <span>&bull;</span>
-                          <span>Inspector: {grn.receivedBy}</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-6 self-stretch sm:self-auto justify-between border-t border-border pt-3 sm:border-t-0 sm:pt-0">
-                        <div className="text-right">
-                          <p className="text-[10px] text-text-tertiary font-bold uppercase">Accepted / Rejected</p>
-                          <p className="text-xs font-bold text-text-primary font-mono tabular-nums">
-                            {acceptedCount} units / <span className={rejectedCount > 0 ? 'text-red-600 font-extrabold' : 'text-text-tertiary'}>{rejectedCount} rejected</span>
-                          </p>
-                        </div>
-                        <ChevronRight className="size-5 text-text-tertiary" />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+          <div className="pt-4">
+            <p className="mb-3 text-sm text-fg-muted">Every delivery your buyer has checked in and confirmed.</p>
+            <DataTable
+              caption="Delivery receipts"
+              columns={grnColumns}
+              rows={cleanGrns.filter(Boolean)}
+              onRowClick={handleOpenGrnDetails}
+              rowLabel={(grn) => grn.id}
+              empty="No deliveries confirmed yet — once you send shipment details, your buyer checks the goods in and the receipt appears here."
+            />
           </div>
         )}
 
@@ -1094,494 +886,236 @@ export default function PurchaseOrdersView({
         {/* SCREEN 2: PO DETAIL / OBJECT PAGE                                */}
         {/* ================================================================= */}
         {currentView === 'detail' && activePo && (
-          <div className="space-y-6 animate-fade-in">
-            {/* Header Block & Back button */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-4">
-              <div className="space-y-1.5">
-                <button
-                  onClick={() => setCurrentView('list')}
-                  className="flex items-center gap-2 text-text-secondary hover:text-text-primary text-xs font-bold transition-colors duration-150 cursor-pointer w-fit"
-                >
-                  <ArrowLeft className="size-4" />
-                  <span>Back to PO Ledger</span>
-                </button>
-                <h2 className="page-title flex items-center gap-2.5">
-                  <span>Purchase Order: {activePo.id}</span>
-                  {renderStatusChip(activePo.status)}
-                </h2>
-                {/* What kind of order this is, and whether it is invoiced to a
-                    plan — two independent facts (poKind.js), so two badges
-                    rather than one combined label. Asset and service orders
-                    behave differently enough on the supplier's side (no stock
-                    receipt for a service line; capex approval for an asset
-                    one) that reading the header should answer "what am I
-                    looking at" without opening a line. */}
-                {(() => {
-                  const kind = poKind(activePo);
-                  const planNumbers = invoicePlanNumbers(activePo);
-                  return (
-                    <div className="flex flex-wrap items-center gap-2 mt-1.5">
-                      <span
-                        className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${kindTone(kind)}`}
-                        title={kind.hint}
-                      >
-                        {kind.orderLabel}
-                      </span>
-                      {poHasInvoicePlan(activePo) && (
-                        <span
-                          className="inline-flex items-center gap-1 rounded-full border border-teal-400/40 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-teal-500"
-                          title={planNumbers.length
-                            ? `Invoiced against SAP invoicing plan ${planNumbers.join(', ')} — billed on the plan's dates, not on goods receipt.`
-                            : 'Invoiced against an invoicing plan — billed on the plan’s dates, not on goods receipt.'}
-                        >
-                          <Receipt className="size-3" />
-                          Invoicing plan{planNumbers.length ? ` ${planNumbers.join(', ')}` : ''}
-                        </span>
-                      )}
-                    </div>
-                  );
-                })()}
-              </div>
-
-              <div className="flex items-center gap-2">
-                {/* Business vs technical view toggle removed */}
-
-                {activePoIsSapOnly ? (
-                  <span
-                    className="inline-flex items-center gap-1.5 text-[11px] font-bold text-text-tertiary"
-                    title="Your buyer raised this in SAP. It is not recorded in this portal yet, so there is nothing here to acknowledge, ship against or discuss."
-                  >
-                    <ShieldAlert className="size-3.5" /> Read-only — not recorded in this portal yet
-                  </span>
-                ) : (
-                  <>
-                    {activePo.fromRfqId && (
-                      <div className="flex items-center gap-1" title="Download this PO for your buyer's MM team to import into SAP — a file, not a live sync.">
-                        {['csv', 'xlsx', 'json', 'idoc'].map((format) => (
-                          <button
-                            key={format}
-                            type="button"
-                            disabled={exportingFormat !== null}
-                            onClick={() => handleExportPo(activePo.fromRfqId, format)}
-                            className="font-mono text-[10px] uppercase text-text-secondary bg-surface2/50 border border-border px-2 py-1 rounded font-bold hover:bg-surface2 disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {exportingFormat === format ? <Loader2 className="size-3 animate-spin" /> : format}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    {activePo.status === 'Open' && (
-                      <Button
-                        onClick={() => acknowledgePO(activePo.id)}
-                        variant="default"
-                      >
-                        Acknowledge Purchase Order
-                      </Button>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Shipment Pipeline Progress Indicator */}
+          <div>
+            {/* What kind of order this is, and whether it is invoiced to a
+                plan — two independent facts (poKind.js). Asset and service
+                orders behave differently enough on the supplier's side (no
+                stock receipt for a service line; capex approval for an asset
+                one) that the header should answer "what am I looking at"
+                without opening a line. */}
             {(() => {
-              const steps = [
-                { key: 'Open', label: 'New PO', icon: ShoppingBag, color: 'blue' },
-                { key: 'Acknowledged', label: 'Acknowledged', icon: CheckCircle2, color: 'purple' },
-                { key: 'Dispatched', label: 'Shipment Sent', icon: Truck, color: 'orange' },
-                { key: 'Delivered', label: 'Delivery Confirmed', icon: Check, color: 'green' },
-                { key: 'Invoiced', label: 'Invoiced', icon: Receipt, color: 'teal' },
-              ];
-              const statusOrder = ['Open', 'Acknowledged', 'Dispatched', 'Delivered', 'Invoiced', 'Paid'];
-              const currentIdx = statusOrder.indexOf(activePo.status);
+              const kind = poKind(activePo);
+              const planNumbers = invoicePlanNumbers(activePo);
               return (
-                <div className="flex items-center card px-5 py-3.5 overflow-x-auto gap-0 select-none">
-                  {steps.map((step, idx) => {
-                    const stepIdx = statusOrder.indexOf(step.key);
-                    const isPast = stepIdx < currentIdx;
-                    const isActive = stepIdx === currentIdx;
-                    const StepIcon = step.icon;
-                    const colorMap = {
-                      blue: { ring: 'border-blue-500 bg-blue-50 text-blue-600', text: 'text-blue-700', dot: 'bg-blue-500' },
-                      purple: { ring: 'border-purple-500 bg-purple-50 text-purple-600', text: 'text-purple-700', dot: 'bg-purple-500' },
-                      orange: { ring: 'border-orange-500 bg-orange-50 text-orange-600', text: 'text-orange-700', dot: 'bg-orange-400 animate-pulse' },
-                      green: { ring: 'border-green-500 bg-green-50 text-green-600', text: 'text-green-700', dot: 'bg-green-500' },
-                      teal: { ring: 'border-teal-500 bg-teal-50 text-teal-600', text: 'text-teal-700', dot: 'bg-teal-500' },
-                    };
-                    const c = colorMap[step.color];
-                    return (
-                      <React.Fragment key={step.key}>
-                        <div className="flex flex-col items-center gap-1 flex-shrink-0">
-                          <div className={`size-7 rounded-full flex items-center justify-center border-2 transition-all duration-150 ${isPast ? 'border-green-500 bg-green-500 text-white' :
-                            isActive ? `${c.ring} shadow-sm` :
-                              'border-border bg-base text-text-tertiary'
-                            }`}>
-                            {isPast ? <Check className="size-3.5" /> : <StepIcon className="size-3.5" />}
-                          </div>
-                          <span className={`text-[8px] font-extrabold uppercase tracking-wider whitespace-nowrap ${isPast ? 'text-green-600' : isActive ? c.text : 'text-text-tertiary'
-                            }`}>{step.label}</span>
-                        </div>
-                        {idx < steps.length - 1 && (
-                          <div className={`h-0.5 flex-1 min-w-6 mx-1 mb-3.5 rounded-full transition-all duration-150 ${isPast ? 'bg-green-400' : 'bg-border'
-                            }`} />
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
-                </div>
+                <PageHeader
+                  breadcrumb={(
+                    <button type="button" onClick={() => setCurrentView('list')} className="inline-flex items-center gap-1 hover:text-fg cursor-pointer">
+                      <ArrowLeft className="size-4" strokeWidth={1.5} aria-hidden="true" /> Purchase orders
+                    </button>
+                  )}
+                  title={<span className="inline-flex flex-wrap items-center gap-3"><span className="mono">{activePo.id}</span> {renderStatusChip(activePo.status)}</span>}
+                  description={(
+                    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span title={kind.hint}>{kind.orderLabel}</span>
+                      {poHasInvoicePlan(activePo) && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span
+                            className="inline-flex items-center gap-1"
+                            title={planNumbers.length
+                              ? `Invoiced against SAP invoicing plan ${planNumbers.join(', ')} — billed on the plan's dates, not on goods receipt.`
+                              : 'Invoiced against an invoicing plan — billed on the plan’s dates, not on goods receipt.'}
+                          >
+                            <CalendarClock className="size-4" strokeWidth={1.5} aria-hidden="true" />
+                            Invoicing plan{planNumbers.length ? <span className="mono"> {planNumbers.join(', ')}</span> : null}
+                          </span>
+                        </>
+                      )}
+                      <span aria-hidden="true">·</span>
+                      <span>Raised {displayDate(activePo.createdDate)}</span>
+                    </span>
+                  )}
+                  secondary={!activePoIsSapOnly && activePo.fromRfqId ? (
+                    <DropdownMenu
+                      label="Download for SAP import"
+                      items={['csv', 'xlsx', 'json', 'idoc'].map((format) => ({
+                        label: exportingFormat === format ? `Preparing ${format.toUpperCase()}…` : `Download ${format.toUpperCase()}`,
+                        icon: Download,
+                        disabled: exportingFormat !== null,
+                        onClick: () => handleExportPo(activePo.fromRfqId, format),
+                      }))}
+                    />
+                  ) : null}
+                  primary={activePoIsSapOnly ? (
+                    <span
+                      className="text-sm text-fg-muted"
+                      title="Your buyer raised this in SAP. It is not recorded in this portal yet, so there is nothing here to acknowledge, ship against or discuss."
+                    >
+                      Read-only — not recorded in this portal yet
+                    </span>
+                  ) : activePo.status === 'Open' ? (
+                    <Button onClick={() => acknowledgePO(activePo.id)}>Acknowledge purchase order</Button>
+                  ) : null}
+                />
               );
             })()}
 
-            {/* TAB HEADERS */}
-            <div className="flex items-center gap-6 border-b border-border">
-              {(activePoIsSapOnly
+            {/* Where the order is: created → paid. */}
+            {(() => {
+              const steps = [
+                { key: 'Open', label: 'Created' },
+                { key: 'Acknowledged', label: 'Acknowledged' },
+                { key: 'Dispatched', label: 'Shipped' },
+                { key: 'Delivered', label: 'Received' },
+                { key: 'Invoiced', label: 'Invoiced' },
+                { key: 'Paid', label: 'Paid' },
+              ];
+              const statusOrder = steps.map((s) => s.key);
+              const currentIdx = statusOrder.indexOf(activePo.status);
+              return (
+                <ol className="mb-6 flex gap-1 overflow-x-auto no-scrollbar" aria-label="Order progress">
+                  {steps.map((step, idx) => {
+                    const state = idx < currentIdx ? 'done' : idx === currentIdx ? 'now' : 'todo';
+                    return (
+                      <li
+                        key={step.key}
+                        aria-current={state === 'now' ? 'step' : undefined}
+                        className={`min-w-24 flex-1 border-t-2 pt-2 text-xs ${
+                          state === 'done' ? 'border-fg text-fg'
+                            : state === 'now' ? 'border-accent-solid font-medium text-accent-text'
+                              : 'border-border text-fg-subtle'
+                        }`}
+                      >
+                        {state === 'done' && <Check className="mr-1 inline size-3.5 align-[-2px]" strokeWidth={2} aria-hidden="true" />}
+                        {step.label}
+                      </li>
+                    );
+                  })}
+                </ol>
+              );
+            })()}
+
+            <Tabs
+              aria-label="Order sections"
+              value={activeDetailTab}
+              onValueChange={(tab) => {
+                if (tab === 'create_asn') ensureAsnPrefill();
+                setDetailTab(tab);
+              }}
+              items={activePoIsSapOnly
                 // Shipment, delivery status and invoicing plan all act on a
                 // PurchaseOrder row this order does not have yet; offering the
                 // tabs would be offering steps that cannot be taken.
-                ? [{ id: 'po_detail', label: 'Order details' }]
+                ? [{ value: 'po_detail', label: 'Order details' }]
                 : [
-                  { id: 'po_detail', label: '1. Order details' },
-                  { id: 'create_asn', label: '2. Send shipment' },
-                  { id: 'grn_status', label: '3. Delivery status' },
-                  ...(showInvoicePlanTab ? [{ id: 'invoice_plan', label: 'Invoicing plan' }] : [])
-                ]
-              ).map(t => (
-                <button
-                  key={t.id}
-                  onClick={() => {
-                    if (t.id === 'create_asn') ensureAsnPrefill();
-                    setDetailTab(t.id);
-                  }}
-                  className={`pb-2.5 text-xs font-bold border-b-2 transition-all duration-150 cursor-pointer focus-visible:outline-none ${activeDetailTab === t.id
-                    ? 'border-text-primary text-text-primary'
-                    : 'border-transparent text-text-tertiary hover:text-text-secondary'
-                    }`}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
+                  { value: 'po_detail', label: 'Order details' },
+                  { value: 'create_asn', label: 'Send shipment' },
+                  { value: 'grn_status', label: 'Delivery status' },
+                  ...(showInvoicePlanTab ? [{ value: 'invoice_plan', label: 'Invoicing plan' }] : []),
+                ]}
+            />
 
-            {/* TAB CONTENT */}
-            <div className="bg-base/30 p-1 rounded-xl">
+            <div className="pt-6">
               {/* TAB 1: PO Detail View */}
               {activeDetailTab === 'po_detail' && (
-                <div className="space-y-6 animate-fade-in">
-                  {/* PO Header Fields */}
-                  <div className="card overflow-hidden">
-                    <div className="flex items-center gap-2 px-5 py-3 border-b border-border bg-surface2/40">
-                      <div className="size-1.5 rounded-full bg-blue-500"></div>
-                      <span className="text-[10px] font-extrabold text-text-secondary uppercase tracking-widest">Purchase Order Header Data</span>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-4 p-5">
-                      <SapReadOnlyField
-                        label="PO Number"
-                        value={activePo.id}
-                        icon={ShoppingBag}
-                        containerClassName="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 cursor-pointer font-mono"
-                      />
-                      <SapReadOnlyField
-                        label="PO Date"
-                        value={formatDate(activePo.createdDate)}
-                        icon={Calendar}
-                      />
-                      <SapReadOnlyField
-                        label="PO Status"
-                        value={activePo.status === 'Open' ? 'Open' : activePo.status === 'Acknowledged' ? 'Acknowledged' : activePo.status}
-                        isMonospace={false}
-                        icon={CheckCircle2}
-                        containerClassName={
-                          activePo.status === 'Acknowledged'
-                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                            : activePo.status === 'Open'
-                              ? 'bg-amber-50 text-amber-700 border-amber-200'
-                              : 'bg-surface2 text-text-secondary border-border'
-                        }
-                      />
-                      <SapReadOnlyField
-                        label="Buying company"
-                        value={activePo.companyCode || '1000'}
-                        icon={Building2}
-                        containerClassName="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 cursor-pointer"
-                      />
-                      <SapReadOnlyField
-                        label="Buyer GSTIN"
-                        value={activePo.buyerGstin || '—'}
-                        icon={Receipt}
-                      />
-                      <SapReadOnlyField
-                        label="Plant / Location"
-                        value={activePo.plant || '—'}
-                        isMonospace={false}
-                        icon={MapPin}
-                        containerClassName="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 cursor-pointer"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-2">
-                      <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">
-                        PO Line Items
-                      </h3>
+                <div className="space-y-8">
+                  <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+                    <SapReadOnlyField label="Order number" value={activePo.id} />
+                    <SapReadOnlyField label="Raised" value={displayDate(activePo.createdDate)} isMonospace={false} />
+                    <SapReadOnlyField label="Buying company" value={activePo.companyCode || '—'} />
+                    <SapReadOnlyField label="Buyer GSTIN" value={activePo.buyerGstin || '—'} />
+                    <SapReadOnlyField label="Plant" value={activePo.plant || '—'} isMonospace={false} />
+                    <SapReadOnlyField label="Buyer" value={activePo.buyerName || '—'} isMonospace={false} />
+                  </dl>
 
-                      {/* Carousel Navigation Controls */}
-                      {activePo.items && activePo.items.length > 0 && (
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            disabled={activeLineIdx === 0}
-                            onClick={() => setActiveLineIdx(prev => Math.max(0, prev - 1))}
-                            className="p-1.5 border border-border rounded-lg hover:bg-surface2 disabled:opacity-40 disabled:hover:bg-transparent text-text-secondary cursor-pointer transition-colors duration-150"
-                          >
-                            <ChevronLeft className="size-4" />
-                          </button>
-                          <span className="text-xs font-semibold text-text-secondary font-mono select-none tabular-nums">
-                            Page {activeLineIdx + 1} of {Math.max(1, Math.ceil(activePo.items.length / 5))}
-                          </span>
-                          <button
-                            type="button"
-                            disabled={activeLineIdx >= Math.ceil(activePo.items.length / 5) - 1}
-                            onClick={() => setActiveLineIdx(prev => Math.min(Math.ceil(activePo.items.length / 5) - 1, prev + 1))}
-                            className="p-1.5 border border-border rounded-lg hover:bg-surface2 disabled:opacity-40 disabled:hover:bg-transparent text-text-secondary cursor-pointer transition-colors duration-150"
-                          >
-                            <ChevronRight className="size-4" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {activePo.items && activePo.items.length > 0 && (
-                      <div className="w-full space-y-4">
-                        {/* Responsive Table Container */}
-                        <div className="w-full overflow-x-auto card">
-                          <table className="w-full text-left border-collapse min-w-[900px]">
-                            <thead>
-                              <tr>
-                                <th className="w-16">Line</th>
-                                {/* SAP allows one order to mix categories, so
-                                    the kind belongs on the line, not only in
-                                    the header badge. */}
-                                <th className="w-24">Type</th>
-                                <th className="w-36">Item code</th>
-                                <th className="min-w-[200px]">Description</th>
-                                <th className="w-28 text-right">Ordered Qty</th>
-                                <th className="w-20">UoM</th>
-                                <th className="w-32 text-right">Net Price</th>
-                                <th className="w-28">GST Tax Code</th>
-                                <th className="w-36">Delivery Date</th>
-                                <th className="text-right w-36">Line Net Value</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {activePo.items.slice(activeLineIdx * 5, activeLineIdx * 5 + 5).map((item, idx) => {
-                                return (
-                                  <tr key={item.line || idx}>
-                                    <td className="font-semibold font-mono">{item.line}</td>
-                                    <td>
-                                      {(() => {
-                                        const kind = lineKind(item);
-                                        return (
-                                          <span
-                                            className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider ${kindTone(kind)}`}
-                                            title={kind.hint}
-                                          >
-                                            {kind.label}
-                                          </span>
-                                        );
-                                      })()}
-                                    </td>
-                                    <td>
-                                      {/* An asset or service line is text-only
-                                          in SAP — no MATNR — so the column is
-                                          legitimately blank on one. */}
-                                      <span className="text-blue-600 font-bold hover:underline cursor-pointer">{item.materialCode || '—'}</span>
-                                    </td>
-                                    <td className="text-text-primary font-medium">
-                                      {item.description}
-                                      {item.assetNumber && (
-                                        <span
-                                          className="ml-2 font-mono text-[10px] font-bold text-violet-500"
-                                          title="The fixed asset in SAP this capex posts to (ANLN1/ANLN2)"
-                                        >
-                                          asset {item.assetNumber}{item.assetSubNumber ? `-${item.assetSubNumber}` : ''}
-                                        </span>
-                                      )}
-                                      {lineHasInvoicePlan(item) && (
-                                        <button
-                                          type="button"
-                                          onClick={() => setDetailTab('invoice_plan')}
-                                          title="This line is billed on an invoicing plan, not against a goods receipt"
-                                          className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border border-blue-200 bg-blue-50 text-blue-700 text-[9px] font-extrabold uppercase tracking-wider cursor-pointer hover:bg-blue-100 transition-colors duration-150"
-                                        >
-                                          <CalendarClock className="size-2.5" />
-                                          {/* The portal's own plan knows its
-                                              type; a plan read from SAP is only
-                                              a number until its dates are
-                                              fetched. */}
-                                          {item.invoicePlan?.type ? `${item.invoicePlan.type} plan` : `plan ${item.invoicePlanNumber}`}
-                                        </button>
-                                      )}
-                                    </td>
-                                    <td className="font-bold text-text-primary text-right font-mono tabular-nums">{item.quantity}</td>
-                                    <td className="font-medium">{item.uom || 'EA'}</td>
-                                    <td className="font-bold text-text-primary text-right font-mono tabular-nums">₹ {Number(item.unitPrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                    {/* Issue #113: this used to be the literal "G1 (18%)" for every
-                                        line regardless of the line's real tax code. taxCode is SAP's
-                                        raw MWSKZ (config/gstCodes.js's G1..G6 registry is for the RFQ
-                                        bid → invoice GST path, not this field — an asset line's code
-                                        like 'V0' isn't in it, so this renders the code itself rather
-                                        than guessing a rate for it) and is null on every line except an
-                                        asset PO's own (ADR-0042); awardRfq never carries a bid's tax
-                                        code onto the PO line it creates, so null is the honest, common
-                                        case here, not a display gap. */}
-                                    <td className="font-medium font-mono">{item.taxCode || '—'}</td>
-                                    <td className="font-medium font-mono tabular-nums">{formatDate(item.deliveryDate || activePo.createdDate)}</td>
-                                    <td className="font-bold text-text-primary text-right font-mono tabular-nums">₹ {Number(item.netValue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-
-                        {/* Bullet page indicators */}
-                        {Math.ceil(activePo.items.length / 5) > 1 && (
-                          <div className="flex justify-center items-center gap-1.5 mt-3 select-none">
-                            {Array.from({ length: Math.ceil(activePo.items.length / 5) }).map((_, dotIdx) => (
-                              <button
-                                key={dotIdx}
-                                type="button"
-                                onClick={() => setActiveLineIdx(dotIdx)}
-                                className={`size-2 rounded-full transition-all duration-150 cursor-pointer ${activeLineIdx === dotIdx
-                                  ? 'bg-text-primary w-4.5'
-                                  : 'bg-border-em hover:bg-text-tertiary'
-                                  }`}
-                                title={`Go to page ${dotIdx + 1}`}
-                              />
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                  <section>
+                    <h2 className="mb-3 text-lg font-semibold text-fg">Line items</h2>
+                    <DataTable
+                      caption="Line items"
+                      columns={lineColumns}
+                      rows={(activePo.items || []).filter(Boolean)}
+                      getRowId={(item, i) => item.line || i}
+                      rowLabel={(item) => `line ${item.line}`}
+                      maxHeight="560px"
+                      empty="This order has no lines."
+                      totals={(activePo.items || []).length > 1 ? {
+                        label: `${activePo.items.length} lines`,
+                        netValue: <span className="mono">{money2((activePo.items || []).reduce((s, i) => s + (Number(i?.netValue) || 0), 0))}</span>,
+                      } : undefined}
+                    />
+                  </section>
                 </div>
               )}
 
               {/* TAB 2: Send shipment */}
               {activeDetailTab === 'create_asn' && (
-                <div className="space-y-6 animate-fade-in">
+                <div>
                   {activePo.status === 'Open' ? (
-                    <div className="card p-6 text-center">
-                      <AlertTriangle className="size-8 text-amber-500 mx-auto mb-2" />
-                      <p className="text-xs font-bold text-text-primary">PO Acknowledgement Required</p>
-                      <p className="text-xs text-text-secondary mt-1">
-                        You must acknowledge this purchase order before you can send shipment details.
-                      </p>
-                      <Button
-                        onClick={() => acknowledgePO(activePo.id)}
-                        variant="outline"
-                        className="mt-4"
-                      >
-                        Acknowledge PO
-                      </Button>
+                    <div className="card flex flex-col items-start gap-3 p-5 sm:flex-row sm:items-center">
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-fg">Acknowledge the order first</p>
+                        <p className="text-sm text-fg-muted">You must acknowledge this purchase order before you can send shipment details.</p>
+                      </div>
+                      <Button variant="secondary" onClick={() => acknowledgePO(activePo.id)}>Acknowledge PO</Button>
                     </div>
                   ) : (
-                    <div className="space-y-6">
-                      <div className="card p-4 flex items-center justify-between">
-                        <div>
-                          <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">Advanced Shipping Notice Form (VL31N)</h3>
-                          <p className="text-[10px] text-text-secondary font-medium mt-0.5">Provide actual shipment details and dispatch quantities</p>
-                        </div>
-                        <Button
-                          onClick={handleAsnSubmitClick}
-                          variant="default"
-                        >
-                          Submit Inbound Delivery
-                        </Button>
+                    <section className="space-y-8">
+                      <div>
+                        <h2 className="text-lg font-semibold text-fg">Shipment notice</h2>
+                        <p className="text-sm text-fg-muted">The goods you are dispatching against this order. Your buyer receives it as an inbound delivery.</p>
                       </div>
 
-                      {/* Shipment header fields — 3-column grid, label-on-top aligned */}
-                      <div className="card overflow-hidden">
-                        <div className="flex items-center gap-2 px-5 py-3 border-b border-border bg-surface2/40">
-                          <div className="size-1.5 rounded-full bg-purple-500"></div>
-                          <span className="text-[10px] font-extrabold text-text-secondary uppercase tracking-widest">Shipment details</span>
-                        </div>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-5">
-                          <SapInputField label="Linked PO Number" icon={ShoppingBag}>
-                            <input
-                              type="text"
-                              readOnly
-                              value={activePo.id}
-                              className="w-36 bg-surface border border-border rounded-[3px] px-2.5 h-6.5 text-xs outline-none text-text-primary font-mono font-bold tabular-nums cursor-not-allowed select-all"
-                            />
-                          </SapInputField>
-
-                          <SapInputField label="Dispatch Date" required icon={Calendar}>
-                            <input
-                              type="date"
-                              required
-                              value={asnForm.shipDate}
-                              onChange={e => setAsnForm({ ...asnForm, shipDate: e.target.value })}
-                              className="w-36 bg-surface border border-border focus:border-[var(--accent-solid)] rounded-[3px] px-2.5 h-6.5 text-xs outline-none text-text-primary font-mono font-bold tabular-nums transition-all duration-150"
-                            />
-                          </SapInputField>
-
-                          <SapInputField label="Expected Delivery" required icon={Calendar}>
-                            <input
-                              type="date"
-                              required
-                              value={asnForm.estimatedDeliveryDate}
-                              onChange={e => setAsnForm({ ...asnForm, estimatedDeliveryDate: e.target.value })}
-                              className="w-36 bg-surface border border-border focus:border-[var(--accent-solid)] rounded-[3px] px-2.5 h-6.5 text-xs outline-none text-text-primary font-mono font-bold tabular-nums transition-all duration-150"
-                            />
-                          </SapInputField>
-
-                          <SapInputField label="Carrier / Transporter" required icon={Truck}>
-                            <input
-                              type="text"
-                              required
-                              maxLength={10}
-                              value={asnForm.carrierName}
-                              onChange={e => setAsnForm({ ...asnForm, carrierName: e.target.value })}
-                              placeholder="DHL Express"
-                              className="w-[14ch] bg-surface border border-border focus:border-[var(--accent-solid)] rounded-[3px] px-2.5 h-6.5 text-xs outline-none text-text-primary font-bold transition-all duration-150"
-                            />
-                          </SapInputField>
-
-                          <SapInputField label="Vehicle / Tracking No." icon={Truck}>
-                            <input
-                              type="text"
-                              maxLength={20}
-                              value={asnForm.vehicleNumber}
-                              onChange={e => setAsnForm({ ...asnForm, vehicleNumber: e.target.value })}
-                              placeholder="MH-12-XY-4321"
-                              className="w-[24ch] bg-surface border border-border focus:border-[var(--accent-solid)] rounded-[3px] px-2.5 h-6.5 text-xs outline-none text-text-primary font-mono font-bold uppercase transition-all duration-150"
-                            />
-                          </SapInputField>
-
-                          <SapInputField label="E-Way Bill Number" icon={Receipt}>
-                            <input
-                              type="text"
-                              maxLength={12}
-                              value={ewayBillNo}
-                              onChange={e => setEwayBillNo(e.target.value.replace(/\D/g, ''))}
-                              placeholder="12-digit numeric code"
-                              className="w-[16ch] bg-surface border border-border focus:border-[var(--accent-solid)] rounded-[3px] px-2.5 h-6.5 text-xs outline-none text-text-primary font-mono font-bold tabular-nums transition-all duration-150"
-                            />
-                          </SapInputField>
-                        </div>
+                      <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+                        <SapInputField label="Purchase order">
+                          <input type="text" readOnly value={activePo.id} className="mono w-48!" />
+                        </SapInputField>
+                        <SapInputField label="Dispatch date" required>
+                          <input
+                            type="date"
+                            required
+                            value={asnForm.shipDate}
+                            onChange={e => setAsnForm({ ...asnForm, shipDate: e.target.value })}
+                            className="w-48!"
+                          />
+                        </SapInputField>
+                        <SapInputField label="Expected delivery" required>
+                          <input
+                            type="date"
+                            required
+                            value={asnForm.estimatedDeliveryDate}
+                            onChange={e => setAsnForm({ ...asnForm, estimatedDeliveryDate: e.target.value })}
+                            className="w-48!"
+                          />
+                        </SapInputField>
+                        <SapInputField label="Carrier" required>
+                          <input
+                            type="text"
+                            required
+                            maxLength={10}
+                            value={asnForm.carrierName}
+                            onChange={e => setAsnForm({ ...asnForm, carrierName: e.target.value })}
+                            placeholder="DHL Express"
+                            className="w-48!"
+                          />
+                        </SapInputField>
+                        <SapInputField label="Vehicle or tracking number">
+                          <input
+                            type="text"
+                            maxLength={20}
+                            value={asnForm.vehicleNumber}
+                            onChange={e => setAsnForm({ ...asnForm, vehicleNumber: e.target.value })}
+                            placeholder="MH-12-XY-4321"
+                            className="mono w-56! uppercase"
+                          />
+                        </SapInputField>
+                        <SapInputField label="E-way bill number">
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            maxLength={12}
+                            value={ewayBillNo}
+                            onChange={e => setEwayBillNo(e.target.value.replace(/\D/g, ''))}
+                            placeholder="12 digits"
+                            className="mono w-48!"
+                          />
+                        </SapInputField>
                       </div>
 
-                      {/* Shipment document attachments */}
-                      <div className="space-y-4">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-2">
-                          <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider">
-                            Shipment Document Attachments
-                          </h4>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <section>
+                        <h3 className="mb-3 text-base font-semibold text-fg">Documents <span className="text-sm font-normal text-fg-subtle">— optional</span></h3>
+                        <div className="grid gap-4 md:grid-cols-3">
                           <FileUploadZone
-                            label="Packing List (Optional)"
+                            label="Packing list"
                             value={asnDocs.packingList}
                             onUploadComplete={result => setAsnDocs(prev => ({ ...prev, packingList: result }))}
                             onFileRemoved={() => setAsnDocs(prev => ({ ...prev, packingList: null }))}
@@ -1589,7 +1123,7 @@ export default function PurchaseOrdersView({
                             accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
                           />
                           <FileUploadZone
-                            label="Invoice Copy (Optional)"
+                            label="Invoice copy"
                             value={asnDocs.invoiceCopy}
                             onUploadComplete={result => setAsnDocs(prev => ({ ...prev, invoiceCopy: result }))}
                             onFileRemoved={() => setAsnDocs(prev => ({ ...prev, invoiceCopy: null }))}
@@ -1597,7 +1131,7 @@ export default function PurchaseOrdersView({
                             accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
                           />
                           <FileUploadZone
-                            label="Transport Bill / LR (Optional)"
+                            label="Transport bill / LR"
                             value={asnDocs.transportDoc}
                             onUploadComplete={result => setAsnDocs(prev => ({ ...prev, transportDoc: result }))}
                             onFileRemoved={() => setAsnDocs(prev => ({ ...prev, transportDoc: null }))}
@@ -1605,387 +1139,114 @@ export default function PurchaseOrdersView({
                             accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
                           />
                         </div>
+                      </section>
+
+                      <section>
+                        <h3 className="mb-3 text-base font-semibold text-fg">Quantities to dispatch</h3>
+                        <DataTable
+                          caption="Quantities to dispatch"
+                          columns={dispatchColumns}
+                          rows={(activePo.items || []).filter(Boolean)}
+                          getRowId={(item, i) => item.line || i}
+                          rowLabel={(item) => `line ${item.line}`}
+                          maxHeight="560px"
+                          empty="This order has no lines."
+                        />
+                      </section>
+
+                      {/* Sticky action bar: the one primary action on this tab. */}
+                      <div className="sticky bottom-0 z-10 -mx-4 flex items-center justify-end gap-3 border-t border-border bg-canvas/95 px-4 py-3 backdrop-blur-none md:-mx-6 md:px-6">
+                        <p className="mr-auto hidden text-sm text-fg-muted sm:block">Check the quantities before sending — your buyer receives them as entered.</p>
+                        <Button onClick={handleAsnSubmitClick}>Submit Inbound Delivery</Button>
                       </div>
-
-                      {/* Dispatch quantities allocation */}
-                      <div className="space-y-4">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-2">
-                          <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider">
-                            Dispatch Qty Allocation
-                          </h4>
-
-                          {/* Carousel Navigation Controls */}
-                          {activePo.items && activePo.items.length > 0 && (
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                disabled={asnLineIdx === 0}
-                                onClick={() => setAsnLineIdx(prev => Math.max(0, prev - 1))}
-                                className="p-1.5 border border-border rounded-lg hover:bg-surface2 disabled:opacity-40 disabled:hover:bg-transparent text-text-secondary cursor-pointer transition-colors duration-150"
-                              >
-                                <ChevronLeft className="size-4" />
-                              </button>
-                              <span className="text-xs font-semibold text-text-secondary font-mono select-none tabular-nums">
-                                Page {asnLineIdx + 1} of {Math.max(1, Math.ceil(activePo.items.length / 5))}
-                              </span>
-                              <button
-                                type="button"
-                                disabled={asnLineIdx >= Math.ceil(activePo.items.length / 5) - 1}
-                                onClick={() => setAsnLineIdx(prev => Math.min(Math.ceil(activePo.items.length / 5) - 1, prev + 1))}
-                                className="p-1.5 border border-border rounded-lg hover:bg-surface2 disabled:opacity-40 disabled:hover:bg-transparent text-text-secondary cursor-pointer transition-colors duration-150"
-                              >
-                                <ChevronRight className="size-4" />
-                              </button>
-                            </div>
-                          )}
-                        </div>
-
-                        {activePo.items && activePo.items.length > 0 && (
-                          <div className="w-full space-y-4">
-                            {/* Responsive Table Container */}
-                            <div className="w-full overflow-x-auto card">
-                              <table className="w-full text-left border-collapse min-w-[900px]">
-                                <thead>
-                                  <tr>
-                                    <th className="w-16">Line</th>
-                                    <th className="w-36">Item code</th>
-                                    <th className="min-w-[200px]">Description</th>
-                                    <th className="w-28 text-right">Ordered Qty</th>
-                                    <th className="w-28 text-right">Remaining Qty</th>
-                                    <th className="w-36 text-center">Dispatched Qty</th>
-                                    <th className="w-20">UoM</th>
-                                    <th className="w-32 text-right">Net Price</th>
-                                    <th className="text-right w-36">Delivery Date</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {activePo.items.slice(asnLineIdx * 5, asnLineIdx * 5 + 5).map((item, idx) => {
-                                    const remaining = item.quantity - (item.grnQuantity || 0);
-                                    const error = validationErrors[item.line];
-                                    return (
-                                      <tr key={item.line || idx}>
-                                        <td className="font-semibold font-mono">{item.line}</td>
-                                        <td>
-                                          <span className="text-blue-600 font-bold hover:underline cursor-pointer">{item.materialCode}</span>
-                                        </td>
-                                        <td className="text-text-primary font-medium">{item.description}</td>
-                                        <td className="font-bold text-text-primary text-right font-mono tabular-nums">{item.quantity}</td>
-                                        <td className="font-bold text-amber-700 text-right font-mono tabular-nums">{remaining}</td>
-                                        <td className="text-center">
-                                          <div className="flex flex-col items-center justify-center gap-0.5">
-                                            <input
-                                              type="number"
-                                              value={dispatchQuantities[item.line] || ''}
-                                              onChange={e => {
-                                                const val = e.target.value;
-                                                setDispatchQuantities(prev => ({
-                                                  ...prev,
-                                                  [item.line]: val
-                                                }));
-                                                setAsnForm(prev => ({
-                                                  ...prev,
-                                                  items: {
-                                                    ...prev.items,
-                                                    [item.line]: val
-                                                  }
-                                                }));
-                                              }}
-                                              className={`w-24 bg-surface border focus:border-[var(--accent-solid)] rounded-[3px] px-2 py-0.5 text-xs text-right font-mono font-semibold outline-none tabular-nums transition-all duration-150 ${error ? 'border-red-500 focus:border-red-500 bg-red-50/30' : 'border-border-em'
-                                                }`}
-                                              placeholder="0"
-                                            />
-                                            {error && (
-                                              <span className="text-[9px] text-red-600 font-bold block max-w-24 leading-tight truncate" title={error}>
-                                                {error}
-                                              </span>
-                                            )}
-                                          </div>
-                                        </td>
-                                        <td className="font-medium">{item.uom || 'EA'}</td>
-                                        <td className="font-bold text-text-primary text-right font-mono tabular-nums">₹ {Number(item.unitPrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                        <td className="font-medium font-mono tabular-nums text-right">{formatDate(item.deliveryDate || activePo.createdDate)}</td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            </div>
-
-                            {/* Bullet page indicators */}
-                            {Math.ceil(activePo.items.length / 5) > 1 && (
-                              <div className="flex justify-center items-center gap-1.5 mt-3 select-none">
-                                {Array.from({ length: Math.ceil(activePo.items.length / 5) }).map((_, dotIdx) => (
-                                  <button
-                                    key={dotIdx}
-                                    type="button"
-                                    onClick={() => setAsnLineIdx(dotIdx)}
-                                    className={`size-2 rounded-full transition-all duration-150 cursor-pointer ${asnLineIdx === dotIdx
-                                      ? 'bg-text-primary w-4.5'
-                                      : 'bg-border-em hover:bg-text-tertiary'
-                                      }`}
-                                    title={`Go to page ${dotIdx + 1}`}
-                                  />
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                    </section>
                   )}
                 </div>
               )}
 
-              {/* TAB 3: Delivery status */}
+              {/* TAB: Invoicing plan */}
               {activeDetailTab === 'invoice_plan' && (
-                <div className="p-4">
-                  <InvoicePlanPanel po={activePo} canManage={canManagePlans} canPropose={canProposePlan} />
-                </div>
+                <InvoicePlanPanel po={activePo} canManage={canManagePlans} canPropose={canProposePlan} />
               )}
 
+              {/* TAB 3: Delivery status */}
               {activeDetailTab === 'grn_status' && (
-                <div className="space-y-6 animate-fade-in">
+                <div>
                   {(() => {
                     const grn = cleanGrns.find(g => g.poId === activePo.id);
                     const activeAsn = cleanAsns.find(a => a.poId === activePo.id) || (asnSuccessInfo?.poId === activePo.id ? asnSuccessInfo : null);
                     if (!grn) {
                       if (activePo.status === 'Dispatched') {
                         return (
-                          <div className="p-6 border border-amber-200 bg-amber-50 rounded-xl space-y-4 max-w-xl mx-auto shadow-sm animate-fade-in text-amber-900">
-                            <div className="text-center space-y-2">
-                              <div className="size-12 bg-green-50 border border-green-200 text-green-600 rounded-full flex items-center justify-center mx-auto shadow-xs">
-                                <Check className="size-6 animate-pulse" />
-                              </div>
-                              <p className="text-sm font-bold text-amber-800">Shipment details sent</p>
-                              <p className="text-xs text-text-secondary max-w-md mx-auto leading-normal">
-                                Your dispatch details have been sent to your buyer.
-                              </p>
-                            </div>
-
-                            <div className="p-4 bg-surface border border-amber-200/60 rounded-xl text-xs space-y-3.5 shadow-sm">
-                              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-left font-mono">
-                                <div>
-                                  <span className="text-[9px] text-text-tertiary font-bold uppercase block font-sans">Shipment reference</span>
-                                  <span className="font-bold text-text-primary text-xs select-all">
-                                    {activeAsn?.id || activeAsn?.asnId || 'N/A'}
-                                  </span>
-                                </div>
-                                <div>
-                                  <span className="text-[9px] text-text-tertiary font-bold uppercase block font-sans">Delivery note number</span>
-                                  <span className="font-bold text-text-primary text-xs select-all">
-                                    {activeAsn?.sapInboundDelivery || activeAsn?.sapInbound || 'N/A'}
-                                  </span>
-                                </div>
-                                <div>
-                                  <span className="text-[9px] text-text-tertiary font-bold uppercase block font-sans">Carrier / Transporter</span>
-                                  <span className="font-bold text-text-secondary text-xs font-sans">
-                                    {activeAsn?.carrierName || 'N/A'}
-                                  </span>
-                                </div>
-                                <div>
-                                  <span className="text-[9px] text-text-tertiary font-bold uppercase block font-sans">Tracking / Vehicle No</span>
-                                  <span className="font-bold text-text-secondary text-xs">
-                                    {activeAsn?.trackingNumber || activeAsn?.vehicleNumber || 'N/A'}
-                                  </span>
-                                </div>
-                              </div>
-
-                              <div className="border-t border-border pt-3 flex items-center justify-between bg-surface2/50 p-2.5 rounded-lg">
-                                <div className="flex items-center gap-2">
-                                  <Truck className="size-4.5 text-amber-500 animate-pulse" />
-                                  <span className="font-semibold text-text-secondary font-sans">Expected delivery confirmation in:</span>
-                                </div>
-                                <span className="text-amber-600 animate-pulse font-bold font-mono text-sm tabular-nums">
-                                  {countdown[activePo.id] !== undefined ? `${countdown[activePo.id]}s` : '10s'}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
+                          <section className="max-w-2xl">
+                            <h2 className="text-lg font-semibold text-fg">Shipment details sent</h2>
+                            <p className="mt-1 text-sm text-fg-muted">
+                              Your buyer confirms the delivery once the goods are checked in. The delivery receipt appears here then.
+                            </p>
+                            <dl className="card mt-4 grid gap-x-8 gap-y-3 p-4 sm:grid-cols-2">
+                              <SapReadOnlyField label="Shipment reference" value={activeAsn?.id || activeAsn?.asnId || '—'} />
+                              <SapReadOnlyField label="Delivery note" value={activeAsn?.sapInboundDelivery || activeAsn?.sapInbound || '—'} />
+                              <SapReadOnlyField label="Carrier" value={activeAsn?.carrierName || '—'} isMonospace={false} />
+                              <SapReadOnlyField label="Vehicle or tracking" value={activeAsn?.trackingNumber || activeAsn?.vehicleNumber || '—'} />
+                            </dl>
+                          </section>
                         );
                       }
                       if (['Delivered', 'Invoiced', 'Paid'].includes(activePo.status)) {
                         return (
-                          <div className="card p-6 text-center">
-                            <Truck className="size-8 text-text-tertiary mx-auto mb-2" />
-                            <p className="text-xs font-bold text-text-primary">Goods received — receipt details not synced yet</p>
-                            <p className="text-xs text-text-secondary mt-1">
-                              Your buyer has received this order in SAP. The delivery receipt will appear here once it has synced.
-                            </p>
-                          </div>
+                          <p className="text-sm text-fg-muted">
+                            <span className="font-medium text-fg">Goods received — receipt details not synced yet.</span>{' '}
+                            Your buyer has received this order in SAP. The delivery receipt appears here once it has synced.
+                          </p>
                         );
                       }
                       return (
-                        <div className="card p-6 text-center">
-                          <AlertTriangle className="size-8 text-text-tertiary mx-auto mb-2" />
-                          <p className="text-xs font-bold text-text-primary">No delivery confirmed yet</p>
-                          <p className="text-xs text-text-secondary mt-1">
-                            Send your shipment details (step 2) first — the delivery receipt appears once your buyer checks the goods in.
-                          </p>
-                        </div>
+                        <p className="text-sm text-fg-muted">
+                          <span className="font-medium text-fg">No delivery confirmed yet.</span>{' '}
+                          Send your shipment details first — the delivery receipt appears once your buyer checks the goods in.
+                        </p>
                       );
                     }
 
-                    // GRN exists!
+                    const hasRejections = (grn.items || []).some(i => i.rejectedQuantity > 0);
                     return (
-                      <div className="space-y-6 animate-fade-in">
-                        <div className="card p-4 flex items-center justify-between">
-                          <div>
-                            <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">Delivery receipt</h3>
-                            <p className="text-[10px] text-text-secondary font-medium mt-0.5">Checked and accepted by your buyer’s receiving team</p>
+                      <section className="space-y-8">
+                        <div className="flex flex-wrap items-start gap-3">
+                          <div className="flex-1">
+                            <h2 className="text-lg font-semibold text-fg">Delivery receipt</h2>
+                            <p className="text-sm text-fg-muted">Checked and accepted by your buyer’s receiving team.</p>
                           </div>
-                          <span className="px-3 py-1 rounded bg-surface2 text-text-secondary border border-border text-xs font-bold font-mono">
-                            {grn.invoiceSubmitted ? 'Invoice submitted' : 'Awaiting invoice from your buyer'}
-                          </span>
+                          <StatusBadge label={grn.invoiceSubmitted ? 'Invoiced' : 'Awaiting invoice'} tone={grn.invoiceSubmitted ? 'done' : 'progress'} />
                         </div>
 
-                        {/* Delivery receipt fields — 3-column grid, label-on-top aligned */}
-                        <div className="card overflow-hidden">
-                          <div className="flex items-center gap-2 px-5 py-3 border-b border-border bg-surface2/40">
-                            <div className="size-1.5 rounded-full bg-green-500"></div>
-                            <span className="text-[10px] font-extrabold text-text-secondary uppercase tracking-widest">Delivery receipt details</span>
+                        <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+                          <SapReadOnlyField label="Receipt number" value={grn.sapMigoDoc} />
+                          <SapReadOnlyField label="Received on" value={displayDate(grn.postingDate)} isMonospace={false} />
+                          <SapReadOnlyField label="Received by" value={grn.receivedBy || 'Receiving team'} isMonospace={false} />
+                          <SapReadOnlyField label="Purchase order" value={activePo.id} />
+                          <div className="flex min-w-0 items-baseline gap-3 text-sm">
+                            <dt className="w-36 shrink-0 text-fg-muted">Inspection</dt>
+                            <dd>
+                              {hasRejections
+                                ? <StatusBadge label="QC Discrepancy" variant="suspended" />
+                                : <StatusBadge label="QC Passed" variant="active" />}
+                            </dd>
                           </div>
-                          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-5">
-                            <SapReadOnlyField
-                              label="Receipt number"
-                              value={grn.sapMigoDoc}
-                              icon={FileText}
-                              containerClassName="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 cursor-pointer font-mono"
-                            />
-                            <SapReadOnlyField
-                              label="Received on"
-                              value={formatDate(grn.postingDate)}
-                              icon={Calendar}
-                            />
-                            <SapReadOnlyField
-                              label="Type"
-                              value="Goods received"
-                              isMonospace={false}
-                              icon={Truck}
-                              containerClassName="bg-emerald-50 text-emerald-700 border-emerald-200"
-                            />
-                            <SapReadOnlyField
-                              label="Received By"
-                              value={grn.receivedBy || 'Receiving team'}
-                              isMonospace={false}
-                              icon={User}
-                            />
-                            <SapReadOnlyField
-                              label="Linked PO Number"
-                              value={activePo.id}
-                              icon={ShoppingBag}
-                              containerClassName="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 cursor-pointer font-mono"
-                            />
-                            <SapReadOnlyField
-                              label="QC Inspection Status"
-                              value={(grn.items || []).some(i => i.rejectedQuantity > 0) ? 'Discrepancy Found' : 'All Items Accepted'}
-                              isMonospace={false}
-                              icon={ShieldCheck}
-                              containerClassName={(grn.items || []).some(i => i.rejectedQuantity > 0) ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}
-                            />
-                          </div>
-                        </div>
+                        </dl>
 
-                        {/* Inspection status per line item */}
-                        <div className="space-y-4">
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-2">
-                            <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider">
-                              Items received &amp; inspection result
-                            </h4>
-
-                            {/* Carousel Navigation Controls */}
-                            {grn.items && grn.items.length > 0 && (
-                              <div className="flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  disabled={grnLineIdx === 0}
-                                  onClick={() => setGrnLineIdx(prev => Math.max(0, prev - 1))}
-                                  className="p-1.5 border border-border rounded-lg hover:bg-surface2 disabled:opacity-40 disabled:hover:bg-transparent text-text-secondary cursor-pointer transition-colors duration-150"
-                                >
-                                  <ChevronLeft className="size-4" />
-                                </button>
-                                <span className="text-xs font-semibold text-text-secondary font-mono select-none tabular-nums">
-                                  Page {grnLineIdx + 1} of {Math.max(1, Math.ceil(grn.items.length / 5))}
-                                </span>
-                                <button
-                                  type="button"
-                                  disabled={grnLineIdx >= Math.ceil(grn.items.length / 5) - 1}
-                                  onClick={() => setGrnLineIdx(prev => Math.min(Math.ceil(grn.items.length / 5) - 1, prev + 1))}
-                                  className="p-1.5 border border-border rounded-lg hover:bg-surface2 disabled:opacity-40 disabled:hover:bg-transparent text-text-secondary cursor-pointer transition-colors duration-150"
-                                >
-                                  <ChevronRight className="size-4" />
-                                </button>
-                              </div>
-                            )}
-                          </div>
-
-                          {grn.items && grn.items.length > 0 && (
-                            <div className="w-full space-y-4">
-                              {/* Responsive Table Container */}
-                              <div className="w-full overflow-x-auto card">
-                                <table className="w-full text-left border-collapse min-w-[900px] whitespace-nowrap">
-                                  <thead>
-                                    <tr>
-                                      <th className="w-16">Line</th>
-                                      <th className="w-36">Item code</th>
-                                      <th className="min-w-[200px]">Description</th>
-                                      <th className="w-28 text-right">Received Qty</th>
-                                      <th className="w-28 text-right">Accepted Qty</th>
-                                      <th className="w-28 text-right">Rejected Qty</th>
-                                      <th className="w-20">UoM</th>
-                                      <th className="text-center w-28">Quality Status</th>
-                                      <th className="text-right w-36 font-sans">Received on</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {grn.items.slice(grnLineIdx * 5, grnLineIdx * 5 + 5).map((item, idx) => {
-                                      const isRejected = (item.rejectedQuantity || 0) > 0;
-                                      return (
-                                        <tr key={item.line || idx}>
-                                          <td className="font-semibold font-mono">{item.line}</td>
-                                          <td>
-                                            <span className="text-blue-600 font-bold hover:underline cursor-pointer">{item.materialCode}</span>
-                                          </td>
-                                          <td className="font-sans font-medium text-text-primary">{item.description}</td>
-                                          <td className="font-bold text-text-primary text-right font-mono tabular-nums">{item.receivedQuantity || (item.acceptedQuantity + (item.rejectedQuantity || 0))}</td>
-                                          <td className="font-bold text-emerald-700 text-right font-mono tabular-nums">{item.acceptedQuantity}</td>
-                                          <td className={`font-bold text-right font-mono tabular-nums ${isRejected ? 'text-rose-600' : 'text-text-tertiary'}`}>{item.rejectedQuantity || 0}</td>
-                                          <td className="font-medium">{item.uom || 'EA'}</td>
-                                          <td className="text-center">
-                                            {isRejected ? (
-                                              <StatusBadge label="QC FAIL" variant="suspended" />
-                                            ) : (
-                                              <StatusBadge label="QC PASS" variant="active" />
-                                            )}
-                                          </td>
-                                          <td className="text-right font-mono font-medium tabular-nums">{formatDate(grn.postingDate)}</td>
-                                        </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                </table>
-                              </div>
-
-                              {/* Bullet page indicators */}
-                              {Math.ceil(grn.items.length / 5) > 1 && (
-                                <div className="flex justify-center items-center gap-1.5 mt-3 select-none">
-                                  {Array.from({ length: Math.ceil(grn.items.length / 5) }).map((_, dotIdx) => (
-                                    <button
-                                      key={dotIdx}
-                                      type="button"
-                                      onClick={() => setGrnLineIdx(dotIdx)}
-                                      className={`size-2 rounded-full transition-all duration-150 cursor-pointer ${grnLineIdx === dotIdx
-                                        ? 'bg-text-primary w-4.5'
-                                        : 'bg-border-em hover:bg-text-tertiary'
-                                        }`}
-                                      title={`Go to page ${dotIdx + 1}`}
-                                    />
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                        <section>
+                          <h3 className="mb-3 text-base font-semibold text-fg">Items received and inspection result</h3>
+                          <DataTable
+                            caption="Items received"
+                            columns={receivedColumns(grn)}
+                            rows={(grn.items || []).filter(Boolean)}
+                            getRowId={(item, i) => item.line || i}
+                            rowLabel={(item) => `line ${item.line}`}
+                            maxHeight="560px"
+                            empty="No lines on this receipt."
+                          />
+                        </section>
+                      </section>
                     );
                   })()}
                 </div>

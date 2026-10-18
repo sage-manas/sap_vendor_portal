@@ -23,6 +23,7 @@ export const apiClient = {
       ...options,
       headers,
     };
+    delete config.background; // ours, not fetch's — see below
 
     // GET is the only method this app has ever treated as safe to silently
     // no-op on a network failure. A POST/PUT/PATCH/DELETE whose response
@@ -46,8 +47,13 @@ export const apiClient = {
       throw err;
     }
 
+    // `background: true` marks a request the person did not make — a status
+    // poll. Its 401/403 must not sign them out or navigate away mid-form; the
+    // next request they do make will. It just fails.
+    const sideEffects = !options.background;
+
     if (!response.ok) {
-      if (response.status === 401 && typeof window !== 'undefined') {
+      if (response.status === 401 && typeof window !== 'undefined' && sideEffects) {
         localStorage.removeItem('jwt_token');
         localStorage.removeItem('clerk_user_id');
         localStorage.removeItem('sap_vendor_profile_data');
@@ -65,7 +71,7 @@ export const apiClient = {
       // tab), so the user lands on the change screen, not on a broken page.
       if (
         response.status === 403 && errorData.reason === 'password_change_required' &&
-        typeof window !== 'undefined' &&
+        typeof window !== 'undefined' && sideEffects &&
         window.location.pathname !== CHANGE_PASSWORD_PATH &&
         !isAuthPath(window.location.pathname) && !isPlatformPath(window.location.pathname)
       ) {

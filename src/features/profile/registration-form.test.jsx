@@ -42,7 +42,7 @@ describe('the registration wizard', () => {
       api: { ...draftApi, 'GET /vendors/profile': { ...DRAFT_PROFILE, companyName: '' } },
     });
 
-    await screen.findByRole('heading', { name: /Vendor Registration/i });
+    await screen.findByRole('heading', { name: 'Company profile' });
     const next = await screen.findByRole('button', { name: /Continue|Next/i });
     await user.click(next);
 
@@ -185,7 +185,7 @@ describe('every field on the first step is announced with a name', () => {
     renderWithPortal(<RegistrationPage />, {
       plane: 'supplier', route: '/registration', api: draftApi,
     });
-    await screen.findByRole('heading', { name: /Vendor Registration/i });
+    await screen.findByRole('heading', { name: 'Company profile' });
 
     expect(warnings).toEqual([]);
     expect(unlabelled()).toEqual([]);
@@ -195,7 +195,7 @@ describe('every field on the first step is announced with a name', () => {
     renderWithPortal(<RegistrationPage />, {
       plane: 'supplier', route: '/registration', api: draftApi,
     });
-    await screen.findByRole('heading', { name: /Vendor Registration/i });
+    await screen.findByRole('heading', { name: 'Company profile' });
 
     // SearchableSelect renders its own trigger button and has to forward the
     // id onto it; passing the prop is not proof that it did.

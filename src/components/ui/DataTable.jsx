@@ -4,6 +4,8 @@ import { Menu } from '@base-ui/react/menu';
 import { ArrowDown, ArrowUp, ChevronRight, Columns3 } from 'lucide-react';
 import { Checkbox, DropdownMenu } from './controls';
 import TableSkeleton from './TableSkeleton';
+import { useNarrow } from './useNarrow';
+
 
 /**
  * The table every list screen should be built on.
@@ -48,6 +50,7 @@ export default function DataTable({
   maxHeight,
   className = '',
 }) {
+  const narrow = useNarrow();
   const visible = columns.filter((c) => !hiddenColumns.includes(c.key));
   const ids = rows.map(getRowId);
   const allSelected = ids.length > 0 && ids.every((id) => selected.includes(id));
@@ -85,7 +88,8 @@ export default function DataTable({
       {/* ≥ 768px: a real table */}
       {/* A header can only stick inside a box that scrolls vertically, so the
           sticky header needs maxHeight; without it the page scrolls. */}
-      <div className="hidden md:block overflow-auto rounded-lg" style={maxHeight ? { maxHeight } : undefined}>
+      {!narrow && (
+      <div className="overflow-auto rounded-lg" style={maxHeight ? { maxHeight } : undefined}>
         <table className="w-full border-collapse">
           {caption && <caption className="sr-only">{caption}</caption>}
           <thead className={maxHeight ? 'sticky top-0 z-10' : undefined}>
@@ -171,9 +175,11 @@ export default function DataTable({
           )}
         </table>
       </div>
+      )}
 
       {/* < 768px: one card per row */}
-      <ul className="md:hidden divide-y divide-border" aria-label={caption}>
+      {narrow && (
+      <ul className="divide-y divide-border" aria-label={caption}>
         {loading ? (
           <li><TableSkeleton rows={4} cols={2} /></li>
         ) : rows.length === 0 ? (
@@ -200,6 +206,12 @@ export default function DataTable({
                     </div>
                   ))}
                 </dl>
+                {/* Inline actions are hover-revealed in the table; on a card
+                    there is no hover, so they are always shown. */}
+                {inlineActions && (() => {
+                  const actions = inlineActions(row);
+                  return actions ? <div className="mt-2" onClick={(e) => e.stopPropagation()}>{actions}</div> : null;
+                })()}
               </div>
               {rowActions && <DropdownMenu items={rowActions(row)} label={`Actions for ${rowLabel(row)}`} />}
               {/* The card's own click is a pointer shortcut; this is the
@@ -213,6 +225,7 @@ export default function DataTable({
           );
         })}
       </ul>
+      )}
     </div>
   );
 }

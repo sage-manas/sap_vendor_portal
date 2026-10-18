@@ -91,8 +91,8 @@ export default function SignInPage() {
 
       {/* Form Error Message */}
       {error && (
-        <div className="p-3 mb-5 rounded-none bg-rose-900/20 border border-rose-900/50 flex items-start gap-2.5 text-xs text-rose-400">
-          <AlertCircle className="size-4 shrink-0 mt-0.5" />
+        <div role="alert" className="mb-5 flex items-start gap-2.5 rounded-md border border-danger/30 bg-danger-tint p-3 text-sm text-fg">
+          <AlertCircle className="mt-0.5 size-4 shrink-0 text-danger" strokeWidth={1.5} aria-hidden="true" />
           <span>{error}</span>
         </div>
       )}
@@ -101,7 +101,7 @@ export default function SignInPage() {
       <form onSubmit={handleLogin} className="space-y-4">
         <div>
           <label className="label" htmlFor="signin-identifier">
-            Vendor ID or Registered Email
+            Supplier ID or registered email
           </label>
           <div className="relative">
             <input id="signin-identifier"
@@ -113,7 +113,7 @@ export default function SignInPage() {
               onChange={(e) => setVendorIdOrEmail(e.target.value)}
               className="pl-9 disabled:opacity-55"
             />
-            <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-text-tertiary" />
+            <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-fg-subtle" strokeWidth={1.5} aria-hidden="true" />
           </div>
         </div>
 
@@ -124,7 +124,7 @@ export default function SignInPage() {
             </label>
             <Link
               href={withWorkspace('/forgot-password', slug)}
-              className="text-[10px] font-semibold text-emerald-400 hover:opacity-80 transition-opacity duration-150"
+              className="text-xs font-semibold text-accent-text hover:opacity-80 transition-opacity duration-150"
             >
               Forgot password?
             </Link>
@@ -139,7 +139,7 @@ export default function SignInPage() {
               onChange={(e) => setPassword(e.target.value)}
               className="pl-9 disabled:opacity-55"
             />
-            <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-text-tertiary" />
+            <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-fg-subtle" strokeWidth={1.5} aria-hidden="true" />
           </div>
         </div>
 
@@ -151,11 +151,11 @@ export default function SignInPage() {
           {loading ? (
             <>
               <Loader2 className="size-4 animate-spin" />
-              <span>Verifying Credentials...</span>
+              <span>Signing in…</span>
             </>
           ) : (
             <>
-              <span>Sign In to Portal</span>
+              <span>Sign in</span>
               <ArrowRight className="size-4" />
             </>
           )}
@@ -164,23 +164,23 @@ export default function SignInPage() {
 
       {/* Footer onboarding links. A workspace that admits suppliers by
           invitation only has no register link to offer. */}
-      <div className="mt-8 pt-6 border-t border-border text-center">
+      <div className="mt-8 border-t border-border pt-6 text-center">
         {selfRegistrationOpen ? (
-          <p className="text-[11px] text-text-tertiary">
-            New vendor partner?{' '}
+          <p className="text-sm text-fg-muted">
+            New supplier?{' '}
             <Link
               href={withWorkspace('/sign-up', slug)}
-              className="text-emerald-400 hover:underline transition-colors duration-150 font-medium ml-1"
+              className="text-accent-text hover:underline transition-colors duration-150 font-medium ml-1"
             >
-              Register Profile
+              Register profile
             </Link>
           </p>
         ) : workspaceRequired ? (
-          <p className="text-[11px] text-text-tertiary">
+          <p className="text-sm text-fg-muted">
             New supplier? Use the registration link your buyer sent you.
           </p>
         ) : (
-          <p className="text-[11px] text-text-tertiary">
+          <p className="text-sm text-fg-muted">
             This workspace admits suppliers by invitation. Contact your buyer for an invite.
           </p>
         )}
