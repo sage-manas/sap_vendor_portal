@@ -125,6 +125,9 @@ for (const [name, h] of Object.entries(TENANTS)) {
   rows.push(check('dark text/canvas', dText, darkCanvas, 4.5));
   rows.push(check('dark text/tint', dText, dTint, 4.5));
   rows.push(check('dark on-accent/button', onAccent(dSolid), dSolid, 4.5));
+  // Chart series 1 is the accent (light: the link-text derivation, already
+  // held to 4.5:1 above; dark: --accent-solid). A plotted line needs 3:1.
+  rows.push(check('dark chart series/surface', dSolid, darkSurface, 3));
   // Secondary text on a tinted ("needs action" / selected) row — axe caught
   // --fg-subtle at 4.21:1 on the dark pink tint in redesign v2.
   rows.push(check('light fg-subtle/tint', hexToRgb(resolve(root, '--fg-subtle')), lTint, 4.5));

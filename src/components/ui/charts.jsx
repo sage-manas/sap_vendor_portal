@@ -143,7 +143,8 @@ export function BucketBar({ buckets, format = inrFull, ariaLabel }) {
 
 /**
  * Two series over months as smooth lines (redesign v2 dashboards): series 1
- * pink, series 2 blue, dashed vertical guides, one tooltip listing both.
+ * in the tenant accent, series 2 blue and dashed (so a blue brand cannot make
+ * the two look alike), dashed vertical guides, one tooltip listing both.
  * Direct labels sit in the caller's legend row, never in a legend box.
  * data: [{ label, a, b }]; series: [{ key: 'a', name }, { key: 'b', name }]
  */
@@ -179,6 +180,7 @@ export function SplineChart({ data, series, ariaLabel, height = 220, format = in
               name={s.name}
               stroke={colors[i]}
               strokeWidth={2}
+              strokeDasharray={i === 1 ? '6 4' : undefined}
               dot={false}
               activeDot={{ r: 5, fill: colors[i], stroke: 'var(--surface)', strokeWidth: 3 }}
               isAnimationActive={false}
