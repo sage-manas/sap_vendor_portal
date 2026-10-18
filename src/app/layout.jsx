@@ -8,7 +8,8 @@ import { ThemeProvider } from "@/lib/theme-context";
 import PortalLayout from "@/components/portal/PortalLayout";
 
 // Runs before first paint to resolve the theme and avoid a light→dark flash.
-const themeScript = `(function(){try{var t=localStorage.getItem('vc-theme');if(!t){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}var r=document.documentElement;if(t==='dark'){r.classList.add('dark');}r.style.colorScheme=t;}catch(e){}})();`;
+// Dark is the default (redesign v2); light only when the user picked it.
+const themeScript = `(function(){try{var t=localStorage.getItem('vc-theme');if(t!=='light'){t='dark';}var r=document.documentElement;if(t==='dark'){r.classList.add('dark');}r.style.colorScheme=t;}catch(e){}})();`;
 
 // Fonts are self-hosted (src/app/fonts, the Latin subsets Google Fonts
 // serves) rather than loaded through next/font/google, which downloads them
