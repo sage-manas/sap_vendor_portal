@@ -35,11 +35,11 @@ export const Notice = ({ tone = 'error', children, onDismiss }) => {
   const { cls, Icon } = NOTICE[tone] || NOTICE.info;
 
   return (
-    <div role="status" className={`mb-4 flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-sm ${cls}`}>
+    <div role="status" className={`mb-4 flex items-start gap-2.5 rounded-tile border px-4 py-3 text-sm ${cls}`}>
       <Icon className="mt-0.5 size-4 shrink-0" strokeWidth={1.5} aria-hidden="true" />
       <span className="min-w-0 flex-1">{children}</span>
       {onDismiss && (
-        <button type="button" onClick={onDismiss} aria-label="Dismiss" className="-my-0.5 grid size-6 place-items-center rounded-md opacity-80 hover:opacity-100 cursor-pointer">
+        <button type="button" onClick={onDismiss} aria-label="Dismiss" className="-my-0.5 grid size-6 place-items-center rounded-full opacity-80 hover:opacity-100 cursor-pointer">
           <X className="size-3.5" strokeWidth={1.5} />
         </button>
       )}
@@ -130,7 +130,7 @@ const TableCards = ({ columns, rows, empty, onRowClick, rowLabel }) => {
               type="button"
               onClick={() => onRowClick(row)}
               aria-label={`Open ${rowLabel(row)}`}
-              className="-mr-2 grid size-8 shrink-0 cursor-pointer place-items-center rounded-md text-fg-subtle hover:bg-subtle hover:text-fg"
+              className="-mr-2 grid size-8 shrink-0 cursor-pointer place-items-center rounded-full text-fg-subtle hover:bg-subtle hover:text-fg"
             >
               <ChevronRight className="size-4" strokeWidth={1.5} />
             </button>
@@ -192,7 +192,7 @@ const TableGrid = ({ columns, rows, empty, onRowClick, rowLabel }) => (
                   type="button"
                   onClick={(event) => { event.stopPropagation(); onRowClick(row); }}
                   aria-label={`Open ${rowLabel(row)}`}
-                  className="grid size-8 cursor-pointer place-items-center rounded-md text-fg-subtle hover:bg-subtle hover:text-fg"
+                  className="grid size-8 cursor-pointer place-items-center rounded-full text-fg-subtle hover:bg-subtle hover:text-fg"
                 >
                   <ChevronRight className="size-4" strokeWidth={1.5} />
                 </button>

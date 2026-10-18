@@ -147,7 +147,7 @@ export default function DataTable({
                         )}
                         {rowActions && <DropdownMenu items={rowActions(row)} label={`Actions for ${rowLabel(row)}`} />}
                         {!rowActions && onRowClick && (
-                          <button type="button" onClick={() => onRowClick(row)} aria-label={`Open ${rowLabel(row)}`} className="grid size-8 place-items-center rounded-md text-fg-subtle hover:bg-subtle hover:text-fg cursor-pointer">
+                          <button type="button" onClick={() => onRowClick(row)} aria-label={`Open ${rowLabel(row)}`} className="grid size-8 place-items-center rounded-full text-fg-subtle hover:bg-subtle hover:text-fg cursor-pointer">
                             <ChevronRight className="size-4" strokeWidth={1.5} />
                           </button>
                         )}
