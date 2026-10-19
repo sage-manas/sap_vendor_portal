@@ -12,20 +12,20 @@ import { Check, ChevronLeft, ChevronRight, Minus, MoreHorizontal } from 'lucide-
 
 const cx = (...c) => c.filter(Boolean).join(' ');
 
-/* ── Tabs: underline, never boxed ────────────────────────────────────────
+/* ── Tabs: a pill segmented bar (redesign v2) ─────────────────────────────
    items: [{ value, label, count? }]. Panels are optional — many screens use
    tabs as a filter and render one list below. */
 export function Tabs({ items, value, defaultValue, onValueChange, children, className = '', 'aria-label': ariaLabel }) {
   return (
     <BaseTabs.Root value={value} defaultValue={defaultValue ?? items?.[0]?.value} onValueChange={onValueChange} className={className}>
-      <BaseTabs.List aria-label={ariaLabel} className="relative flex gap-5 overflow-x-auto border-b border-border no-scrollbar">
+      <BaseTabs.List aria-label={ariaLabel} className="relative inline-flex max-w-full gap-1 overflow-x-auto rounded-pill border border-border bg-subtle p-1 no-scrollbar">
         {items.map((item) => (
           <BaseTabs.Tab
             key={item.value}
             value={item.value}
-            className="-mb-px flex h-9 shrink-0 items-center gap-1.5 border-b-2 border-transparent text-sm text-fg-muted outline-none
+            className="flex h-8 shrink-0 items-center gap-1.5 rounded-pill px-4 text-sm whitespace-nowrap text-fg-muted outline-none
               hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--accent-solid)]
-              data-[active]:border-fg data-[active]:font-medium data-[active]:text-fg cursor-pointer"
+              data-[active]:bg-surface data-[active]:shadow-card dark:data-[active]:bg-border-strong data-[active]:font-medium data-[active]:text-fg cursor-pointer"
           >
             {item.label}
             {item.count != null && <span className="mono text-xs text-fg-subtle">{item.count}</span>}
