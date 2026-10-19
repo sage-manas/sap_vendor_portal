@@ -7,7 +7,8 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ══════════════════════════════════════════════════════════════════════════
-   "Ledger" design system, v2 "Ledger Night" skin (docs/redesign/04-redesign-v2-plan.md).
+   "Ledger" design system, v2 "Ledger Night" skin, painted in the Uvira brand
+   (docs/redesign/04-redesign-v2-plan.md, docs/redesign/05-uvira-palette.md).
    docs/redesign/design-system.md is the reference.
 
    Three layers:
@@ -30,22 +31,24 @@
 
 :root {
   /* ── 1. Primitives ───────────────────────────────────────────────────── */
-  /* v2: the ramp keeps its --slate-* names so nothing downstream moves, but
-     the values are a neutral graphite (the reference dashboard), not blue slate. */
+  /* The ramp keeps its --slate-* names so nothing downstream moves. Uvira: one
+     navy hue (~225°) drawn from the logo's wordmark, replacing v2's neutral
+     graphite. The deep end is the wordmark navy; the light end is a cool white
+     — never the logo's cream, which is a logo plate, not an app canvas. */
   --slate-0: #FFFFFF;
-  --slate-25: #F3F3F6;
-  --slate-50: #ECECF1;
-  --slate-100: #E2E2E8;
-  --slate-200: #CDCDD4;
-  --slate-300: #B4B4BC;
-  --slate-400: #9A9AA4;
-  --slate-500: #62626E;
-  --slate-600: #4A4A55;
-  --slate-700: #3A3A42;
-  --slate-800: #2A2A30;
-  --slate-850: #222227;
-  --slate-900: #18181C;
-  --slate-950: #0E0E11;
+  --slate-25: #F2F4F9;
+  --slate-50: #EAEDF4;
+  --slate-100: #DEE3EE;
+  --slate-200: #C7CEDF;
+  --slate-300: #ADB5CA;
+  --slate-400: #939CB4;
+  --slate-500: #5D6579;
+  --slate-600: #454D61;
+  --slate-700: #343B4D;
+  --slate-800: #252B3A;
+  --slate-850: #1C2130;
+  --slate-900: #141927;
+  --slate-950: #090D18;
 
   --radius-control: 10px;  /* inputs, nav rows */
   --radius-tile: 14px;     /* tiles and cards nested inside a container */
@@ -57,8 +60,22 @@
   --duration-base: 180ms;
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
 
-  /* The accent, from tenant branding. Default pink #E8457E (v2). */
-  --color-emerald-default-rgb: 232, 69, 126;
+  /* The accent, from tenant branding. Default: the Uvira violet #7A3FD6, the
+     logo's dominant hue. A tenant still overrides it, exactly as before. */
+  --color-emerald-default-rgb: 122, 63, 214;
+
+  /* The logo's second hue, cyan. It is NOT the accent: it never competes with
+     an action. It carries information — chart series 2, the ordinal ramp, the
+     info state — so the two brand hues read as a pair, as they do in the mark.
+     Its own value per theme, each validated against that theme's surface. */
+  --accent-2: #0F7A91;
+
+  /* The logo's cream, and the one place it belongs: the ground behind a
+     signed-out screen, where the mark is the subject and no data competes
+     with it. It is the plate the logo is printed on, so it stops at the
+     front door — the app canvas stays cool (05-uvira-palette.md). */
+  --auth-ground: #F3EEDF;
+  --auth-card-border: #E5DECD;
 
   /* ── 2. Semantic (light) ─────────────────────────────────────────────── */
   --canvas: var(--slate-25);
@@ -67,7 +84,7 @@
   --hover: var(--slate-25);
   --border: var(--slate-100);
   --border-strong: var(--slate-200);
-  --input-border: #82828C;            /* ≥3:1 on canvas and surface — WCAG 1.4.11 */
+  --input-border: #7C8498;            /* ≥3:1 on canvas and surface — WCAG 1.4.11 */
   --fg: var(--slate-950);
   --fg-muted: var(--slate-600);
   --fg-subtle: var(--slate-500);
@@ -75,7 +92,7 @@
   --success: #2B7550;  --success-tint: #E7F3EC;
   --warning: #8A5A0F;  --warning-tint: #FBF1DF;
   --danger:  #B02F27;  --danger-tint:  #FBE9E7;
-  --info:    #2A6496;  --info-tint:    #E6F0F8;
+  --info:    #0F6C80;  --info-tint:    #E2F1F5;
 
   --accent: rgb(var(--color-emerald-default-rgb));
   /* Fallbacks for browsers without relative colour syntax; the @supports
@@ -99,28 +116,29 @@
      light end ≥ 2:1.
      v2: series 1 is the tenant accent — the same derivation as link text
      (L ≤ 0.5, ≥ 4.5:1 on white), so any brand colour stays a readable line.
-     Series 2 is electric blue and always drawn dashed, so the two separate by
-     shape even when a tenant's colour is itself blue. */
+     Series 2 is --accent-2 (the logo cyan) and always drawn dashed, so the two
+     separate by shape even when a tenant's colour is itself cyan. The ordinal
+     ramp stays one hue — the cyan — because series 1 already carries violet. */
   --chart-series: var(--accent-text);
-  --chart-series-2: #3D5AFE;
-  --chart-seq-1: #A9B6FF;
-  --chart-seq-2: #7488FF;
-  --chart-seq-3: #3D5AFE;
-  --chart-seq-4: #2235B8;
+  --chart-series-2: var(--accent-2);
+  --chart-seq-1: #5FB4CB;
+  --chart-seq-2: #3594AE;
+  --chart-seq-3: #176F86;
+  --chart-seq-4: #0A4A5C;
   --chart-grid: var(--border);
   --chart-axis: var(--fg-subtle);
 
   /* ── 3. Legacy (triplets) → Ledger ───────────────────────────────────── */
-  --color-base-rgb: 243, 243, 246;
+  --color-base-rgb: 242, 244, 249;
   --color-surface-rgb: 255, 255, 255;
-  --color-surface2-rgb: 236, 236, 241;
+  --color-surface2-rgb: 234, 237, 244;
   --color-surface3-rgb: 255, 255, 255;
-  --color-border-rgb: 226, 226, 232;
-  --color-border-subtle-rgb: 236, 236, 241;
-  --color-border-em-rgb: 205, 205, 212;
-  --color-text-primary-rgb: 14, 14, 17;
-  --color-text-secondary-rgb: 74, 74, 85;
-  --color-text-tertiary-rgb: 98, 98, 110;
+  --color-border-rgb: 222, 227, 238;
+  --color-border-subtle-rgb: 234, 237, 244;
+  --color-border-em-rgb: 199, 206, 223;
+  --color-text-primary-rgb: 9, 13, 24;
+  --color-text-secondary-rgb: 69, 77, 97;
+  --color-text-tertiary-rgb: 93, 101, 121;
   --color-emerald-dim: var(--accent-tint);
 }
 
@@ -139,7 +157,7 @@
   --success: #62C08F;  --success-tint: #14261D;
   --warning: #D9A54C;  --warning-tint: #2A2112;
   --danger:  #F07C72;  --danger-tint:  #2E1715;
-  --info:    #72AADB;  --info-tint:    #132232;
+  --info:    #4FBDD6;  --info-tint:    #0C2832;
 
   /* Same tenant colour, lifted to read on near-black (fallbacks; see the
      @supports block). */
@@ -148,30 +166,39 @@
   --accent-tint: color-mix(in srgb, var(--accent) 14%, var(--surface));
   --accent-fg: var(--slate-950);
 
+  /* The cyan, lifted to read on the navy surface. */
+  --accent-2: #4FC3DC;
+
+  /* No cream in the dark: it is a light-theme surface. The plate is the navy
+     canvas, with the same violet glow over it. */
+  --auth-ground: var(--canvas);
+  --auth-card-border: var(--border);
+
   --shadow-card: inset 0 1px 0 rgb(255 255 255 / 0.04);
   --shadow-popover: 0 8px 24px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(255 255 255 / 0.04);
   --shadow-modal: 0 16px 48px rgb(0 0 0 / 0.6);
   --scrim: rgb(0 0 0 / 0.6);
 
-  /* Dark chart steps — their own values, validated against #18181C, not a flip.
-     Series 1: the accent lifted to L ≥ 0.70, as for the dark button. */
+  /* Dark chart steps — their own values, validated against the navy surface,
+     not a flip. Series 1: the accent lifted to L ≥ 0.70, as for the dark
+     button. Series 2 and the ordinal ramp: the cyan. */
   --chart-series: var(--accent-solid);
-  --chart-series-2: #6F84FF;
-  --chart-seq-1: #2F3FA8;
-  --chart-seq-2: #4A5FE0;
-  --chart-seq-3: #7A8DFF;
-  --chart-seq-4: #B3BEFF;
+  --chart-series-2: var(--accent-2);
+  --chart-seq-1: #15637A;
+  --chart-seq-2: #2A8EA8;
+  --chart-seq-3: #52B5CE;
+  --chart-seq-4: #9BE0F0;
 
-  --color-base-rgb: 14, 14, 17;
-  --color-surface-rgb: 24, 24, 28;
-  --color-surface2-rgb: 34, 34, 39;
-  --color-surface3-rgb: 34, 34, 39;
-  --color-border-rgb: 42, 42, 48;
-  --color-border-subtle-rgb: 34, 34, 39;
-  --color-border-em-rgb: 58, 58, 66;
-  --color-text-primary-rgb: 236, 236, 241;
-  --color-text-secondary-rgb: 180, 180, 188;
-  --color-text-tertiary-rgb: 154, 154, 164;
+  --color-base-rgb: 9, 13, 24;
+  --color-surface-rgb: 20, 25, 39;
+  --color-surface2-rgb: 28, 33, 48;
+  --color-surface3-rgb: 28, 33, 48;
+  --color-border-rgb: 37, 43, 58;
+  --color-border-subtle-rgb: 28, 33, 48;
+  --color-border-em-rgb: 52, 59, 77;
+  --color-text-primary-rgb: 234, 237, 244;
+  --color-text-secondary-rgb: 173, 181, 202;
+  --color-text-tertiary-rgb: 147, 156, 180;
 
   color-scheme: dark;
 }
@@ -214,6 +241,7 @@
   --color-accent-tint: var(--accent-tint);
   --color-accent-solid: var(--accent-solid);
   --color-accent-fg: var(--accent-fg);
+  --color-accent-2: var(--accent-2);
 
   /* Legacy utilities (bg-base, bg-surface2, text-text-tertiary …) */
   --color-base: rgb(var(--color-base-rgb));
@@ -671,11 +699,14 @@
   .auth-page-wrapper {
     background:
       radial-gradient(56rem 28rem at 50% -8%, color-mix(in srgb, var(--accent-solid) 14%, transparent), transparent 70%),
-      var(--canvas);
+      var(--auth-ground);
   }
   .auth-page-wrapper .card {
     border-radius: var(--radius-overlay);
     box-shadow: var(--shadow-popover);
+    /* A cool grey hairline on the warm ground is the one place the two hue
+       families would meet and argue. */
+    border-color: var(--auth-card-border);
   }
 }
 
