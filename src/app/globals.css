@@ -38,7 +38,7 @@
   --slate-100: #E2E2E8;
   --slate-200: #CDCDD4;
   --slate-300: #B4B4BC;
-  --slate-400: #8E8E98;
+  --slate-400: #9A9AA4;
   --slate-500: #62626E;
   --slate-600: #4A4A55;
   --slate-700: #3A3A42;
@@ -142,7 +142,7 @@
      @supports block). */
   --accent-text: color-mix(in oklab, var(--accent) 55%, white);
   --accent-solid: color-mix(in oklab, var(--accent) 60%, white);
-  --accent-tint: color-mix(in srgb, var(--accent) 22%, var(--surface));
+  --accent-tint: color-mix(in srgb, var(--accent) 14%, var(--surface));
   --accent-fg: var(--slate-950);
 
   --shadow-card: inset 0 1px 0 rgb(255 255 255 / 0.04);
@@ -167,7 +167,7 @@
   --color-border-em-rgb: 58, 58, 66;
   --color-text-primary-rgb: 236, 236, 241;
   --color-text-secondary-rgb: 180, 180, 188;
-  --color-text-tertiary-rgb: 142, 142, 152;
+  --color-text-tertiary-rgb: 154, 154, 164;
 
   color-scheme: dark;
 }

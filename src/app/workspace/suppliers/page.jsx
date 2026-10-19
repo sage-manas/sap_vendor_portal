@@ -229,7 +229,7 @@ export default function SuppliersPage() {
           />
         </form>
 
-        <select className="h-9 w-auto! min-w-44" value={status} onChange={(event) => setStatus(event.target.value)}>
+        <select aria-label="Status" className="h-9 w-auto! min-w-44" value={status} onChange={(event) => setStatus(event.target.value)}>
           <option value="">Every status</option>
           {/* Offered by the API's registry, not listed here. */}
           {(data?.filters?.statuses || []).map((value) => <option key={value} value={value}>{value}</option>)}

@@ -101,7 +101,7 @@ derived from it in CSS, per theme:
 | `--accent` | the tenant colour | the tenant colour |
 | `--accent-solid` (buttons, focus ring, checked controls) | `--accent` | lightness lifted to ≥ 0.70 (oklch) |
 | `--accent-text` (links, accent labels) | lightness capped at ≤ 0.50 | lightness lifted to ≥ 0.76 |
-| `--accent-tint` (selection, "needs action" fill) | 9% over surface | 22% over surface |
+| `--accent-tint` (selection, "needs action" fill) | 9% over surface | 14% over surface (v2; was 22%) |
 | `--accent-fg` (text on the button) | white if L < 0.60, else ink | same rule on `--accent-solid` |
 
 So a tenant can pick any colour — yellow, light sky, lime — and links and

@@ -38,7 +38,7 @@ function CountBadge({ item, className = '' }) {
 
 /* An item in the top-bar pill. */
 function PillItem({ item, display = 'inline-flex' }) {
-  const cls = `${display} h-9 shrink-0 items-center gap-1.5 rounded-pill px-4 text-sm whitespace-nowrap transition-colors cursor-pointer ${
+  const cls = `${display} h-9 shrink-0 items-center gap-1.5 rounded-pill px-3.5 2xl:px-4 text-sm whitespace-nowrap transition-colors cursor-pointer ${
     item.active ? 'bg-subtle font-medium text-fg dark:bg-border-strong' : 'text-fg-muted hover:text-fg'
   }`;
   const content = (
@@ -62,7 +62,7 @@ function MoreMenu({ items }) {
   return (
     <Menu.Root>
       <Menu.Trigger
-        className={`inline-flex h-9 shrink-0 items-center gap-1 rounded-pill px-4 text-sm cursor-pointer data-[popup-open]:bg-subtle ${
+        className={`inline-flex h-9 shrink-0 items-center gap-1 rounded-pill px-3.5 2xl:px-4 text-sm cursor-pointer data-[popup-open]:bg-subtle ${
           active ? 'bg-subtle font-medium text-fg dark:bg-border-strong' : 'text-fg-muted hover:text-fg'
         } ${activeXl ? 'xl:bg-transparent xl:font-normal xl:text-fg-muted dark:xl:bg-transparent' : ''} ${allXl ? 'xl:hidden' : ''}`}
       >
@@ -266,7 +266,7 @@ export default function AppShell({ surface, identity, nav, footerNav = [], note,
         <Button ref={menuButtonRef} variant="ghost" size="icon" className="lg:hidden" onClick={() => setSheetOpen(true)} aria-label="Open navigation">
           <MenuIcon strokeWidth={1.5} />
         </Button>
-        <div className="flex min-w-0 shrink items-center lg:w-56 xl:w-64">
+        <div className="flex min-w-0 shrink items-center lg:max-w-56 xl:max-w-64">
           <Identity surface={surface} identity={identity} />
         </div>
         <nav aria-label={`${s.label} navigation`} className="hidden min-w-0 flex-1 justify-center lg:flex">
