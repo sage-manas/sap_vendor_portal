@@ -101,7 +101,7 @@ for (const [theme, vars] of [['light', root], ['dark', dark]]) {
 //   light: text = L≤0.5, tint = 9% over surface, button = raw accent
 //   dark:  text = L≥0.76, button = L≥0.70, tint = 22% over surface
 const TENANTS = {
-  default: '#1E4FD0', seededGreen: '#2F6F4E', oldCoral: '#CC785C', yellow: '#F5C518',
+  default: '#E8457E', ledgerInk: '#1E4FD0', seededGreen: '#2F6F4E', oldCoral: '#CC785C', yellow: '#F5C518',
   sky: '#38BDF8', violet: '#7C3AED', rose: '#E11D48', black: '#111111', lime: '#A3E635',
 };
 const lightSurface = hexToRgb(resolve(root, '--surface'));

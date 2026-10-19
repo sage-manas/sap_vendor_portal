@@ -7,7 +7,8 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ══════════════════════════════════════════════════════════════════════════
-   "Ledger" design system — docs/redesign/design-system.md is the reference.
+   "Ledger" design system, v2 "Ledger Night" skin (docs/redesign/04-redesign-v2-plan.md).
+   docs/redesign/design-system.md is the reference.
 
    Three layers:
      1. primitives  — the slate ramp, semantic hues, radii, elevation, motion.
@@ -29,31 +30,35 @@
 
 :root {
   /* ── 1. Primitives ───────────────────────────────────────────────────── */
+  /* v2: the ramp keeps its --slate-* names so nothing downstream moves, but
+     the values are a neutral graphite (the reference dashboard), not blue slate. */
   --slate-0: #FFFFFF;
-  --slate-25: #F6F7F9;
-  --slate-50: #EFF1F4;
-  --slate-100: #E2E5EA;
-  --slate-200: #C9CED6;
-  --slate-300: #A9B2C0;
-  --slate-400: #858E9C;
-  --slate-500: #636D7D;
-  --slate-600: #465163;
-  --slate-700: #323C4B;
-  --slate-800: #232B37;
-  --slate-850: #1A2130;
-  --slate-900: #11161E;
-  --slate-950: #0B0F15;
+  --slate-25: #F3F3F6;
+  --slate-50: #ECECF1;
+  --slate-100: #E2E2E8;
+  --slate-200: #CDCDD4;
+  --slate-300: #B4B4BC;
+  --slate-400: #8E8E98;
+  --slate-500: #62626E;
+  --slate-600: #4A4A55;
+  --slate-700: #3A3A42;
+  --slate-800: #2A2A30;
+  --slate-850: #222227;
+  --slate-900: #18181C;
+  --slate-950: #0E0E11;
 
-  --radius-control: 6px;   /* buttons, inputs, chips, nav rows */
-  --radius-container: 10px; /* cards, tables, panels */
-  --radius-overlay: 14px;  /* dialogs, drawers, popovers */
+  --radius-control: 10px;  /* inputs, nav rows */
+  --radius-tile: 14px;     /* tiles and cards nested inside a container */
+  --radius-container: 20px; /* cards, tables, panels */
+  --radius-overlay: 24px;  /* dialogs, drawers, popovers */
+  --radius-pill: 999px;    /* buttons, chips, badges, segmented controls */
 
   --duration-fast: 120ms;
   --duration-base: 180ms;
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
 
-  /* The accent, from tenant branding. Default ink blue #1E4FD0. */
-  --color-emerald-default-rgb: 30, 79, 208;
+  /* The accent, from tenant branding. Default pink #E8457E (v2). */
+  --color-emerald-default-rgb: 232, 69, 126;
 
   /* ── 2. Semantic (light) ─────────────────────────────────────────────── */
   --canvas: var(--slate-25);
@@ -62,7 +67,7 @@
   --hover: var(--slate-25);
   --border: var(--slate-100);
   --border-strong: var(--slate-200);
-  --input-border: var(--slate-400);   /* ≥3:1 on surface — WCAG 1.4.11 */
+  --input-border: #82828C;            /* ≥3:1 on canvas and surface — WCAG 1.4.11 */
   --fg: var(--slate-950);
   --fg-muted: var(--slate-600);
   --fg-subtle: var(--slate-500);
@@ -83,33 +88,36 @@
   --accent-fg: #FFFFFF;
   --accent-solid: var(--accent);
 
-  --shadow-popover: 0 8px 24px rgb(14 23 38 / 0.12), 0 0 0 1px rgb(14 23 38 / 0.04);
-  --shadow-modal: 0 16px 48px rgb(14 23 38 / 0.18);
-  --scrim: rgb(11 15 21 / 0.36);
+  --shadow-card: 0 1px 2px rgb(14 14 17 / 0.04);
+  --shadow-popover: 0 8px 24px rgb(14 14 17 / 0.12), 0 0 0 1px rgb(14 14 17 / 0.04);
+  --shadow-modal: 0 16px 48px rgb(14 14 17 / 0.18);
+  --scrim: rgb(14 14 17 / 0.4);
 
   /* Charts (docs/redesign/design-system.md § Charts). Validated with the
      dataviz skill's validate_palette.js against each theme's surface:
      single series ≥ 3:1; the ordinal ramp is one hue, monotone lightness,
-     light end ≥ 2:1. Not the accent: a tenant's brand colour is for actions. */
-  --chart-series: #4170B5;
-  --chart-seq-1: #98B4DE;
-  --chart-seq-2: #6A90CC;
-  --chart-seq-3: #4170B5;
-  --chart-seq-4: #204C8C;
+     light end ≥ 2:1. Not the accent: a tenant's brand colour is for actions.
+     v2: pink series 1 + electric-blue series 2, as in the reference. */
+  --chart-series: #D6336C;
+  --chart-series-2: #3D5AFE;
+  --chart-seq-1: #A9B6FF;
+  --chart-seq-2: #7488FF;
+  --chart-seq-3: #3D5AFE;
+  --chart-seq-4: #2235B8;
   --chart-grid: var(--border);
   --chart-axis: var(--fg-subtle);
 
   /* ── 3. Legacy (triplets) → Ledger ───────────────────────────────────── */
-  --color-base-rgb: 246, 247, 249;
+  --color-base-rgb: 243, 243, 246;
   --color-surface-rgb: 255, 255, 255;
-  --color-surface2-rgb: 239, 241, 244;
+  --color-surface2-rgb: 236, 236, 241;
   --color-surface3-rgb: 255, 255, 255;
-  --color-border-rgb: 226, 229, 234;
-  --color-border-subtle-rgb: 239, 241, 244;
-  --color-border-em-rgb: 201, 206, 214;
-  --color-text-primary-rgb: 11, 15, 21;
-  --color-text-secondary-rgb: 70, 81, 99;
-  --color-text-tertiary-rgb: 99, 109, 125;
+  --color-border-rgb: 226, 226, 232;
+  --color-border-subtle-rgb: 236, 236, 241;
+  --color-border-em-rgb: 205, 205, 212;
+  --color-text-primary-rgb: 14, 14, 17;
+  --color-text-secondary-rgb: 74, 74, 85;
+  --color-text-tertiary-rgb: 98, 98, 110;
   --color-emerald-dim: var(--accent-tint);
 }
 
@@ -120,7 +128,7 @@
   --hover: var(--slate-850);
   --border: var(--slate-800);
   --border-strong: var(--slate-700);
-  --input-border: var(--slate-500);
+  --input-border: var(--slate-400);   /* 500 falls under 3:1 on the graphite surface */
   --fg: var(--slate-50);
   --fg-muted: var(--slate-300);
   --fg-subtle: var(--slate-400);
@@ -137,27 +145,29 @@
   --accent-tint: color-mix(in srgb, var(--accent) 22%, var(--surface));
   --accent-fg: var(--slate-950);
 
+  --shadow-card: inset 0 1px 0 rgb(255 255 255 / 0.04);
   --shadow-popover: 0 8px 24px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(255 255 255 / 0.04);
   --shadow-modal: 0 16px 48px rgb(0 0 0 / 0.6);
   --scrim: rgb(0 0 0 / 0.6);
 
-  /* Dark chart steps — their own values, validated against #11161E, not a flip. */
-  --chart-series: #5E88C8;
-  --chart-seq-1: #34578E;
-  --chart-seq-2: #4874B4;
-  --chart-seq-3: #6E98D6;
-  --chart-seq-4: #A8C3EC;
+  /* Dark chart steps — their own values, validated against #18181C, not a flip. */
+  --chart-series: #F0609A;
+  --chart-series-2: #6F84FF;
+  --chart-seq-1: #2F3FA8;
+  --chart-seq-2: #4A5FE0;
+  --chart-seq-3: #7A8DFF;
+  --chart-seq-4: #B3BEFF;
 
-  --color-base-rgb: 11, 15, 21;
-  --color-surface-rgb: 17, 22, 30;
-  --color-surface2-rgb: 26, 33, 48;
-  --color-surface3-rgb: 26, 33, 48;
-  --color-border-rgb: 35, 43, 55;
-  --color-border-subtle-rgb: 26, 33, 48;
-  --color-border-em-rgb: 50, 60, 75;
-  --color-text-primary-rgb: 239, 241, 244;
-  --color-text-secondary-rgb: 169, 178, 192;
-  --color-text-tertiary-rgb: 133, 142, 156;
+  --color-base-rgb: 14, 14, 17;
+  --color-surface-rgb: 24, 24, 28;
+  --color-surface2-rgb: 34, 34, 39;
+  --color-surface3-rgb: 34, 34, 39;
+  --color-border-rgb: 42, 42, 48;
+  --color-border-subtle-rgb: 34, 34, 39;
+  --color-border-em-rgb: 58, 58, 66;
+  --color-text-primary-rgb: 236, 236, 241;
+  --color-text-secondary-rgb: 180, 180, 188;
+  --color-text-tertiary-rgb: 142, 142, 152;
 
   color-scheme: dark;
 }
@@ -217,11 +227,14 @@
   --font-sans: var(--font-plex-sans), var(--font-plex-sans-ext), system-ui, sans-serif;
   --font-mono: var(--font-plex-mono), var(--font-plex-mono-ext), ui-monospace, monospace;
 
-  /* Three radii. rounded-sm/md → controls, lg → containers, xl → overlays. */
+  /* rounded-sm/md → controls, rounded-tile → nested tiles, lg → containers,
+     xl → overlays, rounded-pill → buttons/chips/badges. */
   --radius-sm: var(--radius-control);
   --radius-md: var(--radius-control);
+  --radius-tile: var(--radius-tile);
   --radius-lg: var(--radius-container);
   --radius-xl: var(--radius-overlay);
+  --radius-pill: var(--radius-pill);
 
   /* Type scale: 12 / 13 / 14 (base) / 16 / 20 / 24 / 32, 4px line grid. */
   --text-xs: 12px;   --text-xs--line-height: 16px;
@@ -234,6 +247,7 @@
   --text-2xl: 24px;  --text-2xl--line-height: 32px;
   --text-3xl: 32px;  --text-3xl--line-height: 40px;
 
+  --shadow-card: var(--shadow-card);
   --shadow-popover: var(--shadow-popover);
   --shadow-modal: var(--shadow-modal);
 

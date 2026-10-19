@@ -11,6 +11,10 @@ in [01-audit.md](01-audit.md).
   state, light beside dark)
 - Contrast check: `npm run check:contrast`
 
+> **Redesign v2 ("Ledger Night").** Dark is the default theme, the neutral
+> ramp is graphite rather than blue slate, the default accent is pink and charts
+> gain `--chart-series-2` (electric blue). Plan: `04-redesign-v2-plan.md`.
+
 ## Principles
 
 1. **Calm and exact.** Nothing on screen that does not carry information. No
@@ -103,7 +107,8 @@ derived from it in CSS, per theme:
 So a tenant can pick any colour — yellow, light sky, lime — and links and
 button labels stay ≥ 4.5:1 in both themes. `npm run check:contrast` runs nine
 sample tenant colours through the same maths; the redesign PR also verified the
-browser-computed values. Default accent: ink blue `#1E4FD0`.
+browser-computed values. Default accent: pink `#E8457E` since redesign v2
+(Ledger's ink blue `#1E4FD0` stays in the sample set).
 
 Browsers without relative colour syntax get `color-mix` approximations; the
 exact `oklch` derivations sit in an `@supports (color: oklch(from red l c h))`
@@ -134,8 +139,12 @@ the two names collide and `text-base` would set the text colour to the canvas.
 ### Space, shape, elevation, motion
 
 - 4px grid. Common steps: 4 / 8 / 12 / 16 / 24 / 32.
-- Three radii: `rounded-md` 6px (controls), `rounded-lg` 10px (containers),
-  `rounded-xl` 14px (overlays). `rounded-full` only for dots.
+- Radii (v2): `rounded-md` 10px (inputs, nav rows), `rounded-tile` 14px (tiles
+  nested in a card), `rounded-lg` 20px (containers), `rounded-xl` 24px
+  (overlays), `rounded-pill` (buttons, chips, badges, segmented controls).
+  `rounded-full` only for dots and avatars.
+- Cards may use `shadow-card`: a faint drop in light, a 4% top-edge highlight
+  in dark.
 - Hairline borders, no shadows on in-page surfaces. Two elevations:
   `shadow-popover` (menus, tooltips, toasts) and `shadow-modal` (dialogs,
   drawers). Scrim: `bg-[var(--scrim)]`.
