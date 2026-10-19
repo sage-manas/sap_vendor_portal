@@ -28,7 +28,9 @@ const INVOICE_INCLUDE_WITH_PAYMENTS = { ...INVOICE_INCLUDE, paymentItems: true }
 // @route   GET /api/invoices
 // @access  Public
 const getInvoices = asyncHandler(async (req, res, next) => {
-  const { status, page = 1, limit = 10 } = req.query;
+  // Numbers with a ceiling by now — see the note in po.controller.js's
+  // getPOs on why there is no default written here (#118, #280).
+  const { status, page, limit } = req.query;
 
   const where = withVendorScope(req);
   if (status) {

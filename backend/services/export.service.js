@@ -53,22 +53,14 @@ const buildExportPayload = ({ rfq, po }) => ({
   })),
 });
 
-// Formula injection (issue #75): a cell whose text begins with =, +, -, @,
-// or a tab/carriage return is read as a formula by Excel/LibreOffice on
-// open — `=HYPERLINK(...)`, `+cmd|'/c calc'!A1`, etc. — regardless of which
-// export format wrote it. vendorName/companyName are attacker-controlled (a
-// supplier picks both at self-registration), and materialCode/description
-// can arrive this way from SAP too, so this neutralises at the boundary
-// every string cell is written through rather than trying to validate every
-// source. A leading `'` is Excel/LibreOffice's own "force text" marker —
-// visible once opened, but no longer executable.
-const FORMULA_PREFIX = /^[=+\-@\t\r]/;
-const neutraliseFormula = (str) => (FORMULA_PREFIX.test(str) ? `'${str}` : str);
-
-const csvCell = (value) => {
-  const str = neutraliseFormula(value == null ? '' : String(value));
-  return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
-};
+// Formula injection (issue #75) is handled in utils/csv.js, which this and
+// the supplier report exports (issue #280) share — vendorName/companyName
+// are attacker-controlled (a supplier picks both at self-registration), and
+// materialCode/description can arrive that way from SAP too, so the guard
+// belongs at the one boundary every string cell is written through rather
+// than in each writer. `neutraliseFormula` is applied to the SpreadsheetML
+// cells below as well, not only to CSV.
+const { csvCell, neutraliseFormula } = require('../utils/csv');
 
 const HEADER_COLUMNS = [
   ['poId', 'PO Number'],

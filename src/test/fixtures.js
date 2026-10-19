@@ -46,11 +46,73 @@ export const VENDOR_PROFILE = {
   submittedAt: '2026-01-01T00:00:00.000Z',
 };
 
+// GET /api/dashboard/summary — every headline figure the Overview and Reports
+// screens render, counted on the server (issue #280). The shape is
+// backend/services/supplierSummary.service.js's; the keys below are its keys,
+// at zero.
+//
+// The fixture this replaces described none of them (`counts`,
+// `recentActivity`, `outstanding` — names the endpoint has never answered
+// with), which was harmless only for as long as nothing on screen read it.
 export const DASHBOARD_SUMMARY = {
-  counts: { rfqs: 0, pos: 0, invoices: 0, payments: 0, asns: 0, grns: 0 },
-  recentActivity: [],
-  outstanding: { invoices: 0, value: 0 },
+  scope: 'supplier',
+  pos: {
+    total: 0,
+    byStatus: { Open: 0, Acknowledged: 0, Dispatched: 0, Delivered: 0, Invoiced: 0, Paid: 0 },
+    awaitingAcknowledgement: 0,
+    awaitingSupplierCount: 0,
+    inFlightCount: 0,
+    inFlightValue: 0,
+    totalValue: 0,
+    byMonth: [],
+    byMaterial: [],
+    byPlant: [],
+    avgAcknowledgementDays: null,
+  },
+  grns: { total: 0, awaitingInvoice: 0, receivedQuantity: 0, acceptedQuantity: 0 },
+  invoices: {
+    total: 0,
+    byStatus: {},
+    openCount: 0,
+    openValue: 0,
+    clearedCount: 0,
+    rejectedCount: 0,
+    matchWarningCount: 0,
+    invoicedValue: 0,
+    openInvoicedValue: 0,
+    receivableValue: 0,
+    taxTotal: 0,
+    ageing: { '0-30': 0, '31-60': 0, '61-90': 0, '90+': 0 },
+    isMsme: false,
+    msmeOverdueCount: 0,
+    msmeOverdueValue: 0,
+  },
+  payments: { total: 0, grossTotal: 0, netTotal: 0, tdsTotal: 0 },
+  flow: [],
+  rfqs: { invited: 0, quoted: 0, openForBids: 0 },
+  ledgerBalance: 0,
+  openPOCount: 0,
+  pendingGRNsCount: 0,
+  invoiceCount: 0,
+  totalPaymentsAmount: 0,
+  timestamp: '2026-01-01T00:00:00.000Z',
 };
+
+/**
+ * The summary with some figures filled in. Nested per section, so a test
+ * names only what it cares about:
+ *
+ *   summaryOf({ pos: { awaitingSupplierCount: 11 } })
+ */
+export const summaryOf = (overrides = {}) => ({
+  ...DASHBOARD_SUMMARY,
+  ...overrides,
+  ...Object.fromEntries(
+    ['pos', 'grns', 'invoices', 'payments', 'rfqs']
+      .filter((section) => overrides[section])
+      .map((section) => [section, { ...DASHBOARD_SUMMARY[section], ...overrides[section] }]),
+  ),
+});
 
 export const EMPTY_SUPPLIER_API = {
   'GET /vendors/profile': VENDOR_PROFILE,

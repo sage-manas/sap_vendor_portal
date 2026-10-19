@@ -28,19 +28,15 @@ export const downloadFromApi = async (path, filename) => {
   saveBlob(await response.blob(), filename);
 };
 
-const csvCell = (value) => {
-  const text = value == null ? '' : String(value);
-  return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
-};
-
-/**
- * Saves rows as CSV. `columns` is [{ header, value: (row) => … }], so the file
- * holds exactly what the table on screen shows.
- */
-export const downloadCsv = (filename, columns, rows) => {
-  const lines = [
-    columns.map((column) => csvCell(column.header)).join(','),
-    ...rows.map((row) => columns.map((column) => csvCell(column.value(row))).join(',')),
-  ];
-  saveBlob(new Blob([`${lines.join('\n')}\n`], { type: 'text/csv;charset=utf-8' }), filename);
-};
+// `downloadCsv` lived here: it wrote a CSV from "exactly what the table on
+// screen shows", which was the bug (issue #280). What the table showed was
+// one page of a list endpoint, and the file it produced carried the name and
+// the headers of a complete export. The exports are server endpoints now
+// (backend/controllers/reportExport.controller.js), fetched through
+// downloadFromApi above.
+//
+// Deleted rather than left unused, for the reason recorded in
+// usePOs.js's header: a working client-side CSV writer sitting beside the
+// endpoints that replaced it is one import away from putting a partial
+// export back in front of a supplier. Writing a CSV in the browser from
+// whatever rows are loaded is not a thing this app should make easy.

@@ -42,7 +42,12 @@ const sapPoGrnCache = new TtlCache({ defaultTtlMs: Number(process.env.SAP_PO_GRN
 // @route   GET /api/pos
 // @access  Public
 const getPOs = asyncHandler(async (req, res, next) => {
-  const { status, page = 1, limit = 10 } = req.query;
+  // `page`/`limit` are already numbers with a ceiling here — the route
+  // carries validators/pagination.validator.js (#118). No default of our
+  // own: one written here reads like the page size and isn't it (the
+  // schema's 20 is), which is how the supplier screens came to aggregate
+  // over a page they described in a comment as 10 rows (#280).
+  const { status, page, limit } = req.query;
 
   const where = withVendorScope(req);
   if (status) {

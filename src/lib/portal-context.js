@@ -143,6 +143,10 @@ export function PortalProvider({ children }) {
 
     socket.on('po:new', (po) => {
       poHook.refreshPOs();
+      // The KPIs and charts are the server's numbers now, so a new document
+      // has to re-read them too — refreshing only the list would leave
+      // "Open orders" one behind the table under it (issue #280).
+      dashboardHook.refreshSummary();
       addToast('info', `New Purchase Order received! ID: ${po.id}`);
     });
 
@@ -164,6 +168,7 @@ export function PortalProvider({ children }) {
       poHook.refreshGRNs();
       poHook.refreshPOs();
       poHook.refreshASNs();
+      dashboardHook.refreshSummary();
       addToast('success', `Delivery confirmed for order ${grn.poId}. Your buyer has accepted the goods.`);
     });
 
@@ -171,6 +176,7 @@ export function PortalProvider({ children }) {
       paymentHook.refreshPayments();
       paymentHook.refreshSapPayments();
       invoiceHook.refreshInvoices();
+      dashboardHook.refreshSummary();
       addToast('success', `Payment cleared! UTR: ${pmt.utrCode} · Net Amount: ₹${pmt.netAmount.toLocaleString('en-IN')}`);
     });
 
@@ -207,7 +213,11 @@ export function PortalProvider({ children }) {
     payments: paymentHook.payments,
     sapPayments: paymentHook.sapPayments,
     tdsSummary: paymentHook.tdsSummary,
-    performance: dashboardHook.performance
+    performance: dashboardHook.performance,
+    // The server's own counts and sums — what every KPI, chart and total on
+    // the Overview and Reports screens renders from (issue #280). The arrays
+    // above are rows to list, not figures to add up.
+    summary: dashboardHook.summary
   };
 
   const [selectedRfqId, setSelectedRfqId] = useState(null);

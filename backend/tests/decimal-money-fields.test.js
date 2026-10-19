@@ -227,10 +227,11 @@ describe('money fields survive the Float → Decimal migration', () => {
   });
 
   it('the dashboard summary sums raw payment rows without string-concatenating them', async () => {
-    // controllers/dashboard.controller.js reads prisma.payment.findMany
-    // directly (no formatPayment) and reduces netAmount/grossAmount — exactly
-    // the raw-Decimal-plus-number shape that concatenates instead of summing
-    // without the fix.
+    // services/supplierSummary.service.js sums netAmount/grossAmount with
+    // prisma.payment.aggregate, whose `_sum` over a Decimal column is itself
+    // a Decimal — the same trap one step further in. (It read findMany and
+    // reduced with `+` until issue #280 moved the aggregation into SQL; the
+    // conversion has to be explicit either way.)
     const supplier = await registerVendor(app, { vendorId: 'vendor_decimal_5', gstin: '27AAAAA3005A1Z1' }, { onboarded: true });
     const asSupplier = auth(supplier.token);
 

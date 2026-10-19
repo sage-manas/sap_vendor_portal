@@ -36,6 +36,12 @@ const NOT_A_LIST = new Set([
   'GET /pos/:id', 'GET /pos/:id/invoice-plan', 'GET /pos/:id/asn',
   'GET /grns/:id', 'GET /invoices/:id', 'GET /payments/:id', 'GET /payments/tds-summary',
   'GET /uploads/:id', 'GET /uploads/:id/link', 'GET /uploads/signed/:id', 'GET /reports/statement', 'GET /reports/invoice/:id', 'GET /reports/metrics',
+  // Generated files, not collections (issue #280). A supplier's report export
+  // is complete by definition — it exists *because* the browser-side version
+  // wrote whichever page of the data it happened to be holding — so there is
+  // no page for a caller to ask for, and no ceiling to clamp.
+  'GET /reports/exports/spend-by-material', 'GET /reports/exports/invoice-ageing',
+  'GET /reports/exports/account-ledger', 'GET /reports/exports/tds',
   'GET /dashboard/summary', 'GET /dashboard/sap-status',
 ]);
 
