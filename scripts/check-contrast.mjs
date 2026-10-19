@@ -94,6 +94,12 @@ for (const [theme, vars] of [['light', root], ['dark', dark]]) {
     rows.push(check(`--${s} on --${s}-tint`, c(`--${s}`), c(`--${s}-tint`), 4.5));
   }
   for (const s of ['--surface', '--canvas']) rows.push(check(`--input-border on ${s}`, c('--input-border'), c(s), 3));
+  // The logo cyan: a plotted line (chart series 2) needs 3:1, and it is also
+  // --info, whose text sits on the surface and on its own tint.
+  rows.push(check('--accent-2 on --surface', c('--accent-2'), c('--surface'), 3));
+  rows.push(check('--accent-2 on --canvas', c('--accent-2'), c('--canvas'), 3));
+  // The ordinal ramp: one hue, and its light end still ≥2:1 on the surface.
+  for (const i of [1, 2, 3, 4]) rows.push(check(`--chart-seq-${i} on --surface`, c(`--chart-seq-${i}`), c('--surface'), 2));
   report(`tokens/${theme}`, rows);
 }
 
@@ -101,7 +107,7 @@ for (const [theme, vars] of [['light', root], ['dark', dark]]) {
 //   light: text = L≤0.5, tint = 9% over surface, button = raw accent
 //   dark:  text = L≥0.76, button = L≥0.70, tint = 14% over surface
 const TENANTS = {
-  default: '#E8457E', ledgerInk: '#1E4FD0', seededGreen: '#2F6F4E', oldCoral: '#CC785C', yellow: '#F5C518',
+  default: '#7A3FD6', v2Pink: '#E8457E', ledgerInk: '#1E4FD0', seededGreen: '#2F6F4E', oldCoral: '#CC785C', yellow: '#F5C518',
   sky: '#38BDF8', violet: '#7C3AED', rose: '#E11D48', black: '#111111', lime: '#A3E635',
 };
 const lightSurface = hexToRgb(resolve(root, '--surface'));
