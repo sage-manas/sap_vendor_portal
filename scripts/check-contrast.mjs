@@ -69,7 +69,7 @@ const hex = (rgb) => `#${rgb.map((c) => Math.round(c * 255).toString(16).padStar
 
 // ── Pairs ──────────────────────────────────────────────────────────────────
 const TEXT = ['--fg', '--fg-muted', '--fg-subtle'];
-const SURFACES = ['--canvas', '--surface', '--subtle', '--hover'];
+const SURFACES = ['--canvas', '--surface', '--subtle', '--hover', '--auth-ground'];
 const SEMANTIC = ['success', 'warning', 'danger', 'info'];
 
 let failures = 0;

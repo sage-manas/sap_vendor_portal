@@ -32,11 +32,21 @@ names and its fourteen steps; only the hue moved, from neutral graphite to the
 wordmark's navy (~225°). The deep end is the wordmark; the light end is a cool
 white.
 
-**Cream is left out on purpose.** It is the plate the logo is printed on, not an
-interface surface. A warm cream canvas fights the navy that carries the brand,
-and the previous redesign retired exactly that look ("Cream & Coral",
-`01-audit.md`). Bringing it back as the app canvas would undo a decision and
-muddy the one this palette is built on.
+**Cream stops at the front door.** It is the plate the logo is printed on, so it
+grounds the screens where the mark *is* the subject — sign-in, sign-up, the
+password flows, the operator gate — and goes no further. Prototyped against the
+running app, a cream app canvas also worked (cream never actually meets the
+navy: navy is ink on it, not a neighbouring surface), but it was turned down.
+The canvas is the data surface, and the previous redesign retired a warm canvas
+for that reason ("Cream & Coral", `01-audit.md`). On the signed-out plate there
+is no data to compete with, which is exactly why it earns its place there.
+
+Two consequences worth knowing. Dark is the default theme, so most people meet
+the navy plate, not the cream one — `--auth-ground` falls back to the canvas in
+dark, because cream is a light-theme surface and there is no honest dark
+version of it. And the wrappers had to give up their `bg-canvas` utility: a
+Tailwind utility beats the components layer, so it would have painted over the
+ground. The stylesheet owns that background now.
 
 **Semantic colours stay semantic.** Success, warning and danger are unchanged.
 Green means passed and red means failed, whatever the brand is. Only `--info`

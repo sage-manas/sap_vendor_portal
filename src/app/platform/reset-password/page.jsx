@@ -68,7 +68,7 @@ function ResetForm() {
 
 export default function PlatformResetPasswordPage() {
   return (
-    <div className="auth-page-wrapper flex min-h-screen items-center justify-center bg-canvas px-4 py-10">
+    <div className="auth-page-wrapper flex min-h-screen items-center justify-center px-4 py-10">
       {/* useSearchParams needs a suspense boundary when the page is prerendered. */}
       <Suspense fallback={<Loader2 className="size-5 animate-spin text-fg-subtle" />}>
         <ResetForm />

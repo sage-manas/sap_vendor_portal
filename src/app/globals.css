@@ -70,6 +70,13 @@
      Its own value per theme, each validated against that theme's surface. */
   --accent-2: #0F7A91;
 
+  /* The logo's cream, and the one place it belongs: the ground behind a
+     signed-out screen, where the mark is the subject and no data competes
+     with it. It is the plate the logo is printed on, so it stops at the
+     front door — the app canvas stays cool (05-uvira-palette.md). */
+  --auth-ground: #F3EEDF;
+  --auth-card-border: #E5DECD;
+
   /* ── 2. Semantic (light) ─────────────────────────────────────────────── */
   --canvas: var(--slate-25);
   --surface: var(--slate-0);
@@ -161,6 +168,11 @@
 
   /* The cyan, lifted to read on the navy surface. */
   --accent-2: #4FC3DC;
+
+  /* No cream in the dark: it is a light-theme surface. The plate is the navy
+     canvas, with the same violet glow over it. */
+  --auth-ground: var(--canvas);
+  --auth-card-border: var(--border);
 
   --shadow-card: inset 0 1px 0 rgb(255 255 255 / 0.04);
   --shadow-popover: 0 8px 24px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(255 255 255 / 0.04);
@@ -687,11 +699,14 @@
   .auth-page-wrapper {
     background:
       radial-gradient(56rem 28rem at 50% -8%, color-mix(in srgb, var(--accent-solid) 14%, transparent), transparent 70%),
-      var(--canvas);
+      var(--auth-ground);
   }
   .auth-page-wrapper .card {
     border-radius: var(--radius-overlay);
     box-shadow: var(--shadow-popover);
+    /* A cool grey hairline on the warm ground is the one place the two hue
+       families would meet and argue. */
+    border-color: var(--auth-card-border);
   }
 }
 
