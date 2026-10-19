@@ -43,7 +43,7 @@ export const TabPanel = ({ value, children, className = '' }) => (
 /* ── Segmented control: 2–4 mutually exclusive views ─────────────────────── */
 export function SegmentedControl({ options, value, onChange, 'aria-label': ariaLabel, size = 'md' }) {
   return (
-    <div role="radiogroup" aria-label={ariaLabel} className="inline-flex max-w-full overflow-x-auto rounded-md border border-border bg-subtle p-0.5">
+    <div role="radiogroup" aria-label={ariaLabel} className="inline-flex max-w-full overflow-x-auto rounded-pill border border-border bg-subtle p-1">
       {/* Segments keep their label on one line; on a narrow screen the group
           scrolls sideways rather than wrapping into uneven two-line buttons. */}
       {options.map((opt) => {
@@ -56,9 +56,9 @@ export function SegmentedControl({ options, value, onChange, 'aria-label': ariaL
             aria-checked={on}
             onClick={() => onChange?.(opt.value)}
             className={cx(
-              'shrink-0 whitespace-nowrap rounded-[5px] px-2.5 text-sm transition-colors cursor-pointer',
-              size === 'sm' ? 'h-6 text-xs' : 'h-7',
-              on ? 'bg-surface font-medium text-fg shadow-[0_0_0_1px_var(--border)]' : 'text-fg-muted hover:text-fg',
+              'shrink-0 whitespace-nowrap rounded-pill px-4 text-sm transition-colors cursor-pointer',
+              size === 'sm' ? 'h-7 px-3 text-xs' : 'h-8',
+              on ? 'bg-surface dark:bg-border-strong font-medium text-fg shadow-card' : 'text-fg-muted hover:text-fg',
             )}
           >
             {opt.label}
@@ -102,17 +102,17 @@ export function Meter({ label, value, max = 100, target, format = (v) => `${v}%`
   );
 }
 
-/* ── Avatar: initials on a rounded square ───────────────────────────────── */
+/* ── Avatar: initials in a circle ───────────────────────────────────────── */
 export function Avatar({ name = '', src, size = 28 }) {
   const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
   return src ? (
     // eslint-disable-next-line @next/next/no-img-element -- arbitrary user URL
-    <img src={src} alt={name} width={size} height={size} className="shrink-0 rounded-md object-cover" />
+    <img src={src} alt={name} width={size} height={size} className="shrink-0 rounded-full object-cover" />
   ) : (
     <span
       aria-hidden={name ? undefined : true}
       title={name || undefined}
-      className="inline-grid shrink-0 place-items-center rounded-md bg-subtle font-medium text-fg-muted"
+      className="inline-grid shrink-0 place-items-center rounded-full bg-subtle font-medium text-fg-muted border border-border"
       style={{ width: size, height: size, fontSize: size <= 24 ? 11 : 12 }}
     >
       {initials}

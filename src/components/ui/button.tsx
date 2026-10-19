@@ -5,7 +5,7 @@ import type { ReactNode } from "react"
 
 import { cn } from "@/lib/utils"
 
-// Ledger buttons. The .btn-* classes live in globals.css so markup that never
+// Ledger buttons — pill-shaped since redesign v2, so icon sizes are round. The .btn-* classes live in globals.css so markup that never
 // moved to this component (`className="btn btn-v"`) looks identical.
 //
 // Variants: primary · secondary · ghost · destructive · link.
@@ -25,15 +25,15 @@ const buttonVariants = cva(
         link: "h-auto! px-0! text-accent-text underline underline-offset-[3px] decoration-[color-mix(in_srgb,currentColor_40%,transparent)] hover:decoration-current",
       },
       size: {
-        sm: "h-7! px-2.5! text-xs!",
+        sm: "h-8! px-3.5! text-xs!",
         md: "",
         default: "",
-        lg: "h-10! px-4! text-sm!",
+        lg: "h-11! px-5! text-sm!",
         xs: "h-6! px-2! text-xs! [&_svg:not([class*='size-'])]:size-3.5",
-        icon: "size-8! p-0!",
+        icon: "size-9! p-0!",
         "icon-xs": "size-6! p-0! [&_svg:not([class*='size-'])]:size-3.5",
-        "icon-sm": "size-7! p-0!",
-        "icon-lg": "size-10! p-0!",
+        "icon-sm": "size-8! p-0!",
+        "icon-lg": "size-11! p-0!",
       },
     },
     defaultVariants: {

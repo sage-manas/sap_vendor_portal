@@ -17,6 +17,7 @@ import DataTable, { ColumnsMenu } from '@/components/ui/DataTable';
 import { Avatar, Checkbox, DropdownMenu, Meter, Pagination, SegmentedControl, Switch, TabPanel, Tabs, Tooltip } from '@/components/ui/controls';
 import { Notice } from '@/components/console/primitives';
 import { TONE_CLASS } from '@/components/ui/status';
+import { MeterPillRow, RecordCard, StatTile } from '@/components/ui/dashboard';
 
 const ROWS = [
   { id: 'PO-2026-0080', material: 'Steel pipe 3" SCH40', plant: 'Chakan Works', due: '24 Oct 2026', value: '5,64,000.00', status: 'Open' },
@@ -164,6 +165,43 @@ function Bed({ themeName }) {
         </div>
       </Block>
 
+      <Block title="Dashboard (v2) — meter pills, hero figures, tiles, records, accent card">
+        <div className="flex flex-col gap-6">
+          <MeterPillRow items={[
+            { label: 'Profile complete', value: 20, variant: 'solid' },
+            { label: 'ASN on time', value: 25, variant: 'inverse' },
+            { label: 'Invoice match', value: 40, variant: 'muted' },
+            { label: 'RFQ response', value: 15, variant: 'hatched' },
+          ]} />
+          <div className="flex flex-wrap gap-8">
+            <KPICard size="hero" label="Open orders" value="38" delta="+12%" deltaTone="up" />
+            <KPICard size="hero" label="Awaiting payment" value="26" delta="+24%" deltaTone="warn" />
+            <KPICard size="hero" label="Overdue ASNs" value="3" delta="−64%" deltaTone="down" />
+          </div>
+        </div>
+        <div className="mt-5 grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+          <Card className="p-5">
+            <h3 className="mb-3 text-lg font-medium">Order pipeline</h3>
+            <div className="space-y-2">
+              <StatTile label="To acknowledge" count={1234} tone="info" />
+              <StatTile label="To ship" count={0} tone="success" />
+              <StatTile label="To invoice" count={24} tone="accent" />
+            </div>
+          </Card>
+          <div className="grid gap-3">
+            <RecordCard status="Open" id="PO-2026-0080" age="7h ago" title="Steel pipe 3&quot; SCH40 — 120 m for Chakan Works." person={{ name: 'Tommy White', detail: 'Buyer · Chakan Works' }} />
+            <RecordCard status="Match Warning" id="INV-0042" age="2d ago" title="Quantity on invoice exceeds the goods receipt by 4 units." person={{ name: 'Elizabeth Belle', detail: 'Accounts payable' }} />
+          </div>
+          <Card tone="accent">
+            <CardHeader title="Needs you this week" description="3 RFQs close before Friday." />
+            <div className="space-y-2 px-5 pb-5">
+              <div className="flex items-center rounded-tile bg-surface px-4 py-3 text-sm text-fg">RFQ-0019 · Flanges<span className="ml-auto rounded-full bg-fg px-2 text-xs text-canvas">2d</span></div>
+              <div className="flex items-center rounded-tile bg-surface px-4 py-3 text-sm text-fg">RFQ-0021 · Gaskets<span className="ml-auto rounded-full bg-fg px-2 text-xs text-canvas">4d</span></div>
+            </div>
+          </Card>
+        </div>
+      </Block>
+
       <Block title="KPI strip — zeros are muted">
         <KPIStrip>
           <KPICard label="Open orders" value="12" hint="5 need acknowledgement" />
@@ -285,7 +323,7 @@ export default function DesignBed() {
     <div className="-mx-4 -my-2.5 md:-mx-6 md:-my-4">
       <div className="border-b border-border bg-surface px-5 py-4">
         <h1 className="page-title">Design system</h1>
-        <p className="text-sm text-fg-muted">Every primitive in every state. Light on the left, dark on the right (view the app in light mode to see both). Development only.</p>
+        <p className="text-sm text-fg-muted">Every primitive in every state. The left column follows the app theme (dark by default since redesign v2; switch to light to compare), the right is always dark. Development only.</p>
       </div>
       {/* minmax(0, 1fr): a grid track's min-width is otherwise its widest
           child, which pushed the bed past a phone's viewport. */}

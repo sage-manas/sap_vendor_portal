@@ -36,26 +36,36 @@ describe('AppShell', () => {
     expect(screen.getByRole('button', { name: /^Orders.*3 orders need acknowledgement$/ })).toBeInTheDocument();
   });
 
-  it('collapses the sidebar and remembers it', () => {
-    const { unmount } = renderShell();
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }));
-    expect(localStorage.getItem('vc-sidebar-collapsed')).toBe('1');
-    unmount();
-
-    renderShell();
-    expect(screen.getByRole('button', { name: 'Expand sidebar' })).toHaveAttribute('aria-expanded', 'false');
+  it('puts what the pill has no room for, and the admin items, under More', async () => {
+    const many = ['Suppliers', 'RFQs', 'Purchase orders', 'Shipments', 'Invoices', 'Payments', 'Audit']
+      .map((label) => ({ key: label, label, onClick: () => {} }));
+    render(
+      <AppShell
+        surface="workspace"
+        identity={{ mark: 'N', title: 'Nucleus Manufacturing' }}
+        nav={[NAV[0], ...many]}
+        footerNav={[{ key: 'settings', label: 'Settings', onClick: () => {}, active: true }]}
+      >
+        <p>page content</p>
+      </AppShell>,
+    );
+    // The active item lives in the overflow, so the trigger names it.
+    fireEvent.click(screen.getByRole('button', { name: /Settings/ }));
+    const menu = await screen.findByRole('menu');
+    expect(menu).toHaveTextContent('Audit');
+    expect(menu).toHaveTextContent('Settings');
+    expect(menu).not.toHaveTextContent('Overview');
   });
 
-  it('toggles with Ctrl+B, but not while the person is typing', () => {
+  it('has no sidebar to collapse any more, so Ctrl+B is left to the browser', () => {
     renderShell();
-    fireEvent.keyDown(screen.getByLabelText('Search orders'), { key: 'b', ctrlKey: true });
-    expect(screen.getByRole('button', { name: 'Collapse sidebar' })).toBeInTheDocument();
-
-    fireEvent.keyDown(window, { key: 'b', ctrlKey: true });
-    expect(screen.getByRole('button', { name: 'Expand sidebar' })).toBeInTheDocument();
+    const e = new KeyboardEvent('keydown', { key: 'b', ctrlKey: true, cancelable: true });
+    window.dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(false);
+    expect(screen.queryByRole('button', { name: /sidebar/i })).not.toBeInTheDocument();
   });
 
-  it('opens navigation as a dialog on a phone and closes it with Escape', () => {
+  it('opens navigation as a dialog on a narrow screen and closes it with Escape', () => {
     renderShell();
     fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }));
     expect(screen.getByRole('dialog', { name: 'Navigation' })).toBeInTheDocument();
