@@ -99,7 +99,7 @@ for (const [theme, vars] of [['light', root], ['dark', dark]]) {
 
 // Tenant accents, through the CSS derivation:
 //   light: text = L≤0.5, tint = 9% over surface, button = raw accent
-//   dark:  text = L≥0.76, button = L≥0.70, tint = 22% over surface
+//   dark:  text = L≥0.76, button = L≥0.70, tint = 14% over surface
 const TENANTS = {
   default: '#E8457E', ledgerInk: '#1E4FD0', seededGreen: '#2F6F4E', oldCoral: '#CC785C', yellow: '#F5C518',
   sky: '#38BDF8', violet: '#7C3AED', rose: '#E11D48', black: '#111111', lime: '#A3E635',
@@ -120,11 +120,15 @@ for (const [name, h] of Object.entries(TENANTS)) {
   rows.push(check('light on-accent/button', onAccent(a), a, 4.5));
   const dText = withL(a, (L) => Math.max(L, 0.76));
   const dSolid = withL(a, (L) => Math.max(L, 0.7));
-  const dTint = mix(a, darkSurface, 0.22);
+  const dTint = mix(a, darkSurface, 0.14);
   rows.push(check('dark text/surface', dText, darkSurface, 4.5));
   rows.push(check('dark text/canvas', dText, darkCanvas, 4.5));
   rows.push(check('dark text/tint', dText, dTint, 4.5));
   rows.push(check('dark on-accent/button', onAccent(dSolid), dSolid, 4.5));
+  // Secondary text on a tinted ("needs action" / selected) row — axe caught
+  // --fg-subtle at 4.21:1 on the dark pink tint in redesign v2.
+  rows.push(check('light fg-subtle/tint', hexToRgb(resolve(root, '--fg-subtle')), lTint, 4.5));
+  rows.push(check('dark fg-subtle/tint', hexToRgb(resolve(dark, '--fg-subtle')), dTint, 4.5));
   report(`accent ${name} ${h} → light text ${hex(lText)}, dark button ${hex(dSolid)}`, rows);
 }
 
