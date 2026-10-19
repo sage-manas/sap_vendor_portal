@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 //
 // Redesign v2: a top bar with the navigation as a floating pill (the Ledger
 // sidebar is gone, and with it Ctrl+B). The first INLINE_LG items sit in the
-// pill from 1024px, INLINE_XL from 1280px; the rest, and footerNav, are under
+// pill from 1024px, INLINE_XL from 1800px; the rest, and footerNav, are under
 // "More". Below 1024px the whole list opens as a sheet.
 //
 // nav / footerNav: [{ key, label, icon, href? | onClick?, active, count?, countLabel? }]
@@ -64,10 +64,10 @@ function MoreMenu({ items }) {
       <Menu.Trigger
         className={`inline-flex h-9 shrink-0 items-center gap-1 rounded-pill px-3.5 2xl:px-4 text-sm cursor-pointer data-[popup-open]:bg-subtle ${
           active ? 'bg-subtle font-medium text-fg dark:bg-border-strong' : 'text-fg-muted hover:text-fg'
-        } ${activeXl ? 'xl:bg-transparent xl:font-normal xl:text-fg-muted dark:xl:bg-transparent' : ''} ${allXl ? 'xl:hidden' : ''}`}
+        } ${activeXl ? 'min-[1800px]:bg-transparent min-[1800px]:font-normal min-[1800px]:text-fg-muted dark:min-[1800px]:bg-transparent' : ''} ${allXl ? 'min-[1800px]:hidden' : ''}`}
       >
-        {active ? <span className={activeXl ? 'xl:hidden' : ''}>{active.item.label}</span> : null}
-        <span className={active ? (activeXl ? 'hidden xl:inline' : 'hidden') : ''}>More</span>
+        {active ? <span className={activeXl ? 'min-[1800px]:hidden' : ''}>{active.item.label}</span> : null}
+        <span className={active ? (activeXl ? 'hidden min-[1800px]:inline' : 'hidden') : ''}>More</span>
         <ChevronDown className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
       </Menu.Trigger>
       <Menu.Portal>
@@ -76,7 +76,7 @@ function MoreMenu({ items }) {
             {items.map(({ item, inlineXl, separatorBefore }) => {
               const Icon = item.icon;
               return (
-                <div key={item.key} className={inlineXl ? 'xl:hidden' : ''}>
+                <div key={item.key} className={inlineXl ? 'min-[1800px]:hidden' : ''}>
                   {separatorBefore && <div role="separator" className="my-1 h-px bg-border" />}
                   <Menu.Item
                     onClick={() => item.onClick?.()}
@@ -266,18 +266,18 @@ export default function AppShell({ surface, identity, nav, footerNav = [], note,
         <Button ref={menuButtonRef} variant="ghost" size="icon" className="lg:hidden" onClick={() => setSheetOpen(true)} aria-label="Open navigation">
           <MenuIcon strokeWidth={1.5} />
         </Button>
-        <div className="flex min-w-0 shrink items-center lg:max-w-56 xl:max-w-64">
+        <div className="flex min-w-0 shrink items-center lg:max-w-56 2xl:max-w-64">
           <Identity surface={surface} identity={identity} />
         </div>
         <nav aria-label={`${s.label} navigation`} className="hidden min-w-0 flex-1 justify-center lg:flex">
           <div className="flex items-center gap-0.5 rounded-pill border border-border bg-surface p-1 shadow-card">
             {inline.map((item, i) => (
-              <PillItem key={item.key} item={item} display={i >= INLINE_LG ? 'hidden xl:inline-flex' : 'inline-flex'} />
+              <PillItem key={item.key} item={item} display={i >= INLINE_LG ? 'hidden min-[1800px]:inline-flex' : 'inline-flex'} />
             ))}
             <MoreMenu items={overflow} />
           </div>
         </nav>
-        <div className="ml-auto flex min-w-0 items-center gap-1.5 lg:ml-0">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5 lg:ml-0">
           {topbar?.start}
           {topbar?.end}
         </div>

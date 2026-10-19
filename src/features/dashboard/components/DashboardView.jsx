@@ -345,7 +345,7 @@ export default function DashboardView({ state, setActiveTab }) {
               <h2 className="text-lg font-medium text-fg">Invoiced and paid</h2>
               <span className="flex items-center gap-3 text-xs text-fg-muted">
                 <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-[var(--chart-series)]" aria-hidden="true" />Invoiced</span>
-                <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-[var(--chart-series-2)]" aria-hidden="true" />Paid</span>
+                <span className="flex items-center gap-1.5"><span className="h-0 w-3 border-t-2 border-dashed border-[var(--chart-series-2)]" aria-hidden="true" />Paid</span>
               </span>
               <div className="ml-auto">
                 <SegmentedControl

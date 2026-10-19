@@ -12,8 +12,10 @@ in [01-audit.md](01-audit.md).
 - Contrast check: `npm run check:contrast`
 
 > **Redesign v2 ("Ledger Night").** Dark is the default theme, the neutral
-> ramp is graphite rather than blue slate, the default accent is pink and charts
-> gain `--chart-series-2` (electric blue). Plan: `04-redesign-v2-plan.md`.
+> ramp is graphite rather than blue slate, the default accent is pink, chart
+> series 1 follows the tenant accent (light: `--accent-text`, dark:
+> `--accent-solid`) and series 2 is electric blue drawn dashed, so the two never
+> rely on hue alone. Plan: `04-redesign-v2-plan.md`.
 
 ## Principles
 
