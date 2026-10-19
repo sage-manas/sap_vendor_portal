@@ -105,7 +105,7 @@ function Gate({ children }) {
 
   if (stage === STAGE.WRONG_PLANE) {
     return (
-      <div className="auth-page-wrapper flex min-h-screen items-center justify-center bg-base px-4">
+      <div className="auth-page-wrapper flex min-h-screen items-center justify-center px-4">
         <div className="card max-w-[440px] p-8">
           <h1 className="text-xl font-semibold tracking-tight text-fg">Not your workspace</h1>
           <p className="mt-2 text-sm leading-relaxed text-fg-muted">

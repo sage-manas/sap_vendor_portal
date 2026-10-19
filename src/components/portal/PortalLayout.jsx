@@ -54,7 +54,7 @@ export default function PortalLayout({ children }) {
 
   if (isAuthPage) {
     return (
-      <div id="main-content" className="auth-page-wrapper min-h-screen w-full bg-canvas flex items-center justify-center py-8 px-4">
+      <div id="main-content" className="auth-page-wrapper min-h-screen w-full flex items-center justify-center py-8 px-4">
         <TenantBranding />
         {children}
       </div>
