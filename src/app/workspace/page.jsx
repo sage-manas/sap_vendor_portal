@@ -61,23 +61,18 @@ export default function WorkspaceOverviewPage() {
 
       {data && (
         <div className="space-y-8">
-          {/* Redesign v2: the headline figures, and what is waiting on you as
-              the page's one accent card (white tiles on the tenant colour). */}
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_26rem] xl:items-start">
-            <div className="flex flex-wrap gap-x-12 gap-y-5 pt-2">
-              <KPICard size="hero" label="Registrations awaiting a decision" value={data.suppliers.awaitingDecision} />
-              <KPICard size="hero" label="Purchase orders open" value={data.sourcing.openPos} hint={`${data.sourcing.posTotal} total`} />
-              <KPICard size="hero" label="Invoices not yet cleared" value={data.finance.invoicesOpen} hint={money(data.finance.invoicesOpenValue)} />
-            </div>
-            <Card tone={tasks.length ? 'accent' : 'default'} className="p-5">
-              <h2 className="mb-3 text-lg font-medium">Needs a decision</h2>
-              {tasks.length ? (
-                <ul className="space-y-2">{tasks}</ul>
-              ) : (
-                <p className="text-sm text-fg-muted">Nothing is waiting on you.</p>
-              )}
-            </Card>
-          </div>
+          {/* What is waiting on you, as the page's one accent card (white
+              tiles on the tenant colour). It leads alone: the headline figures
+              that used to sit beside it repeated three cards from the strips
+              below, word for word, and the strip versions link somewhere. */}
+          <Card tone={tasks.length ? 'accent' : 'default'} className="max-w-2xl p-5">
+            <h2 className="mb-3 text-lg font-medium">Needs a decision</h2>
+            {tasks.length ? (
+              <ul className="space-y-2">{tasks}</ul>
+            ) : (
+              <p className="text-sm text-fg-muted">Nothing is waiting on you.</p>
+            )}
+          </Card>
 
           <Section title="Suppliers">
             <KPIStrip>
@@ -132,7 +127,7 @@ export default function WorkspaceOverviewPage() {
               would only lead to a 403. */}
           {can('user:read') && (
             <Section title="People">
-              <KPIStrip>
+              <KPIStrip className="max-w-2xl">
                 <KPICard label="Active staff" value={data.staff.active} href="/workspace/users" linkLabel="Users" />
                 <KPICard label="Invitations outstanding" value={data.staff.pendingInvitations} href="/workspace/users" linkLabel="Users" />
               </KPIStrip>
