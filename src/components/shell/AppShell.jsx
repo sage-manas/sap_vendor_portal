@@ -292,7 +292,10 @@ export default function AppShell({ surface, identity, nav, footerNav = [], note,
       {note && (
         <div className="mx-4 mb-2 rounded-pill bg-subtle px-4 py-2 text-sm text-fg-muted md:mx-6">{note}</div>
       )}
-      <main id={mainId} className="min-h-0 flex-1 overflow-y-auto">
+      {/* relative: the scroller is the containing block for absolutely
+          positioned content (sr-only table captions), which otherwise anchors
+          to the page and stretches the document past the shell. */}
+      <main id={mainId} className="relative min-h-0 flex-1 overflow-y-auto">
         {children}
       </main>
     </div>
