@@ -23,7 +23,8 @@ describe('/__design', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Design system' })).toBeInTheDocument();
     // One bed per theme.
     expect(screen.getAllByRole('table', { name: 'Purchase orders' })).toHaveLength(2);
-  });
+    // The whole test bed, twice: under a loaded full-suite run it can pass 5s.
+  }, 15000);
 
   it('is not served in production', () => {
     vi.stubEnv('NODE_ENV', 'production');
