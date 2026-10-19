@@ -18,6 +18,13 @@ import { Button } from '@/components/ui/button';
 //
 // nav / footerNav: [{ key, label, icon, href? | onClick?, active, count?, countLabel? }]
 
+// Past this, a dense operations screen stops being easier to read and starts
+// being a row of very wide, very empty cards. The cap sits on the shell itself
+// rather than on the header and the main area separately, so both measure from
+// the same left edge — and main's scrollbar, which would otherwise shift its
+// content a few pixels out of line with the header, sits inside the cap.
+const MAX_W = 'mx-auto w-full max-w-[1600px]';
+
 const INLINE_LG = 4;
 const INLINE_XL = 6;
 
@@ -230,7 +237,7 @@ export default function AppShell({ surface, identity, nav, footerNav = [], note,
   ];
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-canvas text-fg">
+    <div className={`${MAX_W} flex h-dvh flex-col overflow-hidden bg-canvas text-fg`}>
       {sheetOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div className="absolute inset-0 bg-[var(--scrim)] animate-fade-in" onClick={() => setSheetOpen(false)} aria-hidden="true" />
@@ -262,7 +269,7 @@ export default function AppShell({ surface, identity, nav, footerNav = [], note,
         </div>
       )}
 
-      <header className="flex h-16 min-w-0 shrink-0 items-center gap-2 px-3 md:gap-3 md:px-6">
+      <header className="flex h-16 min-w-0 shrink-0 items-center gap-2 px-4 md:gap-3 md:px-6">
         <Button ref={menuButtonRef} variant="ghost" size="icon" className="lg:hidden" onClick={() => setSheetOpen(true)} aria-label="Open navigation">
           <MenuIcon strokeWidth={1.5} />
         </Button>
@@ -283,7 +290,7 @@ export default function AppShell({ surface, identity, nav, footerNav = [], note,
         </div>
       </header>
       {note && (
-        <div className="mx-3 mb-2 rounded-pill bg-subtle px-4 py-2 text-sm text-fg-muted md:mx-6">{note}</div>
+        <div className="mx-4 mb-2 rounded-pill bg-subtle px-4 py-2 text-sm text-fg-muted md:mx-6">{note}</div>
       )}
       <main id={mainId} className="min-h-0 flex-1 overflow-y-auto">
         {children}
