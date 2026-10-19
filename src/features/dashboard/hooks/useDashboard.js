@@ -19,6 +19,27 @@ export function useDashboard(profile) {
 
   const [performance, setPerformance] = useState(INITIAL_PERFORMANCE);
 
+  // Every headline figure the Overview and Reports screens show, counted on
+  // the server (GET /api/dashboard/summary, issue #280). null means "not
+  // answered yet" — distinct from a supplier whose figures are genuinely
+  // zero, the same distinction usePayments draws for `payments` (#111). The
+  // screens must not fall back to aggregating `state.pos`/`state.invoices`
+  // while it is null: those arrays are the thing that was wrong.
+  const [summary, setSummary] = useState(null);
+
+  const refreshSummary = useCallback(() => {
+    if (!canFetchVendorData()) return Promise.resolve();
+    return dashboardService.getDashboardSummary().then((data) => {
+      if (data) setSummary(data);
+    });
+  }, []);
+
+  // Same shape as the performance fetch below: the state is set from the
+  // promise's callback, never synchronously in the effect body.
+  useEffect(() => {
+    refreshSummary();
+  }, [profile, refreshSummary]);
+
   // Read any locally cached performance score after mount (client-only, so it
   // can't cause a server/client render mismatch during hydration).
   useEffect(() => {
@@ -87,6 +108,8 @@ export function useDashboard(profile) {
 
   return {
     performance,
+    summary,
+    refreshSummary,
     clearAllState
   };
 }

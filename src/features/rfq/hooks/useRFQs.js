@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { hasOwnChrome } from '../../../lib/planes';
+import { fetchAllPages } from '../../../lib/fetchAllPages';
 import { rfqService } from '../services/rfqService';
 
 export function useRFQs(profile) {
@@ -18,11 +19,13 @@ export function useRFQs(profile) {
   const refreshRFQs = async () => {
     if (typeof window !== 'undefined' && (!localStorage.getItem('jwt_token') || hasOwnChrome(window.location.pathname))) return;
     try {
-      const data = await rfqService.getRFQs();
-      if (data) {
-        const rfqList = Array.isArray(data) ? data : (data.rfqs || []);
-        setRfqs(rfqList);
-        persistLocally(rfqList);
+      // Every page: an RFQ the supplier has not quoted on yet is the one most
+      // worth seeing, and it is the oldest — so it was exactly what fell off
+      // the end of the single page this used to read (issue #280).
+      const result = await fetchAllPages((params) => rfqService.getRFQs(params), 'rfqs');
+      if (result) {
+        setRfqs(result.rows);
+        persistLocally(result.rows);
       }
     } catch (e) {
       console.error(e);

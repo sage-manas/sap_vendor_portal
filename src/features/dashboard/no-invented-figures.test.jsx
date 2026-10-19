@@ -63,7 +63,11 @@ describe('an account with no documents shows no invented figures', () => {
     await screen.findByRole('heading', { name: 'Reports', level: 1 });
 
     expectNothingInvented();
-    expect(screen.getByText('No purchase orders yet.')).toBeInTheDocument();
+    // Awaited, not immediate: "no purchase orders" is a statement about the
+    // account, and since issue #280 it waits for the server's counts rather
+    // than being read off whatever page the browser is holding. Before that
+    // answer arrives the table says it is loading — which is the point.
+    expect(await screen.findByText('No purchase orders yet.')).toBeInTheDocument();
   });
 
   it('on the performance scorecard', async () => {

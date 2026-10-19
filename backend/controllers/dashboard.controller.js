@@ -1,38 +1,25 @@
-const { prisma } = require('../db/prisma');
 const asyncHandler = require('../utils/asyncHandler');
-const { withVendorScope } = require('../utils/requestScope');
-const { toNumber } = require('../utils/money');
+const { withVendorScope, vendorScope } = require('../utils/requestScope');
 const { getSapAdapterForClient } = require('../sap');
 const { sapTrafficFor, withCircuit } = require('../utils/sapHealth');
+const { buildSupplierSummary } = require('../services/supplierSummary.service');
 
-// @desc    Get dashboard summary statistics
+// @desc    Every headline figure the supplier's Overview and Reports screens
+//          show, counted and summed in the database.
 // @route   GET /api/dashboard/summary
 // @access  Private
+//
+// This answered four numbers until issue #280. The screens computed the rest
+// in the browser from one page of each list endpoint, so a supplier with
+// eleven documents of any kind read totals, charts and exports that covered
+// ten of them. services/supplierSummary.service.js is where each figure is
+// defined now; the client renders what it answers rather than aggregating.
 const getDashboardSummary = asyncHandler(async (req, res, next) => {
   // Suppliers see their own numbers; tenant staff see the whole tenant.
-  const where = withVendorScope(req);
-
-  const [openPOs, pendingGRNs, invoices, payments] = await Promise.all([
-    prisma.purchaseOrder.count({ where: { ...where, status: { in: ['Open', 'Acknowledged'] } } }),
-    prisma.gRN.count({ where: { ...where, invoiceSubmitted: false } }),
-    prisma.invoice.findMany({ where }),
-    prisma.payment.findMany({ where }),
-  ]);
-
-  // netAmount/grossAmount are Decimal-typed columns — see utils/money.js for
-  // why `sum + p.netAmount` on a raw one would silently concatenate strings
-  // instead of summing.
-  const totalPaymentsAmount = payments.reduce(
-    (sum, p) => sum + (toNumber(p.netAmount) || toNumber(p.grossAmount) || 0), 0,
-  );
-
-  res.json({
-    openPOCount: openPOs,
-    pendingGRNsCount: pendingGRNs,
-    invoiceCount: invoices.length,
-    totalPaymentsAmount,
-    timestamp: new Date().toISOString()
-  });
+  res.json(await buildSupplierSummary({
+    vendorId: vendorScope(req),
+    where: withVendorScope(req),
+  }));
 });
 
 const SAP_STATUS_WINDOW_HOURS = 24;

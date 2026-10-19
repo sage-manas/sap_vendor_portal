@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { hasOwnChrome } from '../../../lib/planes';
+import { fetchAllPages } from '../../../lib/fetchAllPages';
 import { paymentService } from '../services/paymentService';
 
 const STORAGE_KEY = 'sap_vendor_portal_payments';
@@ -32,11 +33,12 @@ export function usePayments(profile) {
       return;
     }
     try {
-      const data = await paymentService.getPayments();
-      const paymentList = data && Array.isArray(data.payments) ? data.payments : (Array.isArray(data) ? data : null);
-      if (paymentList) {
-        setPayments(paymentList);
-        persistLocally(paymentList);
+      // Every page — the payments table and its totals used to cover one
+      // (issue #280).
+      const result = await fetchAllPages((params) => paymentService.getPayments(params), 'payments');
+      if (result) {
+        setPayments(result.rows);
+        persistLocally(result.rows);
       }
     } catch (_) {
       try {

@@ -95,7 +95,9 @@ const formatRfqFor = (req, rfq) => {
 // @route   GET /api/rfqs
 // @access  Public (unauth development)
 const getRFQs = asyncHandler(async (req, res, next) => {
-  const { status, page = 1, limit = 20 } = req.query;
+  // Numbers with a ceiling by now — see the note in po.controller.js's
+  // getPOs on why there is no default written here (#118, #280).
+  const { status, page, limit } = req.query;
 
   // A supplier only ever sees RFQs they were invited to. `?all=true` widens the
   // view for tenant staff and for them only — a supplier who asked for it used
