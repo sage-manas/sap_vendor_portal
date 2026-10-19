@@ -42,8 +42,8 @@ export function MeterPillRow({ items, className = '' }) {
       {items.map(({ label, value, max = 100, variant = 'muted', format = (v) => `${v}%` }) => {
         const pct = Math.max(0, Math.min(100, (value / max) * 100));
         return (
-          <div key={label} className="flex min-w-[88px] flex-col gap-1.5" style={{ flex: `${Math.max(pct, 12)} 1 0` }}>
-            <span className="truncate text-sm text-fg-muted">{label}</span>
+          <div key={label} className="flex min-w-[88px] flex-col justify-end gap-1.5" style={{ flex: `${Math.max(pct, 12)} 1 0` }}>
+            <span className="text-sm leading-tight text-fg-muted">{label}</span>
             <span
               role="meter"
               aria-label={label}
@@ -64,7 +64,7 @@ export function MeterPillRow({ items, className = '' }) {
 
 /* ── StatTile: a labelled count, optionally a link ──────────────────────── */
 const DOT = { accent: 'bg-accent-solid', info: 'bg-info', success: 'bg-success', warn: 'bg-warning', danger: 'bg-danger', neutral: 'bg-fg-subtle' };
-export function StatTile({ label, count, tone = 'neutral', href, className = '' }) {
+export function StatTile({ label, count, tone = 'neutral', href, onClick, className = '' }) {
   const body = (
     <>
       <span className={cx('size-2 shrink-0 rounded-full', DOT[tone] || DOT.neutral)} aria-hidden="true" />
@@ -73,6 +73,7 @@ export function StatTile({ label, count, tone = 'neutral', href, className = '' 
     </>
   );
   const cls = cx('flex h-12 items-center gap-3 rounded-tile border border-border bg-subtle px-4', className);
+  if (onClick && !href) return <button type="button" onClick={onClick} className={cx(cls, 'w-full text-left cursor-pointer transition-colors hover:border-border-strong')}>{body}</button>;
   return href
     ? <Link href={href} className={cx(cls, 'transition-colors hover:border-border-strong')}>{body}</Link>
     : <div className={cls}>{body}</div>;

@@ -2,14 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { usePortal } from '@/lib/portal-context';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { Button } from '@/components/ui/button';
-import KPICard, { KPIStrip } from '@/components/ui/KPICard';
+import KPICard from '@/components/ui/KPICard';
 import StatusBadge from '@/components/ui/StatusBadge';
 import Drawer from '@/components/ui/Drawer';
 import DataTable from '@/components/ui/DataTable';
 import TableSkeleton from '@/components/ui/TableSkeleton';
 import { PageHeader } from '@/components/ui/Page';
-import { Section } from '@/components/ui/Card';
-import { Meter } from '@/components/ui/controls';
+import Card, { Section } from '@/components/ui/Card';
+import { SegmentedControl } from '@/components/ui/controls';
+import { MeterPillRow, StatTile } from '@/components/ui/dashboard';
+import { SplineChart } from '@/components/ui/charts';
 import { MEASURES } from './PerformanceView';
 import { poStatusVariant, invoiceStatusVariant } from '@/lib/statusColors';
 import { downloadFromApi } from '@/lib/download';
@@ -40,6 +42,30 @@ const listIds = (rows, idOf) =>
 
 const poTotal = (po) => (po.items || []).reduce((sum, item) => sum + money(item.netValue), 0);
 
+// Invoiced and paid per calendar month, for the last `months` months, from
+// the supplier's own invoices and payments. A month with neither is a real 0.
+const monthKey = (d) => `${d.getFullYear()}-${d.getMonth()}`;
+const monthlyFlow = (invoices, payments, months, today) => {
+  const rows = [];
+  const index = new Map();
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+    const row = { label: d.toLocaleString('en-IN', { month: 'short' }), invoiced: 0, paid: 0 };
+    index.set(monthKey(d), row);
+    rows.push(row);
+  }
+  const add = (date, field, value) => {
+    if (!date) return;
+    const row = index.get(monthKey(new Date(date)));
+    if (row) row[field] += money(value);
+  };
+  invoices.forEach((inv) => add(inv.invoiceDate, 'invoiced', inv.totalAmount));
+  (payments || []).forEach((pay) => add(pay.paymentDate, 'paid', pay.netAmount));
+  return rows;
+};
+
+const PILL_STYLES = ['solid', 'inverse', 'muted', 'hatched'];
+
 // What a task's dot means: waiting on you, or something to look at.
 const TASK_TONE = { warning: 'bg-warning', acknowledge: 'bg-accent-solid', invoice: 'bg-accent-solid', ship: 'bg-accent-solid', rfq: 'bg-accent-solid' };
 
@@ -49,6 +75,7 @@ export default function DashboardView({ state, setActiveTab }) {
   const [isLoading, setIsLoading] = useState(true);
   const [drawerContent, setDrawerContent] = useState(null); // { type: 'PO' | 'Invoice', data: any }
   const [selectedItemIds, setSelectedItemIds] = useState([]);
+  const [flowMonths, setFlowMonths] = useState('6');
 
   // Auto-clear loading state after 1.2s to demonstrate skeleton states
   useEffect(() => {
@@ -260,6 +287,108 @@ export default function DashboardView({ state, setActiveTab }) {
           )}
         />
 
+        {/* Top band: performance as pills, the three figures that matter. */}
+        <div className="mb-6 flex flex-col gap-6 xl:flex-row xl:items-end">
+          <div className="min-w-0 flex-1">
+            {!hasPerformance ? (
+              <p className="text-sm text-fg-muted">Scores appear once you have delivered and invoiced against a purchase order.</p>
+            ) : (
+              // Same measures and targets as the Performance page; one the
+              // API has not computed is left out, not drawn as 0%.
+              <MeterPillRow
+                items={MEASURES.filter((m) => performance[m.key] != null).map((m, i) => ({
+                  label: `${m.name} · target ${m.target}%`,
+                  value: money(performance[m.key]),
+                  variant: PILL_STYLES[i % PILL_STYLES.length],
+                  format: (v) => `${+v.toFixed(2)}%`,
+                }))}
+              />
+            )}
+            <Button variant="link" className="mt-2" onClick={() => setActiveTab('performance')}>Performance details</Button>
+          </div>
+          {isLoading ? (
+            <div className="w-full max-w-md"><TableSkeleton rows={1} cols={3} /></div>
+          ) : (
+            <div className="flex flex-wrap gap-x-10 gap-y-4">
+              <KPICard
+                size="hero"
+                label="Open orders"
+                value={openPOCount}
+                hint={toAcknowledge.length ? `${toAcknowledge.length} awaiting acknowledgement` : 'All acknowledged'}
+              />
+              <KPICard size="hero" label="To invoice" value={pendingInvoicesCount} hint={pendingInvoicesCount ? plural(pendingInvoicesCount, 'goods receipt') : 'Nothing to invoice'} />
+              <KPICard
+                size="hero"
+                label="Supplier score"
+                value={hasPerformance ? <>{performance.weightedScore}<span className="ml-1 text-lg font-normal text-fg-muted">/ 100{performance.grade ? ` · ${performance.grade}` : ''}</span></> : '—'}
+                empty={!hasPerformance}
+                hint={hasPerformance ? undefined : 'After your first delivery'}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Bento: pipeline · money over time · what is owed to you. */}
+        <div className="mb-10 grid gap-4 lg:grid-cols-2 xl:grid-cols-[17rem_minmax(0,1fr)_19rem]">
+          <Card className="p-5">
+            <h2 className="mb-4 text-lg font-medium text-fg">Order pipeline</h2>
+            <div className="space-y-2">
+              <StatTile label="To acknowledge" count={toAcknowledge.length} tone="info" onClick={() => setActiveTab('pos')} />
+              <StatTile label="To ship" count={toShip.length} tone="success" onClick={() => setActiveTab('pos')} />
+              <StatTile label="To invoice" count={pendingInvoicesCount} tone="accent" onClick={() => setActiveTab('pos')} />
+              <StatTile label="RFQs to quote" count={openRfqs.length} tone="warn" onClick={() => setActiveTab('rfqs')} />
+            </div>
+          </Card>
+
+          <Card className="min-w-0 p-5 lg:col-span-2 lg:row-start-2 xl:col-span-1 xl:row-start-auto">
+            <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+              <h2 className="text-lg font-medium text-fg">Invoiced and paid</h2>
+              <span className="flex items-center gap-3 text-xs text-fg-muted">
+                <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-[var(--chart-series)]" aria-hidden="true" />Invoiced</span>
+                <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-[var(--chart-series-2)]" aria-hidden="true" />Paid</span>
+              </span>
+              <div className="ml-auto">
+                <SegmentedControl
+                  aria-label="Period"
+                  size="sm"
+                  value={flowMonths}
+                  onChange={setFlowMonths}
+                  options={[{ value: '12', label: '12 months' }, { value: '6', label: '6 months' }]}
+                />
+              </div>
+            </div>
+            {invoices.length === 0 && !(state.payments || []).length ? (
+              <p className="py-12 text-center text-sm text-fg-muted">Your invoices and payments will chart here once you have some.</p>
+            ) : (
+              <SplineChart
+                ariaLabel={`Invoiced and paid by month, last ${flowMonths} months`}
+                data={monthlyFlow(invoices, state.payments, Number(flowMonths), today)}
+                series={[{ key: 'invoiced', name: 'Invoiced' }, { key: 'paid', name: 'Paid' }]}
+              />
+            )}
+          </Card>
+
+          {isLoading ? (
+            <Card tone="accent" className="p-5" aria-busy="true"><div className="skeleton h-32 opacity-30" /></Card>
+          ) : (
+          <Card tone="accent" className="flex flex-col p-5">
+            <h2 className="text-lg font-medium">Awaiting payment</h2>
+            <p className="mono mt-3 text-[32px] leading-10 font-light tracking-[-0.02em]">{inr(unpaidTotal)}</p>
+            <p className="mt-1 text-sm opacity-85">
+              {unpaidInvoices.length ? `${plural(unpaidInvoices.length, 'invoice')} not yet cleared` : 'Nothing outstanding'}
+            </p>
+            <div className="mt-auto flex flex-wrap gap-2 pt-6">
+              <button type="button" className="btn h-9! bg-[var(--accent-fg)] text-[var(--accent-solid)] hover:opacity-90" onClick={() => setActiveTab('invoices')}>
+                Review invoices
+              </button>
+              <button type="button" className="btn h-9! border-[color-mix(in_srgb,var(--accent-fg)_40%,transparent)] text-[var(--accent-fg)] hover:bg-[color-mix(in_srgb,var(--accent-fg)_10%,transparent)]" onClick={downloadStatement}>
+                <Download className="size-4" strokeWidth={1.5} /> Statement
+              </button>
+            </div>
+          </Card>
+          )}
+        </div>
+
         <div className="grid gap-x-8 gap-y-10 xl:grid-cols-[minmax(0,1fr)_20rem]">
           <div className="min-w-0 space-y-10">
             <Section title="Needs your attention">
@@ -289,30 +418,6 @@ export default function DashboardView({ state, setActiveTab }) {
               )}
             </Section>
 
-            {isLoading ? (
-              <div className="card"><TableSkeleton rows={1} cols={4} /></div>
-            ) : (
-              <KPIStrip>
-                <KPICard
-                  label="Open orders"
-                  value={openPOCount}
-                  hint={toAcknowledge.length ? `${toAcknowledge.length} awaiting acknowledgement` : 'All acknowledged'}
-                />
-                <KPICard label="To invoice" value={pendingInvoicesCount} hint={pendingInvoicesCount ? plural(pendingInvoicesCount, 'goods receipt') : 'Nothing to invoice'} />
-                <KPICard
-                  label="Awaiting payment"
-                  value={<span className="mono">{inr(unpaidTotal)}</span>}
-                  empty={!unpaidTotal}
-                  hint={unpaidInvoices.length ? `${plural(unpaidInvoices.length, 'invoice')} not yet cleared` : 'Nothing outstanding'}
-                />
-                <KPICard
-                  label="Supplier score"
-                  value={hasPerformance ? <>{performance.weightedScore} <span className="text-sm font-medium text-fg-muted">/ 100{performance.grade ? ` · ${performance.grade}` : ''}</span></> : '—'}
-                  empty={!hasPerformance}
-                  hint={hasPerformance ? undefined : 'After your first delivery'}
-                />
-              </KPIStrip>
-            )}
 
             {selectedItemIds.length > 0 && (
               <div className="sticky top-2 z-20 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-sm shadow-popover" role="region" aria-label="Selection">
@@ -373,23 +478,6 @@ export default function DashboardView({ state, setActiveTab }) {
           </div>
 
           <aside className="space-y-10">
-            <Section
-              title="Performance"
-              actions={<Button variant="link" onClick={() => setActiveTab('performance')}>Details</Button>}
-            >
-              {!hasPerformance ? (
-                <p className="text-sm text-fg-muted">Scores appear once you have delivered and invoiced against a purchase order.</p>
-              ) : (
-                <div className="card space-y-4 p-4">
-                  {/* Same measures and targets as the Performance page; one
-                      the API has not computed is left out, not drawn as 0%. */}
-                  {MEASURES.filter((m) => performance[m.key] != null).map((m) => (
-                    <Meter key={m.key} label={m.name} value={money(performance[m.key])} target={m.target} />
-                  ))}
-                </div>
-              )}
-            </Section>
-
             <Section
               title="Recent payments"
               actions={<Button variant="link" onClick={() => setActiveTab('payments')}>All payments</Button>}

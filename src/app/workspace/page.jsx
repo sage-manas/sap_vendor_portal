@@ -6,7 +6,7 @@ import { ChevronRight } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useWorkspaceSession } from '@/lib/workspace-session';
 import { PageHeader, Notice, Loading, useResource } from '@/components/console/primitives';
-import { Section } from '@/components/ui/Card';
+import Card, { Section } from '@/components/ui/Card';
 import KPICard, { KPIStrip } from '@/components/ui/KPICard';
 
 // The tenant overview: what needs a decision today, measured against the
@@ -18,7 +18,7 @@ const money = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { mini
 // One row of "Needs a decision": the count, what it means, and where to act.
 const Task = ({ count, children, href, cta }) => (
   <li>
-    <Link href={href} className="group flex items-center gap-3 px-4 py-3 hover:bg-subtle">
+    <Link href={href} className="group flex items-center gap-3 rounded-tile bg-surface px-4 py-3 transition-colors hover:bg-subtle">
       <span className="mono w-10 shrink-0 text-right text-lg text-fg">{count}</span>
       <span className="min-w-0 flex-1 text-sm text-fg">{children}</span>
       <span className="flex shrink-0 items-center gap-1 text-sm text-accent-text">
@@ -61,13 +61,23 @@ export default function WorkspaceOverviewPage() {
 
       {data && (
         <div className="space-y-8">
-          <Section title="Needs a decision">
-            {tasks.length ? (
-              <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface">{tasks}</ul>
-            ) : (
-              <p className="text-sm text-fg-muted">Nothing is waiting on you.</p>
-            )}
-          </Section>
+          {/* Redesign v2: the headline figures, and what is waiting on you as
+              the page's one accent card (white tiles on the tenant colour). */}
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_26rem] xl:items-start">
+            <div className="flex flex-wrap gap-x-12 gap-y-5 pt-2">
+              <KPICard size="hero" label="Registrations awaiting a decision" value={data.suppliers.awaitingDecision} />
+              <KPICard size="hero" label="Purchase orders open" value={data.sourcing.openPos} hint={`${data.sourcing.posTotal} total`} />
+              <KPICard size="hero" label="Invoices not yet cleared" value={data.finance.invoicesOpen} hint={money(data.finance.invoicesOpenValue)} />
+            </div>
+            <Card tone={tasks.length ? 'accent' : 'default'} className="p-5">
+              <h2 className="mb-3 text-lg font-medium">Needs a decision</h2>
+              {tasks.length ? (
+                <ul className="space-y-2">{tasks}</ul>
+              ) : (
+                <p className="text-sm text-fg-muted">Nothing is waiting on you.</p>
+              )}
+            </Card>
+          </div>
 
           <Section title="Suppliers">
             <KPIStrip>

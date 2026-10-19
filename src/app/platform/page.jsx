@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { RefreshCw } from 'lucide-react';
 import { platformApi } from '@/lib/platform-client';
 import { PageHeader, Notice, Status, Table, Loading, useResource, formatDate } from '@/components/console/primitives';
-import KPICard, { KPIStrip } from '@/components/ui/KPICard';
+import KPICard from '@/components/ui/KPICard';
 
 // The health board. Every number here is about a tenant's *operation* — is its
 // SAP answering, is it near its plan limits, is anyone signing in — never about
@@ -79,12 +79,12 @@ export default function PlatformOverviewPage() {
 
       {data && (
         <>
-          <KPIStrip className="mb-6">
-            <KPICard label="Tenants" value={data.platform.tenants.total} />
-            <KPICard label="Active" value={data.platform.tenants.byStatus.Active || 0} />
-            <KPICard label="SAP failing" value={data.platform.sapFailing} delta={data.platform.sapFailing ? 'Needs a look' : undefined} deltaTone="down" />
-            <KPICard label="Over limit" value={data.platform.limitsBreached} delta={data.platform.limitsBreached ? 'Plan limit reached' : undefined} deltaTone="warn" />
-          </KPIStrip>
+          <div className="mb-8 flex flex-wrap gap-x-12 gap-y-5">
+            <KPICard size="hero" label="Tenants" value={data.platform.tenants.total} />
+            <KPICard size="hero" label="Active" value={data.platform.tenants.byStatus.Active || 0} />
+            <KPICard size="hero" label="SAP failing" value={data.platform.sapFailing} delta={data.platform.sapFailing ? 'Needs a look' : undefined} deltaTone="down" />
+            <KPICard size="hero" label="Over limit" value={data.platform.limitsBreached} delta={data.platform.limitsBreached ? 'Plan limit reached' : undefined} deltaTone="warn" />
+          </div>
 
           <Table
             columns={columns}

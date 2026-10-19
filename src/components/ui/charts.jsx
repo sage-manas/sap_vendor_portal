@@ -140,3 +140,52 @@ export function BucketBar({ buckets, format = inrFull, ariaLabel }) {
     </div>
   );
 }
+
+/**
+ * Two series over months as smooth lines (redesign v2 dashboards): series 1
+ * pink, series 2 blue, dashed vertical guides, one tooltip listing both.
+ * Direct labels sit in the caller's legend row, never in a legend box.
+ * data: [{ label, a, b }]; series: [{ key: 'a', name }, { key: 'b', name }]
+ */
+export function SplineChart({ data, series, ariaLabel, height = 220, format = inrFull }) {
+  const colors = ['var(--chart-series)', 'var(--chart-series-2)'];
+  return (
+    <div role="img" aria-label={ariaLabel} style={{ height }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data} margin={{ top: 12, right: 12, bottom: 0, left: 0 }}>
+          <CartesianGrid horizontal={false} strokeDasharray="3 5" stroke="var(--chart-grid)" />
+          <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={false} minTickGap={16} />
+          <YAxis tick={AXIS} tickLine={false} axisLine={false} width={56} tickFormatter={inrCompact} />
+          <Tooltip
+            cursor={{ stroke: 'var(--chart-axis)', strokeDasharray: '3 3' }}
+            content={({ active, payload, label }) => (active && payload?.length ? (
+              <div className="rounded-tile border border-border bg-surface px-3 py-2 text-xs shadow-popover">
+                <p className="text-fg-muted">{label}</p>
+                {payload.map((p) => (
+                  <p key={p.dataKey} className="flex items-center gap-2 text-sm text-fg">
+                    <span className="size-2 rounded-full" style={{ background: p.color }} aria-hidden="true" />
+                    <span className="font-sans text-fg-muted">{p.name}</span>
+                    <span className="mono ml-auto">{format(p.value)}</span>
+                  </p>
+                ))}
+              </div>
+            ) : null)}
+          />
+          {series.map((s, i) => (
+            <Line
+              key={s.key}
+              type="monotone"
+              dataKey={s.key}
+              name={s.name}
+              stroke={colors[i]}
+              strokeWidth={2}
+              dot={false}
+              activeDot={{ r: 5, fill: colors[i], stroke: 'var(--surface)', strokeWidth: 3 }}
+              isAnimationActive={false}
+            />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
