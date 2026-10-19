@@ -660,6 +660,19 @@
   }
 
   .flash-success { @apply animate-borderPulse; }
+
+  /* Signed-out screens (sign-in, sign-up, password flows, the operator
+     gate): the canvas with a faint glow of the tenant accent behind a
+     centred card — no illustration (redesign v2, plan §3 Phase F). */
+  .auth-page-wrapper {
+    background:
+      radial-gradient(56rem 28rem at 50% -8%, color-mix(in srgb, var(--accent-solid) 14%, transparent), transparent 70%),
+      var(--canvas);
+  }
+  .auth-page-wrapper .card {
+    border-radius: var(--radius-overlay);
+    box-shadow: var(--shadow-popover);
+  }
 }
 
 /* Native date-picker glyph is dark by default and invisible on a dark surface. */

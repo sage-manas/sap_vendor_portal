@@ -288,7 +288,7 @@ export default function PlatformGate({ children }) {
 
   const Step = STEPS[stage] || SignIn;
   return (
-    <div className="flex min-h-screen items-center justify-center bg-canvas px-4 py-10">
+    <div className="auth-page-wrapper flex min-h-screen items-center justify-center bg-canvas px-4 py-10">
       <Step />
     </div>
   );
