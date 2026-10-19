@@ -10,7 +10,7 @@ import TableSkeleton from '@/components/ui/TableSkeleton';
 import { PageHeader } from '@/components/ui/Page';
 import Card, { Section } from '@/components/ui/Card';
 import { SegmentedControl } from '@/components/ui/controls';
-import { MeterPillRow, StatTile } from '@/components/ui/dashboard';
+import { DocumentHero, MeterPillRow, StatTile } from '@/components/ui/dashboard';
 import { SplineChart } from '@/components/ui/charts';
 import { MEASURES } from './PerformanceView';
 import { poStatusVariant, invoiceStatusVariant } from '@/lib/statusColors';
@@ -528,8 +528,7 @@ export default function DashboardView({ state, setActiveTab }) {
       <Drawer
         isOpen={!!drawerContent}
         onClose={() => setDrawerContent(null)}
-        title={drawerContent ? (drawerContent.type === 'PO' ? drawerContent.data.id : (drawerContent.data.invoiceNumber || drawerContent.data.no)) : ''}
-        description={drawerContent ? `${drawerContent.type === 'PO' ? 'Purchase order' : 'Invoice'} · ${displayDate(drawerContent.type === 'PO' ? drawerContent.data.createdDate : drawerContent.data.invoiceDate)}` : undefined}
+        title={drawerContent ? (drawerContent.type === 'PO' ? 'Purchase order' : 'Invoice') : ''}
         footer={drawerContent && (
           <>
             <Button variant="ghost" onClick={() => setDrawerContent(null)}>Close</Button>
@@ -541,21 +540,14 @@ export default function DashboardView({ state, setActiveTab }) {
       >
         {drawerContent && (
           <div className="space-y-6">
-            <dl className="grid grid-cols-[8rem_1fr] gap-x-3 gap-y-2.5">
-              <dt className="text-fg-muted">Status</dt>
-              <dd>
-                <StatusBadge
-                  label={drawerContent.data.status}
-                  variant={drawerContent.type === 'PO' ? poStatusVariant(drawerContent.data.status) : invoiceStatusVariant(drawerContent.data.status)}
-                />
-              </dd>
-              <dt className="text-fg-muted">Total value</dt>
-              <dd className="mono text-fg">
-                {inr(drawerContent.type === 'PO' ? poTotal(drawerContent.data) : drawerContent.data.totalAmount)}
-              </dd>
-              <dt className="text-fg-muted">Lines</dt>
-              <dd className="mono">{drawerContent.data.items?.length ?? 0}</dd>
-            </dl>
+            <DocumentHero
+              status={drawerContent.data.status}
+              statusVariant={drawerContent.type === 'PO' ? poStatusVariant(drawerContent.data.status) : invoiceStatusVariant(drawerContent.data.status)}
+              id={drawerContent.type === 'PO' ? drawerContent.data.id : (drawerContent.data.invoiceNumber || drawerContent.data.no)}
+              age={displayDate(drawerContent.type === 'PO' ? drawerContent.data.createdDate : drawerContent.data.invoiceDate)}
+              amount={inr(drawerContent.type === 'PO' ? poTotal(drawerContent.data) : drawerContent.data.totalAmount)}
+              amountLabel={`Total value · ${drawerContent.data.items?.length ?? 0} ${(drawerContent.data.items?.length ?? 0) === 1 ? 'line' : 'lines'}`}
+            />
 
             <div>
               <h3 className="mb-2 text-sm font-medium text-fg">Line items</h3>

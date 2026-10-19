@@ -12,7 +12,7 @@ export function PageHeader({ breadcrumb, title, description, caption, primary, s
     <header className={`mb-6 flex flex-col gap-3 sm:flex-row sm:items-start ${className}`}>
       <div className="min-w-0 flex-1">
         {breadcrumb && <div className="mb-1 text-sm text-fg-subtle">{breadcrumb}</div>}
-        <h1 className="page-title">{title}</h1>
+        {title && <h1 className="page-title">{title}</h1>}
         {desc && <p className="mt-0.5 max-w-[72ch] text-sm text-fg-muted">{desc}</p>}
       </div>
       {right && (

@@ -109,3 +109,33 @@ export function RecordCard({ status, statusTone, id, age, title, person, href, c
     ? <Link href={href} className={cx(cls, 'transition-colors hover:border-border-strong')}>{body}</Link>
     : <div className={cls}>{body}</div>;
 }
+
+/* ── DocumentHero: the header of a PO / invoice detail view ─────────────
+   RecordCard's layout at detail scale: status pill top-left, identifier
+   (mono) and age top-right, then the document's own amount as the hero
+   figure. `idAs` lets the identifier be the view's heading;
+   `status` may be a ready StatusBadge when the view relabels it. Every value is
+   the caller's — this renders, it never derives a figure. */
+export function DocumentHero({ status, statusVariant, statusTone, id, idAs: IdTag = 'div', age, amount, amountLabel, meta, children, className = '' }) {
+  return (
+    <section className={cx('rounded-tile border border-border bg-subtle p-5', className)}>
+      <div className="flex items-start gap-3">
+        {status && (typeof status === 'string'
+          ? <StatusBadge label={status} variant={statusVariant} tone={statusTone} className="w-fit" />
+          : status)}
+        <div className="ml-auto min-w-0 text-right text-xs leading-4 text-fg-subtle">
+          {id && <IdTag className="mono truncate text-sm font-medium text-fg-muted">{id}</IdTag>}
+          {age && <div className="mt-0.5">{age}</div>}
+        </div>
+      </div>
+      {amount != null && (
+        <div className="mt-4">
+          <div className="mono text-[32px] leading-[40px] font-light tracking-[-0.02em] text-fg tabular-nums break-all">{amount}</div>
+          {amountLabel && <div className="mt-0.5 text-sm text-fg-muted">{amountLabel}</div>}
+        </div>
+      )}
+      {meta && <div className="mt-3 text-sm text-fg-muted">{meta}</div>}
+      {children}
+    </section>
+  );
+}

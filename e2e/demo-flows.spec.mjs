@@ -185,7 +185,10 @@ test.describe('demo flows, through the UI', () => {
     expect(download.suggestedFilename()).toBe(`${po.id}.csv`);
 
     await page.getByRole('button', { name: 'Acknowledge purchase order' }).click();
-    await expect(page.getByRole('heading', { name: new RegExp(`${po.id}.*Acknowledged`) })).toBeVisible();
+    // The reference header carries the order number as the heading and the
+    // status as a badge beside it, so the badge is read from the same section.
+    const poHeader = page.getByRole('heading', { name: po.id }).locator('xpath=ancestor::section[1]');
+    await expect(poHeader.getByText('Acknowledged', { exact: true })).toBeVisible();
 
     // --- Ship -------------------------------------------------------------------
     await page.getByRole('tab', { name: 'Send shipment' }).click();
