@@ -96,9 +96,12 @@
   /* Charts (docs/redesign/design-system.md § Charts). Validated with the
      dataviz skill's validate_palette.js against each theme's surface:
      single series ≥ 3:1; the ordinal ramp is one hue, monotone lightness,
-     light end ≥ 2:1. Not the accent: a tenant's brand colour is for actions.
-     v2: pink series 1 + electric-blue series 2, as in the reference. */
-  --chart-series: #D6336C;
+     light end ≥ 2:1.
+     v2: series 1 is the tenant accent — the same derivation as link text
+     (L ≤ 0.5, ≥ 4.5:1 on white), so any brand colour stays a readable line.
+     Series 2 is electric blue and always drawn dashed, so the two separate by
+     shape even when a tenant's colour is itself blue. */
+  --chart-series: var(--accent-text);
   --chart-series-2: #3D5AFE;
   --chart-seq-1: #A9B6FF;
   --chart-seq-2: #7488FF;
@@ -150,8 +153,9 @@
   --shadow-modal: 0 16px 48px rgb(0 0 0 / 0.6);
   --scrim: rgb(0 0 0 / 0.6);
 
-  /* Dark chart steps — their own values, validated against #18181C, not a flip. */
-  --chart-series: #F0609A;
+  /* Dark chart steps — their own values, validated against #18181C, not a flip.
+     Series 1: the accent lifted to L ≥ 0.70, as for the dark button. */
+  --chart-series: var(--accent-solid);
   --chart-series-2: #6F84FF;
   --chart-seq-1: #2F3FA8;
   --chart-seq-2: #4A5FE0;

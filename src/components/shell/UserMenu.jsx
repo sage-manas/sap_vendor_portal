@@ -22,7 +22,7 @@ export default function UserMenu({ name, caption, items }) {
         aria-label={`Account: ${name || 'signed in'}`}
       >
         <Avatar name={name} size={24} />
-        <span className="hidden max-w-40 truncate text-sm text-fg md:inline">{name}</span>
+        <span className="hidden max-w-40 truncate text-sm text-fg 2xl:inline">{name}</span>
       </Menu.Trigger>
       <Menu.Portal>
         <Menu.Positioner align="end" sideOffset={6} className="z-50">

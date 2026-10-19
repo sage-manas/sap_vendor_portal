@@ -79,7 +79,7 @@ export default function SapStatus() {
         aria-label={`${state.label}. Show SAP connection details`}
       >
         <span className={`size-2 shrink-0 rounded-full ${state.dot}`} aria-hidden="true" />
-        <span className="hidden lg:inline">{state.label}</span>
+        <span className="hidden 2xl:inline">{state.label}</span>
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Positioner align="end" sideOffset={6} className="z-50">
