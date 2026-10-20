@@ -105,6 +105,20 @@ const PO_IN_FLIGHT = [
   PO_STATUS.DELIVERED,
 ];
 
+// --- RFQ --------------------------------------------------------------------
+//
+// RFQ.status is a plain String column too. Here for the reason the header
+// gives — more than one place needs it: the workspace overview counts "RFQs
+// open for bidding" and "RFQs awarded", and the RFQ list's own filter now
+// offers the same two as the tiles that link to it (issue #281). A tile and
+// the list behind it disagreeing about a status is the bug that makes a
+// clicked-through count change on arrival.
+const RFQ_STATUS = {
+  BIDDING_OPEN: 'Bidding Open',
+  AWARDED: 'Awarded',
+  CLOSED: 'Closed',
+};
+
 // Dual identity / sync state — Phase 3 of docs/04-sap-runtime-engineering-plan.md.
 // Every one of RFQ/PurchaseOrder/ASN/GRN/Invoice/Payment carries a
 // `sapSyncState` column with this value set (prisma/schema.prisma), read
@@ -169,6 +183,7 @@ module.exports = {
   PO_STATUSES,
   PO_AWAITING_SUPPLIER,
   PO_IN_FLIGHT,
+  RFQ_STATUS,
   SAP_SYNC_STATE,
   SAP_SYNC_STATES,
   SAP_SYNC_TRANSITIONS,

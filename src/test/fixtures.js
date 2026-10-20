@@ -18,6 +18,22 @@ export const listOf = (key, rows) => ({
 
 export const emptyList = (key) => listOf(key, []);
 
+/**
+ * One page of a larger set: the rows a request returned, and the real total
+ * behind them.
+ *
+ * `listOf` always reports `total: rows.length`, which is the shape a complete
+ * list has — and so a test written with it cannot see issue #281, where a page
+ * rendered 200 rows of 450 with nothing saying so. This is the shape that
+ * makes the difference visible.
+ *
+ *   pagedListOf('invoices', rows, { total: 450, page: 1, limit: 50 })
+ */
+export const pagedListOf = (key, rows, { total, page = 1, limit = 50 } = {}) => ({
+  [key]: rows,
+  pagination: { total, page, limit, pages: Math.ceil(total / limit) },
+});
+
 // ---------------------------------------------------------------------------
 // Supplier portal
 // ---------------------------------------------------------------------------

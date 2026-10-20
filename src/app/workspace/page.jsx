@@ -99,23 +99,27 @@ export default function WorkspaceOverviewPage() {
 
           <Section title="Sourcing">
             <KPIStrip>
-              <KPICard label="RFQs open for bidding" value={data.sourcing.openRfqs} hint={`${data.sourcing.rfqsTotal} total`} href="/workspace/rfqs" linkLabel="RFQs" />
-              <KPICard label="RFQs awarded" value={data.sourcing.awardedRfqs} href="/workspace/rfqs" linkLabel="RFQs" />
-              <KPICard label="Purchase orders open" value={data.sourcing.openPos} hint={`${data.sourcing.posTotal} total`} href="/workspace/purchase-orders" linkLabel="Purchase orders" />
+              <KPICard label="RFQs open for bidding" value={data.sourcing.openRfqs} hint={`${data.sourcing.rfqsTotal} total`} href="/workspace/rfqs?status=Bidding+Open" linkLabel="RFQs" />
+              <KPICard label="RFQs awarded" value={data.sourcing.awardedRfqs} href="/workspace/rfqs?status=Awarded" linkLabel="RFQs" />
+              <KPICard label="Purchase orders open" value={data.sourcing.openPos} hint={`${data.sourcing.posTotal} total`} href="/workspace/purchase-orders?view=open" linkLabel="Purchase orders" />
               <KPICard label="Purchase orders, all" value={data.sourcing.posTotal} href="/workspace/purchase-orders" linkLabel="Purchase orders" />
             </KPIStrip>
           </Section>
 
           <Section title="Finance">
             <KPIStrip>
-              <KPICard label="Invoices not yet cleared" value={data.finance.invoicesOpen} hint={money(data.finance.invoicesOpenValue)} href="/workspace/invoices" linkLabel="Invoices" />
+              {/* Each tile links to its list filtered the way the tile is
+                  counted (issue #281) — `view=open` is the same INVOICE_OPEN
+                  group this endpoint counts, so the list that opens states the
+                  number the reader clicked rather than the whole table. */}
+              <KPICard label="Invoices not yet cleared" value={data.finance.invoicesOpen} hint={money(data.finance.invoicesOpenValue)} href="/workspace/invoices?view=open" linkLabel="Invoices" />
               <KPICard
                 label="Above the review amount"
                 value={data.finance.invoicesOverThreshold}
                 hint={`At or above ${money(data.finance.reviewAmount)}`}
                 delta={data.finance.invoicesOverThreshold > 0 ? 'Needs review' : undefined}
                 deltaTone="down"
-                href="/workspace/invoices"
+                href={`/workspace/invoices?view=open&minAmount=${data.finance.reviewAmount}`}
                 linkLabel="Invoices"
               />
               <KPICard label="Payments made" value={data.finance.payments.count} hint={money(data.finance.payments.netPaid)} href="/workspace/payments" linkLabel="Payments" />

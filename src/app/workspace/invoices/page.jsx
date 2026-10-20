@@ -3,7 +3,10 @@
 import React from 'react';
 import { useRouter } from 'next/navigation';
 import { invoiceService } from '@/features/billing/services/invoiceService';
-import { PageHeader, Notice, Status, Table, Loading, useResource, formatDate } from '@/components/console/primitives';
+import {
+  PageHeader, Notice, Status, Table, Loading, ListFilters, useResource, formatDate,
+} from '@/components/console/primitives';
+import { useListQuery } from '@/components/console/useListQuery';
 
 // Every invoice submitted against this workspace's purchase orders, across
 // every supplier — the finance (and client_admin) tenant-wide view. GET
@@ -20,15 +23,45 @@ const money = (value, currency = 'INR') =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency, maximumFractionDigits: 0 })
     .format(Number(value || 0));
 
+const PAGE_SIZE = 50;
+
+// The named groups come from the backend's status registry (see
+// utils/listFilters.js); the literal statuses are INVOICE_STATUS. "Not yet
+// cleared" is the group the overview's own tile counts, so the tile links here
+// with `?view=open` and the two numbers agree.
+const SHOW = [
+  { value: 'view:open', label: 'Not yet cleared' },
+  { value: 'status:Submitted', label: 'Submitted' },
+  { value: 'status:Under Review', label: 'Under review' },
+  { value: 'status:Match Warning', label: 'Match warning' },
+  { value: 'status:Approved', label: 'Approved' },
+  { value: 'status:Posted in SAP', label: 'Posted in SAP' },
+  { value: 'status:Cleared', label: 'Cleared' },
+  { value: 'status:Rejected', label: 'Rejected' },
+];
+
 export default function WorkspaceInvoicesPage() {
   const router = useRouter();
-  const { data, error, loading } = useResource(() => invoiceService.getInvoices({ limit: 200 }));
+  // `minAmount` has no control of its own: it exists for the overview's
+  // "Above the review amount" tile, whose threshold is a tenant setting rather
+  // than something a reader would type. It is read from the URL and kept
+  // through paging, so the tile's link stays the tile's question.
+  const query = useListQuery({
+    pageSize: PAGE_SIZE,
+    filterKeys: ['view', 'status', 'from', 'to', 'vendorId', 'minAmount'],
+  });
+  const { data, error, loading } = useResource(
+    () => invoiceService.getInvoices(query.params),
+    query.key,
+  );
   const invoices = data?.invoices || [];
 
   return (
     <>
       <PageHeader title="Invoices" caption="Every invoice submitted against this workspace's orders, across every supplier" />
       <Notice tone="error">{error}</Notice>
+
+      <ListFilters query={query} show={SHOW} dateLabel="Invoiced" />
 
       {loading ? (
         <Loading label="Loading invoices" />
@@ -55,7 +88,14 @@ export default function WorkspaceInvoicesPage() {
           rows={invoices.map((invoice) => ({ ...invoice, key: invoice.id }))}
           rowLabel={(row) => `supplier ${row.vendorName || row.vendorId}`}
           onRowClick={(row) => router.push(`/workspace/suppliers/${row.vendorId}`)}
-          empty="No invoices submitted yet."
+          empty={query.active ? 'No invoices match these filters.' : 'No invoices submitted yet.'}
+          pagination={{
+            page: query.page,
+            pageSize: PAGE_SIZE,
+            total: data?.pagination?.total ?? invoices.length,
+            onPageChange: query.setPage,
+            noun: 'invoices',
+          }}
         />
       )}
     </>

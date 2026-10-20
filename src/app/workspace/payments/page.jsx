@@ -3,7 +3,10 @@
 import React from 'react';
 import { useRouter } from 'next/navigation';
 import { paymentService } from '@/features/payments/services/paymentService';
-import { PageHeader, Notice, Table, Loading, useResource, formatDate } from '@/components/console/primitives';
+import {
+  PageHeader, Notice, Table, Loading, ListFilters, useResource, formatDate,
+} from '@/components/console/primitives';
+import { useListQuery } from '@/components/console/useListQuery';
 
 // Every settlement made against this workspace's invoices, across every
 // supplier, plus the TDS deducted along the way — the finance (and
@@ -33,9 +36,15 @@ const SectionTitle = ({ children }) => (
   <h2 className="text-base font-semibold text-fg">{children}</h2>
 );
 
+const PAGE_SIZE = 50;
+
 export default function WorkspacePaymentsPage() {
   const router = useRouter();
-  const payments = useResource(() => paymentService.getPayments({ limit: 200 }));
+  // Only the payments table pages. The two TDS summaries below it are one row
+  // per quarter (and per quarter-and-supplier), which is a bounded set a
+  // reader wants to see whole — paging a four-row table would be furniture.
+  const query = useListQuery({ pageSize: PAGE_SIZE, filterKeys: ['from', 'to', 'vendorId'] });
+  const payments = useResource(() => paymentService.getPayments(query.params), query.key);
   const tdsByQuarter = useResource(() => paymentService.getTdsSummary());
   const tdsByVendor = useResource(() => paymentService.getTdsSummary({ byVendor: true }), 'byVendor');
 
@@ -51,6 +60,9 @@ export default function WorkspacePaymentsPage() {
       <div className="space-y-8">
         <section className="space-y-2">
           <SectionTitle>Payments</SectionTitle>
+          {/* A payment has no status of its own — it happened — so the only
+              narrowing worth offering is when. */}
+          <ListFilters query={query} dateLabel="Paid" />
           {payments.loading ? (
             <Loading label="Loading payments" />
           ) : (
@@ -69,7 +81,14 @@ export default function WorkspacePaymentsPage() {
               rows={paymentRows.map((payment) => ({ ...payment, key: payment.id }))}
               rowLabel={(row) => `supplier ${row.vendorId}`}
               onRowClick={(row) => router.push(`/workspace/suppliers/${row.vendorId}`)}
-              empty="No payments recorded yet."
+              empty={query.active ? 'No payments match these filters.' : 'No payments recorded yet.'}
+              pagination={{
+                page: query.page,
+                pageSize: PAGE_SIZE,
+                total: payments.data?.pagination?.total ?? paymentRows.length,
+                onPageChange: query.setPage,
+                noun: 'payments',
+              }}
             />
           )}
         </section>
