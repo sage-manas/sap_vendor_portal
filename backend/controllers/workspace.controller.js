@@ -9,6 +9,7 @@ const {
   VENDOR_STATUS, VENDOR_AWAITING_DECISION, INVOICE_OPEN, PO_AWAITING_SUPPLIER, RFQ_STATUS,
 } = require('../config/statuses');
 const { usageAgainstLimits } = require('../utils/usage');
+const { openInvoiceValue } = require('../services/supplierSummary.service');
 const { toNumber } = require('../utils/money');
 
 // The tenant back office. Everything here runs inside a bound tenant, so there
@@ -49,9 +50,9 @@ const getOverview = asyncHandler(async (req, res) => {
     posTotal,
     openPos,
     invoicesTotal,
-    invoicesOpen,
     invoicesOverThreshold,
-    invoicesOpenValue,
+    openInvoices,
+    invoicesOpenFaceValue,
     paymentTotals,
     staffActive,
     pendingInvitations,
@@ -76,12 +77,20 @@ const getOverview = asyncHandler(async (req, res) => {
     // stay one definition to keep agreeing.
     prisma.purchaseOrder.count({ where: { status: { in: PO_AWAITING_SUPPLIER } } }),
     prisma.invoice.count({}),
-    // These three said `notIn: ['Cleared']`, which counts a *Rejected*
-    // invoice as money the buyer still owes — issue #283, here in the one
-    // place a reader meets it as a headline figure. INVOICE_OPEN is the
-    // honest set: in the buyer's hands and still owed.
-    prisma.invoice.count({ where: { status: { in: INVOICE_OPEN } } }),
+    // These said `notIn: ['Cleared']`, which counts a *Rejected* invoice as
+    // money the buyer still owes — issue #283, here in the one place a reader
+    // meets it as a headline figure. INVOICE_OPEN is the honest set: in the
+    // buyer's hands and still owed. The review threshold is deliberately read
+    // against `totalAmount`: what a human is asked to approve is the invoice
+    // as raised, not whatever is left on it after a part payment.
     prisma.invoice.count({ where: { status: { in: INVOICE_OPEN }, totalAmount: { gte: reviewAmount } } }),
+    // The other half of #283: the count and the value both come from the
+    // shared helper, which nets off every PaymentItem against its invoice. A
+    // half-paid ₹1,00,000 invoice used to read as ₹1,00,000 awaiting.
+    openInvoiceValue({}),
+    // Face value of the same set, kept alongside it: "₹X owed across invoices
+    // worth ₹Y" is two different true statements, and the screen says which
+    // is which rather than the figure quietly meaning one of them.
     prisma.invoice.aggregate({ where: { status: { in: INVOICE_OPEN } }, _sum: { totalAmount: true } }),
     // count/sum in one round trip rather than four separate counts+aggregates.
     prisma.payment.aggregate({ _count: true, _sum: { grossAmount: true, netAmount: true, tdsDeducted: true } }),
@@ -103,9 +112,12 @@ const getOverview = asyncHandler(async (req, res) => {
     sourcing: { rfqsTotal, openRfqs, awardedRfqs, posTotal, openPos },
     finance: {
       invoicesTotal,
-      invoicesOpen,
+      invoicesOpen: openInvoices.count,
       invoicesOverThreshold,
-      invoicesOpenValue: toNumber(invoicesOpenValue._sum.totalAmount) || 0,
+      // Still owed, net of part payments.
+      invoicesOpenValue: openInvoices.value,
+      // The same invoices at face value, before anything paid against them.
+      invoicesOpenFaceValue: toNumber(invoicesOpenFaceValue._sum.totalAmount) || 0,
       reviewAmount,
       payments: {
         count: paymentTotals._count,

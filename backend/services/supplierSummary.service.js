@@ -199,6 +199,22 @@ const outstandingOf = (invoice) => {
   return Math.max(total - paid, 0);
 };
 
+// What is still owed over a set of invoices, net of part payments and with
+// the decided ones left out. The tenant workspace's own overview headline
+// (controllers/workspace.controller.js) needs exactly this figure without any
+// of the rest of the summary, and it has to be the same arithmetic — two
+// screens quoting "open value" from two definitions is the bug in #283, not
+// the fix for it. The clamp is per invoice, which is why this reads the rows
+// rather than subtracting two SUMs: one overshooting clearing must not pay
+// down another invoice's balance.
+const openInvoiceValue = async (where) => {
+  const open = await prisma.invoice.findMany({
+    where: { ...where, status: { in: INVOICE_OPEN } },
+    select: { totalAmount: true, paymentItems: { select: { grossAmount: true } } },
+  });
+  return { count: open.length, value: sumBy(open, outstandingOf) };
+};
+
 const invoiceSummary = async (where, { isMsme, now }) => {
   const [byStatusRows, taxTotals, open] = await Promise.all([
     prisma.invoice.groupBy({
@@ -413,5 +429,6 @@ module.exports = {
   // Exported for the ageing/outstanding tests and for reuse by the report
   // exports, which must bucket a row exactly as the summary did.
   outstandingOf,
+  openInvoiceValue,
   monthKeyOf,
 };

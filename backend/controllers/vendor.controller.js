@@ -14,7 +14,9 @@ const { AUDIT_ACTIONS } = require('../config/auditActions');
 const { settingValue } = require('../config/tenantSettings');
 const { toNumber } = require('../utils/money');
 const { settingsFromClient, missingVendorCreateFields } = require('../sap/mappings/vendor-create.map');
-const { VENDOR_STATUS, VENDOR_STATUSES, VENDOR_AWAITING_DECISION } = require('../config/statuses');
+const {
+  VENDOR_STATUS, VENDOR_STATUSES, VENDOR_AWAITING_DECISION, INVOICE_OPEN, INVOICE_STATUS,
+} = require('../config/statuses');
 const { generateVendorId, identityConflict, unguessablePassword } = require('../utils/vendorIdentity');
 
 const IDENTITY_CONFLICT_MESSAGE = {
@@ -724,6 +726,7 @@ const getVendorById = asyncHandler(async (req, res, next) => {
   const [
     poStatusCounts,
     invoiceStatusCounts,
+    openInvoiceTotals,
     paymentTotals,
     rfqInvitations,
     grnCount,
@@ -744,6 +747,25 @@ const getVendorById = asyncHandler(async (req, res, next) => {
       FROM invoices
       WHERE "vendorId" = ${vendorId} AND "clientId" = ${clientId}
       GROUP BY status
+    `,
+    // What this supplier is still owed (issue #283). Not derivable from the
+    // by-status sums above: a Rejected invoice is not a receivable at all,
+    // and an open one is owed only its unpaid balance — an invoice can be
+    // settled across several F110 runs (issue #63), so what is paid against
+    // it is the sum of its PaymentItems, not a column. GREATEST(…, 0) clamps
+    // per invoice, so one overshooting clearing cannot pay down another
+    // invoice's balance; the pre-aggregated subquery keeps the join from
+    // fanning an invoice's total out once per settlement.
+    prisma.$queryRaw`
+      SELECT COUNT(*)::int AS count,
+             COALESCE(SUM(GREATEST(i."totalAmount" - COALESCE(p.paid, 0), 0)), 0)::float AS outstanding
+      FROM invoices i
+      LEFT JOIN (
+        SELECT "clientId", "invoiceId", SUM("grossAmount") AS paid
+        FROM payment_items GROUP BY "clientId", "invoiceId"
+      ) p ON p."clientId" = i."clientId" AND p."invoiceId" = i.id
+      WHERE i."vendorId" = ${vendorId} AND i."clientId" = ${clientId}
+        AND i.status = ANY(${INVOICE_OPEN})
     `,
     prisma.$queryRaw`
       SELECT COUNT(*)::int AS count, COALESCE(SUM("grossAmount"), 0)::float AS gross,
@@ -782,7 +804,19 @@ const getVendorById = asyncHandler(async (req, res, next) => {
       },
       invoices: {
         total: totalOf(invoiceStatusCounts, 'count'),
+        // Face value of everything raised, rejections included — the history
+        // of what was billed, which is what this list is.
         value: totalOf(invoiceStatusCounts, 'value'),
+        // A rejected invoice was never a receivable, so it is not part of
+        // what was legitimately billed either (issue #283).
+        receivableValue: totalOf(
+          invoiceStatusCounts.filter((row) => row.status !== INVOICE_STATUS.REJECTED),
+          'value',
+        ),
+        openCount: openInvoiceTotals[0]?.count || 0,
+        // Still owed: open invoices only, each net of what has been paid
+        // against it.
+        outstandingValue: openInvoiceTotals[0]?.outstanding || 0,
         byStatus: byStatus(invoiceStatusCounts),
       },
       payments: {

@@ -112,7 +112,17 @@ export default function WorkspaceOverviewPage() {
                   counted (issue #281) — `view=open` is the same INVOICE_OPEN
                   group this endpoint counts, so the list that opens states the
                   number the reader clicked rather than the whole table. */}
-              <KPICard label="Invoices not yet cleared" value={data.finance.invoicesOpen} hint={money(data.finance.invoicesOpenValue)} href="/workspace/invoices?view=open" linkLabel="Invoices" />
+              {/* The hint is what is still owed, not the face value of the
+                  invoices (issue #283): a part-paid invoice counts for its
+                  unpaid balance, and the two figures are named apart so a
+                  bare amount cannot be read as the wrong one. */}
+              <KPICard
+                label="Invoices not yet cleared"
+                value={data.finance.invoicesOpen}
+                hint={`${money(data.finance.invoicesOpenValue)} still owed of ${money(data.finance.invoicesOpenFaceValue)} invoiced`}
+                href="/workspace/invoices?view=open"
+                linkLabel="Invoices"
+              />
               <KPICard
                 label="Above the review amount"
                 value={data.finance.invoicesOverThreshold}

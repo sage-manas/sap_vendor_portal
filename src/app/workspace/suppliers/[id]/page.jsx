@@ -407,7 +407,14 @@ export default function SupplierDetailPage({ params }) {
                 ['Shipments notified', activity.shipments],
                 ['Goods receipts', activity.goodsReceipts],
                 ['Invoices', activity.invoices.total],
+                // Three different true statements, and they used to be one
+                // figure (issue #283): everything ever billed, what of it was
+                // a real receivable (a rejected invoice never was), and what
+                // is still owed today — open invoices only, each net of what
+                // has already been paid against it.
                 ['Invoiced value', money(activity.invoices.value, currency)],
+                ['Of which receivable', money(activity.invoices.receivableValue, currency)],
+                ['Still owed', money(activity.invoices.outstandingValue, currency)],
                 ['Payments', activity.payments.total],
                 ['Paid (net of TDS)', money(activity.payments.netPaid, currency)],
                 ['TDS deducted', money(activity.payments.tdsDeducted, currency)],
