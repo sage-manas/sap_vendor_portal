@@ -11,6 +11,7 @@ const { TtlCache } = require('../utils/ttlCache');
 
 const { requireVendorScope, withVendorScope, scopedWhere } = require('../utils/requestScope');
 const { withVendorNames } = require('../utils/vendorNames');
+const { listWhere } = require('../utils/listFilters');
 const {
   buildPlan,
   summarizePlan,
@@ -47,12 +48,15 @@ const getPOs = asyncHandler(async (req, res, next) => {
   // own: one written here reads like the page size and isn't it (the
   // schema's 20 is), which is how the supplier screens came to aggregate
   // over a page they described in a comment as 10 rows (#280).
-  const { status, page, limit } = req.query;
+  const { page, limit } = req.query;
 
-  const where = withVendorScope(req);
-  if (status) {
-    where.status = status;
-  }
+  // `?view=open`, `?status=` and `?from`/`?to` on the raised date (issue
+  // #281). `view=open` is PO_AWAITING_SUPPLIER, the same group the overview's
+  // "Purchase orders open" tile counts, so the tile and this list agree.
+  const where = listWhere(withVendorScope(req), req.query, {
+    resource: 'po',
+    dateField: 'createdDate',
+  });
 
   const skip = (page - 1) * limit;
   const [pos, total] = await Promise.all([

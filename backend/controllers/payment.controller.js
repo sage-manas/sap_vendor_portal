@@ -7,6 +7,7 @@ const { withVendorScope, requireVendorScope, scopedWhere } = require('../utils/r
 const { fiscalPeriodOf, fiscalYearLabel, fiscalQuarterLabel } = require('../utils/fiscalPeriod');
 const { createWithUniqueId } = require('../utils/createWithUniqueId');
 const { formatPayment, flattenPaymentItems } = require('../db/paymentHelpers');
+const { listWhere } = require('../utils/listFilters');
 
 const PAYMENT_INCLUDE = { items: true };
 
@@ -18,7 +19,10 @@ const getPayments = asyncHandler(async (req, res, next) => {
   // getPOs on why there is no default written here (#118, #280).
   const { page, limit } = req.query;
 
-  const where = withVendorScope(req);
+  // `?from`/`?to` on the settlement date, and `?vendorId=` via the scope
+  // helper (issue #281). A payment has no status column of its own — it
+  // happened — so there is no status filter here.
+  const where = listWhere(withVendorScope(req), req.query, { dateField: 'paymentDate' });
 
   const skip = (page - 1) * limit;
   const [payments, total] = await Promise.all([

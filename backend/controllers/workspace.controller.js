@@ -5,7 +5,9 @@ const { recordAudit } = require('../utils/audit');
 const { formatAuditEntry, actionsForSubject, auditQuery } = require('../utils/auditView');
 const { AUDIT_ACTIONS, AUDIT_SUBJECTS } = require('../config/auditActions');
 const { describeSettings, applySettings, settingValue, topLevelFieldsFor } = require('../config/tenantSettings');
-const { VENDOR_STATUS, VENDOR_AWAITING_DECISION } = require('../config/statuses');
+const {
+  VENDOR_STATUS, VENDOR_AWAITING_DECISION, INVOICE_OPEN, PO_AWAITING_SUPPLIER, RFQ_STATUS,
+} = require('../config/statuses');
 const { usageAgainstLimits } = require('../utils/usage');
 const { toNumber } = require('../utils/money');
 
@@ -64,14 +66,23 @@ const getOverview = asyncHandler(async (req, res) => {
     // "how is sourcing/finance doing" means across every supplier in the
     // tenant, the same way the supplier counts above already are.
     prisma.rFQ.count({}),
-    prisma.rFQ.count({ where: { status: 'Bidding Open' } }),
-    prisma.rFQ.count({ where: { status: 'Awarded' } }),
+    prisma.rFQ.count({ where: { status: RFQ_STATUS.BIDDING_OPEN } }),
+    prisma.rFQ.count({ where: { status: RFQ_STATUS.AWARDED } }),
     prisma.purchaseOrder.count({}),
-    prisma.purchaseOrder.count({ where: { status: { in: ['Open', 'Acknowledged'] } } }),
+    // The status groups here come from the registry rather than an inline
+    // list, because each of these tiles now links to its list filtered the
+    // same way (issue #281): the tile's number and the list's
+    // `pagination.total` are two reads of one definition, and they have to
+    // stay one definition to keep agreeing.
+    prisma.purchaseOrder.count({ where: { status: { in: PO_AWAITING_SUPPLIER } } }),
     prisma.invoice.count({}),
-    prisma.invoice.count({ where: { status: { notIn: ['Cleared'] } } }),
-    prisma.invoice.count({ where: { status: { notIn: ['Cleared'] }, totalAmount: { gte: reviewAmount } } }),
-    prisma.invoice.aggregate({ where: { status: { notIn: ['Cleared'] } }, _sum: { totalAmount: true } }),
+    // These three said `notIn: ['Cleared']`, which counts a *Rejected*
+    // invoice as money the buyer still owes — issue #283, here in the one
+    // place a reader meets it as a headline figure. INVOICE_OPEN is the
+    // honest set: in the buyer's hands and still owed.
+    prisma.invoice.count({ where: { status: { in: INVOICE_OPEN } } }),
+    prisma.invoice.count({ where: { status: { in: INVOICE_OPEN }, totalAmount: { gte: reviewAmount } } }),
+    prisma.invoice.aggregate({ where: { status: { in: INVOICE_OPEN } }, _sum: { totalAmount: true } }),
     // count/sum in one round trip rather than four separate counts+aggregates.
     prisma.payment.aggregate({ _count: true, _sum: { grossAmount: true, netAmount: true, tdsDeducted: true } }),
     prisma.user.count({ where: { status: 'Active' } }),
