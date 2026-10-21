@@ -48,11 +48,15 @@ describe('the supplier Overview renders the server\'s figures, not the loaded pa
     'GET /dashboard/summary': summaryOf({
       pos: {
         total: 31,
-        byStatus: { Open: 11, Acknowledged: 7, Dispatched: 0, Delivered: 0, Invoiced: 13, Paid: 0 },
+        // Every status represented, and the two groups deliberately
+        // different sizes: 18 awaiting the supplier, 25 not yet invoiced
+        // (issue #288). A fixture where they match cannot tell the Overview
+        // reading the wrong one from the Overview reading the right one.
+        byStatus: { Open: 11, Acknowledged: 7, Dispatched: 4, Delivered: 3, Invoiced: 5, Paid: 1 },
         awaitingAcknowledgement: 11,
         awaitingSupplierCount: 18,
-        inFlightCount: 18,
-        inFlightValue: 7654321,
+        notInvoicedCount: 25,
+        notInvoicedValue: 7654321,
         totalValue: 9876543,
       },
       grns: { awaitingInvoice: 9 },
@@ -61,13 +65,16 @@ describe('the supplier Overview renders the server\'s figures, not the loaded pa
     }),
   };
 
-  it('counts open orders, goods receipts to invoice and open RFQs from the summary', async () => {
+  it('counts orders awaiting the supplier, goods receipts to invoice and open RFQs from the summary', async () => {
     renderWithPortal(<DashboardPage />, { plane: 'supplier', route: '/', api });
     await screen.findByText('Awaiting payment', {}, { timeout: 3000 });
 
-    // 18 open orders, of which 11 await acknowledgement — not the 1 PO row
-    // the page is holding.
+    // 18 orders awaiting the supplier, of which 11 await acknowledgement —
+    // not the 1 PO row the page is holding, and not the 25 that are merely
+    // not yet invoiced, which is the Reports page's question (issue #288).
+    expect(screen.getByText('Awaiting you')).toBeInTheDocument();
     expect(screen.getByText('18')).toBeInTheDocument();
+    expect(screen.queryByText('25')).not.toBeInTheDocument();
     expect(screen.getByText('11 awaiting acknowledgement')).toBeInTheDocument();
     // 9 goods receipts awaiting an invoice, with no GRN rows loaded at all:
     // the figure cannot have come from the array.
@@ -103,8 +110,9 @@ describe('the supplier Reports screen renders the server\'s figures', () => {
     'GET /dashboard/summary': summaryOf({
       pos: {
         total: 31,
-        inFlightCount: 18,
-        inFlightValue: 7654321,
+        awaitingSupplierCount: 18,
+        notInvoicedCount: 25,
+        notInvoicedValue: 7654321,
         totalValue: 9876543,
         byMaterial: [{ code: 'MAT-001', description: 'Hex bolts M8', poCount: 29, value: 9876543 }],
         byPlant: [{ plant: 'P100', value: 9876543 }],
@@ -133,6 +141,19 @@ describe('the supplier Reports screen renders the server\'s figures', () => {
     // 9,876,543 — not the 1,000 of the single loaded order.
     expect(document.body.textContent).toMatch(/98,76,543/);
     expect(document.body.textContent).not.toMatch(/Total order value[\s\S]{0,40}1,000\.00/);
+  });
+
+  // The other half of issue #288: this screen counts PO_NOT_INVOICED, the
+  // Overview counts PO_AWAITING_SUPPLIER, and each says which it means. The
+  // two numbers differing is correct; the two labels matching was the bug.
+  it('labels the wider group "Not yet invoiced" and counts it, not the awaiting-you group', async () => {
+    renderWithPortal(<AnalyticsPage />, { plane: 'supplier', route: '/analytics', api });
+    await screen.findByRole('heading', { name: 'Reports', level: 1 });
+
+    expect(await screen.findByText('Not yet invoiced')).toBeInTheDocument();
+    expect(screen.getByText('25')).toBeInTheDocument();
+    expect(screen.queryByText('Open orders')).not.toBeInTheDocument();
+    expect(screen.queryByText('18')).not.toBeInTheDocument();
   });
 
   it('takes the RFQ quote rate from the summary, not from the loaded RFQ page', async () => {

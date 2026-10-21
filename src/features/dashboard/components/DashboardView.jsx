@@ -102,7 +102,11 @@ export default function DashboardView({ state, setActiveTab }) {
   // null until the summary answers. A figure is not rendered from a partial
   // stand-in while it is missing: the skeletons below cover that frame.
   const figures = summary && {
-    openPOCount: summary.pos.awaitingSupplierCount,
+    // PO_AWAITING_SUPPLIER: orders to acknowledge or ship. This tile used to
+    // read "Open orders" — and so did the Reports page's, over a wider group
+    // (PO_NOT_INVOICED), so one supplier read two different "open orders"
+    // numbers on two tabs (issue #288). Each is now labelled by its group.
+    awaitingYou: summary.pos.awaitingSupplierCount,
     toAcknowledge: summary.pos.awaitingAcknowledgement,
     toShip: summary.pos.byStatus.Acknowledged,
     toInvoice: summary.grns.awaitingInvoice,
@@ -325,8 +329,8 @@ export default function DashboardView({ state, setActiveTab }) {
             <div className="flex flex-wrap gap-x-10 gap-y-4">
               <KPICard
                 size="hero"
-                label="Open orders"
-                value={figures.openPOCount}
+                label="Awaiting you"
+                value={figures.awaitingYou}
                 hint={figures.toAcknowledge ? `${figures.toAcknowledge} awaiting acknowledgement` : 'All acknowledged'}
               />
               <KPICard size="hero" label="To invoice" value={figures.toInvoice} hint={figures.toInvoice ? plural(figures.toInvoice, 'goods receipt') : 'Nothing to invoice'} />

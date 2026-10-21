@@ -81,8 +81,17 @@ const isInvoiceStatus = (value) => INVOICE_STATUSES.includes(value);
 // enforced by the column. What drifted were the groupings: the supplier's
 // Overview counted Open+Acknowledged as "open orders" while the same
 // supplier's Reports page counted those plus Dispatched+Delivered, and
-// neither said so. Both meanings are legitimate and they are different
-// questions, so both are named here rather than quietly reconciled.
+// neither said so — so one supplier read two different "Open orders"
+// numbers on two tabs of the same portal (issue #288). Both meanings are
+// legitimate and they are different questions, so both are named here, and
+// the screens label them by what they mean ("Awaiting you", "Not yet
+// invoiced") rather than both claiming the word "open".
+//
+// There is deliberately no `Cancelled` here. Reports used to filter on one,
+// which matched nothing: an order SAP no longer lists is marked with
+// `sapDeletedAt`, not moved to a status (jobs/handlers/sweepPurchaseOrders.js,
+// `markDeletedOrders`). Cancellation is a column, not a status, and the dead
+// filter is gone.
 const PO_STATUS = {
   OPEN: 'Open',
   ACKNOWLEDGED: 'Acknowledged',
@@ -94,16 +103,22 @@ const PO_STATUS = {
 
 const PO_STATUSES = Object.values(PO_STATUS);
 
-// The supplier still owes the buyer an action on the order itself.
+// The supplier still owes the buyer an action on the order itself: to
+// acknowledge it, or to ship it. Labelled "Awaiting you" on screen.
 const PO_AWAITING_SUPPLIER = [PO_STATUS.OPEN, PO_STATUS.ACKNOWLEDGED];
 
-// Ordered but not yet billed — the value still to be earned on the account.
-const PO_IN_FLIGHT = [
-  PO_STATUS.OPEN,
-  PO_STATUS.ACKNOWLEDGED,
-  PO_STATUS.DISPATCHED,
-  PO_STATUS.DELIVERED,
-];
+// Shipped and out of the supplier's hands, but not yet billed — nothing to
+// do on the order itself, and no invoice against it either.
+const PO_IN_FLIGHT = [PO_STATUS.DISPATCHED, PO_STATUS.DELIVERED];
+
+// Ordered and not yet billed — the value still to be invoiced on the
+// account, which is the union of the two groups above. Labelled "Not yet
+// invoiced" on screen, because that is the question it answers.
+const PO_NOT_INVOICED = [...PO_AWAITING_SUPPLIER, ...PO_IN_FLIGHT];
+
+// Billed. The order has left the supplier's working set; what is still owed
+// against it is an invoice question (INVOICE_OPEN), not an order one.
+const PO_CLOSED = [PO_STATUS.INVOICED, PO_STATUS.PAID];
 
 // --- RFQ --------------------------------------------------------------------
 //
@@ -183,6 +198,8 @@ module.exports = {
   PO_STATUSES,
   PO_AWAITING_SUPPLIER,
   PO_IN_FLIGHT,
+  PO_NOT_INVOICED,
+  PO_CLOSED,
   RFQ_STATUS,
   SAP_SYNC_STATE,
   SAP_SYNC_STATES,

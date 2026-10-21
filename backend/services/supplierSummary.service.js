@@ -13,9 +13,10 @@
 //
 //   1. Status groupings come from config/statuses.js, never written inline.
 //      The Overview and Reports pages genuinely ask two different questions
-//      about an "open" order (PO_AWAITING_SUPPLIER vs PO_IN_FLIGHT) — both
-//      are answered here, separately and by name, so neither screen has to
-//      pick a filter and hope.
+//      about an "open" order (PO_AWAITING_SUPPLIER vs PO_NOT_INVOICED) —
+//      both are answered here, separately and by name, so neither screen has
+//      to pick a filter and hope, and each field is named after its group
+//      rather than after the word "open" (issue #288).
 //   2. Decimal columns go through utils/money.js's `toNumber`. A Prisma
 //      `_sum` of a Decimal column is a Decimal, and `JSON.stringify` makes
 //      that a string, not a number.
@@ -35,7 +36,7 @@ const {
   PO_STATUS,
   PO_STATUSES,
   PO_AWAITING_SUPPLIER,
-  PO_IN_FLIGHT,
+  PO_NOT_INVOICED,
 } = require('../config/statuses');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -76,7 +77,7 @@ const purchaseOrderSummary = async (where) => {
   const [byStatusRows, items, acknowledged] = await Promise.all([
     prisma.purchaseOrder.groupBy({ by: ['status'], where, _count: { _all: true } }),
     // netValue lives on the line, the date and status on the header, so one
-    // narrow projection answers total value, in-flight value, by-month,
+    // narrow projection answers total value, not-yet-invoiced value, by-month,
     // by-material and by-plant consistently — the same rows behind every one
     // of them, which is why the Reports page's figures could not disagree
     // with each other even if a later read paginated differently.
@@ -104,12 +105,12 @@ const purchaseOrderSummary = async (where) => {
   const plants = new Map();
   const months = new Map();
   let totalValue = 0;
-  let inFlightValue = 0;
+  let notInvoicedValue = 0;
 
   for (const item of items) {
     const value = toNumber(item.netValue) || 0;
     totalValue += value;
-    if (PO_IN_FLIGHT.includes(item.po.status)) inFlightValue += value;
+    if (PO_NOT_INVOICED.includes(item.po.status)) notInvoicedValue += value;
 
     const code = item.materialCode || '—';
     const material = materials.get(code)
@@ -144,8 +145,8 @@ const purchaseOrderSummary = async (where) => {
     awaitingAcknowledgement: byStatus[PO_STATUS.OPEN],
     // Both groupings, named — see the note at the top of this file.
     awaitingSupplierCount: sumBy(PO_AWAITING_SUPPLIER, (status) => byStatus[status]),
-    inFlightCount: sumBy(PO_IN_FLIGHT, (status) => byStatus[status]),
-    inFlightValue,
+    notInvoicedCount: sumBy(PO_NOT_INVOICED, (status) => byStatus[status]),
+    notInvoicedValue,
     totalValue,
     byMonth,
     byMaterial: [...materials.values()]

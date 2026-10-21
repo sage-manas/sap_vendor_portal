@@ -5,6 +5,44 @@ Each entry: the call, why, and what it costs.
 
 ---
 
+## ADR-0048 — A KPI is labelled after its status group, not after the word "open"
+
+**Integrity · 2026-10-21 · Accepted**
+
+**Context.** "Open orders" named three different sets of purchase orders. The supplier's
+Overview counted `Open + Acknowledged`; the same supplier's Reports page counted those plus
+`Dispatched + Delivered`; the tenant workspace overview counted `Open + Acknowledged` again.
+So one supplier, on two tabs of the same portal, read two different "Open orders" numbers
+with nothing on either screen explaining the difference (issue #288). Reports also filtered
+on a `Cancelled` status, which the `PoStatus` enum has never had, so that filter matched
+nothing and always had.
+
+Both counts are legitimate — "what do I have to act on?" and "how much have I still to
+bill?" are different questions a supplier genuinely asks. The defect was not that there
+were two numbers; it was that one word was doing duty for both.
+
+**Decision.** `config/statuses.js` names four PO groups — `PO_AWAITING_SUPPLIER`
+(Open, Acknowledged), `PO_IN_FLIGHT` (Dispatched, Delivered), `PO_NOT_INVOICED` (the union)
+and `PO_CLOSED` (Invoiced, Paid) — and every count, filter and KPI reads one of them by
+name. The screens are labelled by meaning: **"Awaiting you"** on the Overview, **"Not yet
+invoiced"** on Reports. `GET /api/dashboard/summary` renames `pos.inFlightCount`/
+`inFlightValue` to `notInvoicedCount`/`notInvoicedValue` to match, since the old names said
+"in flight" about a group that included orders not yet acknowledged. `src/lib/documentStatus.js`
+mirrors the groups for render-time filters, and its test fails if the two files drift.
+
+The `Cancelled` filter is deleted rather than backed by a new enum value: an order SAP no
+longer lists is marked with `sapDeletedAt` by `sweepPurchaseOrders`, so cancellation is a
+column in this system, not a status.
+
+**Cost.** A breaking rename in the summary payload, which is acceptable because the field's
+old name was itself part of the bug. Two tiles that used to show the same word now show
+different words, which will read as a change to anyone who had learned to ignore the
+discrepancy. And four groups is more vocabulary than two: the guard is that
+`documentStatus.test.js` asserts the groups partition the enum, so a new PO status cannot be
+added without landing in exactly one side of it.
+
+---
+
 ## ADR-0047 — A figure a supplier reads is counted in the database, not in the browser
 
 **Integrity · 2026-10-19 · Accepted**
