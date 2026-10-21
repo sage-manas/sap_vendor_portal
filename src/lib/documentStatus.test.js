@@ -23,6 +23,8 @@ describe('documentStatus mirrors the backend registry', () => {
     ['PO_STATUSES', 'PO_STATUSES'],
     ['PO_AWAITING_SUPPLIER', 'PO_AWAITING_SUPPLIER'],
     ['PO_IN_FLIGHT', 'PO_IN_FLIGHT'],
+    ['PO_NOT_INVOICED', 'PO_NOT_INVOICED'],
+    ['PO_CLOSED', 'PO_CLOSED'],
   ])('%s is identical on both sides', (name) => {
     expect(ui[name]).toEqual(backend[name]);
   });
@@ -30,6 +32,23 @@ describe('documentStatus mirrors the backend registry', () => {
   it('every status is in exactly one of open or terminal', () => {
     expect([...ui.INVOICE_OPEN, ...ui.INVOICE_TERMINAL].sort())
       .toEqual([...ui.INVOICE_STATUSES].sort());
+  });
+
+  // Issue #288: "open orders" meant Open+Acknowledged on the Overview and
+  // those plus Dispatched+Delivered on Reports. Both are real questions, so
+  // the fix is that each group covers what it says and the two partition the
+  // enum between them — no status counted twice, none left out.
+  it('every PO status is in exactly one of not-invoiced or closed', () => {
+    expect([...ui.PO_NOT_INVOICED, ...ui.PO_CLOSED].sort())
+      .toEqual([...ui.PO_STATUSES].sort());
+  });
+
+  it('awaiting-the-supplier and in-flight split the not-invoiced group', () => {
+    expect([...ui.PO_AWAITING_SUPPLIER, ...ui.PO_IN_FLIGHT].sort())
+      .toEqual([...ui.PO_NOT_INVOICED].sort());
+    // The narrower group is genuinely narrower — the bug was them being read
+    // as the same thing under the same label.
+    expect(ui.PO_AWAITING_SUPPLIER).not.toEqual(ui.PO_NOT_INVOICED);
   });
 
   it('a rejected invoice is not open — the whole point of the grouping', () => {

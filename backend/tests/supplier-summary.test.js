@@ -3,7 +3,10 @@ const buildTestApp = require('./testApp');
 const { prisma } = require('../db/prisma');
 const { registerVendor, createAdminUser } = require('./helpers');
 const { runWithTenant } = require('../utils/tenantContext');
-const { INVOICE_STATUS, INVOICE_OPEN, PO_IN_FLIGHT } = require('../config/statuses');
+const {
+  INVOICE_STATUS, INVOICE_OPEN,
+  PO_STATUSES, PO_AWAITING_SUPPLIER, PO_NOT_INVOICED, PO_CLOSED,
+} = require('../config/statuses');
 
 const app = buildTestApp();
 const auth = (token) => (req) => req.set('Authorization', `Bearer ${token}`);
@@ -39,7 +42,10 @@ const daysAgo = (days) => new Date(Date.now() - days * DAY_MS);
 // ignores one of those dimensions is visibly wrong rather than coincidentally
 // right. Deterministic — no Math.random in a fixture whose numbers are the
 // assertion.
-const PO_STATUS_CYCLE = ['Open', 'Acknowledged', 'Dispatched', 'Delivered', 'Invoiced'];
+// Every status in the enum, Paid included (issue #288): a KPI documented as
+// covering a group can only be checked against that group if the fixture has
+// orders both inside and outside it.
+const PO_STATUS_CYCLE = PO_STATUSES;
 const INVOICE_STATUS_CYCLE = [
   INVOICE_STATUS.SUBMITTED,
   INVOICE_STATUS.UNDER_REVIEW,
@@ -132,12 +138,12 @@ const seed = () => runWithTenant(CLIENT, async () => {
 // the figure is the database's answer, not a page's.
 const expected = () => runWithTenant(CLIENT, async () => {
   const where = { vendorId: VENDOR };
-  const [poCount, poValue, inFlightValue, grnTotal, grnAwaiting, grnQty,
+  const [poCount, poValue, notInvoicedValue, grnTotal, grnAwaiting, grnQty,
     invoiceCount, invoiceTax, paymentTotals, openInvoices] = await Promise.all([
     prisma.purchaseOrder.count({ where }),
     prisma.purchaseOrderItem.aggregate({ where: { po: where }, _sum: { netValue: true } }),
     prisma.purchaseOrderItem.aggregate({
-      where: { po: { ...where, status: { in: PO_IN_FLIGHT } } }, _sum: { netValue: true },
+      where: { po: { ...where, status: { in: PO_NOT_INVOICED } } }, _sum: { netValue: true },
     }),
     prisma.gRN.count({ where }),
     prisma.gRN.count({ where: { ...where, invoiceSubmitted: false } }),
@@ -163,7 +169,7 @@ const expected = () => runWithTenant(CLIENT, async () => {
   return {
     poCount,
     poValue: Number(poValue._sum.netValue),
-    inFlightValue: Number(inFlightValue._sum.netValue),
+    notInvoicedValue: Number(notInvoicedValue._sum.netValue),
     grnTotal,
     grnAwaiting,
     receivedQuantity: Number(grnQty._sum.receivedQuantity),
@@ -209,9 +215,29 @@ describe('GET /api/dashboard/summary over more documents than fit in a page', ()
 
     expect(body.pos.total).toBe(db.poCount);
     expect(body.pos.totalValue).toBeCloseTo(db.poValue, 2);
-    expect(body.pos.inFlightValue).toBeCloseTo(db.inFlightValue, 2);
+    expect(body.pos.notInvoicedValue).toBeCloseTo(db.notInvoicedValue, 2);
     // Status counts add up to the total, so none is silently dropped.
     expect(Object.values(body.pos.byStatus).reduce((sum, n) => sum + n, 0)).toBe(db.poCount);
+  });
+
+  // Issue #288's acceptance criterion, as arithmetic: each KPI equals the sum
+  // of its documented group's statuses — not a neighbouring group's, and not
+  // "every order that isn't finished", which is how the two screens drifted
+  // into showing one supplier two different "Open orders" numbers.
+  it('counts each order KPI over exactly the statuses its group documents', async () => {
+    const { byStatus, awaitingSupplierCount, notInvoicedCount, total } = (await summary()).pos;
+    const sum = (statuses) => statuses.reduce((n, status) => n + byStatus[status], 0);
+
+    // The fixture has to cover both groups, or the equalities below hold
+    // trivially and prove nothing.
+    expect(sum(PO_AWAITING_SUPPLIER)).toBeGreaterThan(0);
+    expect(sum(PO_CLOSED)).toBeGreaterThan(0);
+    expect(notInvoicedCount).toBeGreaterThan(awaitingSupplierCount);
+
+    expect(awaitingSupplierCount).toBe(sum(PO_AWAITING_SUPPLIER));
+    expect(notInvoicedCount).toBe(sum(PO_NOT_INVOICED));
+    // The groups partition the enum, so the two sides account for every order.
+    expect(notInvoicedCount + sum(PO_CLOSED)).toBe(total);
   });
 
   it('breaks order value down by month, material and plant without losing any of it', async () => {

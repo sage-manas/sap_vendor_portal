@@ -49,13 +49,14 @@ export const PO_STATUS = {
 
 export const PO_STATUSES = Object.values(PO_STATUS);
 
-/** The supplier still owes an action on the order itself. */
+/** The supplier still owes an action on the order itself — "Awaiting you". */
 export const PO_AWAITING_SUPPLIER = [PO_STATUS.OPEN, PO_STATUS.ACKNOWLEDGED];
 
-/** Ordered but not yet billed. */
-export const PO_IN_FLIGHT = [
-  PO_STATUS.OPEN,
-  PO_STATUS.ACKNOWLEDGED,
-  PO_STATUS.DISPATCHED,
-  PO_STATUS.DELIVERED,
-];
+/** Shipped, nothing left to do on the order, not yet billed. */
+export const PO_IN_FLIGHT = [PO_STATUS.DISPATCHED, PO_STATUS.DELIVERED];
+
+/** Ordered and not yet billed — "Not yet invoiced" (issue #288). */
+export const PO_NOT_INVOICED = [...PO_AWAITING_SUPPLIER, ...PO_IN_FLIGHT];
+
+/** Billed. What is still owed is an invoice question, not an order one. */
+export const PO_CLOSED = [PO_STATUS.INVOICED, PO_STATUS.PAID];

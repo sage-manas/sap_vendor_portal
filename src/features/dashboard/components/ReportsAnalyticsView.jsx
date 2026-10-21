@@ -285,7 +285,10 @@ export default function ReportsAnalyticsView({ state }) {
             <div className="flex flex-wrap gap-x-12 gap-y-5">
               <KPICard size="hero" label="Total order value" value={<span className="mono">{formatMoney(po?.totalValue)}</span>} empty={!po?.totalValue} />
               <KPICard size="hero" label="Purchase orders" value={po ? po.total : '—'} empty={!po} />
-              <KPICard size="hero" label="Open orders" value={po ? po.inFlightCount : '—'} empty={!po} hint={po?.inFlightCount ? `${formatMoney(po.inFlightValue)} still open` : 'Nothing open'} />
+              {/* PO_NOT_INVOICED — a wider group than the Overview's
+                  "Awaiting you", which is why it no longer shares that tile's
+                  old "Open orders" label (issue #288). */}
+              <KPICard size="hero" label="Not yet invoiced" value={po ? po.notInvoicedCount : '—'} empty={!po} hint={po?.notInvoicedCount ? `${formatMoney(po.notInvoicedValue)} still to bill` : 'Everything invoiced'} />
               <KPICard size="hero"
                 label="RFQs you quoted on"
                 value={summary?.rfqs.invited ? percent(summary.rfqs.quoted, summary.rfqs.invited) : '—'}
@@ -409,7 +412,7 @@ export default function ReportsAnalyticsView({ state }) {
         {detailTab === 'selfservice' && (
           <div className="pt-6">
             <KPIStrip>
-              <KPICard label="Open order value" value={<span className="mono">{formatMoney(po?.inFlightValue)}</span>} empty={!po?.inFlightValue} />
+              <KPICard label="Not yet invoiced" value={<span className="mono">{formatMoney(po?.notInvoicedValue)}</span>} empty={!po?.notInvoicedValue} />
               {/* What is still owed: open invoices, net of part payments. */}
               <KPICard label="Awaiting payment" value={<span className="mono">{formatMoney(inv?.openValue)}</span>} empty={!inv?.openValue} />
               <KPICard label="Ledger balance" value={<span className="mono">{formatMoney(summary?.ledgerBalance)}</span>} empty={!summary?.ledgerBalance} />
