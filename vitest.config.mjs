@@ -35,6 +35,16 @@ const jsxInJs = () => ({
   },
 });
 
+// The suite is pinned to one timezone, because date rendering is one of the
+// things it asserts. rfq-deadline-date-only.test.jsx has always depended on
+// IST — it expects 00:00 UTC to render as that same calendar day, which is
+// only true east of Greenwich — and lib/displayDate.test.js asserts the
+// off-by-one that issue #289 fixed, which needs an offset to be visible at
+// all. Set here rather than in `test.env`: Node reads TZ once at startup, so
+// it has to be in the environment the worker is forked with, not assigned
+// inside it.
+process.env.TZ = 'Asia/Kolkata';
+
 export default defineConfig({
   plugins: [jsxInJs()],
   resolve: {

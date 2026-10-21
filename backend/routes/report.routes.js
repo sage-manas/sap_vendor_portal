@@ -15,6 +15,9 @@ router.get('/exports/tds', requirePermission(PERMISSIONS.REPORT_READ), reportExp
 
 router.get('/statement', requirePermission(PERMISSIONS.REPORT_READ), reportsController.generateStatement);
 router.get('/invoice/:id', requirePermission(PERMISSIONS.REPORT_READ), reportsController.generateInvoicePDF);
-router.get('/metrics', requirePermission(PERMISSIONS.REPORT_METRICS), reportsController.getPlatformMetrics);
+// This workspace's own totals, not the platform's — see the handler's comment
+// (issue #289). The path is left alone: it is a tenant-staff endpoint and
+// renaming it would break any caller for no gain in accuracy.
+router.get('/metrics', requirePermission(PERMISSIONS.REPORT_METRICS), reportsController.getTenantMetrics);
 
 module.exports = router;

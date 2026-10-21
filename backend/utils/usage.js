@@ -1,14 +1,76 @@
 const { prisma } = require('../db/prisma');
 const ApiError = require('./ApiError');
 const { runWithTenant } = require('./tenantContext');
+const { settingValue } = require('../config/tenantSettings');
+
+// The registry owns the default, as it owns every setting's — asked for with
+// no client, `settingValue` answers with it.
+const DEFAULT_TIMEZONE = settingValue(null, 'localization.timezone');
+const tenantTimezone = (client) => settingValue(client, 'localization.timezone');
 
 // The single place "usage against a plan limit" is computed. The platform
 // health board, the workspace overview and plan enforcement all read the same
 // numbers the same way, so a tenant is never told three different counts.
 
-const startOfMonth = () => {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), 1);
+// Midnight on the 1st of the current month *in the tenant's own timezone*,
+// as a UTC instant to compare a stored timestamp against.
+//
+// This used to be `new Date(now.getFullYear(), now.getMonth(), 1)` — the
+// server's local calendar. The same workspace's monthly RFQ quota therefore
+// rolled over whenever the host happened to say midnight: on a UTC server,
+// 05:30 IST, so an RFQ raised at 02:00 IST on the 1st was still counted
+// against the month that had already ended (issue #289). The answer must not
+// depend on where the process runs.
+//
+// Asked of Intl rather than computed from an offset, because a zone does not
+// have *an* offset — it has one per instant. New York is -04:00 on 1 Nov 2026
+// and -05:00 on the 10th, so anything that measures elapsed wall-clock time
+// and subtracts it lands an hour out across that transition, which is enough
+// to put the first hour of the month in the wrong month. A zone this runtime
+// does not recognise falls back to the registry's default rather than
+// throwing inside a quota check.
+const PARTS = { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
+
+const zonedParts = (date, timeZone) => {
+  const formatted = new Intl.DateTimeFormat('en-GB', { timeZone, ...PARTS }).formatToParts(date);
+  const read = (type) => Number(formatted.find((part) => part.type === type).value);
+  // 'en-GB' with hour12:false renders midnight as 24 in some ICU versions.
+  return { year: read('year'), month: read('month'), day: read('day'), hour: read('hour') % 24, minute: read('minute'), second: read('second') };
+};
+
+// The zone's offset from UTC at one instant, in ms: how far that instant's
+// wall-clock reading in the zone is from its reading in UTC.
+const offsetAt = (date, timeZone) => {
+  const here = zonedParts(date, timeZone);
+  const asIfUtc = Date.UTC(here.year, here.month - 1, here.day, here.hour, here.minute, here.second);
+  return asIfUtc - Math.floor(date.getTime() / 1000) * 1000;
+};
+
+const known = (timeZone) => {
+  try {
+    new Intl.DateTimeFormat('en-GB', { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const startOfMonth = (timeZone = DEFAULT_TIMEZONE, now = new Date()) => {
+  const zone = known(timeZone) ? timeZone : DEFAULT_TIMEZONE;
+
+  // The wall-clock moment wanted: midnight on the 1st of whatever month it
+  // currently is *there*. Read as if it were UTC, it is the instant shifted
+  // by the zone's offset — so subtract the offset to get back to the real one.
+  const here = zonedParts(now, zone);
+  const wallClock = Date.UTC(here.year, here.month - 1, 1, 0, 0, 0);
+
+  // Twice, because the offset to subtract is the one in force *at the answer*,
+  // not at `now`, and the two differ either side of a DST change. The first
+  // pass lands within a couple of hours; the second uses the offset actually
+  // in force there. A further pass cannot move it: no zone changes offset
+  // twice within hours of a month boundary.
+  const firstPass = new Date(wallClock - offsetAt(now, zone));
+  return new Date(wallClock - offsetAt(firstPass, zone));
 };
 
 // null limit means unlimited: "no limit" and "no room left" must render —
@@ -34,7 +96,9 @@ const METRICS = {
   rfqsPerMonth: {
     limitField: 'limitRfqsPerMonth',
     label: 'RFQs this month',
-    count: () => prisma.rFQ.count({ where: { createdAt: { gte: startOfMonth() } } }),
+    // The only metric with a window, so the only one that takes the tenant's
+    // timezone. The other two count everything a tenant has and ignore it.
+    count: (timeZone) => prisma.rFQ.count({ where: { createdAt: { gte: startOfMonth(timeZone) } } }),
   },
   // Issue #116: limitStorageMb was settable, validated and shown in the
   // platform console, but nothing ever counted, enforced or displayed usage
@@ -60,7 +124,7 @@ const METRICS = {
 const usageAgainstLimits = (client) => runWithTenant(client.clientId, async () => {
   const [vendors, rfqsThisMonth, storageMb] = await Promise.all([
     METRICS.vendors.count(),
-    METRICS.rfqsPerMonth.count(),
+    METRICS.rfqsPerMonth.count(tenantTimezone(client)),
     METRICS.storageMb.count(),
   ]);
   return {
@@ -89,7 +153,7 @@ const assertCanCreate = (client, metricName, amount = 1) => runWithTenant(client
   // must not be read the same way `!limit` would read it.
   if (limit == null) return;
 
-  const used = await metric.count();
+  const used = await metric.count(tenantTimezone(client));
   if (used + amount > limit) {
     throw new ApiError(
       402,
@@ -99,4 +163,4 @@ const assertCanCreate = (client, metricName, amount = 1) => runWithTenant(client
   }
 });
 
-module.exports = { usageAgainstLimits, assertCanCreate, against };
+module.exports = { usageAgainstLimits, assertCanCreate, against, startOfMonth };

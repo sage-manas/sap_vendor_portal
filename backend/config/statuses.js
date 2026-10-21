@@ -39,6 +39,26 @@ const VENDOR_PRE_SUBMISSION = [
 
 const isVendorStatus = (value) => VENDOR_STATUSES.includes(value);
 
+// Named groups the directory can be filtered by, as well as by a single
+// status. A tile that counts a group had no link that could show it: the
+// workspace overview's "Awaiting a decision" counts VENDOR_AWAITING_DECISION
+// but could only link to `?status=Under+Review`, so the list it opened was
+// always narrower than the number clicked (issue #289). The group is defined
+// once, here, beside the list it is made of — the API offers these to the
+// screen the way it already offers the statuses themselves.
+const VENDOR_STATUS_GROUPS = {
+  awaiting: { label: 'Awaiting a decision', statuses: VENDOR_AWAITING_DECISION },
+  onboarding: { label: 'Still onboarding', statuses: VENDOR_IN_ONBOARDING },
+};
+
+// The statuses a `?status=` value selects — one for a plain status, several
+// for a group name, or null when it is neither and the request is malformed.
+const vendorStatusFilter = (value) => {
+  if (VENDOR_STATUS_GROUPS[value]) return VENDOR_STATUS_GROUPS[value].statuses;
+  if (isVendorStatus(value)) return [value];
+  return null;
+};
+
 // --- Invoice ---------------------------------------------------------------
 //
 // Invoice.status is a plain String column, not a Prisma enum (several values
@@ -188,6 +208,8 @@ module.exports = {
   VENDOR_AWAITING_DECISION,
   VENDOR_IN_ONBOARDING,
   VENDOR_PRE_SUBMISSION,
+  VENDOR_STATUS_GROUPS,
+  vendorStatusFilter,
   isVendorStatus,
   INVOICE_STATUS,
   INVOICE_STATUSES,

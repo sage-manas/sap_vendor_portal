@@ -20,27 +20,17 @@ import { PageHeader } from '@/components/ui/Page';
 import { Avatar, DropdownMenu, Tabs } from '@/components/ui/controls';
 
 import FieldCard from '@/components/ui/FieldCard';
+import { displayDate } from '@/lib/displayDate';
 import { rfqStatusVariant } from '@/lib/statusColors';
 import { mergeSapDocuments, countByType, commonPurchasingOrg, DOCUMENT_TYPE } from '@/lib/sapDocuments';
 import { rfqService } from '../services/rfqService';
 
-const formatDate = (dateStr) => {
-  if (!dateStr) return '';
-  // If it's a full ISO string or contains T, split by T
-  if (typeof dateStr === 'string' && dateStr.includes('T')) {
-    dateStr = dateStr.split('T')[0];
-  }
-  // SAP's date fields (EKKO-BEDAT, via the ME43/ME48 reads) arrive as a bare
-  // YYYYMMDD like 20251112, which Date() rejects outright.
-  const sapDate = /^(\d{4})(\d{2})(\d{2})$/.exec(String(dateStr));
-  if (sapDate) return `${sapDate[3]}.${sapDate[2]}.${sapDate[1]}`;
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr;
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const year = d.getFullYear();
-  return `${day}.${month}.${year}`;
-};
+// Dates here read the same as everywhere else in the app, in the reader's own
+// local time. This screen used to carry its own formatDate, which split the
+// `T` off an ISO timestamp and so reported its UTC calendar day: an RFQ raised
+// at 01:00 IST was shown as raised the day before (issue #289). displayDate
+// keeps the date-only and SAP YYYYMMDD parsing that formatter needed.
+const formatDate = (dateStr) => (dateStr ? displayDate(dateStr) : '');
 
 // One titled group of the quotation form or the request detail.
 const FormSection = ({ title, children }) => (

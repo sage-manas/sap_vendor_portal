@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { usePortal } from '@/lib/portal-context';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { Button } from '@/components/ui/button';
@@ -65,18 +65,9 @@ const TASK_TONE = { warning: 'bg-warning', acknowledge: 'bg-accent-solid', invoi
 export default function DashboardView({ state, setActiveTab }) {
   const portal = usePortal();
 
-  const [isLoading, setIsLoading] = useState(true);
   const [drawerContent, setDrawerContent] = useState(null); // { type: 'PO' | 'Invoice', data: any }
   const [selectedItemIds, setSelectedItemIds] = useState([]);
   const [flowMonths, setFlowMonths] = useState('6');
-
-  // Auto-clear loading state after 1.2s to demonstrate skeleton states
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsLoading(false);
-    }, 1200);
-    return () => clearTimeout(timer);
-  }, []);
 
   // "Today" for the header, sampled once per mount so a render stays a
   // function of its inputs (the same rule ReportsAnalyticsView follows).
@@ -98,6 +89,21 @@ export default function DashboardView({ state, setActiveTab }) {
   const invoices = state.invoices || [];
   const performance = state.performance || {};
   const summary = state.summary;
+
+  // Issue #289. A skeleton used to be shown for a fixed 1.2 s after every
+  // mount — "to demonstrate skeleton states" — and so hid rows that had
+  // already arrived, and cleared itself while rows that had not were still in
+  // flight. Each region below now asks about the data it is actually waiting
+  // on: `summary === null` until GET /api/dashboard/summary answers,
+  // `posLoaded` / `invoicesLoaded` until those first fetches settle,
+  // `payments === null` until usePayments' does (#111).
+  //
+  // The two list flags are set on *settling*, so a failed fetch shows the
+  // empty state rather than a skeleton forever. `summary` is not: a figure
+  // has no honest empty state — zero is a claim — so a summary that never
+  // answers keeps its skeleton, as it did before this change.
+  const ordersLoading = !state.posLoaded;
+  const invoicesLoading = !state.invoicesLoaded;
 
   // null until the summary answers. A figure is not rendered from a partial
   // stand-in while it is missing: the skeletons below cover that frame.
@@ -130,8 +136,13 @@ export default function DashboardView({ state, setActiveTab }) {
 
   // Pull latest POs action trigger. This used to spawn a fabricated inbound
   // order; purchase orders come from the buyer’s system, so it re-reads them instead.
+  //
+  // The button has its own pending flag: a control that says it is working is
+  // reporting on this click, not on the page's first load.
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
   const handleFetchPOs = async () => {
-    setIsLoading(true);
+    setIsRefreshing(true);
     try {
       await Promise.all([
         portal?.poHook?.refreshPOs?.(),
@@ -139,7 +150,7 @@ export default function DashboardView({ state, setActiveTab }) {
         portal?.dashboardHook?.refreshSummary?.(),
       ]);
     } finally {
-      setIsLoading(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -298,7 +309,7 @@ export default function DashboardView({ state, setActiveTab }) {
             </span>
           )}
           secondary={(
-            <Button variant="secondary" onClick={handleFetchPOs} loading={isLoading}>
+            <Button variant="secondary" onClick={handleFetchPOs} loading={isRefreshing}>
               <RefreshCw strokeWidth={1.5} /> Refresh orders
             </Button>
           )}
@@ -323,7 +334,7 @@ export default function DashboardView({ state, setActiveTab }) {
             )}
             <Button variant="link" className="mt-2" onClick={() => setActiveTab('performance')}>Performance details</Button>
           </div>
-          {isLoading || !figures ? (
+          {!figures ? (
             <div className="w-full max-w-md"><TableSkeleton rows={1} cols={3} /></div>
           ) : (
             <div className="flex flex-wrap gap-x-10 gap-y-4">
@@ -391,7 +402,7 @@ export default function DashboardView({ state, setActiveTab }) {
             )}
           </Card>
 
-          {isLoading || !figures ? (
+          {!figures ? (
             <Card tone="accent" className="p-5" aria-busy="true"><div className="skeleton h-32 opacity-30" /></Card>
           ) : (
           <Card tone="accent" className="flex flex-col p-5">
@@ -415,10 +426,10 @@ export default function DashboardView({ state, setActiveTab }) {
         <div className="grid gap-x-8 gap-y-10 xl:grid-cols-[minmax(0,1fr)_20rem]">
           <div className="min-w-0 space-y-10">
             <Section title="Needs your attention">
-              {/* `!summary` as well as isLoading: "Nothing needs your
-                  attention" is a claim, and before the counts arrive there is
-                  nothing to base it on. */}
-              {isLoading || !summary ? (
+              {/* `!summary`, and nothing else: "Nothing needs your attention"
+                  is a claim, and before the counts arrive there is nothing to
+                  base it on. */}
+              {!summary ? (
                 <div className="card"><TableSkeleton rows={3} cols={2} /></div>
               ) : alerts.length === 0 ? (
                 <p className="flex items-center gap-2 text-sm text-fg-muted">
@@ -468,7 +479,7 @@ export default function DashboardView({ state, setActiveTab }) {
                 caption="Recent orders"
                 columns={orderColumns}
                 rows={pos.slice(0, 5)}
-                loading={isLoading}
+                loading={ordersLoading}
                 selectable
                 selected={selectedItemIds.filter((id) => poIds.has(id))}
                 onSelectedChange={setSelectionWithin(poIds)}
@@ -492,7 +503,7 @@ export default function DashboardView({ state, setActiveTab }) {
                 columns={invoiceColumns}
                 rows={invoices.slice(0, 5)}
                 getRowId={invoiceKey}
-                loading={isLoading}
+                loading={invoicesLoading}
                 selectable
                 selected={selectedItemIds.filter((id) => invoiceKeys.has(id))}
                 onSelectedChange={setSelectionWithin(invoiceKeys)}
@@ -513,10 +524,18 @@ export default function DashboardView({ state, setActiveTab }) {
                   no payments. Rendering the empty state for null told a
                   supplier who simply hadn't loaded yet that they had never
                   been paid. */}
-              {isLoading || state.payments === null ? (
+              {state.payments === null ? (
                 <div className="card"><TableSkeleton rows={2} cols={2} /></div>
               ) : state.payments.length === 0 ? (
-                <p className="text-sm text-fg-muted">No payments yet. Payments are released 45 days after your buyer approves an invoice.</p>
+                /* No "released 45 days after approval" here any more: that
+                   number came from no setting, no payment terms and no
+                   endpoint — it was a constant stating a commitment on the
+                   buyer's behalf (issue #289). Payment terms are agreed per
+                   order (PurchaseOrder.paymentTerms) and vary, so the one
+                   place to read them is the order. */
+                <p className="text-sm text-fg-muted">
+                  No payments yet. A payment appears here once your buyer releases one against an approved invoice; when it is due is set by the payment terms on the order.
+                </p>
               ) : (
                 <div className="card">
                   <ul className="divide-y divide-border">

@@ -270,7 +270,7 @@ describe('money fields survive the Float → Decimal migration', () => {
   });
 
   it('the metrics report sums a Decimal aggregate without leaking a Decimal into the response', async () => {
-    // controllers/reports.controller.js's getPlatformMetrics reads
+    // controllers/reports.controller.js's getTenantMetrics reads
     // prisma.payment.aggregate({ _sum: { netAmount: true } }) — Prisma's _sum
     // over a Decimal column is itself a Decimal, not a plain number. Despite
     // its name and the route's stale "Admin/Private" comment, /api/reports/

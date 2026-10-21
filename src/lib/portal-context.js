@@ -203,11 +203,16 @@ export function PortalProvider({ children }) {
     sapRfqDocuments: rfqHook.sapRfqDocuments,
     sapQuotationDocuments: rfqHook.sapQuotationDocuments,
     pos: poHook.pos,
+    // Whether the first fetch has settled, for the screens that show a
+    // skeleton while it has not. `pos`/`invoices` are [] before and after, so
+    // they cannot be asked (issue #289).
+    posLoaded: poHook.posLoaded,
     sapPoOrders: poHook.sapPoOrders,
     sapPoStatus: poHook.sapPoStatus,
     asns: poHook.asns,
     grns: poHook.grns,
     invoices: invoiceHook.invoices,
+    invoicesLoaded: invoiceHook.invoicesLoaded,
     sapMiroDocuments: invoiceHook.sapMiroDocuments,
     sapPaymentDetails: invoiceHook.sapPaymentDetails,
     payments: paymentHook.payments,

@@ -26,6 +26,10 @@ const canFetchVendorData = () =>
 
 export function usePOs(profile) {
   const [pos, setPos] = useState([]);
+  // Has the first fetch settled, whatever it found? `pos` cannot say: [] is
+  // both "not asked yet" and "this supplier has no orders". The Overview
+  // showed a skeleton on a 1.2 s timer instead of asking (issue #289).
+  const [posLoaded, setPosLoaded] = useState(false);
   const [asns, setAsns] = useState([]);
   const [grns, setGrns] = useState([]);
   const [sapPoOrders, setSapPoOrders] = useState(null);
@@ -51,7 +55,12 @@ export function usePOs(profile) {
   // page of the API happened to hold — issue #280, and lib/fetchAllPages.js
   // for why this is a page loop rather than one unbounded request.
   const refreshPOs = async () => {
-    if (!canFetchVendorData()) return;
+    if (!canFetchVendorData()) {
+      // Nothing will be fetched, so nothing is pending — a caller waiting on
+      // `posLoaded` must not wait forever.
+      setPosLoaded(true);
+      return;
+    }
     try {
       const result = await fetchAllPages((params) => poService.getPOs(params), 'pos');
       if (result) {
@@ -60,6 +69,8 @@ export function usePOs(profile) {
       }
     } catch (e) {
       console.error('Failed to fetch POs', e);
+    } finally {
+      setPosLoaded(true);
     }
   };
 
@@ -158,6 +169,7 @@ export function usePOs(profile) {
 
   return {
     pos,
+    posLoaded,
     asns,
     grns,
     sapPoOrders,

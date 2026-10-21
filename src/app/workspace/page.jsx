@@ -75,7 +75,12 @@ export default function WorkspaceOverviewPage() {
 
           <Section title="Suppliers">
             <KPIStrip>
-              <KPICard label="Awaiting a decision" value={data.suppliers.awaitingDecision} hint="Submitted and waiting on you" href="/workspace/suppliers?status=Under+Review" linkLabel="Review" />
+              {/* `?status=awaiting` is the registry's own group — the same
+                  VENDOR_AWAITING_DECISION this count is made of. It used to
+                  link to `?status=Under+Review`, half of that group, so the
+                  list opened was always shorter than the number clicked
+                  (issue #289). */}
+              <KPICard label="Awaiting a decision" value={data.suppliers.awaitingDecision} hint="Submitted and waiting on you" href="/workspace/suppliers?status=awaiting" linkLabel="Review" />
               <KPICard
                 label="Past the SLA"
                 value={data.suppliers.overdueDecision}
