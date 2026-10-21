@@ -82,7 +82,13 @@ export default function ReconciliationPage() {
     <div>
       <PageHeader
         title="Reconciliation"
-        caption={data ? `${data.total} ${data.total === 1 ? 'document needs' : 'documents need'} attention · pending SLA ${data.slaHours}h` : ''}
+        caption={data ? [
+          `${data.total} ${data.total === 1 ? 'document needs' : 'documents need'} attention`,
+          // `total` is the true backlog, the page is capped — say so rather
+          // than letting the count look like the whole queue (issue #286).
+          (data.rows?.length ?? 0) < data.total ? `showing ${data.rows?.length ?? 0} of ${data.total}` : null,
+          `pending SLA ${data.slaHours}h`,
+        ].filter(Boolean).join(' · ') : ''}
       />
 
       <Notice onDismiss={() => setRetryError('')}>{error || retryError}</Notice>
