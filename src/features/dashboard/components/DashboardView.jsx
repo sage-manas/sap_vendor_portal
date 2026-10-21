@@ -18,14 +18,11 @@ import { downloadFromApi } from '@/lib/download';
 import { CheckCircle2, ChevronRight, Download, RefreshCw, X } from 'lucide-react';
 import { displayDate } from '@/lib/displayDate';
 import { paymentInvoiceLabel } from '@/lib/paymentInvoiceLabel';
+import { formatAmount, formatMoney } from '@/lib/money';
 
 // Amounts arrive as Decimal strings from the API (utils/money.js on the server).
 const money = (value) => Number(value) || 0;
 
-const inr = (value) =>
-  `₹${money(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-const amount = (value) => money(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 
 // Indian fiscal year runs April to March; Q1 is April–June.
@@ -265,7 +262,7 @@ export default function DashboardView({ state, setActiveTab }) {
     { key: 'id', header: 'Order', mono: true, primary: true },
     { key: 'material', header: 'Material', wrap: true, render: (row) => <span className="text-fg">{row.items?.[0]?.description || '—'}</span> },
     { key: 'date', header: 'Raised', render: (row) => displayDate(row.createdDate) },
-    { key: 'value', header: 'Value (₹)', align: 'right', render: (row) => <span className="mono">{amount(poTotal(row))}</span> },
+    { key: 'value', header: 'Value (₹)', align: 'right', render: (row) => <span className="mono">{formatAmount(poTotal(row))}</span> },
     { key: 'status', header: 'Status', render: (row) => <StatusBadge label={row.status} variant={poStatusVariant(row.status)} /> },
   ];
 
@@ -273,7 +270,7 @@ export default function DashboardView({ state, setActiveTab }) {
     { key: 'no', header: 'Invoice', primary: true, render: (row) => <span className="mono">{invoiceKey(row)}</span> },
     { key: 'poId', header: 'Order', mono: true },
     { key: 'date', header: 'Date', render: (row) => displayDate(row.invoiceDate) },
-    { key: 'value', header: 'Value (₹)', align: 'right', render: (row) => <span className="mono">{amount(row.totalAmount)}</span> },
+    { key: 'value', header: 'Value (₹)', align: 'right', render: (row) => <span className="mono">{formatAmount(row.totalAmount)}</span> },
     { key: 'status', header: 'Status', render: (row) => <StatusBadge label={row.status} variant={invoiceStatusVariant(row.status)} /> },
   ];
 
@@ -395,7 +392,7 @@ export default function DashboardView({ state, setActiveTab }) {
           ) : (
           <Card tone="accent" className="flex flex-col p-5">
             <h2 className="text-lg font-medium">Awaiting payment</h2>
-            <p className="mono mt-3 text-[32px] leading-10 font-light tracking-[-0.02em]">{inr(figures.unpaidTotal)}</p>
+            <p className="mono mt-3 text-[32px] leading-10 font-light tracking-[-0.02em]">{formatMoney(figures.unpaidTotal)}</p>
             <p className="mt-1 text-sm opacity-85">
               {figures.unpaidCount ? `${plural(figures.unpaidCount, 'invoice')} still open` : 'Nothing outstanding'}
             </p>
@@ -533,8 +530,8 @@ export default function DashboardView({ state, setActiveTab }) {
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="mono text-fg">{inr(row.netAmount)}</p>
-                          {money(row.tdsDeducted) > 0 && <p className="text-xs text-fg-subtle">TDS <span className="mono">{inr(row.tdsDeducted)}</span></p>}
+                          <p className="mono text-fg">{formatMoney(row.netAmount)}</p>
+                          {money(row.tdsDeducted) > 0 && <p className="text-xs text-fg-subtle">TDS <span className="mono">{formatMoney(row.tdsDeducted)}</span></p>}
                         </div>
                       </li>
                     ))}
@@ -570,7 +567,7 @@ export default function DashboardView({ state, setActiveTab }) {
               statusVariant={drawerContent.type === 'PO' ? poStatusVariant(drawerContent.data.status) : invoiceStatusVariant(drawerContent.data.status)}
               id={drawerContent.type === 'PO' ? drawerContent.data.id : (drawerContent.data.invoiceNumber || drawerContent.data.no)}
               age={displayDate(drawerContent.type === 'PO' ? drawerContent.data.createdDate : drawerContent.data.invoiceDate)}
-              amount={inr(drawerContent.type === 'PO' ? poTotal(drawerContent.data) : drawerContent.data.totalAmount)}
+              amount={formatMoney(drawerContent.type === 'PO' ? poTotal(drawerContent.data) : drawerContent.data.totalAmount)}
               amountLabel={`Total value · ${drawerContent.data.items?.length ?? 0} ${(drawerContent.data.items?.length ?? 0) === 1 ? 'line' : 'lines'}`}
             />
 
@@ -587,7 +584,7 @@ export default function DashboardView({ state, setActiveTab }) {
                           {item.materialCode && <> · <span className="mono">{item.materialCode}</span></>}
                         </p>
                       </div>
-                      <span className="mono text-fg">{inr(item.netValue ?? item.amount)}</span>
+                      <span className="mono text-fg">{formatMoney(item.netValue ?? item.amount)}</span>
                     </li>
                   ))}
                 </ul>

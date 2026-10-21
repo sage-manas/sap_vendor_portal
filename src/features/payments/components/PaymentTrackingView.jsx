@@ -14,9 +14,7 @@ import { Tabs } from '@/components/ui/controls';
 import { paymentStatusVariant } from '@/lib/statusColors';
 import { usePortal } from '@/lib/portal-context';
 import { displayDate } from '@/lib/displayDate';
-
-const formatInr = (amount) =>
-  Number(amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+import { formatAmount } from '@/lib/money';
 
 // dd.mm.yyyy — kept as a search key: people type dates the way their bank
 // statement prints them.
@@ -299,9 +297,9 @@ export default function PaymentTrackingView({ state }) {
     { key: 'invoice', header: 'Invoice', primary: true, render: (p) => <span className="mono">{invoiceLabelFor(p) || '—'}</span> },
     { key: 'buyerRef', header: 'Buyer’s reference', render: (p) => <span className="mono">{miroDocLabelFor(p) || '—'}</span> },
     { key: 'date', header: 'Paid on', render: (p) => displayDate(p.paymentDate) },
-    { key: 'gross', header: 'Gross (₹)', align: 'right', render: (p) => <span className="mono">{formatInr(grossOf(p))}</span> },
-    { key: 'tds', header: 'TDS (₹)', align: 'right', render: (p) => <span className="mono text-fg-muted">{formatInr(tdsOf(p))}</span> },
-    { key: 'net', header: 'Net paid (₹)', align: 'right', render: (p) => <span className="mono font-medium">{formatInr(netOf(p))}</span> },
+    { key: 'gross', header: 'Gross (₹)', align: 'right', render: (p) => <span className="mono">{formatAmount(grossOf(p))}</span> },
+    { key: 'tds', header: 'TDS (₹)', align: 'right', render: (p) => <span className="mono text-fg-muted">{formatAmount(tdsOf(p))}</span> },
+    { key: 'net', header: 'Net paid (₹)', align: 'right', render: (p) => <span className="mono font-medium">{formatAmount(netOf(p))}</span> },
     { key: 'utr', header: 'UTR', render: (p) => <span className="mono">{p.utrCode || '—'}</span> },
     { key: 'method', header: 'Method', render: (p) => p.paymentMethod || 'NEFT' },
     { key: 'status', header: 'Status', render: () => <StatusBadge label="Cleared" variant={paymentStatusVariant('Cleared')} /> },
@@ -322,9 +320,9 @@ export default function PaymentTrackingView({ state }) {
     },
     { key: 'clearingDocument', header: 'Payment reference', render: (row) => <span className="mono">{row.clearingDocument || '—'}</span> },
     { key: 'clearingDate', header: 'Paid on', render: (row) => displayDate(row.clearingDate) },
-    { key: 'gross', header: 'Gross (₹)', align: 'right', render: (row) => <span className="mono">{formatInr(row.grossAmount)}</span> },
-    { key: 'tds', header: 'TDS (₹)', align: 'right', render: (row) => <span className="mono text-fg-muted">{formatInr(row.tdsDeducted)}</span> },
-    { key: 'net', header: 'Net paid (₹)', align: 'right', render: (row) => <span className="mono font-medium">{formatInr(row.netDisbursed)}</span> },
+    { key: 'gross', header: 'Gross (₹)', align: 'right', render: (row) => <span className="mono">{formatAmount(row.grossAmount)}</span> },
+    { key: 'tds', header: 'TDS (₹)', align: 'right', render: (row) => <span className="mono text-fg-muted">{formatAmount(row.tdsDeducted)}</span> },
+    { key: 'net', header: 'Net paid (₹)', align: 'right', render: (row) => <span className="mono font-medium">{formatAmount(row.netDisbursed)}</span> },
     { key: 'utr', header: 'UTR', render: (row) => <span className="mono">{row.utrReference || '—'}</span> },
     { key: 'method', header: 'Method', render: (row) => row.paymentMethod || '—' },
     { key: 'status', header: 'Status', render: (row) => <StatusBadge label={row.status || 'CLEARED'} variant={paymentStatusVariant('Cleared')} /> },
@@ -338,7 +336,7 @@ export default function PaymentTrackingView({ state }) {
     { key: 'section', header: 'Section', render: (row) => <span className="mono">{row.section || '—'}</span> },
     { key: 'deductorTan', header: 'Deductor TAN', render: (row) => <span className="mono">{row.deductorTan || '—'}</span> },
     { key: 'deducteePan', header: 'Deductee PAN', render: (row) => <span className="mono">{row.deducteePan || '—'}</span> },
-    { key: 'taxWithheld', header: 'Tax withheld (₹)', align: 'right', render: (row) => <span className="mono">{formatInr(row.taxWithheld)}</span> },
+    { key: 'taxWithheld', header: 'Tax withheld (₹)', align: 'right', render: (row) => <span className="mono">{formatAmount(row.taxWithheld)}</span> },
     { key: 'paymentCount', header: 'Payments', align: 'right', render: (row) => <span className="mono">{row.paymentCount}</span> },
   ];
 
@@ -428,9 +426,9 @@ export default function PaymentTrackingView({ state }) {
               ]}
               totals={filteredPayments.length > 1 ? {
                 label: `${filteredPayments.length} payments`,
-                gross: <span className="mono">{formatInr(sum(filteredPayments, grossOf))}</span>,
-                tds: <span className="mono">{formatInr(sum(filteredPayments, tdsOf))}</span>,
-                net: <span className="mono">{formatInr(sum(filteredPayments, netOf))}</span>,
+                gross: <span className="mono">{formatAmount(sum(filteredPayments, grossOf))}</span>,
+                tds: <span className="mono">{formatAmount(sum(filteredPayments, tdsOf))}</span>,
+                net: <span className="mono">{formatAmount(sum(filteredPayments, netOf))}</span>,
               } : undefined}
             />
 

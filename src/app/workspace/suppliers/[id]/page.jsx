@@ -9,6 +9,7 @@ import { documentIdOf, openDocument } from '@/lib/open-document';
 import { useWorkspaceSession } from '@/lib/workspace-session';
 import { PageHeader, Notice, Status, Table, Loading, useResource, formatDate } from '@/components/console/primitives';
 import DeclineSupplier from '@/features/profile/components/DeclineSupplier';
+import { formatMoney } from '@/lib/money';
 
 // One supplier, in full: who they are, what they registered with, what this
 // workspace has agreed to pay them on, and how much trading has actually
@@ -19,10 +20,6 @@ import DeclineSupplier from '@/features/profile/components/DeclineSupplier';
 // Read-only by design. A supplier's own details are theirs to change — the
 // portal's registration form is the one place they are edited — so nothing here
 // offers to overwrite them. The only actions are the decision itself.
-
-const money = (value, currency = 'INR') =>
-  new Intl.NumberFormat('en-IN', { style: 'currency', currency, maximumFractionDigits: 0 })
-    .format(Number(value || 0));
 
 const yesNo = (value) => (value === true ? 'Yes' : value === false ? 'No' : null);
 
@@ -374,7 +371,7 @@ export default function SupplierDetailPage({ params }) {
                 { key: 'id', header: 'Order', render: (row) => <span className="mono">{row.sapPoNumber || row.id}</span> },
                 { key: 'createdDate', header: 'Raised', render: (row) => formatDate(row.createdDate) },
                 { key: 'lines', header: 'Lines', align: 'right' },
-                { key: 'value', header: 'Value', align: 'right', render: (row) => <span className="mono">{money(row.value, row.currency || currency)}</span> },
+                { key: 'value', header: 'Value', align: 'right', render: (row) => <span className="mono">{formatMoney(row.value, row.currency || currency)}</span> },
                 { key: 'status', header: 'Status', render: (row) => <Status value={row.status} /> },
               ]}
               rows={(recentOrders || []).map((order) => ({ ...order, key: order.id }))}
@@ -403,7 +400,7 @@ export default function SupplierDetailPage({ params }) {
               {[
                 ['RFQs invited to', activity.rfqInvitations],
                 ['Purchase orders', activity.purchaseOrders.total],
-                ['Ordered value', money(activity.purchaseOrders.value, currency)],
+                ['Ordered value', formatMoney(activity.purchaseOrders.value, currency)],
                 ['Shipments notified', activity.shipments],
                 ['Goods receipts', activity.goodsReceipts],
                 ['Invoices', activity.invoices.total],
@@ -412,12 +409,12 @@ export default function SupplierDetailPage({ params }) {
                 // a real receivable (a rejected invoice never was), and what
                 // is still owed today — open invoices only, each net of what
                 // has already been paid against it.
-                ['Invoiced value', money(activity.invoices.value, currency)],
-                ['Of which receivable', money(activity.invoices.receivableValue, currency)],
-                ['Still owed', money(activity.invoices.outstandingValue, currency)],
+                ['Invoiced value', formatMoney(activity.invoices.value, currency)],
+                ['Of which receivable', formatMoney(activity.invoices.receivableValue, currency)],
+                ['Still owed', formatMoney(activity.invoices.outstandingValue, currency)],
                 ['Payments', activity.payments.total],
-                ['Paid (net of TDS)', money(activity.payments.netPaid, currency)],
-                ['TDS deducted', money(activity.payments.tdsDeducted, currency)],
+                ['Paid (net of TDS)', formatMoney(activity.payments.netPaid, currency)],
+                ['TDS deducted', formatMoney(activity.payments.tdsDeducted, currency)],
               ].map(([label, value]) => (
                 <div key={label} className="flex items-center justify-between gap-3 border-b border-border py-2 last:border-0">
                   <dt className="text-fg-muted">{label}</dt>
@@ -433,7 +430,7 @@ export default function SupplierDetailPage({ params }) {
                 {Object.entries(activity.purchaseOrders.byStatus).map(([status, row]) => (
                   <div key={status} className="flex items-center justify-between gap-3 border-b border-border py-2 last:border-0">
                     <dt><Status value={status} /></dt>
-                    <dd className="mono">{row.count} · {money(row.value, currency)}</dd>
+                    <dd className="mono">{row.count} · {formatMoney(row.value, currency)}</dd>
                   </div>
                 ))}
               </dl>

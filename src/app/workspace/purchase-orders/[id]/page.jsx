@@ -7,6 +7,7 @@ import { poService } from '@/features/purchase-order/services/poService';
 import { useWorkspaceSession } from '@/lib/workspace-session';
 import { PageHeader, Notice, Status, Table, Loading, useResource, formatDate } from '@/components/console/primitives';
 import InvoicePlanPanel from '@/features/purchase-order/components/InvoicePlanPanel';
+import { formatMoney } from '@/lib/money';
 
 // One purchase order, for the buying organisation's own staff. The items and
 // status are SAP's record, read only; the invoicing plan is the one thing this
@@ -17,10 +18,6 @@ import InvoicePlanPanel from '@/features/purchase-order/components/InvoicePlanPa
 // comment: one component, two audiences, the split enforced by `canManage`/
 // `canPropose` and mirrored by the API). This page never passes `canPropose`
 // — a buyer never holds po:invoice-plan:propose, only po:manage.
-
-const money = (value, currency = 'INR') =>
-  new Intl.NumberFormat('en-IN', { style: 'currency', currency, maximumFractionDigits: 2 })
-    .format(Number(value || 0));
 
 function Section({ title, children }) {
   return (
@@ -70,8 +67,8 @@ export default function WorkspacePurchaseOrderPage({ params }) {
               ) },
               { key: 'quantity', header: 'Ordered', align: 'right', render: (row) => <span className="mono">{row.quantity} {row.uom}</span> },
               { key: 'grnQuantity', header: 'Received', align: 'right', render: (row) => <span className="mono">{row.grnQuantity} {row.uom}</span> },
-              { key: 'unitPrice', header: 'Unit price', align: 'right', render: (row) => <span className="mono">{money(row.unitPrice, currency)}</span> },
-              { key: 'netValue', header: 'Net value', align: 'right', render: (row) => <span className="mono">{money(row.netValue, currency)}</span> },
+              { key: 'unitPrice', header: 'Unit price', align: 'right', render: (row) => <span className="mono">{formatMoney(row.unitPrice, currency)}</span> },
+              { key: 'netValue', header: 'Net value', align: 'right', render: (row) => <span className="mono">{formatMoney(row.netValue, currency)}</span> },
             ]}
             rows={(po.items || []).map((item) => ({ ...item, key: item.line }))}
             empty="This order has no line items."

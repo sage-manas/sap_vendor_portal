@@ -6,6 +6,7 @@ import { apiClient } from '@/lib/api-client';
 import { poService } from '@/features/purchase-order/services/poService';
 import { useWorkspaceSession } from '@/lib/workspace-session';
 import { PageHeader, Notice, Field, Loading, useResource } from '@/components/console/primitives';
+import { formatMoney } from '@/lib/money';
 
 // Raise an asset purchase order (account assignment category A) in SAP.
 //
@@ -40,10 +41,6 @@ const BLANK_LINE = {
   assetNumber: '',
   assetSubNumber: '0000',
 };
-
-const money = (value, currency = 'INR') =>
-  new Intl.NumberFormat('en-IN', { style: 'currency', currency, maximumFractionDigits: 2 })
-    .format(Number.isFinite(value) ? value : 0);
 
 // SAP's NETPR is the price for `priceUnit` (PEINH) units, not for one, so the
 // divisor is not optional: without it a line priced per 100 reads 100x its real
@@ -322,7 +319,7 @@ export default function NewAssetPoPage() {
                   {/* Computed, not entered — a value beside its label, not a field. */}
                   <div>
                     <p className="label">Line value</p>
-                    <p className="mono pt-2 text-sm text-fg">{money(lineValue(line), header.currency)}</p>
+                    <p className="mono pt-2 text-sm text-fg">{formatMoney(lineValue(line), header.currency)}</p>
                   </div>
                 </div>
               </div>
@@ -332,7 +329,7 @@ export default function NewAssetPoPage() {
           {/* Sticky action bar: the order total beside the one primary action. */}
           <div className="sticky bottom-0 z-10 -mx-4 mt-8 flex items-center justify-between gap-3 border-t border-border bg-canvas px-4 py-3 md:-mx-6 md:px-6">
             <span className="text-sm text-fg-muted">
-              Order total <span className="mono font-semibold text-fg">{money(total, header.currency)}</span>
+              Order total <span className="mono font-semibold text-fg">{formatMoney(total, header.currency)}</span>
             </span>
             <div className="flex gap-2">
               <button type="button" className="btn btn-o h-9" disabled={busy}
