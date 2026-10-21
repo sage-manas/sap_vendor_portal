@@ -180,6 +180,7 @@ export const WORKSPACE_OVERVIEW = {
     invoicesOpen: 0,
     invoicesOverThreshold: 0,
     invoicesOpenValue: 0,
+    invoicesOpenFaceValue: 0,
     reviewAmount: 100000,
     payments: { count: 0, grossPaid: 0, netPaid: 0, tdsDeducted: 0 },
   },

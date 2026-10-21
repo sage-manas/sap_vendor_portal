@@ -144,8 +144,13 @@ describe('the workspace overview surfaces real finance figures, tenant-wide', ()
     const res = await request(app).get('/api/workspace/overview').set(auth(token));
 
     expect(res.status).toBe(200);
-    // Two open invoices at 118 each.
-    expect(res.body.finance.invoicesOpenValue).toBeGreaterThanOrEqual(236);
+    // Two invoices at 118 each, each still Submitted and each settled in
+    // full by its own remittance above. So the overview sums 236 of invoice
+    // value and reports none of it as still owed (issue #283) — a figure
+    // that summed `totalAmount` over "not Cleared" invoices would claim the
+    // buyer owes 236 it has already paid.
+    expect(res.body.finance.invoicesOpenFaceValue).toBeGreaterThanOrEqual(236);
+    expect(res.body.finance.invoicesOpenValue).toBe(0);
     expect(res.body.finance.invoicesTotal).toBeGreaterThanOrEqual(2);
     // Two payments at 118 gross each, no TDS.
     expect(res.body.finance.payments.count).toBeGreaterThanOrEqual(2);
