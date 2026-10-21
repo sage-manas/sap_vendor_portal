@@ -43,8 +43,12 @@ export const poService = {
     return apiClient.get(`/asns${qs ? `?${qs}` : ''}`).catch(() => null);
   },
 
-  async getGRNs() {
-    return apiClient.get('/grns').catch(() => null);
+  // Takes `params` for the same reason getPOs does: the supplier's screens
+  // read every page (lib/fetchAllPages.js), and this used to be the one call
+  // with no way to ask for the second one (issue #280).
+  async getGRNs(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return apiClient.get(`/grns${qs ? `?${qs}` : ''}`).catch(() => null);
   },
 
   /** Every PO SAP itself has for this vendor, with line items and GRNs nested in */

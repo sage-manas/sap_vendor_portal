@@ -5,6 +5,53 @@ Each entry: the call, why, and what it costs.
 
 ---
 
+## ADR-0047 — A figure a supplier reads is counted in the database, not in the browser
+
+**Integrity · 2026-10-19 · Accepted**
+
+**Context.** Every number on the supplier's Overview and Reports screens was computed in
+render from `state.pos` / `state.invoices` / `state.payments` / `state.grns` / `state.rfqs`.
+Those arrays hold **one page** of their list endpoints — the hooks called them with no
+`limit`, so each held the server's default twenty rows. "Open orders", "To invoice",
+"Awaiting payment", the order pipeline, the invoiced-and-paid chart, total and open order
+value, order value by month/material/plant, the invoice ageing buckets, MSME overdue, GST
+invoiced, TDS, the ledger running balance **and every CSV export** were therefore functions
+of page size. A supplier with twenty-one documents of any kind read figures covering twenty
+of them, and the screens said nothing — the KPI card above a table agreed with the file
+exported from it, because both came from the same truncated array (issue #280). The older
+documents were also simply unreachable: the tables paginate client-side over the page they
+were handed.
+
+The tempting fix is to ask for more rows. It is not a fix: it moves the cliff, and a
+threshold that nobody can see is exactly what went wrong. The honest division is that a
+*total* is a question for the database and a *row* is a question for a list.
+
+**Decision.** `GET /api/dashboard/summary` answers every headline figure, computed with
+`count`/`aggregate`/`groupBy` in `services/supplierSummary.service.js`, vendor-scoped by
+`withVendorScope` (tenant-wide for staff, with `scope` naming which). The supplier screens
+render it and **no longer aggregate the arrays at all** — the replaced code is deleted, not
+left beside it, so there is one source of truth. A figure the summary has not answered yet
+renders as a skeleton, never as a partial total. The four report CSVs became server
+endpoints (`controllers/reportExport.controller.js`) that write every matching row. Status
+groupings moved into `config/statuses.js` (`INVOICE_OPEN`, `PO_IN_FLIGHT`, …), mirrored for
+render-time filters in `src/lib/documentStatus.js` with a test that fails if the two drift.
+Where a view genuinely needs the documents — the ageing and ledger tables, the lists —
+`lib/fetchAllPages.js` pages to exhaustion and reports `truncated` at its ceiling rather
+than returning a first page as if it were everything.
+
+**Consequences.** A supplier's figures no longer change meaning as their document count
+crosses a page boundary, and `tests/supplier-summary.test.js` pins each one against a
+direct Prisma aggregate over 25 documents of each kind. Two costs, both accepted. (1) The
+screens now depend on one more endpoint: if it fails, figures are absent rather than
+wrong — the deliberate trade. (2) `fetchAllPages` is interim. Server pagination driving the
+tables (`page`/`limit` with `pagination.total` rendered) is the right shape and is a change
+to four large views; option (b) of the issue's plan was taken for now, and the ceiling is
+explicit instead of accidental. The by-month/by-material/by-plant breakdowns read a narrow
+line-item projection and reduce in JS, because Prisma cannot `groupBy` across a relation —
+still the whole set, bounded by one supplier's history.
+
+---
+
 ## ADR-0046 — A request that names no workspace resolves to no workspace, in both tenancy modes
 
 **Tech debt · 2026-10-15 · Accepted** — amends ADR-0004, completes ADR-0044

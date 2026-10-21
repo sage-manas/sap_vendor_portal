@@ -38,32 +38,27 @@ const fiscalLabel = (date) => {
 
 const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`;
 
-const listIds = (rows, idOf) =>
-  rows.slice(0, 3).map(idOf).join(', ') + (rows.length > 3 ? ` +${rows.length - 3}` : '');
+// Up to three document ids as a sample, with the rest counted. `total` is
+// the server's count, which is the authority — the rows are only there to
+// name a few of them.
+const listIds = (rows, idOf, total) =>
+  rows.slice(0, 3).map(idOf).join(', ') + (total > 3 ? ` +${total - 3}` : '');
 
 const poTotal = (po) => (po.items || []).reduce((sum, item) => sum + money(item.netValue), 0);
 
-// Invoiced and paid per calendar month, for the last `months` months, from
-// the supplier's own invoices and payments. A month with neither is a real 0.
-const monthKey = (d) => `${d.getFullYear()}-${d.getMonth()}`;
-const monthlyFlow = (invoices, payments, months, today) => {
-  const rows = [];
-  const index = new Map();
-  for (let i = months - 1; i >= 0; i--) {
-    const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
-    const row = { label: d.toLocaleString('en-IN', { month: 'short' }), invoiced: 0, paid: 0 };
-    index.set(monthKey(d), row);
-    rows.push(row);
-  }
-  const add = (date, field, value) => {
-    if (!date) return;
-    const row = index.get(monthKey(new Date(date)));
-    if (row) row[field] += money(value);
-  };
-  invoices.forEach((inv) => add(inv.invoiceDate, 'invoiced', inv.totalAmount));
-  (payments || []).forEach((pay) => add(pay.paymentDate, 'paid', pay.netAmount));
-  return rows;
-};
+// Invoiced and paid per calendar month — the server's series (it answers
+// twelve months; the control offers six or twelve, so the tail is taken
+// here), labelled for the chart.
+//
+// This used to be computed in the browser from `state.invoices` and
+// `state.payments`, which held one page of each list: every month in the
+// chart was the total of whichever documents were on that page, and the
+// older months read as quiet when they were simply absent (issue #280).
+const flowRows = (flow, months) => (flow || []).slice(-months).map((row) => ({
+  label: new Date(`${row.month}-01T00:00:00`).toLocaleString('en-IN', { month: 'short' }),
+  invoiced: money(row.invoiced),
+  paid: money(row.paid),
+}));
 
 const PILL_STYLES = ['solid', 'inverse', 'muted', 'hatched'];
 
@@ -90,27 +85,44 @@ export default function DashboardView({ state, setActiveTab }) {
   // function of its inputs (the same rule ReportsAnalyticsView follows).
   const [today] = useState(() => new Date());
 
-  // Everything below is derived from the supplier's own documents. Nothing on
-  // this screen may be a constant standing in for data: a supplier reads these
-  // figures as statements about their account.
+  // Nothing on this screen may be a constant standing in for data: a supplier
+  // reads these figures as statements about their account.
+  //
+  // Every count and total comes from `state.summary` — the server's own
+  // counts and sums (GET /api/dashboard/summary). They used to be computed
+  // here from `state.pos` / `state.invoices` / `state.grns` / `state.rfqs`,
+  // which each hold one page of a list endpoint, so a supplier with more
+  // than a page of documents of any kind read "Open orders", "To invoice",
+  // "Awaiting payment", the pipeline tiles and the chart as figures over
+  // their newest twenty (issue #280). The arrays are still here, but only
+  // ever as *rows to list* — never as something to add up.
   const profile = state.profile || {};
   const pos = state.pos || [];
   const invoices = state.invoices || [];
   const performance = state.performance || {};
+  const summary = state.summary;
 
-  const openPOList = pos.filter(p => p.status === 'Open' || p.status === 'Acknowledged');
-  const openPOCount = openPOList.length;
-  const toAcknowledge = pos.filter(p => p.status === 'Open');
-  const toShip = pos.filter(p => p.status === 'Acknowledged');
+  // null until the summary answers. A figure is not rendered from a partial
+  // stand-in while it is missing: the skeletons below cover that frame.
+  const figures = summary && {
+    openPOCount: summary.pos.awaitingSupplierCount,
+    toAcknowledge: summary.pos.awaitingAcknowledgement,
+    toShip: summary.pos.byStatus.Acknowledged,
+    toInvoice: summary.grns.awaitingInvoice,
+    unpaidCount: summary.invoices.openCount,
+    // What is actually still owed: open invoices only (a rejected one is not
+    // a receivable) and net of part payments — see issue #283.
+    unpaidTotal: summary.invoices.openValue,
+    matchWarnings: summary.invoices.matchWarningCount,
+    openRfqs: summary.rfqs.openForBids,
+  };
 
-  const pendingInvoices = (state.grns || []).filter(g => !g.invoiceSubmitted);
-  const pendingInvoicesCount = pendingInvoices.length;
-
-  const unpaidInvoices = invoices.filter(inv => inv.status !== 'Cleared');
-  const unpaidTotal = unpaidInvoices.reduce((sum, inv) => sum + money(inv.totalAmount), 0);
-  const matchWarnings = invoices.filter(inv => inv.status === 'Match Warning');
-
-  const openRfqs = (state.rfqs || []).filter(rfq =>
+  // Sample ids for the alert lines. The counts beside them are the server's.
+  const toAcknowledgeRows = pos.filter(p => p.status === 'Open');
+  const toShipRows = pos.filter(p => p.status === 'Acknowledged');
+  const pendingInvoiceRows = (state.grns || []).filter(g => !g.invoiceSubmitted);
+  const matchWarningRows = invoices.filter(inv => inv.status === 'Match Warning');
+  const openRfqRows = (state.rfqs || []).filter(rfq =>
     rfq.status === 'Bidding Open' && !(rfq.bids || []).some(bid => bid.vendorId === profile.vendorId));
 
   const hasPerformance = performance.weightedScore != null;
@@ -123,6 +135,7 @@ export default function DashboardView({ state, setActiveTab }) {
       await Promise.all([
         portal?.poHook?.refreshPOs?.(),
         portal?.poHook?.refreshSapPoStatus?.(),
+        portal?.dashboardHook?.refreshSummary?.(),
       ]);
     } finally {
       setIsLoading(false);
@@ -130,49 +143,51 @@ export default function DashboardView({ state, setActiveTab }) {
   };
 
   // Action items, each one a count of real documents that are waiting on the
-  // supplier. No alert is shown for a condition the data does not establish.
+  // supplier. No alert is shown for a condition the data does not establish —
+  // and none is shown before the server's counts arrive, since the count is
+  // the whole content of the line.
   const alerts = [];
-  if (matchWarnings.length > 0) {
+  if (figures?.matchWarnings > 0) {
     alerts.push({
       type: 'warning',
-      title: `Invoice match warning (${listIds(matchWarnings, inv => inv.invoiceNumber || inv.id)})`,
+      title: `Invoice match warning (${listIds(matchWarningRows, inv => inv.invoiceNumber || inv.id, figures.matchWarnings)})`,
       desc: 'The buyer’s three-way match flagged a difference between the order, the goods receipt and the invoice.',
       actionText: 'Review invoices',
       tab: 'invoices',
     });
   }
-  if (toAcknowledge.length > 0) {
+  if (figures?.toAcknowledge > 0) {
     alerts.push({
       type: 'acknowledge',
-      title: `${plural(toAcknowledge.length, 'purchase order')} awaiting acknowledgement (${listIds(toAcknowledge, po => po.id)})`,
+      title: `${plural(figures.toAcknowledge, 'purchase order')} awaiting acknowledgement (${listIds(toAcknowledgeRows, po => po.id, figures.toAcknowledge)})`,
       desc: 'Confirm you accept the order so the buyer knows it is in hand.',
       actionText: 'Acknowledge',
       tab: 'pos',
     });
   }
-  if (pendingInvoices.length > 0) {
+  if (figures?.toInvoice > 0) {
     alerts.push({
       type: 'invoice',
-      title: `${plural(pendingInvoices.length, 'goods receipt')} awaiting invoice (${listIds(pendingInvoices, g => g.id)})`,
+      title: `${plural(figures.toInvoice, 'goods receipt')} awaiting invoice (${listIds(pendingInvoiceRows, g => g.id, figures.toInvoice)})`,
       desc: 'Submit your invoice against these goods receipts so payment can be processed.',
       actionText: 'Submit invoice',
       tab: 'pos',
     });
   }
-  if (toShip.length > 0) {
+  if (figures?.toShip > 0) {
     alerts.push({
       type: 'ship',
-      title: `${plural(toShip.length, 'acknowledged order')} ready to ship (${listIds(toShip, po => po.id)})`,
+      title: `${plural(figures.toShip, 'acknowledged order')} ready to ship (${listIds(toShipRows, po => po.id, figures.toShip)})`,
       desc: 'Send the shipment notice when goods leave your dock, so the goods receipt can be matched.',
       actionText: 'Send shipment',
       tab: 'pos',
     });
   }
-  if (openRfqs.length > 0) {
+  if (figures?.openRfqs > 0) {
     alerts.push({
       type: 'rfq',
-      title: `${plural(openRfqs.length, 'RFQ')} open for your quotation (${listIds(openRfqs, rfq => rfq.id)})`,
-      desc: `${openRfqs[0].description || 'Request for quotation'}${openRfqs.length > 1 ? ` and ${openRfqs.length - 1} more` : ''}.`,
+      title: `${plural(figures.openRfqs, 'RFQ')} open for your quotation (${listIds(openRfqRows, rfq => rfq.id, figures.openRfqs)})`,
+      desc: `${openRfqRows[0]?.description || 'Request for quotation'}${figures.openRfqs > 1 ? ` and ${figures.openRfqs - 1} more` : ''}.`,
       actionText: 'Submit quotation',
       tab: 'rfqs',
     });
@@ -307,17 +322,17 @@ export default function DashboardView({ state, setActiveTab }) {
             )}
             <Button variant="link" className="mt-2" onClick={() => setActiveTab('performance')}>Performance details</Button>
           </div>
-          {isLoading ? (
+          {isLoading || !figures ? (
             <div className="w-full max-w-md"><TableSkeleton rows={1} cols={3} /></div>
           ) : (
             <div className="flex flex-wrap gap-x-10 gap-y-4">
               <KPICard
                 size="hero"
                 label="Open orders"
-                value={openPOCount}
-                hint={toAcknowledge.length ? `${toAcknowledge.length} awaiting acknowledgement` : 'All acknowledged'}
+                value={figures.openPOCount}
+                hint={figures.toAcknowledge ? `${figures.toAcknowledge} awaiting acknowledgement` : 'All acknowledged'}
               />
-              <KPICard size="hero" label="To invoice" value={pendingInvoicesCount} hint={pendingInvoicesCount ? plural(pendingInvoicesCount, 'goods receipt') : 'Nothing to invoice'} />
+              <KPICard size="hero" label="To invoice" value={figures.toInvoice} hint={figures.toInvoice ? plural(figures.toInvoice, 'goods receipt') : 'Nothing to invoice'} />
               <KPICard
                 size="hero"
                 label="Supplier score"
@@ -333,12 +348,16 @@ export default function DashboardView({ state, setActiveTab }) {
         <div className="mb-10 grid gap-4 lg:grid-cols-2 xl:grid-cols-[17rem_minmax(0,1fr)_19rem]">
           <Card className="p-5">
             <h2 className="mb-4 text-lg font-medium text-fg">Order pipeline</h2>
-            <div className="space-y-2">
-              <StatTile label="To acknowledge" count={toAcknowledge.length} tone="info" onClick={() => setActiveTab('pos')} />
-              <StatTile label="To ship" count={toShip.length} tone="success" onClick={() => setActiveTab('pos')} />
-              <StatTile label="To invoice" count={pendingInvoicesCount} tone="accent" onClick={() => setActiveTab('pos')} />
-              <StatTile label="RFQs to quote" count={openRfqs.length} tone="warn" onClick={() => setActiveTab('rfqs')} />
-            </div>
+            {!figures ? (
+              <TableSkeleton rows={4} cols={2} />
+            ) : (
+              <div className="space-y-2">
+                <StatTile label="To acknowledge" count={figures.toAcknowledge} tone="info" onClick={() => setActiveTab('pos')} />
+                <StatTile label="To ship" count={figures.toShip} tone="success" onClick={() => setActiveTab('pos')} />
+                <StatTile label="To invoice" count={figures.toInvoice} tone="accent" onClick={() => setActiveTab('pos')} />
+                <StatTile label="RFQs to quote" count={figures.openRfqs} tone="warn" onClick={() => setActiveTab('rfqs')} />
+              </div>
+            )}
           </Card>
 
           <Card className="min-w-0 p-5 lg:col-span-2 lg:row-start-2 xl:col-span-1 xl:row-start-auto">
@@ -358,25 +377,27 @@ export default function DashboardView({ state, setActiveTab }) {
                 />
               </div>
             </div>
-            {invoices.length === 0 && !(state.payments || []).length ? (
+            {!summary ? (
+              <TableSkeleton rows={4} cols={3} />
+            ) : summary.invoices.total === 0 && summary.payments.total === 0 ? (
               <p className="py-12 text-center text-sm text-fg-muted">Your invoices and payments will chart here once you have some.</p>
             ) : (
               <SplineChart
                 ariaLabel={`Invoiced and paid by month, last ${flowMonths} months`}
-                data={monthlyFlow(invoices, state.payments, Number(flowMonths), today)}
+                data={flowRows(summary.flow, Number(flowMonths))}
                 series={[{ key: 'invoiced', name: 'Invoiced' }, { key: 'paid', name: 'Paid' }]}
               />
             )}
           </Card>
 
-          {isLoading ? (
+          {isLoading || !figures ? (
             <Card tone="accent" className="p-5" aria-busy="true"><div className="skeleton h-32 opacity-30" /></Card>
           ) : (
           <Card tone="accent" className="flex flex-col p-5">
             <h2 className="text-lg font-medium">Awaiting payment</h2>
-            <p className="mono mt-3 text-[32px] leading-10 font-light tracking-[-0.02em]">{inr(unpaidTotal)}</p>
+            <p className="mono mt-3 text-[32px] leading-10 font-light tracking-[-0.02em]">{inr(figures.unpaidTotal)}</p>
             <p className="mt-1 text-sm opacity-85">
-              {unpaidInvoices.length ? `${plural(unpaidInvoices.length, 'invoice')} not yet cleared` : 'Nothing outstanding'}
+              {figures.unpaidCount ? `${plural(figures.unpaidCount, 'invoice')} still open` : 'Nothing outstanding'}
             </p>
             <div className="mt-auto flex flex-wrap gap-2 pt-6">
               <button type="button" className="btn h-9! bg-[var(--accent-fg)] text-[var(--accent-solid)] hover:opacity-90" onClick={() => setActiveTab('invoices')}>
@@ -393,7 +414,10 @@ export default function DashboardView({ state, setActiveTab }) {
         <div className="grid gap-x-8 gap-y-10 xl:grid-cols-[minmax(0,1fr)_20rem]">
           <div className="min-w-0 space-y-10">
             <Section title="Needs your attention">
-              {isLoading ? (
+              {/* `!summary` as well as isLoading: "Nothing needs your
+                  attention" is a claim, and before the counts arrive there is
+                  nothing to base it on. */}
+              {isLoading || !summary ? (
                 <div className="card"><TableSkeleton rows={3} cols={2} /></div>
               ) : alerts.length === 0 ? (
                 <p className="flex items-center gap-2 text-sm text-fg-muted">

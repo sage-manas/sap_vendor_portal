@@ -22,7 +22,7 @@ vi.mock('@/lib/download', async (importOriginal) => ({
   downloadFromApi: vi.fn(() => Promise.resolve()),
 }));
 
-const { downloadCsv } = await import('@/lib/download');
+const { downloadCsv, downloadFromApi } = await import('@/lib/download');
 
 // Shape as GET /api/payments returns it: header totals, one item per settled
 // invoice, plus the `invoiceRefs` backend/db/paymentHelpers.js derives.
@@ -60,6 +60,7 @@ const expectsBothInvoices = () => {
 
 beforeEach(() => {
   downloadCsv.mockClear();
+  downloadFromApi.mockClear();
 });
 
 describe('a payment names the invoices it settled (issue #282)', () => {
@@ -99,23 +100,19 @@ describe('a payment names the invoices it settled (issue #282)', () => {
     expect(screen.getByText('500.00')).toBeInTheDocument();
   });
 
-  it('in the TDS CSV export, one row per invoice with that invoice\'s figures', async () => {
+  // The TDS and ledger CSVs are server reads since #280, so their per-invoice
+  // rows are asserted in backend/tests/report-exports.test.js, against the
+  // database rather than a fixture. What is still this screen's own
+  // responsibility is asking the endpoint for them instead of writing a CSV
+  // in the browser from one page of `state.payments`.
+  it('leaves the TDS export to the endpoint that holds every row', async () => {
     renderWithPortal(<AnalyticsPage />, { plane: 'supplier', route: '/analytics', api: SUPPLIER_API });
 
     await screen.findByRole('heading', { name: 'Reports', level: 1 });
     await userEvent.click(screen.getByRole('button', { name: /More exports/i }));
     await userEvent.click(await screen.findByText(/Export TDS deducted/i));
 
-    expect(downloadCsv).toHaveBeenCalled();
-    const [, columns, rows] = downloadCsv.mock.calls.at(-1);
-    expect(rows).toHaveLength(2);
-
-    const invoiceColumn = columns.find((c) => c.header === 'Invoice');
-    expect(rows.map(invoiceColumn.value)).toEqual(['REFS/2026/001', 'REFS/2026/002']);
-
-    const cell = (header, row) => columns.find((c) => c.header === header).value(row);
-    expect(rows.map((row) => cell('Gross (INR)', row))).toEqual(['1000.00', '500.00']);
-    expect(rows.map((row) => cell('TDS (INR)', row))).toEqual(['100.00', '50.00']);
-    expect(rows.map((row) => cell('Net (INR)', row))).toEqual(['900.00', '450.00']);
+    expect(downloadFromApi).toHaveBeenCalledWith('/reports/exports/tds', expect.stringMatching(/^tds-deducted-/));
+    expect(downloadCsv).not.toHaveBeenCalled();
   });
 });

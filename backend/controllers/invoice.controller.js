@@ -9,6 +9,7 @@ const { INVOICE_INCLUDE, formatInvoice } = require('../db/invoiceHelpers');
 const { flattenPaymentItems } = require('../db/paymentHelpers');
 const { mapWithConcurrency } = require('../utils/concurrencyPool');
 const { withVendorNames } = require('../utils/vendorNames');
+const { listWhere } = require('../utils/listFilters');
 
 // At most this many invoicePaymentDetail calls run at once (issue #71) — an
 // unbounded Promise.all turned "one call per matched invoice" into a burst of
@@ -28,12 +29,17 @@ const INVOICE_INCLUDE_WITH_PAYMENTS = { ...INVOICE_INCLUDE, paymentItems: true }
 // @route   GET /api/invoices
 // @access  Public
 const getInvoices = asyncHandler(async (req, res, next) => {
-  const { status, page = 1, limit = 10 } = req.query;
+  // Numbers with a ceiling by now — see the note in po.controller.js's
+  // getPOs on why there is no default written here (#118, #280).
+  const { page, limit } = req.query;
 
-  const where = withVendorScope(req);
-  if (status) {
-    where.status = status;
-  }
+  // `?view=open`, `?status=`, `?from`/`?to` and `?minAmount=` (issue #281).
+  // The vendor scope goes in first and is never overwritten, so a supplier
+  // narrowing by query string still only ever sees their own invoices.
+  const where = listWhere(withVendorScope(req), req.query, {
+    resource: 'invoice',
+    dateField: 'invoiceDate',
+  });
 
   const skip = (page - 1) * limit;
   const [invoices, total] = await Promise.all([

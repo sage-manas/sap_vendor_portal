@@ -2,7 +2,10 @@
 
 import React from 'react';
 import { rfqService } from '@/features/rfq/services/rfqService';
-import { PageHeader, Notice, Status, Table, Loading, useResource, formatDateOnly } from '@/components/console/primitives';
+import {
+  PageHeader, Notice, Status, Table, Loading, ListFilters, useResource, formatDateOnly,
+} from '@/components/console/primitives';
+import { useListQuery } from '@/components/console/useListQuery';
 
 // Every RFQ this workspace's suppliers hold, across every supplier — the
 // buyer's (and client_admin's) tenant-wide sourcing monitor. GET /api/rfqs
@@ -18,14 +21,28 @@ import { PageHeader, Notice, Status, Table, Loading, useResource, formatDateOnly
 // originate. Cancel/reissue/award still act on the RFQ once discovered, from
 // the supplier-facing RFQ workflow.
 
+const PAGE_SIZE = 50;
+
+// RFQ.status is a plain string column with no registry grouping behind it, so
+// these are literal values — the two the overview counts ("RFQs open for
+// bidding", "RFQs awarded") first, since those are the tiles that link here.
+const SHOW = [
+  { value: 'status:Bidding Open', label: 'Open for bidding' },
+  { value: 'status:Awarded', label: 'Awarded' },
+  { value: 'status:Closed', label: 'Closed' },
+];
+
 export default function WorkspaceRfqsPage() {
-  const { data, error, loading } = useResource(() => rfqService.getRFQs({ limit: 200 }));
+  const query = useListQuery({ pageSize: PAGE_SIZE, filterKeys: ['status', 'from', 'to'] });
+  const { data, error, loading } = useResource(() => rfqService.getRFQs(query.params), query.key);
   const rfqs = data?.rfqs || [];
 
   return (
     <>
       <PageHeader title="RFQs" caption="Every request for quotation SAP holds for this workspace's suppliers" />
       <Notice tone="error">{error}</Notice>
+
+      <ListFilters query={query} show={SHOW} dateLabel="Deadline" />
 
       {loading ? (
         <Loading label="Loading RFQs" />
@@ -55,7 +72,14 @@ export default function WorkspaceRfqsPage() {
             { key: 'deadlineDate', header: 'Deadline', render: (row) => <span className="whitespace-nowrap">{formatDateOnly(row.deadlineDate)}</span> },
           ]}
           rows={rfqs.map((rfq) => ({ ...rfq, key: rfq.id }))}
-          empty="No RFQs discovered from SAP yet."
+          empty={query.active ? 'No RFQs match these filters.' : 'No RFQs discovered from SAP yet.'}
+          pagination={{
+            page: query.page,
+            pageSize: PAGE_SIZE,
+            total: data?.pagination?.total ?? rfqs.length,
+            onPageChange: query.setPage,
+            noun: 'RFQs',
+          }}
         />
       )}
     </>

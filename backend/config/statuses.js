@@ -39,6 +39,86 @@ const VENDOR_PRE_SUBMISSION = [
 
 const isVendorStatus = (value) => VENDOR_STATUSES.includes(value);
 
+// --- Invoice ---------------------------------------------------------------
+//
+// Invoice.status is a plain String column, not a Prisma enum (several values
+// are multi-word) — so this file is the only thing that can keep the
+// validator, the overview's counts and the supplier's own ageing buckets
+// agreeing on what "not yet paid" means. They used to each write their own
+// list, and `status !== 'Cleared'` counted a *Rejected* invoice as money the
+// buyer still owed (issue #283).
+const INVOICE_STATUS = {
+  SUBMITTED: 'Submitted',
+  UNDER_REVIEW: 'Under Review',
+  MATCH_WARNING: 'Match Warning',
+  APPROVED: 'Approved',
+  REJECTED: 'Rejected',
+  POSTED_IN_SAP: 'Posted in SAP',
+  CLEARED: 'Cleared',
+};
+
+const INVOICE_STATUSES = Object.values(INVOICE_STATUS);
+
+// In the buyer's hands and still owed: what an outstanding total, an ageing
+// bucket and the MSME 45-day clock are measured over. Rejected is not here —
+// a rejection is a decision, and a rejected invoice is not a receivable.
+const INVOICE_OPEN = [
+  INVOICE_STATUS.SUBMITTED,
+  INVOICE_STATUS.UNDER_REVIEW,
+  INVOICE_STATUS.MATCH_WARNING,
+  INVOICE_STATUS.APPROVED,
+  INVOICE_STATUS.POSTED_IN_SAP,
+];
+
+// Decided, either way. Nothing further is expected to happen to these.
+const INVOICE_TERMINAL = [INVOICE_STATUS.CLEARED, INVOICE_STATUS.REJECTED];
+
+const isInvoiceStatus = (value) => INVOICE_STATUSES.includes(value);
+
+// --- Purchase order --------------------------------------------------------
+//
+// PoStatus *is* a Prisma enum (prisma/schema.prisma), so the values are
+// enforced by the column. What drifted were the groupings: the supplier's
+// Overview counted Open+Acknowledged as "open orders" while the same
+// supplier's Reports page counted those plus Dispatched+Delivered, and
+// neither said so. Both meanings are legitimate and they are different
+// questions, so both are named here rather than quietly reconciled.
+const PO_STATUS = {
+  OPEN: 'Open',
+  ACKNOWLEDGED: 'Acknowledged',
+  DISPATCHED: 'Dispatched',
+  DELIVERED: 'Delivered',
+  INVOICED: 'Invoiced',
+  PAID: 'Paid',
+};
+
+const PO_STATUSES = Object.values(PO_STATUS);
+
+// The supplier still owes the buyer an action on the order itself.
+const PO_AWAITING_SUPPLIER = [PO_STATUS.OPEN, PO_STATUS.ACKNOWLEDGED];
+
+// Ordered but not yet billed — the value still to be earned on the account.
+const PO_IN_FLIGHT = [
+  PO_STATUS.OPEN,
+  PO_STATUS.ACKNOWLEDGED,
+  PO_STATUS.DISPATCHED,
+  PO_STATUS.DELIVERED,
+];
+
+// --- RFQ --------------------------------------------------------------------
+//
+// RFQ.status is a plain String column too. Here for the reason the header
+// gives — more than one place needs it: the workspace overview counts "RFQs
+// open for bidding" and "RFQs awarded", and the RFQ list's own filter now
+// offers the same two as the tiles that link to it (issue #281). A tile and
+// the list behind it disagreeing about a status is the bug that makes a
+// clicked-through count change on arrival.
+const RFQ_STATUS = {
+  BIDDING_OPEN: 'Bidding Open',
+  AWARDED: 'Awarded',
+  CLOSED: 'Closed',
+};
+
 // Dual identity / sync state — Phase 3 of docs/04-sap-runtime-engineering-plan.md.
 // Every one of RFQ/PurchaseOrder/ASN/GRN/Invoice/Payment carries a
 // `sapSyncState` column with this value set (prisma/schema.prisma), read
@@ -94,6 +174,16 @@ module.exports = {
   VENDOR_IN_ONBOARDING,
   VENDOR_PRE_SUBMISSION,
   isVendorStatus,
+  INVOICE_STATUS,
+  INVOICE_STATUSES,
+  INVOICE_OPEN,
+  INVOICE_TERMINAL,
+  isInvoiceStatus,
+  PO_STATUS,
+  PO_STATUSES,
+  PO_AWAITING_SUPPLIER,
+  PO_IN_FLIGHT,
+  RFQ_STATUS,
   SAP_SYNC_STATE,
   SAP_SYNC_STATES,
   SAP_SYNC_TRANSITIONS,

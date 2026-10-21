@@ -141,10 +141,77 @@ const TableCards = ({ columns, rows, empty, onRowClick, rowLabel }) => {
   );
 };
 
-export const Table = ({ empty = 'Nothing here yet.', rowLabel = (row) => String(row.key ?? ''), ...props }) => {
+/**
+ * The pager and the count, for a table whose rows are one server page of a
+ * larger set.
+ *
+ * Issue #281: the workspace lists asked for `limit: 200` and rendered the
+ * answer with nothing on screen saying there was a 201st row. Past that point
+ * finance read an incomplete list that looked complete — which is worse than
+ * an obviously truncated one, because nothing invites a second look.
+ *
+ * So the caption is not conditional on there being more than one page. A
+ * reader who needs to know the list is complete needs to be told the total
+ * every time, not only when it is bad news; "Showing 1–12 of 12" is the
+ * sentence that makes the next screen's "1–50 of 450" trustworthy.
+ *
+ * pagination: { page, pageSize, total, onPageChange, noun? }
+ */
+const TablePager = ({ page, pageSize, total, onPageChange, noun = 'rows' }) => {
+  const pages = Math.max(Math.ceil(total / pageSize), 1);
+  const first = (page - 1) * pageSize + 1;
+  const last = Math.min(page * pageSize, total);
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+      {/* aria-live: paging does not move focus, so a screen-reader user who
+          presses Next hears the new range rather than nothing at all. */}
+      <p className="text-xs text-fg-subtle" aria-live="polite">
+        Showing <span className="mono">{first}</span>–<span className="mono">{last}</span>
+        {' of '}<span className="mono">{total}</span> {noun}
+      </p>
+
+      {pages > 1 && (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="btn btn-o h-8 px-2.5"
+            disabled={page <= 1}
+            onClick={() => onPageChange(page - 1)}
+          >
+            Previous
+          </button>
+          <span className="mono text-xs text-fg-subtle">{page} / {pages}</span>
+          <button
+            type="button"
+            className="btn btn-o h-8 px-2.5"
+            disabled={page >= pages}
+            onClick={() => onPageChange(page + 1)}
+          >
+            Next
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export const Table = ({
+  empty = 'Nothing here yet.',
+  rowLabel = (row) => String(row.key ?? ''),
+  pagination,
+  ...props
+}) => {
   const narrow = useNarrow();
   const Layout = narrow ? TableCards : TableGrid;
-  return <Layout empty={empty} rowLabel={rowLabel} {...props} />;
+  return (
+    <>
+      <Layout empty={empty} rowLabel={rowLabel} {...props} />
+      {/* Nothing to count and nothing to page through: the empty row has
+          already said so, and "Showing 0–0 of 0" only adds noise. */}
+      {pagination && pagination.total > 0 && <TablePager {...pagination} />}
+    </>
+  );
 };
 
 const TableGrid = ({ columns, rows, empty, onRowClick, rowLabel }) => (
@@ -204,6 +271,91 @@ const TableGrid = ({ columns, rows, empty, onRowClick, rowLabel }) => (
     </table>
   </div>
 );
+
+/**
+ * The filter bar above a list (issue #281).
+ *
+ * Filtering is a server concern here, not a client one: these lists are
+ * tenant-wide and longer than one page, so narrowing the page the browser
+ * happens to hold would report a subset of a subset. Every control writes a
+ * query param, the request changes, and `pagination.total` comes back counting
+ * the filtered set — which is what lets the overview's KPI tiles link straight
+ * to a list whose count matches the number on the tile.
+ *
+ * A "Show" option names its own parameter, `view:open` or `status:Submitted`,
+ * because the two are not interchangeable: `view` is a named status group the
+ * backend defines from the status registry (so "not yet cleared" means the
+ * same thing on the tile and in the list), while `status` is one literal
+ * value. One control, two params, and picking either clears the other.
+ */
+const SHOW_PARAMS = ['view', 'status'];
+
+export const ListFilters = ({ query, show, dates = true, dateLabel = 'Dated' }) => {
+  const { filters, setFilter, clearFilters, active } = query;
+  const shown = SHOW_PARAMS.map((param) => (filters[param] ? `${param}:${filters[param]}` : '')).find(Boolean) || '';
+
+  const pickShown = (value) => {
+    const [param, ...rest] = value.split(':');
+    for (const other of SHOW_PARAMS) {
+      if (other !== param && filters[other]) setFilter(other, '');
+    }
+    if (param) setFilter(param, rest.join(':'));
+  };
+
+  return (
+    <div className="mb-4 flex flex-wrap items-end gap-3">
+      {show && (
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-fg-subtle">Show</span>
+          <select
+            aria-label="Show"
+            className="h-9 w-auto! min-w-48"
+            value={shown}
+            onChange={(event) => pickShown(event.target.value)}
+          >
+            <option value="">Everything</option>
+            {show.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      {dates && (
+        <>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-fg-subtle">{dateLabel} from</span>
+            <input
+              type="date"
+              aria-label={`${dateLabel} from`}
+              className="h-9 w-auto! min-w-36"
+              value={filters.from || ''}
+              onChange={(event) => setFilter('from', event.target.value)}
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-fg-subtle">{dateLabel} to</span>
+            <input
+              type="date"
+              aria-label={`${dateLabel} to`}
+              className="h-9 w-auto! min-w-36"
+              value={filters.to || ''}
+              onChange={(event) => setFilter('to', event.target.value)}
+            />
+          </label>
+        </>
+      )}
+
+      {/* Only once there is something to clear: a dead button beside every
+          list is a control that teaches the reader to ignore it. */}
+      {active && (
+        <button type="button" className="btn btn-o h-9 px-3" onClick={clearFilters}>
+          Clear filters
+        </button>
+      )}
+    </div>
+  );
+};
 
 export const Loading = ({ label = 'Loading' }) => (
   <div className="flex items-center gap-2 py-10 text-sm text-fg-subtle" role="status">

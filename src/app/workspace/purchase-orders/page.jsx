@@ -4,7 +4,10 @@ import React from 'react';
 import { useRouter } from 'next/navigation';
 import { poService } from '@/features/purchase-order/services/poService';
 import { useWorkspaceSession } from '@/lib/workspace-session';
-import { PageHeader, Notice, Status, Table, Loading, useResource, formatDate } from '@/components/console/primitives';
+import {
+  PageHeader, Notice, Status, Table, Loading, ListFilters, useResource, formatDate,
+} from '@/components/console/primitives';
+import { useListQuery } from '@/components/console/useListQuery';
 import { hasPendingInvoicePlanChange } from '@/features/purchase-order/poKind';
 
 // Every purchase order this workspace has raised, across every supplier —
@@ -24,10 +27,29 @@ const money = (value, currency = 'INR') =>
 
 const orderValue = (po) => (po.items || []).reduce((sum, item) => sum + Number(item.netValue || 0), 0);
 
+const PAGE_SIZE = 50;
+
+// `view:open` is PO_AWAITING_SUPPLIER in the backend's status registry — the
+// same group the overview's "Purchase orders open" tile counts, which is why
+// that tile can link here and still mean its own number. The rest are literal
+// PoStatus values.
+const SHOW = [
+  { value: 'view:open', label: 'Open' },
+  { value: 'status:Acknowledged', label: 'Acknowledged' },
+  { value: 'status:Dispatched', label: 'Dispatched' },
+  { value: 'status:Delivered', label: 'Delivered' },
+  { value: 'status:Invoiced', label: 'Invoiced' },
+  { value: 'status:Paid', label: 'Paid' },
+];
+
 export default function WorkspacePurchaseOrdersPage() {
   const router = useRouter();
   const { can } = useWorkspaceSession();
-  const { data, error, loading } = useResource(() => poService.getPOs({ limit: 200 }));
+  const query = useListQuery({
+    pageSize: PAGE_SIZE,
+    filterKeys: ['view', 'status', 'from', 'to', 'vendorId'],
+  });
+  const { data, error, loading } = useResource(() => poService.getPOs(query.params), query.key);
   const pos = data?.pos || [];
 
   return (
@@ -47,6 +69,8 @@ export default function WorkspacePurchaseOrdersPage() {
         )}
       </PageHeader>
       <Notice tone="error">{error}</Notice>
+
+      <ListFilters query={query} show={SHOW} dateLabel="Raised" />
 
       {loading ? (
         <Loading label="Loading purchase orders" />
@@ -93,7 +117,14 @@ export default function WorkspacePurchaseOrdersPage() {
           rows={pos.map((po) => ({ ...po, key: po.id }))}
           rowLabel={(row) => row.sapPoNumber || row.id}
           onRowClick={(row) => router.push(`/workspace/purchase-orders/${row.id}`)}
-          empty="No purchase orders yet."
+          empty={query.active ? 'No purchase orders match these filters.' : 'No purchase orders yet.'}
+          pagination={{
+            page: query.page,
+            pageSize: PAGE_SIZE,
+            total: data?.pagination?.total ?? pos.length,
+            onPageChange: query.setPage,
+            noun: 'orders',
+          }}
         />
       )}
     </>

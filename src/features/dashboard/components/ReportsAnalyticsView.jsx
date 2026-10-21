@@ -13,16 +13,28 @@ import { BucketBar, ColumnChart, RankedBars, StepLineChart, inrFull } from '@/co
 import { msmeStatusVariant, paymentStatusVariant } from '@/lib/statusColors';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { usePortal } from '@/lib/portal-context';
-import { downloadCsv, downloadFromApi } from '@/lib/download';
+import { downloadFromApi } from '@/lib/download';
+import { INVOICE_STATUS, isInvoiceOpen } from '@/lib/documentStatus';
 import { displayDate } from '@/lib/displayDate';
 import { paymentInvoiceRefs } from '@/lib/paymentInvoiceLabel';
 
-// The supplier's reports, computed from their own documents.
+// The supplier's reports.
 //
-// Every figure on this screen is derived from the POs, goods receipts,
-// invoices, payments and RFQs the portal already holds for this supplier. A
-// measure the data cannot establish is not shown — there is no sample figure
-// standing in for it — and every export writes the rows on screen.
+// Every figure here is their own data: a measure the data cannot establish is
+// not shown, and there is no sample figure standing in for one.
+//
+// The totals, the charts and the exports come from the server (issue #280).
+// They used to be computed in this file from `state.pos`/`state.invoices`/
+// `state.payments`, each of which holds one page of a list endpoint — so
+// total order value, order value by month/material/plant, the ageing
+// buckets, the TDS and GST totals, the ledger balance and every CSV export
+// covered the supplier's newest twenty documents and said nothing about it.
+// `state.summary` is GET /api/dashboard/summary, counted in the database;
+// the exports are server endpoints that write every matching row.
+//
+// What is still derived here is per-row presentation for the two tables whose
+// rows are documents (invoice ageing, the ledger) — and those arrays are now
+// read page by page to exhaustion (lib/fetchAllPages.js), not one page deep.
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MSME_PAYMENT_DAYS = 45;
@@ -37,78 +49,45 @@ const amount = (value) =>
 const percent = (numerator, denominator) =>
   denominator > 0 ? `${((numerator / denominator) * 100).toFixed(1)}%` : '—';
 
-// dd.mm.yyyy — the CSV exports keep the format they always had.
-const formatDate = (dateStr) => {
-  if (!dateStr) return '—';
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return String(dateStr);
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  return `${day}.${month}.${d.getFullYear()}`;
-};
-
-
-const monthKey = (value) => {
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? null : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-};
+// `formatDate` (dd.mm.yyyy) and `monthKey` lived here for the CSV exports and
+// the by-month chart. Both are the server's job now — the exports are API
+// endpoints (backend/controllers/reportExport.controller.js, which keeps the
+// same date format) and the chart's months arrive as 'YYYY-MM' keys — so they
+// are gone rather than left dead beside the code that replaced them.
 const monthLabel = (key) => new Date(`${key}-01T00:00:00`).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-// A remittance, split into the invoices it settled (issue #282). Both the
-// ledger and the TDS export are per-invoice views, so both read a payment
-// through this: one entry per PaymentItem, each carrying that item's own
-// gross/TDS/net, and the invoice it belongs to named rather than described
-// as "invoice".
+// A remittance, split into the invoices it settled (issue #282): one ledger
+// credit per PaymentItem, each carrying that item's own gross and naming its
+// own invoice, rather than one lumped credit per remittance that no single
+// invoice's debit could be matched against.
 //
 // A payment with no items — nothing in the API returns one, but a fixture or
-// an older row might — yields a single entry with the header's totals and no
-// invoice reference, so it still appears in the ledger and the export
-// instead of silently vanishing from either.
-const paymentSettlements = (payment) => {
-  const items = Array.isArray(payment.items) ? payment.items : [];
-  if (!items.length) {
-    return [{
-      payment,
-      ref: paymentInvoiceRefs(payment)[0] || null,
-      gross: money(payment.netAmount) + money(payment.tdsDeducted),
-      tds: money(payment.tdsDeducted),
-      net: money(payment.netAmount),
-    }];
-  }
+// an older row might — yields a single row with the header's totals and no
+// invoice reference, so it still appears in the ledger instead of silently
+// vanishing from it.
+//
+// The TDS export is the other per-invoice view of the same split, and it is
+// deliberately NOT computed here: since #280 every export is a server
+// endpoint, so that one lives in backend/controllers/report.controller.js.
+const paymentLedgerRows = (payments) => payments.flatMap((payment) => {
+  const items = Array.isArray(payment.items) && payment.items.length
+    ? payment.items
+    : [{ invoiceNumber: paymentInvoiceRefs(payment)[0], netAmount: payment.netAmount, tdsDeducted: payment.tdsDeducted }];
+
   return items.map((item) => ({
-    payment,
-    ref: item.invoiceNumber || item.invoiceId || null,
-    // Item gross is recomputed from net + TDS rather than read from
-    // grossAmount, so a row's three figures always reconcile with each other
-    // the way the ledger's credit column assumes they do.
-    gross: money(item.netAmount) + money(item.tdsDeducted),
-    tds: money(item.tdsDeducted),
-    net: money(item.netAmount),
-  }));
-};
-
-const paymentLedgerRows = (payments) => payments.flatMap((pmt) =>
-  paymentSettlements(pmt).map((settlement) => ({
-    date: pmt.paymentDate || pmt.createdDate,
+    date: payment.paymentDate || payment.createdDate,
     type: 'KZ (Payment)',
-    doc: pmt.utrCode || pmt.id,
-    desc: `Payment for ${settlement.ref || 'invoice'}`,
+    doc: payment.utrCode || payment.id,
+    desc: `Payment for ${item.invoiceNumber || item.invoiceId || 'invoice'}`,
     debit: 0,
-    credit: settlement.gross,
+    // Gross is recomputed from net + TDS rather than read from grossAmount,
+    // so the credit always reconciles with the figures beside it.
+    credit: money(item.netAmount) + money(item.tdsDeducted),
     status: 'Cleared',
-  })));
-
-const tdsExportRows = (payments) => payments.flatMap((pmt) =>
-  paymentSettlements(pmt).map((settlement) => ({
-    paymentDate: pmt.paymentDate,
-    invoiceRef: settlement.ref,
-    utrCode: pmt.utrCode,
-    gross: settlement.gross,
-    tds: settlement.tds,
-    net: settlement.net,
-  })));
+  }));
+});
 
 export default function ReportsAnalyticsView({ state }) {
   const { addToast } = usePortal();
@@ -120,117 +99,82 @@ export default function ReportsAnalyticsView({ state }) {
 
   const profile = state.profile || {};
   const performance = state.performance || {};
-  const pos = (state.pos || []).filter((po) => po.status !== 'Cancelled');
   const invoices = state.invoices || [];
   const payments = state.payments || [];
-  const grns = state.grns || [];
-  const rfqs = state.rfqs || [];
+  const summary = state.summary;
 
-  const poValue = (po) => (po.items || []).reduce((sum, item) => sum + money(item.netValue), 0);
+  // --- Figures (server) ------------------------------------------------------
+  // null until the summary answers. Nothing on this screen falls back to
+  // aggregating the arrays while it is missing: that fallback is the bug.
+  const po = summary?.pos;
+  const inv = summary?.invoices;
+  const pmt = summary?.payments;
 
-  // --- Procurement -----------------------------------------------------------
-  const totalOrderValue = pos.reduce((sum, po) => sum + poValue(po), 0);
-  const openPos = pos.filter((po) => ['Open', 'Acknowledged', 'Dispatched', 'Delivered'].includes(po.status));
-  const openPoValue = openPos.reduce((sum, po) => sum + poValue(po), 0);
+  const spendData = (po?.byMaterial || []).map((row) => ({
+    code: row.code,
+    group: row.description,
+    poCount: row.poCount,
+    spend: row.value,
+  }));
+  const plantData = (po?.byPlant || []).map((row) => ({ label: row.plant, value: row.value }));
+  const byMonth = (po?.byMonth || []).map((row) => ({ label: monthLabel(row.month), value: row.value }));
+  const avgAckDays = po?.avgAcknowledgementDays ?? null;
+  const receivedQty = summary?.grns.receivedQuantity || 0;
+  const acceptedQty = summary?.grns.acceptedQuantity || 0;
 
-  const bidOn = rfqs.filter((rfq) => (rfq.bids || []).some((bid) => bid.vendorId === profile.vendorId));
+  const isMsme = Boolean(inv?.isMsme ?? profile.msmeNumber);
+  const ageing = inv?.ageing;
 
-  const spendMap = {};
-  const plantMap = {};
-  pos.forEach((po) => {
-    (po.items || []).forEach((item) => {
-      const code = item.materialCode || '—';
-      if (!spendMap[code]) spendMap[code] = { code, group: item.description || '—', poIds: new Set(), spend: 0 };
-      spendMap[code].poIds.add(po.id);
-      spendMap[code].spend += money(item.netValue);
-      const plant = item.plant || po.plant || '—';
-      plantMap[plant] = (plantMap[plant] || 0) + money(item.netValue);
-    });
-  });
-  const spendData = Object.values(spendMap)
-    .map((row) => ({ ...row, poCount: row.poIds.size }))
-    .sort((a, b) => b.spend - a.spend);
-  const plantData = Object.entries(plantMap)
-    .map(([plant, value]) => ({ label: plant, value }))
-    .sort((a, b) => b.value - a.value);
-
-  // Order value by the month each order was raised.
-  const monthMap = {};
-  pos.forEach((po) => {
-    const key = monthKey(po.createdDate);
-    if (key) monthMap[key] = (monthMap[key] || 0) + poValue(po);
-  });
-  // Every month from the first order to the last, including quiet ones — a
-  // time axis that skips empty months hides exactly the gap worth seeing.
-  const monthKeys = Object.keys(monthMap).sort();
-  const allMonths = [];
-  if (monthKeys.length) {
-    const last = monthKeys[monthKeys.length - 1];
-    const cursor = new Date(`${monthKeys[0]}-01T00:00:00`);
-    while (monthKey(cursor) <= last) {
-      allMonths.push(monthKey(cursor));
-      cursor.setMonth(cursor.getMonth() + 1);
-    }
-  }
-  const byMonth = allMonths.map((key) => ({ label: monthLabel(key), value: monthMap[key] || 0 }));
-
-  const acknowledged = pos.filter((po) => po.acknowledgedAt && po.createdDate);
-  const avgAckDays = acknowledged.length
-    ? (acknowledged.reduce((sum, po) => sum + (new Date(po.acknowledgedAt) - new Date(po.createdDate)), 0) / acknowledged.length / DAY_MS)
-    : null;
-
-  const grnItems = grns.flatMap((grn) => grn.items || []);
-  const receivedQty = grnItems.reduce((sum, item) => sum + money(item.receivedQuantity), 0);
-  const acceptedQty = grnItems.reduce((sum, item) => sum + money(item.acceptedQuantity), 0);
-
-  // --- Finance ---------------------------------------------------------------
-  const isMsme = Boolean(profile.msmeNumber);
-  const apAgingData = invoices.map((inv) => {
-    const days = inv.invoiceDate ? Math.max(0, Math.floor((now - new Date(inv.invoiceDate)) / DAY_MS)) : 0;
-    let status = 'Safe';
-    if (inv.status === 'Cleared') status = 'Cleared';
-    else if (isMsme && days > MSME_PAYMENT_DAYS) status = 'Overdue (MSME Priority!)';
-    else if (isMsme && days >= 30) status = 'Critical (45-Day Alert)';
+  // --- Rows (documents) ------------------------------------------------------
+  // The two tables whose rows *are* documents. `state.invoices` and
+  // `state.payments` hold every page now, so these are complete lists — but
+  // the figures above still come from the server, so a row and a total can
+  // never be computed two different ways.
+  const apAgingData = invoices.map((row) => {
+    const days = row.invoiceDate ? Math.max(0, Math.floor((now - new Date(row.invoiceDate)) / DAY_MS)) : 0;
+    const open = isInvoiceOpen(row.status);
+    // A decided invoice is not overdue, whichever way it was decided. The
+    // MSME clock used to run on a Rejected one too, because the filter was
+    // `status !== 'Cleared'` (issue #283).
+    let msme = 'Safe';
+    if (!open) msme = row.status;
+    else if (isMsme && days > MSME_PAYMENT_DAYS) msme = 'Overdue (MSME Priority!)';
+    else if (isMsme && days >= 30) msme = 'Critical (45-Day Alert)';
     return {
-      ref: inv.invoiceNumber || inv.id,
-      poId: inv.poId,
-      date: formatDate(inv.invoiceDate),
-      rawDate: inv.invoiceDate,
-      invoiceStatus: inv.status,
-      amount: money(inv.totalAmount),
+      ref: row.invoiceNumber || row.id,
+      poId: row.poId,
+      rawDate: row.invoiceDate,
+      invoiceStatus: row.status,
+      amount: money(row.totalAmount),
+      // What is still owed on it: the API carries this per invoice (#63).
+      // Absent on a response that predates it, in which case the total is
+      // the honest best answer for an open invoice.
+      outstanding: open ? money(row.outstandingAmount ?? row.totalAmount) : 0,
       days,
-      status,
+      status: msme,
     };
   });
-  const outstanding = apAgingData.filter((row) => row.invoiceStatus !== 'Cleared');
-  const bucket = (from, to) => outstanding
-    .filter((row) => row.days >= from && (to == null || row.days <= to))
-    .reduce((sum, row) => sum + row.amount, 0);
-  const msmeOverdue = outstanding.filter((row) => row.status === 'Overdue (MSME Priority!)');
 
-  const totalTds = payments.reduce((sum, p) => sum + money(p.tdsDeducted), 0);
-  const gstInvoiced = invoices.reduce((sum, inv) => sum + money(inv.taxAmount), 0);
-  const clearedInvoices = invoices.filter((inv) => inv.status === 'Cleared');
-  const matchWarnings = invoices.filter((inv) => inv.status === 'Match Warning');
-
-  // --- Ledger ----------------------------------------------------------------
   const ledgerEvents = [
-    ...invoices.map((inv) => ({
-      date: inv.invoiceDate,
+    // Rejected invoices carry no debit — they are not receivables (#283) —
+    // but they stay visible as zero-effect rows rather than vanishing from a
+    // ledger the supplier reconciles against their own books.
+    ...invoices.map((row) => ({
+      date: row.invoiceDate,
       type: 'RE (Invoice)',
-      doc: inv.invoiceNumber || inv.id,
-      desc: `Invoice against ${inv.poId || 'order'}`,
-      debit: money(inv.totalAmount),
+      doc: row.invoiceNumber || row.id,
+      desc: `Invoice against ${row.poId || 'order'}`,
+      debit: row.status === INVOICE_STATUS.REJECTED ? 0 : money(row.totalAmount),
       credit: 0,
-      status: inv.status === 'Cleared' ? 'Cleared' : 'Uncleared',
+      status: row.status === INVOICE_STATUS.CLEARED ? 'Cleared' : row.status,
     })),
     // One credit row per settled invoice, not one per remittance (issue
-    // #282). An F110 run clears several invoices under one payment, and a
-    // single lumped credit left each of those invoices' debits without a
-    // matching credit of its own — the running balance came out right, but
-    // no invoice could be traced to the money that cleared it. Each item
-    // carries its own gross (net + TDS), so the rows still sum to the
-    // remittance.
+    // #282). Naming every settled invoice in one row's description (as this
+    // did) tells the supplier which invoices the money covered, but still
+    // left each of those invoices' debits without a matching credit of its
+    // own — the running balance came out right, but no invoice could be
+    // traced to the money that cleared it. Each item carries its own gross
+    // (net + TDS), so the rows still sum to the remittance.
     ...paymentLedgerRows(payments),
   ].sort((a, b) => new Date(a.date) - new Date(b.date));
 
@@ -238,47 +182,22 @@ export default function ReportsAnalyticsView({ state }) {
     const previous = rows.length ? rows[rows.length - 1].balance : 0;
     return [...rows, { ...event, balance: previous + event.debit - event.credit }];
   }, []);
-  const runningBalance = chronological.length ? chronological[chronological.length - 1].balance : 0;
   const ledgerData = [...chronological].reverse();
 
   // --- Exports ---------------------------------------------------------------
-  const exportSpend = () => downloadCsv(`spend-by-material-${today()}.csv`, [
-    { header: 'Material', value: (r) => r.code },
-    { header: 'Description', value: (r) => r.group },
-    { header: 'Purchase orders', value: (r) => r.poCount },
-    { header: 'Order value (INR)', value: (r) => r.spend.toFixed(2) },
-  ], spendData);
+  // Server endpoints, so a file holds every matching row rather than the
+  // rows this component happens to be holding (issue #280). The old
+  // downloadCsv path wrote whichever page of the data was loaded under the
+  // file name of a complete export.
+  const exportFromApi = (path, filename) => downloadFromApi(path, filename)
+    .catch((err) => addToast('error', `Could not download the export: ${err.message}`));
 
-  const exportAging = () => downloadCsv(`invoice-ageing-${today()}.csv`, [
-    { header: 'Invoice', value: (r) => r.ref },
-    { header: 'Purchase order', value: (r) => r.poId },
-    { header: 'Invoice date', value: (r) => r.date },
-    { header: 'Status', value: (r) => r.invoiceStatus },
-    { header: 'Age (days)', value: (r) => r.days },
-    { header: 'Amount (INR)', value: (r) => r.amount.toFixed(2) },
-  ], apAgingData);
-
-  const exportLedger = () => downloadCsv(`account-ledger-${today()}.csv`, [
-    { header: 'Date', value: (r) => formatDate(r.date) },
-    { header: 'Type', value: (r) => r.type },
-    { header: 'Reference', value: (r) => r.doc },
-    { header: 'Description', value: (r) => r.desc },
-    { header: 'Debit (INR)', value: (r) => r.debit.toFixed(2) },
-    { header: 'Credit (INR)', value: (r) => r.credit.toFixed(2) },
-    { header: 'Balance (INR)', value: (r) => r.balance.toFixed(2) },
-  ], ledgerData);
-
-  // One row per settled invoice (issue #282): a remittance covering several
-  // invoices used to export as one row with a blank Invoice column, which is
-  // unusable for reconciling a deduction against the invoice it came off.
-  const exportTds = () => downloadCsv(`tds-deducted-${today()}.csv`, [
-    { header: 'Payment date', value: (r) => formatDate(r.paymentDate) },
-    { header: 'Invoice', value: (r) => r.invoiceRef || '' },
-    { header: 'UTR', value: (r) => r.utrCode },
-    { header: 'Gross (INR)', value: (r) => r.gross.toFixed(2) },
-    { header: 'TDS (INR)', value: (r) => r.tds.toFixed(2) },
-    { header: 'Net (INR)', value: (r) => r.net.toFixed(2) },
-  ], tdsExportRows(payments));
+  const exportSpend = () => exportFromApi('/reports/exports/spend-by-material', `spend-by-material-${today()}.csv`);
+  const exportAging = () => exportFromApi('/reports/exports/invoice-ageing', `invoice-ageing-${today()}.csv`);
+  const exportLedger = () => exportFromApi('/reports/exports/account-ledger', `account-ledger-${today()}.csv`);
+  // Issue #282's per-item TDS rows live in the endpoint now, not here — see
+  // the tds export in backend/controllers/report.controller.js.
+  const exportTds = () => exportFromApi('/reports/exports/tds', `tds-deducted-${today()}.csv`);
 
   const downloadStatement = () => downloadFromApi('/reports/statement', `account-statement-${today()}.pdf`)
     .then(() => addToast('success', 'Account statement downloaded.'))
@@ -305,6 +224,15 @@ export default function ReportsAnalyticsView({ state }) {
     { key: 'invoiceStatus', header: 'Status', render: (r) => (r.invoiceStatus ? <StatusBadge label={r.invoiceStatus} /> : '—') },
     { key: 'days', header: 'Age (days)', align: 'right', mono: true },
     { key: 'amount', header: 'Amount (₹)', align: 'right', render: (r) => <span className="mono">{amount(r.amount)}</span> },
+    // What is still owed on it, which is not the same as the total: a
+    // part-settled invoice owes its balance, and a decided one owes nothing
+    // (issue #283). The buckets above are built from this, not from `amount`.
+    {
+      key: 'outstanding',
+      header: 'Outstanding (₹)',
+      align: 'right',
+      render: (r) => (r.outstanding > 0 ? <span className="mono">{amount(r.outstanding)}</span> : <span className="text-fg-subtle">—</span>),
+    },
     {
       key: 'msme',
       header: 'MSME 45-day rule',
@@ -358,20 +286,22 @@ export default function ReportsAnalyticsView({ state }) {
         {detailTab === 'procurement' && (
           <div className="pt-6">
             <div className="flex flex-wrap gap-x-12 gap-y-5">
-              <KPICard size="hero" label="Total order value" value={<span className="mono">{inrFull(totalOrderValue)}</span>} empty={!totalOrderValue} />
-              <KPICard size="hero" label="Purchase orders" value={pos.length} />
-              <KPICard size="hero" label="Open orders" value={openPos.length} hint={openPos.length ? `${inrFull(openPoValue)} still open` : 'Nothing open'} />
+              <KPICard size="hero" label="Total order value" value={<span className="mono">{inrFull(po?.totalValue)}</span>} empty={!po?.totalValue} />
+              <KPICard size="hero" label="Purchase orders" value={po ? po.total : '—'} empty={!po} />
+              <KPICard size="hero" label="Open orders" value={po ? po.inFlightCount : '—'} empty={!po} hint={po?.inFlightCount ? `${inrFull(po.inFlightValue)} still open` : 'Nothing open'} />
               <KPICard size="hero"
                 label="RFQs you quoted on"
-                value={rfqs.length ? percent(bidOn.length, rfqs.length) : '—'}
-                empty={!rfqs.length}
-                hint={rfqs.length ? `${bidOn.length} of ${rfqs.length} RFQs` : 'No RFQs yet'}
+                value={summary?.rfqs.invited ? percent(summary.rfqs.quoted, summary.rfqs.invited) : '—'}
+                empty={!summary?.rfqs.invited}
+                hint={summary?.rfqs.invited ? `${summary.rfqs.quoted} of ${summary.rfqs.invited} RFQs` : 'No RFQs yet'}
               />
             </div>
 
             <Section className="mt-8" title="Order value by month" description="By the month each order was raised.">
               <div className="card p-4">
-                {byMonth.length
+                {!po
+                  ? <p className="py-2 text-sm text-fg-muted">Loading your order history…</p>
+                  : byMonth.length
                   ? <ColumnChart data={byMonth} ariaLabel={`Order value by month: ${byMonth.map((m) => `${m.label} ${inrFull(m.value)}`).join(', ')}`} />
                   : <p className="py-2 text-sm text-fg-muted">Nothing to chart yet.</p>}
               </div>
@@ -380,20 +310,26 @@ export default function ReportsAnalyticsView({ state }) {
             <div className="mt-8 grid gap-6 lg:grid-cols-2">
               <Section title="By material">
                 <div className="card p-4">
-                  {spendData.length
+                  {!po
+                    ? <p className="py-2 text-sm text-fg-muted">Loading…</p>
+                    : spendData.length
                     ? <RankedBars ariaLabel="Order value by material" data={spendData.map((r) => ({ label: r.code, title: `${r.code} — ${r.group}`, value: r.spend }))} />
                     : <p className="py-2 text-sm text-fg-muted">Nothing ordered yet.</p>}
                 </div>
               </Section>
               <Section title="By plant">
                 <div className="card p-4">
-                  {plantData.length
+                  {!po
+                    ? <p className="py-2 text-sm text-fg-muted">Loading…</p>
+                    : plantData.length
                     ? <RankedBars ariaLabel="Order value by plant" data={plantData} />
                     : <p className="py-2 text-sm text-fg-muted">Nothing ordered yet.</p>}
                 </div>
               </Section>
             </div>
 
+            {/* "No purchase orders yet" is a claim about the account, so the
+                table's empty text waits for the server to have answered. */}
             <Section className="mt-8" title="Order value by material">
               <DataTable
                 caption="Order value by material"
@@ -401,10 +337,10 @@ export default function ReportsAnalyticsView({ state }) {
                 rows={spendData}
                 getRowId={(r) => r.code}
                 maxHeight="420px"
-                empty="No purchase orders yet."
+                empty={po ? 'No purchase orders yet.' : 'Loading your orders…'}
                 totals={spendData.length > 1 ? {
                   label: `${spendData.length} materials`,
-                  spend: <span className="mono">{amount(totalOrderValue)}</span>,
+                  spend: <span className="mono">{amount(po?.totalValue)}</span>,
                 } : undefined}
               />
             </Section>
@@ -423,15 +359,19 @@ export default function ReportsAnalyticsView({ state }) {
           <div className="pt-6">
             <Section title="Outstanding invoices by age" description="Invoices not yet cleared, by days since the invoice date.">
               <div className="card p-4">
+                {/* Four zeroes read as "nothing outstanding", which is a
+                    claim — so the chart waits for the server's buckets. */}
+                {!ageing ? <p className="py-2 text-sm text-fg-muted">Loading your invoice ageing…</p> : (
                 <BucketBar
                   ariaLabel="Outstanding invoice value by age"
                   buckets={[
-                    { label: '0–30 days', value: bucket(0, 30) },
-                    { label: '31–60 days', value: bucket(31, 60) },
-                    { label: '61–90 days', value: bucket(61, 90) },
-                    { label: 'Over 90 days', value: bucket(91) },
+                    { label: '0–30 days', value: ageing?.['0-30'] || 0 },
+                    { label: '31–60 days', value: ageing?.['31-60'] || 0 },
+                    { label: '61–90 days', value: ageing?.['61-90'] || 0 },
+                    { label: 'Over 90 days', value: ageing?.['90+'] || 0 },
                   ]}
                 />
+                )}
               </div>
             </Section>
 
@@ -448,18 +388,21 @@ export default function ReportsAnalyticsView({ state }) {
 
             <Section className="mt-8" title="Tax and processing">
               <KPIStrip>
-                <KPICard label="TDS deducted" value={<span className="mono">{inrFull(totalTds)}</span>} empty={!totalTds} hint="Across all payments" />
-                <KPICard label="GST charged" value={<span className="mono">{inrFull(gstInvoiced)}</span>} empty={!gstInvoiced} hint="On your invoices" />
+                <KPICard label="TDS deducted" value={<span className="mono">{inrFull(pmt?.tdsTotal)}</span>} empty={!pmt?.tdsTotal} hint="Across all payments" />
+                <KPICard label="GST charged" value={<span className="mono">{inrFull(inv?.taxTotal)}</span>} empty={!inv?.taxTotal} hint="On your invoices" />
                 <KPICard
                   label="Paid and cleared"
-                  value={invoices.length ? `${clearedInvoices.length} of ${invoices.length}` : '—'}
-                  empty={!invoices.length}
-                  hint={invoices.length ? percent(clearedInvoices.length, invoices.length) : 'No invoices yet'}
+                  value={inv?.total ? `${inv.clearedCount} of ${inv.total}` : '—'}
+                  empty={!inv?.total}
+                  hint={inv?.total ? percent(inv.clearedCount, inv.total) : 'No invoices yet'}
                 />
                 <KPICard
                   label="Needs attention"
-                  value={matchWarnings.length + msmeOverdue.length}
-                  hint={`${matchWarnings.length} match warning${matchWarnings.length === 1 ? '' : 's'}${isMsme ? ` · ${msmeOverdue.length} MSME invoice${msmeOverdue.length === 1 ? '' : 's'} over 45 days` : ''}`}
+                  value={inv ? inv.matchWarningCount + inv.msmeOverdueCount : '—'}
+                  empty={!inv}
+                  hint={inv
+                    ? `${inv.matchWarningCount} match warning${inv.matchWarningCount === 1 ? '' : 's'}${isMsme ? ` · ${inv.msmeOverdueCount} MSME invoice${inv.msmeOverdueCount === 1 ? '' : 's'} over 45 days` : ''}`
+                    : undefined}
                 />
               </KPIStrip>
             </Section>
@@ -469,9 +412,10 @@ export default function ReportsAnalyticsView({ state }) {
         {detailTab === 'selfservice' && (
           <div className="pt-6">
             <KPIStrip>
-              <KPICard label="Open order value" value={<span className="mono">{inrFull(openPoValue)}</span>} empty={!openPoValue} />
-              <KPICard label="Awaiting payment" value={<span className="mono">{inrFull(outstanding.reduce((sum, row) => sum + row.amount, 0))}</span>} empty={!outstanding.length} />
-              <KPICard label="Ledger balance" value={<span className="mono">{inrFull(runningBalance)}</span>} empty={!runningBalance} />
+              <KPICard label="Open order value" value={<span className="mono">{inrFull(po?.inFlightValue)}</span>} empty={!po?.inFlightValue} />
+              {/* What is still owed: open invoices, net of part payments. */}
+              <KPICard label="Awaiting payment" value={<span className="mono">{inrFull(inv?.openValue)}</span>} empty={!inv?.openValue} />
+              <KPICard label="Ledger balance" value={<span className="mono">{inrFull(summary?.ledgerBalance)}</span>} empty={!summary?.ledgerBalance} />
               <KPICard label="Supplier score" value={performance.weightedScore == null ? '—' : `${performance.weightedScore} / 100`} empty={performance.weightedScore == null} />
             </KPIStrip>
 

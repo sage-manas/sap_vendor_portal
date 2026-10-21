@@ -87,12 +87,24 @@ export default function PaymentTrackingView({ state }) {
   // back-computed 18% tax split. A number shaped exactly like SAP's own is
   // the worst kind of placeholder, so an unsettled item now simply has no
   // invoice and the fields render as dashes.
+  //
+  // The item itself is read first. It used to be resolved by searching
+  // `state.invoices`, which held one page of the invoice list (issue #280):
+  // a payment settling an invoice older than that page showed no invoice
+  // number at all — indistinguishable here from an unsettled item. The API
+  // returns `items[].invoiceNumber` and `items[].sapMiroDoc`, so the lookup
+  // is only a fallback for an item that carries neither.
   const getInvoicesForPayment = (payment) => {
     if (!payment) return [];
     const items = payment.items?.length ? payment.items : [{ invoiceId: payment.invoiceId, invoiceNumber: payment.invoiceNumber, sapMiroDoc: payment.sapMiroDoc }];
-    return items.map((item) => (state?.invoices || []).find(
-      (i) => i.id === item.invoiceId || i.invoiceNumber === item.invoiceId || i.invoiceNumber === item.invoiceNumber,
-    ) || item);
+    return items.map((item) => {
+      if (item.invoiceNumber && item.sapMiroDoc) return item;
+      const invoice = (state?.invoices || []).find(
+        (i) => i.id === item.invoiceId || i.invoiceNumber === item.invoiceId || i.invoiceNumber === item.invoiceNumber,
+      );
+      // The item wins where it has a value; the invoice only fills a gap.
+      return invoice ? { ...invoice, ...Object.fromEntries(Object.entries(item).filter(([, v]) => v != null)) } : item;
+    });
   };
   // Comma-joined invoice numbers for a table cell or CSV column — the common
   // case (one invoice) reads exactly as it always did.

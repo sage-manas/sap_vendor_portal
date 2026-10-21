@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { hasOwnChrome } from '../../../lib/planes';
+import { fetchAllPages } from '../../../lib/fetchAllPages';
 import { invoiceService } from '../services/invoiceService';
 
 export function useInvoices(profile) {
@@ -18,10 +19,12 @@ export function useInvoices(profile) {
   const refreshInvoices = async () => {
     if (typeof window !== 'undefined' && (!localStorage.getItem('jwt_token') || hasOwnChrome(window.location.pathname))) return;
     try {
-      const data = await invoiceService.getInvoices();
-      if (data && data.invoices) {
-        setInvoices(data.invoices);
-        persistLocally(data.invoices);
+      // Every page: the ageing table and the account ledger are per-invoice
+      // rows, and both used to cover one page of this list (issue #280).
+      const result = await fetchAllPages((params) => invoiceService.getInvoices(params), 'invoices');
+      if (result) {
+        setInvoices(result.rows);
+        persistLocally(result.rows);
       }
     } catch (e) {
       console.error(e);

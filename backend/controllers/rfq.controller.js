@@ -17,6 +17,7 @@ const {
 } = require('../config/scoring');
 const { gstRateToCode } = require('../config/gstCodes');
 const { settingValue } = require('../config/tenantSettings');
+const { listWhere } = require('../utils/listFilters');
 const logger = require('../utils/logger');
 
 // The full nested shape a controller/frontend expects an RFQ in, matching
@@ -95,19 +96,23 @@ const formatRfqFor = (req, rfq) => {
 // @route   GET /api/rfqs
 // @access  Public (unauth development)
 const getRFQs = asyncHandler(async (req, res, next) => {
-  const { status, page = 1, limit = 20 } = req.query;
+  // Numbers with a ceiling by now — see the note in po.controller.js's
+  // getPOs on why there is no default written here (#118, #280).
+  const { page, limit } = req.query;
 
   // A supplier only ever sees RFQs they were invited to. `?all=true` widens the
   // view for tenant staff and for them only — a supplier who asked for it used
   // to receive every RFQ in the tenant, competitors' invitations included.
   const vendorId = vendorScope(req);
-  let where = {};
+  let invitation = {};
   if (vendorId && (isSupplier(req) || req.query.all !== 'true')) {
-    where = { invitedVendors: { some: { vendorExtId: vendorId } } };
+    invitation = { invitedVendors: { some: { vendorExtId: vendorId } } };
   }
-  if (status) {
-    where.status = status;
-  }
+
+  // `?status=` (one value or a comma-separated set) and `?from`/`?to` on the
+  // deadline — the date a sourcing reader thinks of an RFQ by (issue #281).
+  // The invitation scope is the base, so neither filter can widen it.
+  const where = listWhere(invitation, req.query, { dateField: 'deadlineDate' });
 
   const skip = (page - 1) * limit;
   const [rfqs, total] = await Promise.all([

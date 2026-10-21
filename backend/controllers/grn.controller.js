@@ -35,7 +35,9 @@ const withVirtuals = (grn) => {
 // @route   GET /api/grns
 // @access  Public
 const getGRNs = asyncHandler(async (req, res, next) => {
-  const { page = 1, limit = 10 } = req.query;
+  // Numbers with a ceiling by now — see the note in po.controller.js's
+  // getPOs on why there is no default written here (#118, #280).
+  const { page, limit } = req.query;
 
   const where = withVendorScope(req);
 

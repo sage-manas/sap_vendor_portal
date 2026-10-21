@@ -57,8 +57,6 @@ export default function WorkspaceAuditPage() {
     },
   ];
 
-  const pages = data ? Math.max(Math.ceil(data.total / data.limit), 1) : 1;
-
   if (!loading && !data) {
     return (
       <>
@@ -86,35 +84,27 @@ export default function WorkspaceAuditPage() {
           {(data?.subjects || []).map((value) => <option key={value} value={value}>{value}</option>)}
         </select>
 
-        {data && (
-          <span className="ml-auto text-xs text-fg-subtle">
-            {data.total} {data.total === 1 ? 'entry' : 'entries'}
-          </span>
-        )}
       </div>
 
       {loading ? (
         <Loading label="Reading the trail" />
       ) : (
-        <>
-          <Table
-            columns={columns}
-            rows={(data?.entries || []).map((entry) => ({ ...entry, key: entry.id }))}
-            empty="Nothing has happened here yet."
-          />
-
-          {pages > 1 && (
-            <div className="mt-3 flex items-center justify-end gap-2">
-              <button type="button" className="btn btn-o h-8 px-2.5" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-                Previous
-              </button>
-              <span className="mono text-xs text-fg-subtle">{page} / {pages}</span>
-              <button type="button" className="btn btn-o h-8 px-2.5" disabled={page >= pages} onClick={() => setPage(page + 1)}>
-                Next
-              </button>
-            </div>
-          )}
-        </>
+        <Table
+          columns={columns}
+          rows={(data?.entries || []).map((entry) => ({ ...entry, key: entry.id }))}
+          empty="Nothing has happened here yet."
+          // This screen's own pager moved into the Table primitive with issue
+          // #281, which gave the four workspace lists the same one. Two
+          // implementations of Previous/Next is how they come to disagree
+          // about what the last page is.
+          pagination={{
+            page,
+            pageSize: PAGE_SIZE,
+            total: data?.total ?? 0,
+            onPageChange: setPage,
+            noun: 'entries',
+          }}
+        />
       )}
     </>
   );

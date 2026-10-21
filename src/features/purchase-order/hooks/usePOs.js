@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { hasOwnChrome } from '../../../lib/planes';
+import { fetchAllPages } from '../../../lib/fetchAllPages';
 import { poService } from '../services/poService';
 
 const canFetchVendorData = () =>
@@ -45,13 +46,17 @@ export function usePOs(profile) {
     } catch (e) {}
   };
 
+  // Every page, not the first one. These arrays feed the orders table and the
+  // reports' per-row tables, and both used to show (and export) whatever one
+  // page of the API happened to hold — issue #280, and lib/fetchAllPages.js
+  // for why this is a page loop rather than one unbounded request.
   const refreshPOs = async () => {
     if (!canFetchVendorData()) return;
     try {
-      const data = await poService.getPOs();
-      if (data && data.pos) {
-        setPos(data.pos);
-        persistLocally('sap_vendor_portal_pos', data.pos);
+      const result = await fetchAllPages((params) => poService.getPOs(params), 'pos');
+      if (result) {
+        setPos(result.rows);
+        persistLocally('sap_vendor_portal_pos', result.rows);
       }
     } catch (e) {
       console.error('Failed to fetch POs', e);
@@ -61,11 +66,10 @@ export function usePOs(profile) {
   const refreshGRNs = async () => {
     if (!canFetchVendorData()) return;
     try {
-      const data = await poService.getGRNs();
-      if (data) {
-        const grnList = Array.isArray(data) ? data : (data.grns || []);
-        setGrns(grnList);
-        persistLocally('sap_vendor_portal_grns', grnList);
+      const result = await fetchAllPages((params) => poService.getGRNs(params), 'grns');
+      if (result) {
+        setGrns(result.rows);
+        persistLocally('sap_vendor_portal_grns', result.rows);
       }
     } catch (e) {
       console.error('Failed to fetch GRNs', e);
@@ -75,15 +79,14 @@ export function usePOs(profile) {
   const refreshASNs = async () => {
     if (!canFetchVendorData()) return;
     try {
-      const data = await poService.getASNs();
       // `{ asns, pagination }` as of finding 4.1; a bare array before that.
-      // Both shapes are read because a browser holding a cached bundle can
-      // outlive a deploy, and the supplier's shipments list going blank for
-      // one reload is avoidable with one expression.
-      if (data) {
-        const asnList = Array.isArray(data) ? data : (data.asns || []);
-        setAsns(asnList);
-        persistLocally('sap_vendor_portal_asns', asnList);
+      // fetchAllPages reads both shapes, because a browser holding a cached
+      // bundle can outlive a deploy and the supplier's shipments list going
+      // blank for one reload is avoidable.
+      const result = await fetchAllPages((params) => poService.getASNs(params), 'asns');
+      if (result) {
+        setAsns(result.rows);
+        persistLocally('sap_vendor_portal_asns', result.rows);
       }
     } catch (e) {
       console.error('Failed to fetch ASNs', e);
