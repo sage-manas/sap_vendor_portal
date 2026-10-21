@@ -15,7 +15,8 @@ const { settingValue } = require('../config/tenantSettings');
 const { toNumber } = require('../utils/money');
 const { settingsFromClient, missingVendorCreateFields } = require('../sap/mappings/vendor-create.map');
 const {
-  VENDOR_STATUS, VENDOR_STATUSES, VENDOR_AWAITING_DECISION, INVOICE_OPEN, INVOICE_STATUS,
+  VENDOR_STATUS, VENDOR_STATUSES, VENDOR_AWAITING_DECISION, VENDOR_STATUS_GROUPS,
+  vendorStatusFilter, INVOICE_OPEN, INVOICE_STATUS,
 } = require('../config/statuses');
 const { generateVendorId, identityConflict, unguessablePassword } = require('../utils/vendorIdentity');
 
@@ -653,12 +654,17 @@ const listVendors = asyncHandler(async (req, res, next) => {
 
   const where = {};
   if (status) {
-    // The directory's filter offers the registry's statuses; anything else is
-    // a malformed request rather than an empty page.
-    if (!VENDOR_STATUSES.includes(status)) {
-      return next(ApiError.badRequest(`status must be one of: ${VENDOR_STATUSES.join(', ')}`));
+    // The directory's filter offers the registry's statuses and its named
+    // groups; anything else is a malformed request rather than an empty page.
+    // A group ('awaiting') resolves to several statuses, so a tile counting a
+    // group can link to the list that holds exactly what it counted.
+    const statuses = vendorStatusFilter(status);
+    if (!statuses) {
+      return next(ApiError.badRequest(
+        `status must be one of: ${[...VENDOR_STATUSES, ...Object.keys(VENDOR_STATUS_GROUPS)].join(', ')}`
+      ));
     }
-    where.status = status;
+    where.status = statuses.length === 1 ? statuses[0] : { in: statuses };
   }
   if (search) {
     const term = String(search);
@@ -680,7 +686,13 @@ const listVendors = asyncHandler(async (req, res, next) => {
     vendors: vendors.map(formatVendorResponse),
     // The directory's filter is offered by the registry rather than typed into
     // the screen, so a new status appears in the dropdown by existing.
-    filters: { statuses: VENDOR_STATUSES, awaitingDecision: VENDOR_AWAITING_DECISION },
+    filters: {
+      statuses: VENDOR_STATUSES,
+      awaitingDecision: VENDOR_AWAITING_DECISION,
+      // Each group is a `?status=` value in its own right, so the dropdown
+      // can offer "Awaiting a decision" without naming its members.
+      groups: Object.entries(VENDOR_STATUS_GROUPS).map(([value, group]) => ({ value, label: group.label })),
+    },
     pagination: {
       total,
       page: Number(page),

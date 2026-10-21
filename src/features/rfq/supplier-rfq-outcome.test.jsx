@@ -72,7 +72,10 @@ describe('a supplier is shown only what they know about their own quotation', ()
 
     expect(screen.getByText('Your quotation')).toBeInTheDocument();
     expect(screen.getByText('Submitted')).toBeInTheDocument();
-    expect(screen.getByText(/Submitted 24\.09\.2026/)).toBeInTheDocument();
+    // "24 Sept 2026", not "24.09.2026": this screen's own date formatter was
+    // replaced by the app-wide displayDate, which reads a timestamp in local
+    // time rather than reporting its UTC calendar day (issue #289).
+    expect(screen.getByText(/Submitted 24 Sept 2026/)).toBeInTheDocument();
     // The buyer's side is described as unknown, not as "review ready".
     expect(screen.getByText('In progress')).toBeInTheDocument();
     expect(screen.getByText('Pending')).toBeInTheDocument();

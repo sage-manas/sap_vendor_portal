@@ -231,7 +231,13 @@ export default function SuppliersPage() {
 
         <select aria-label="Status" className="h-9 w-auto! min-w-44" value={status} onChange={(event) => setStatus(event.target.value)}>
           <option value="">Every status</option>
-          {/* Offered by the API's registry, not listed here. */}
+          {/* Offered by the API's registry, not listed here — the named groups
+              ("Awaiting a decision" = Under Review + Pending Approval) as well
+              as the single statuses, so the overview's group tiles have a
+              filter that matches what they counted (issue #289). */}
+          {(data?.filters?.groups || []).map((group) => (
+            <option key={group.value} value={group.value}>{group.label}</option>
+          ))}
           {(data?.filters?.statuses || []).map((value) => <option key={value} value={value}>{value}</option>)}
         </select>
       </div>

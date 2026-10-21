@@ -667,7 +667,7 @@ badged "Filed & Signed" against the supplier's real PAN.
 
 **Uploads** (`upload.routes.js`, JWT): `POST /uploads` (multer single `file`), `GET /uploads` (list), `GET /uploads/:id` (download), `DELETE /uploads/:id`.
 
-**Reports** (`report.routes.js`, JWT): `GET /reports/statement` (PDF account statement), `GET /reports/invoice/:id` (PDF), `GET /reports/metrics` (platform metrics), and the supplier's four CSV exports — `GET /reports/exports/{spend-by-material,invoice-ageing,account-ledger,tds}` (`reportExport.controller.js`, `report:read`, vendor-scoped). Each writes **every** matching row: they exist because the browser used to build these files from one page of a list endpoint and name the result a complete export (issue #280). They take no `page`/`limit`.
+**Reports** (`report.routes.js`, JWT): `GET /reports/statement` (PDF account statement), `GET /reports/invoice/:id` (PDF), `GET /reports/metrics` (this *workspace's* own totals — suppliers, RFQs, orders, invoices, payments and payment volume, every count bound to the caller's tenant. It was named "platform metrics", which it has never been; the platform plane's cross-tenant board is `platform.controller.js`, issue #289), and the supplier's four CSV exports — `GET /reports/exports/{spend-by-material,invoice-ageing,account-ledger,tds}` (`reportExport.controller.js`, `report:read`, vendor-scoped). Each writes **every** matching row: they exist because the browser used to build these files from one page of a list endpoint and name the result a complete export (issue #280). They take no `page`/`limit`.
 
 **SAP logs** (`saplog.routes.js`, JWT): `GET /logs` — the BAPI console feed.
 

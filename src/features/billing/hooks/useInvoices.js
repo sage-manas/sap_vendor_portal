@@ -7,6 +7,12 @@ import { invoiceService } from '../services/invoiceService';
 
 export function useInvoices(profile) {
   const [invoices, setInvoices] = useState([]);
+  // Has the first fetch finished, whatever it found? `invoices` cannot answer
+  // that: [] is both "not asked yet" and "this supplier has none". A screen
+  // that wants to show a skeleton needs the real signal, not a timer — the
+  // Overview used to fake one for a fixed 1.2 s on every mount (issue #289).
+  // Set on *settling*, so a failed fetch stops the skeleton too.
+  const [invoicesLoaded, setInvoicesLoaded] = useState(false);
   const [sapMiroDocuments, setSapMiroDocuments] = useState(null);
   const [sapPaymentDetails, setSapPaymentDetails] = useState(null);
 
@@ -17,7 +23,12 @@ export function useInvoices(profile) {
   };
 
   const refreshInvoices = async () => {
-    if (typeof window !== 'undefined' && (!localStorage.getItem('jwt_token') || hasOwnChrome(window.location.pathname))) return;
+    if (typeof window !== 'undefined' && (!localStorage.getItem('jwt_token') || hasOwnChrome(window.location.pathname))) {
+      // Nothing will be fetched, so nothing is pending: a caller waiting on
+      // this must not wait forever.
+      setInvoicesLoaded(true);
+      return;
+    }
     try {
       // Every page: the ageing table and the account ledger are per-invoice
       // rows, and both used to cover one page of this list (issue #280).
@@ -28,6 +39,8 @@ export function useInvoices(profile) {
       }
     } catch (e) {
       console.error(e);
+    } finally {
+      setInvoicesLoaded(true);
     }
   };
 
@@ -52,6 +65,7 @@ export function useInvoices(profile) {
 
   return {
     invoices,
+    invoicesLoaded,
     sapMiroDocuments,
     sapPaymentDetails,
     refreshInvoices

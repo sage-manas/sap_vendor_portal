@@ -356,10 +356,22 @@ const generateInvoicePDF = asyncHandler(async (req, res, next) => {
   doc.end();
 });
 
-// @desc    Get aggregate platform metrics (Admin)
+// @desc    This workspace's own totals — every supplier, RFQ, order, invoice
+//          and payment it has, and the sum of its payments. Despite the old
+//          name ("platform metrics") there is nothing platform-wide about it:
+//          every count below runs inside the caller's bound tenant context,
+//          so an operator asking on behalf of two tenants gets two different
+//          answers, and no caller ever sees another workspace's figures
+//          (issue #289). The platform plane's own cross-tenant board is
+//          controllers/platform.controller.js, which reads unbound.
+//
+//          Not what the supplier Overview or Reports screens render from:
+//          those read GET /api/dashboard/summary, which is scoped to the one
+//          supplier rather than to the whole workspace (issue #280). This is
+//          the workspace-wide roll-up, for tenant staff.
 // @route   GET /api/reports/metrics
-// @access  Admin/Private
-const getPlatformMetrics = asyncHandler(async (req, res, next) => {
+// @access  Tenant staff holding REPORT_METRICS
+const getTenantMetrics = asyncHandler(async (req, res, next) => {
   const [totalVendors, totalRfqs, totalPOs, totalInvoices, totalPayments, paymentVolume] = await Promise.all([
     prisma.vendor.count({}),
     prisma.rFQ.count({}),
@@ -386,5 +398,5 @@ const getPlatformMetrics = asyncHandler(async (req, res, next) => {
 module.exports = {
   generateStatement,
   generateInvoicePDF,
-  getPlatformMetrics
+  getTenantMetrics
 };

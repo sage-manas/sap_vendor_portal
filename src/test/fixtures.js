@@ -204,7 +204,20 @@ export const EMPTY_WORKSPACE_API = {
   'GET /workspace/overview': WORKSPACE_OVERVIEW,
   'GET /workspace/settings': WORKSPACE_SETTINGS,
   'GET /workspace/audit': { entries: [], pagination: { total: 0, page: 1, limit: 50, pages: 0 }, filters: {} },
-  'GET /vendors': emptyList('vendors'),
+  // `filters` is part of every real response: the directory's dropdown is
+  // offered by the API's registry rather than listed in the screen — the
+  // single statuses, and the named groups a tile can link to (issue #289).
+  'GET /vendors': {
+    ...emptyList('vendors'),
+    filters: {
+      statuses: ['Draft', 'Pending', 'Pending Approval', 'Under Review', 'Approved', 'Rejected'],
+      awaitingDecision: ['Under Review', 'Pending Approval'],
+      groups: [
+        { value: 'awaiting', label: 'Awaiting a decision' },
+        { value: 'onboarding', label: 'Still onboarding' },
+      ],
+    },
+  },
   'GET /rfqs': emptyList('rfqs'),
   'GET /pos': emptyList('pos'),
   'GET /invoices': emptyList('invoices'),

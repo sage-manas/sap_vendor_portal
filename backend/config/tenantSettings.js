@@ -31,6 +31,22 @@ const TYPES = {
     check: (value) =>
       (!value || /^https?:\/\/\S+$/i.test(value) ? '' : 'must be an http(s) URL, or empty'),
   },
+  // Validated by asking Intl, not by a pattern: the list of IANA zones is the
+  // runtime's, and a zone that merely looks well-formed still throws at the
+  // point of use. A rejected save is a field error; a stored zone the runtime
+  // later stops knowing is handled where it is read (utils/usage.js).
+  timezone: {
+    coerce: (value) => String(value ?? '').trim(),
+    check: (value) => {
+      if (!value) return 'must be an IANA timezone like Asia/Kolkata';
+      try {
+        new Intl.DateTimeFormat('en-GB', { timeZone: value });
+        return '';
+      } catch {
+        return 'must be an IANA timezone like Asia/Kolkata';
+      }
+    },
+  },
   color: {
     coerce: (value) => String(value ?? '').trim(),
     check: (value) =>
@@ -43,6 +59,11 @@ const GROUPS = [
   { key: 'features', label: 'Features', caption: 'Modules this workspace offers. Turning one off closes its API, not just its screen.' },
   { key: 'thresholds', label: 'Thresholds', caption: 'The numbers the workspace overview measures against.' },
   { key: 'notifications', label: 'Notifications', caption: 'Which decisions send the supplier an email.' },
+  {
+    key: 'localization',
+    label: 'Localization',
+    caption: 'The calendar this workspace is measured on. A monthly quota rolls over at midnight in this zone, never the server\'s.',
+  },
   {
     key: 'retention',
     label: 'Data retention',
@@ -113,6 +134,21 @@ const SETTINGS = [
     label: 'Supplier approval SLA (hours)',
     hint: 'A submitted supplier older than this is counted as overdue.',
     readBy: 'workspace overview',
+  },
+  // Issue #289. utils/usage.js computed the start of the month from the
+  // server's own clock, so the same workspace's monthly RFQ quota rolled over
+  // at midnight wherever the process happened to run — on a UTC host, 05:30
+  // IST, and RFQs raised in the first five and a half hours of the 1st
+  // counted against the month that had just ended.
+  {
+    key: 'localization.timezone',
+    path: 'settings.localization.timezone',
+    group: 'localization',
+    type: 'timezone',
+    default: 'Asia/Kolkata',
+    label: 'Workspace timezone',
+    hint: 'An IANA zone like Asia/Kolkata. The calendar the workspace\'s monthly quotas roll over on.',
+    readBy: 'utils/usage.js (startOfMonth, the RFQs-this-month count)',
   },
   {
     key: 'notifications.supplierDecisionEmail',
