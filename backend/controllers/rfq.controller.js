@@ -84,10 +84,24 @@ const formatRfq = ({ invitedVendors, ...rfq }) => ({
 // What a caller is shown. The invitee list names every competitor, so it is as
 // sealed as their bids: a supplier gets the tender without it. Only tenant
 // staff, who ran the invitation, see who was asked.
+//
+// The award is sealed on the same principle (issue #287). A supplier who won
+// is told so, with the order it produced; a supplier who did not learns only
+// that the tender closed — `status` stays 'Awarded', but the winner's id and
+// name, the award timestamp and the converted PO id are all stripped, because
+// each of them names or prices a competitor's success. The frontend reads
+// "awardedVendorId present" as "you won" precisely because of this: see the
+// Outcome step in src/features/rfq/components/RfqView.jsx.
 const formatRfqFor = (req, rfq) => {
   const formatted = formatRfq(rfq);
   if (!isSupplier(req)) return formatted;
   const { invitedVendors, ...sealed } = formatted;
+  if (sealed.awardedVendorId && sealed.awardedVendorId !== vendorScope(req)) {
+    const {
+      awardedVendorId, awardedVendorName, awardedAt, convertedPoId, ...withoutAward
+    } = sealed;
+    return withoutAward;
+  }
   return sealed;
 };
 

@@ -98,7 +98,10 @@ export default function RfqView({
   }, []);
 
   const isApproved = state.profile.status === 'Approved';
-  const currentVendorCode = state.profile.sapVendorCode || 'VND-CURRENT';
+  // No placeholder. This used to fall back to 'VND-CURRENT', which rendered on
+  // the My documents tab as though SAP had issued it (issue #287) — a code a
+  // supplier could quote back at their buyer. An unassigned code is '—'.
+  const currentVendorCode = state.profile.sapVendorCode || null;
 
   // Tab selector: 'monitor' (RFQ list & history), 'me47' (Submit Quotation),
   // or 'me48' (what SAP itself holds against this vendor's code).
@@ -147,11 +150,19 @@ export default function RfqView({
   // every vendor's bid.
   const ownBidFor = (rfq) => rfq?.bids?.find((b) => b.vendorId === state.profile.vendorId);
 
-  // RFQ Monitor & History is where a vendor tracks requests still waiting on
-  // their quote — once they've placed a bid, that RFQ's own line items and
-  // price are reached from My Documents (Update Price / ME47) instead, so it
-  // drops out of this list rather than appearing in both places.
+  // The default list is requests still waiting on this vendor's quote — once
+  // they've placed a bid, that RFQ's own line items and price are reached from
+  // My Documents (Update Price / ME47) instead, so it drops out of this list
+  // rather than appearing in both places.
   const openRfqs = state.rfqs.filter((r) => !ownBidFor(r));
+  const quotedRfqs = state.rfqs.filter((r) => ownBidFor(r));
+
+  // ...but a quoted request still has an outcome, and the supplier is the one
+  // waiting on it. "Quoted" brings those back into the same detail pane (their
+  // own quotation and the Outcome step), without putting them back in the
+  // list of requests still needing a quote. Defaults to 'open', which is what
+  // this screen is for.
+  const [listScope, setListScope] = useState('open');
 
   // "Update Price (ME47)" modal — pushes a net price for a SAP-native
   // quotation document. Line numbers/materials come from a portal RFQ the
@@ -332,11 +343,30 @@ export default function RfqView({
     );
   }
 
-  const quotedCount = state.rfqs.length - openRfqs.length;
+  const quotedCount = quotedRfqs.length;
   const matchesSearch = (r) =>
     r.id.toLowerCase().includes(listSearch.toLowerCase()) || r.description.toLowerCase().includes(listSearch.toLowerCase());
-  const listedRfqs = openRfqs.filter(matchesSearch);
-  const activeRfq = openRfqs.find(r => r.id === selectedRfqId) || openRfqs[0];
+  const scopedRfqs = listScope === 'quoted' ? quotedRfqs : listScope === 'all' ? state.rfqs : openRfqs;
+  const listedRfqs = scopedRfqs.filter(matchesSearch);
+  const activeRfq = scopedRfqs.find(r => r.id === selectedRfqId) || scopedRfqs[0];
+
+  // What this supplier actually knows about the award, and nothing more.
+  //
+  // The API names the awarded vendor only when it is the caller (formatRfqFor
+  // in backend/controllers/rfq.controller.js) — so for a supplier, a present
+  // `awardedVendorId` means "you won", and an Awarded tender without one means
+  // the buyer chose someone else, with nothing said about who, at what price,
+  // or against which order. The `=== profile.vendorId` check is belt and
+  // braces on top of that, not the thing doing the sealing.
+  const ownActiveBid = ownBidFor(activeRfq);
+  const isAwarded = activeRfq?.status === 'Awarded';
+  const awardedToMe = isAwarded
+    && !!activeRfq.awardedVendorId
+    && activeRfq.awardedVendorId === state.profile.vendorId;
+  // An award is a decision, not an order: the PO exists only once awardBid has
+  // actually created and linked one (issue #287 — "Conversion completed" used
+  // to render off the status alone).
+  const hasLinkedPo = awardedToMe && !!activeRfq.convertedPoId;
 
   const rfqLineColumns = [
     { key: 'lineNo', header: 'Line', mono: true, primary: true },
@@ -374,14 +404,42 @@ export default function RfqView({
       />
 
       {activeProcTab === 'monitor' ? (
-        // One empty state when there is nothing open — never an empty list
-        // beside an empty detail pane.
-        !activeRfq ? (
-          <EmptyState
-            icon={ClipboardList}
-            title="No open RFQs to show"
-            description="RFQs you've already quoted move to My documents, where you can update your price."
-          />
+        <>
+        <div className="flex items-center gap-2">
+          <label htmlFor="rfq-list-scope" className="text-sm text-fg-muted">Show</label>
+          <select
+            id="rfq-list-scope"
+            value={listScope}
+            onChange={(e) => { setListScope(e.target.value); setListSearch(''); }}
+            className="w-56 max-w-full"
+          >
+            <option value="open">Awaiting your quotation ({openRfqs.length})</option>
+            <option value="quoted">Quoted by you ({quotedRfqs.length})</option>
+            <option value="all">All requests ({state.rfqs.length})</option>
+          </select>
+        </div>
+        {/* One empty state when there is nothing to show — never an empty list
+            beside an empty detail pane. */}
+        {!activeRfq ? (
+          listScope === 'quoted' ? (
+            <EmptyState
+              icon={ClipboardList}
+              title="No quoted RFQs to show"
+              description="Requests you have quoted appear here, with your quotation and its outcome."
+            />
+          ) : listScope === 'all' ? (
+            <EmptyState
+              icon={ClipboardList}
+              title="No RFQs to show"
+              description="Requests you are invited to quote for appear here."
+            />
+          ) : (
+            <EmptyState
+              icon={ClipboardList}
+              title="No open RFQs to show"
+              description="RFQs you've already quoted move to Quoted by you, where you can see your quotation and its outcome."
+            />
+          )
         ) : (
           <div className="grid items-start gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
             {/* LIST */}
@@ -399,7 +457,10 @@ export default function RfqView({
                   />
                 </div>
               </div>
-              <ul className="max-h-[32rem] divide-y divide-border overflow-y-auto" aria-label="Open requests">
+              <ul
+                className="max-h-[32rem] divide-y divide-border overflow-y-auto"
+                aria-label={listScope === 'open' ? 'Open requests' : listScope === 'quoted' ? 'Quoted requests' : 'All requests'}
+              >
                 {listedRfqs.map(rfq => {
                   const isSelected = activeRfq.id === rfq.id;
                   return (
@@ -483,31 +544,52 @@ export default function RfqView({
 
               <FormSection title="Progress of this request">
                 {(() => {
-                  const hasBids = activeRfq.bids?.length > 0;
-                  const isAwarded = activeRfq.status === 'Awarded';
-                  // Each step is "done" only once the one after it has
-                  // started — a request with bids in but no award yet is not
-                  // "evaluation done", it's "evaluation active".
+                  // Every step here is something this supplier actually knows
+                  // (issue #287). The previous version counted `bids.length`
+                  // as "N bid(s) received" — but the sealed-tender rule means
+                  // a supplier receives only their own bid, so a whole tender
+                  // read as having exactly one quote in it, theirs. The count
+                  // belongs to the staff view, and is gone from here; what is
+                  // left is their own quotation and the buyer's decision on it.
                   const steps = [
                     { label: 'Request published', value: 'Published', note: formatDate(activeRfq.createdDate), done: true },
                     {
-                      label: 'Quotes received',
-                      value: hasBids ? `${activeRfq.bids.length} bid(s) received` : 'Pending bids',
+                      label: 'Your quotation',
+                      value: ownActiveBid ? 'Submitted' : 'Not submitted',
                       // An RFQ SAP raised directly carries no deadline
                       // (schema.prisma's RFQ.deadlineDate comment) — said
                       // plainly, not as a bare "—" that reads like a gap.
-                      note: `Deadline: ${activeRfq.deadlineDate ? formatDate(activeRfq.deadlineDate) : 'No deadline set by buyer'}`,
-                      done: hasBids,
-                      active: !hasBids,
+                      note: ownActiveBid
+                        ? `Submitted ${formatDate(ownActiveBid.submittedAt)}`
+                        : `Deadline: ${activeRfq.deadlineDate ? formatDate(activeRfq.deadlineDate) : 'No deadline set by buyer'}`,
+                      done: !!ownActiveBid,
+                      active: !ownActiveBid && !isAwarded,
                     },
                     {
-                      label: 'Evaluation',
-                      value: isAwarded ? 'Evaluated' : hasBids ? 'Review ready' : 'Pending review',
-                      note: 'Score weights active',
+                      label: 'Buyer evaluation',
+                      value: isAwarded ? 'Closed' : 'In progress',
+                      note: isAwarded
+                        ? 'Your buyer has decided this request'
+                        : 'Your buyer is reviewing the quotations',
                       done: isAwarded,
-                      active: hasBids && !isAwarded,
+                      active: !isAwarded && !!ownActiveBid,
                     },
-                    { label: 'Order raised', value: isAwarded ? 'Order raised' : 'PO pending', note: isAwarded ? 'Conversion completed' : 'Pending award', done: isAwarded },
+                    {
+                      label: 'Outcome',
+                      value: awardedToMe
+                        ? 'Awarded to you'
+                        : isAwarded
+                          ? 'Your quotation was not accepted'
+                          : 'Pending',
+                      // A linked purchase order is the only thing that makes
+                      // "Order raised" true; an award on its own does not.
+                      note: awardedToMe
+                        ? (hasLinkedPo ? `Order raised: ${activeRfq.convertedPoId}` : 'Order pending')
+                        : isAwarded
+                          ? (ownActiveBid ? 'This request is now closed' : 'You did not quote on this request')
+                          : 'Awaiting your buyer’s decision',
+                      done: isAwarded,
+                    },
                   ];
                   return (
                     <ol className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -540,25 +622,34 @@ export default function RfqView({
                     &middot; managed in VendorConnect
                   </span>
                 </p>
-                {activeRfq.status === 'Awarded' && (
+                {/* Only a winner is told there is an order, and only a winner
+                    is offered it. This used to render on `status === 'Awarded'`
+                    alone — so a supplier who lost saw "Awarded to <rival>" and
+                    an Export order button that could only 404 (issue #287).
+                    The export itself needs a PO to export, which an award does
+                    not by itself produce. */}
+                {awardedToMe && (
                   <div className="flex items-center gap-3">
-                    <StatusBadge label={activeRfq.awardedVendorName ? `Awarded to ${activeRfq.awardedVendorName}` : 'Awarded'} tone="done" />
-                    <DropdownMenu
-                      label="Download the order for SAP import"
-                      trigger={<Button variant="secondary" size="sm"><Download className="mr-1.5 size-3.5" strokeWidth={1.5} /> Export order</Button>}
-                      items={['csv', 'xlsx', 'json', 'idoc'].map((format) => ({
-                        label: exportingFormat === format ? `Preparing ${format.toUpperCase()}…` : `Download ${format.toUpperCase()}`,
-                        icon: Download,
-                        disabled: exportingFormat !== null,
-                        onClick: () => handleExportPo(activeRfq.id, format),
-                      }))}
-                    />
+                    <StatusBadge label="Awarded to you" tone="done" />
+                    {hasLinkedPo && (
+                      <DropdownMenu
+                        label="Download the order for SAP import"
+                        trigger={<Button variant="secondary" size="sm"><Download className="mr-1.5 size-3.5" strokeWidth={1.5} /> Export order</Button>}
+                        items={['csv', 'xlsx', 'json', 'idoc'].map((format) => ({
+                          label: exportingFormat === format ? `Preparing ${format.toUpperCase()}…` : `Download ${format.toUpperCase()}`,
+                          icon: Download,
+                          disabled: exportingFormat !== null,
+                          onClick: () => handleExportPo(activeRfq.id, format),
+                        }))}
+                      />
+                    )}
                   </div>
                 )}
               </footer>
             </article>
           </div>
-        )
+        )}
+        </>
       ) : activeProcTab === 'me48' ? (
         /* TAB: EVERY PURCHASING DOCUMENT SAP HOLDS ON THIS VENDOR CODE.
            Two reads, one list — ME43 (ZME43/ME43) reports the RFQ/quotation
@@ -578,8 +669,10 @@ export default function RfqView({
                   <h2 className="text-lg font-semibold text-fg">Your buyer&rsquo;s records</h2>
                   <p className="mt-1 text-sm text-fg-muted">
                     Read straight from your buyer&rsquo;s system for supplier ID{' '}
-                    <span className="mono text-fg">{currentVendorCode}</span>. These are your buyer&rsquo;s own
-                    records, so they are listed separately from the open requests.
+                    <span className="mono text-fg">{currentVendorCode || '—'}</span>.{' '}
+                    {currentVendorCode
+                      ? <>These are your buyer&rsquo;s own records, so they are listed separately from the open requests.</>
+                      : <>Your SAP vendor code is assigned after approval, so your buyer has nothing on file to read yet.</>}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
