@@ -17,6 +17,7 @@ import { poStatusVariant, invoiceStatusVariant } from '@/lib/statusColors';
 import { downloadFromApi } from '@/lib/download';
 import { CheckCircle2, ChevronRight, Download, RefreshCw, X } from 'lucide-react';
 import { displayDate } from '@/lib/displayDate';
+import { paymentInvoiceLabel } from '@/lib/paymentInvoiceLabel';
 
 // Amounts arrive as Decimal strings from the API (utils/money.js on the server).
 const money = (value) => Number(value) || 0;
@@ -503,7 +504,7 @@ export default function DashboardView({ state, setActiveTab }) {
                         <div className="min-w-0">
                           <p className="mono truncate text-fg" title="UTR">{row.utrCode || row.utr || '—'}</p>
                           <p className="text-xs text-fg-subtle">
-                            {(row.invoiceNumber || row.invoiceId) && <><span className="mono">{row.invoiceNumber || row.invoiceId}</span> · </>}
+                            {paymentInvoiceLabel(row) && <><span className="mono">{paymentInvoiceLabel(row)}</span> · </>}
                             {displayDate(row.paymentDate)} · {row.paymentMethod || '—'}
                           </p>
                         </div>

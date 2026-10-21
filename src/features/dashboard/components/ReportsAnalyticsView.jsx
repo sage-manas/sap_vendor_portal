@@ -15,6 +15,7 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 import { usePortal } from '@/lib/portal-context';
 import { downloadCsv, downloadFromApi } from '@/lib/download';
 import { displayDate } from '@/lib/displayDate';
+import { paymentInvoiceRefs } from '@/lib/paymentInvoiceLabel';
 
 // The supplier's reports, computed from their own documents.
 //
@@ -54,6 +55,60 @@ const monthKey = (value) => {
 const monthLabel = (key) => new Date(`${key}-01T00:00:00`).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+// A remittance, split into the invoices it settled (issue #282). Both the
+// ledger and the TDS export are per-invoice views, so both read a payment
+// through this: one entry per PaymentItem, each carrying that item's own
+// gross/TDS/net, and the invoice it belongs to named rather than described
+// as "invoice".
+//
+// A payment with no items — nothing in the API returns one, but a fixture or
+// an older row might — yields a single entry with the header's totals and no
+// invoice reference, so it still appears in the ledger and the export
+// instead of silently vanishing from either.
+const paymentSettlements = (payment) => {
+  const items = Array.isArray(payment.items) ? payment.items : [];
+  if (!items.length) {
+    return [{
+      payment,
+      ref: paymentInvoiceRefs(payment)[0] || null,
+      gross: money(payment.netAmount) + money(payment.tdsDeducted),
+      tds: money(payment.tdsDeducted),
+      net: money(payment.netAmount),
+    }];
+  }
+  return items.map((item) => ({
+    payment,
+    ref: item.invoiceNumber || item.invoiceId || null,
+    // Item gross is recomputed from net + TDS rather than read from
+    // grossAmount, so a row's three figures always reconcile with each other
+    // the way the ledger's credit column assumes they do.
+    gross: money(item.netAmount) + money(item.tdsDeducted),
+    tds: money(item.tdsDeducted),
+    net: money(item.netAmount),
+  }));
+};
+
+const paymentLedgerRows = (payments) => payments.flatMap((pmt) =>
+  paymentSettlements(pmt).map((settlement) => ({
+    date: pmt.paymentDate || pmt.createdDate,
+    type: 'KZ (Payment)',
+    doc: pmt.utrCode || pmt.id,
+    desc: `Payment for ${settlement.ref || 'invoice'}`,
+    debit: 0,
+    credit: settlement.gross,
+    status: 'Cleared',
+  })));
+
+const tdsExportRows = (payments) => payments.flatMap((pmt) =>
+  paymentSettlements(pmt).map((settlement) => ({
+    paymentDate: pmt.paymentDate,
+    invoiceRef: settlement.ref,
+    utrCode: pmt.utrCode,
+    gross: settlement.gross,
+    tds: settlement.tds,
+    net: settlement.net,
+  })));
 
 export default function ReportsAnalyticsView({ state }) {
   const { addToast } = usePortal();
@@ -169,15 +224,14 @@ export default function ReportsAnalyticsView({ state }) {
       credit: 0,
       status: inv.status === 'Cleared' ? 'Cleared' : 'Uncleared',
     })),
-    ...payments.map((pmt) => ({
-      date: pmt.paymentDate || pmt.createdDate,
-      type: 'KZ (Payment)',
-      doc: pmt.utrCode || pmt.id,
-      desc: `Payment for ${pmt.invoiceNumber || pmt.invoiceId || 'invoice'}`,
-      debit: 0,
-      credit: money(pmt.netAmount) + money(pmt.tdsDeducted),
-      status: 'Cleared',
-    })),
+    // One credit row per settled invoice, not one per remittance (issue
+    // #282). An F110 run clears several invoices under one payment, and a
+    // single lumped credit left each of those invoices' debits without a
+    // matching credit of its own — the running balance came out right, but
+    // no invoice could be traced to the money that cleared it. Each item
+    // carries its own gross (net + TDS), so the rows still sum to the
+    // remittance.
+    ...paymentLedgerRows(payments),
   ].sort((a, b) => new Date(a.date) - new Date(b.date));
 
   const chronological = ledgerEvents.reduce((rows, event) => {
@@ -214,14 +268,17 @@ export default function ReportsAnalyticsView({ state }) {
     { header: 'Balance (INR)', value: (r) => r.balance.toFixed(2) },
   ], ledgerData);
 
+  // One row per settled invoice (issue #282): a remittance covering several
+  // invoices used to export as one row with a blank Invoice column, which is
+  // unusable for reconciling a deduction against the invoice it came off.
   const exportTds = () => downloadCsv(`tds-deducted-${today()}.csv`, [
     { header: 'Payment date', value: (r) => formatDate(r.paymentDate) },
-    { header: 'Invoice', value: (r) => r.invoiceNumber || r.invoiceId },
+    { header: 'Invoice', value: (r) => r.invoiceRef || '' },
     { header: 'UTR', value: (r) => r.utrCode },
-    { header: 'Gross (INR)', value: (r) => money(r.grossAmount).toFixed(2) },
-    { header: 'TDS (INR)', value: (r) => money(r.tdsDeducted).toFixed(2) },
-    { header: 'Net (INR)', value: (r) => money(r.netAmount).toFixed(2) },
-  ], payments);
+    { header: 'Gross (INR)', value: (r) => r.gross.toFixed(2) },
+    { header: 'TDS (INR)', value: (r) => r.tds.toFixed(2) },
+    { header: 'Net (INR)', value: (r) => r.net.toFixed(2) },
+  ], tdsExportRows(payments));
 
   const downloadStatement = () => downloadFromApi('/reports/statement', `account-statement-${today()}.pdf`)
     .then(() => addToast('success', 'Account statement downloaded.'))

@@ -22,13 +22,29 @@ const formatPaymentItem = (item) => ({
   netAmount: toNumber(item.netAmount),
 });
 
+// Issue #282: #63 moved the invoice onto PaymentItem and removed the header's
+// invoiceId/invoiceNumber, but every screen that names "the invoice this
+// payment settled" was still reading the header — so the reference went
+// permanently blank. `invoiceRefs` is that reference, derived here rather
+// than re-derived in each consumer: the invoice numbers a remittance
+// settled, in item order, preferring the human-readable invoiceNumber and
+// falling back to the internal invoiceId when SAP gave us no number.
+//
+// Omitted, not empty, when `items` was not queried — a `[]` there would
+// claim the remittance settled nothing, which is a different fact from "we
+// didn't ask". src/lib/paymentInvoiceLabel.js handles both.
+const invoiceRefsOf = (items) => items.map((item) => item.invoiceNumber || item.invoiceId).filter(Boolean);
+
 const formatPayment = (payment) => ({
   ...payment,
   grossAmount: toNumber(payment.grossAmount),
   tdsDeducted: toNumber(payment.tdsDeducted),
   netAmount: toNumber(payment.netAmount),
   totalTds: toNumber(payment.totalTds),
-  ...(payment.items && { items: payment.items.map(formatPaymentItem) }),
+  ...(payment.items && {
+    items: payment.items.map(formatPaymentItem),
+    invoiceRefs: invoiceRefsOf(payment.items),
+  }),
 });
 
 // Every SAP driver's vendorPaymentDisplay (mock and s4_odata alike) was
@@ -41,7 +57,10 @@ const formatPayment = (payment) => ({
 // remittance's shared ones (date, UTR, method, clearing doc, fiscal period).
 // Requires `items` to have been included on each payment.
 const flattenPaymentItems = (payments) => payments.flatMap((payment) => {
-  const { items, pk, ...header } = formatPayment(payment);
+  // `invoiceRefs` is dropped alongside `items`: each flattened row already
+  // names its own invoice, and carrying its siblings' references onto it
+  // would read as though this one row settled all of them.
+  const { items, pk, invoiceRefs, ...header } = formatPayment(payment);
   return (items || []).map((item) => ({
     ...header,
     ...formatPaymentItem(item),

@@ -4,6 +4,7 @@ import React from 'react';
 import { useRouter } from 'next/navigation';
 import { paymentService } from '@/features/payments/services/paymentService';
 import { PageHeader, Notice, Table, Loading, useResource, formatDate } from '@/components/console/primitives';
+import { paymentInvoiceLabel } from '@/lib/paymentInvoiceLabel';
 
 // Every settlement made against this workspace's invoices, across every
 // supplier, plus the TDS deducted along the way — the finance (and
@@ -58,7 +59,7 @@ export default function WorkspacePaymentsPage() {
               columns={[
                 { key: 'id', header: 'Payment', render: (row) => <span className="mono">{row.id}</span> },
                 { key: 'vendorId', header: 'Supplier' },
-                { key: 'invoiceId', header: 'Invoice', render: (row) => <span className="mono">{row.invoiceRef || row.invoiceId}</span> },
+                { key: 'invoiceRefs', header: 'Invoice', render: (row) => <span className="mono">{paymentInvoiceLabel(row) || '—'}</span> },
                 { key: 'grossAmount', header: 'Gross', align: 'right', render: (row) => <span className="mono">{money(row.grossAmount)}</span> },
                 { key: 'tdsDeducted', header: 'TDS', align: 'right', render: (row) => <span className="mono">{money(row.tdsDeducted)}</span> },
                 { key: 'netAmount', header: 'Net', align: 'right', render: (row) => <span className="mono">{money(row.netAmount)}</span> },
