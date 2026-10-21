@@ -368,11 +368,52 @@ describe('the supplier report exports cover every row', () => {
     expect(rows[0]).toContain('Outstanding (INR)');
   });
 
-  it('account-ledger writes every invoice and every payment', async () => {
-    const payments = await runWithTenant(CLIENT, () => prisma.payment.count({ where: { vendorId: VENDOR } }));
+  it('account-ledger writes every invoice and every settled invoice', async () => {
+    // One credit row per PaymentItem, not per Payment (issue #282) — every
+    // payment this fixture seeds settles exactly one invoice, so the dedicated
+    // two-invoice case below is what actually distinguishes the two.
+    const items = await runWithTenant(CLIENT, () => prisma.paymentItem.count({
+      where: { payment: { vendorId: VENDOR } },
+    }));
     const rows = await csv('account-ledger');
 
-    expect(rows).toHaveLength(COUNT + payments + 1);
+    expect(rows).toHaveLength(COUNT + items + 1);
+  });
+
+  // Issue #282: an F110 run clears several invoices under one clearing
+  // document. A single lumped credit balanced the ledger but left each of
+  // those invoices' debits with no credit of its own to reconcile against.
+  it('account-ledger credits each invoice of a multi-invoice remittance separately', async () => {
+    await runWithTenant(CLIENT, () => prisma.payment.create({
+      data: {
+        id: 'PMT-SUM-MULTI', vendorId: VENDOR, paymentDate: daysAgo(5),
+        utrCode: 'UTRSUMMULTI', sapPaymentDoc: 'CLRMULTI',
+        grossAmount: 900, tdsDeducted: 90, netAmount: 810, totalTds: 90,
+        items: {
+          create: [
+            {
+              clientId: CLIENT, invoiceId: 'INV-SUM-0000', poId: 'PO-SUM-0000',
+              invoiceNumber: 'S/0', grossAmount: 600, tdsDeducted: 60, netAmount: 540,
+            },
+            {
+              clientId: CLIENT, invoiceId: 'INV-SUM-0002', poId: 'PO-SUM-0002',
+              invoiceNumber: 'S/2', grossAmount: 300, tdsDeducted: 30, netAmount: 270,
+            },
+          ],
+        },
+      },
+    }));
+
+    const rows = await csv('account-ledger');
+    const credits = rows.filter((row) => row.includes('UTRSUMMULTI'));
+
+    expect(credits).toHaveLength(2);
+    // Each row names its own invoice and carries that invoice's own gross
+    // (net + TDS) — 540+60 and 270+30, summing to the remittance's 900.
+    expect(credits.find((row) => row.includes('Payment for S/0'))).toContain('600.00');
+    expect(credits.find((row) => row.includes('Payment for S/2'))).toContain('300.00');
+    // Not one row naming both, which is what this looked like before.
+    expect(rows.some((row) => row.includes('Payment for S/0, S/2'))).toBe(false);
   });
 
   it('spend-by-material writes one row per material across every order', async () => {

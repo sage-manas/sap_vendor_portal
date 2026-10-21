@@ -16,6 +16,7 @@ import { usePortal } from '@/lib/portal-context';
 import { downloadFromApi } from '@/lib/download';
 import { INVOICE_STATUS, isInvoiceOpen } from '@/lib/documentStatus';
 import { displayDate } from '@/lib/displayDate';
+import { paymentInvoiceRefs } from '@/lib/paymentInvoiceLabel';
 
 // The supplier's reports.
 //
@@ -56,6 +57,37 @@ const percent = (numerator, denominator) =>
 const monthLabel = (key) => new Date(`${key}-01T00:00:00`).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+// A remittance, split into the invoices it settled (issue #282): one ledger
+// credit per PaymentItem, each carrying that item's own gross and naming its
+// own invoice, rather than one lumped credit per remittance that no single
+// invoice's debit could be matched against.
+//
+// A payment with no items — nothing in the API returns one, but a fixture or
+// an older row might — yields a single row with the header's totals and no
+// invoice reference, so it still appears in the ledger instead of silently
+// vanishing from it.
+//
+// The TDS export is the other per-invoice view of the same split, and it is
+// deliberately NOT computed here: since #280 every export is a server
+// endpoint, so that one lives in backend/controllers/report.controller.js.
+const paymentLedgerRows = (payments) => payments.flatMap((payment) => {
+  const items = Array.isArray(payment.items) && payment.items.length
+    ? payment.items
+    : [{ invoiceNumber: paymentInvoiceRefs(payment)[0], netAmount: payment.netAmount, tdsDeducted: payment.tdsDeducted }];
+
+  return items.map((item) => ({
+    date: payment.paymentDate || payment.createdDate,
+    type: 'KZ (Payment)',
+    doc: payment.utrCode || payment.id,
+    desc: `Payment for ${item.invoiceNumber || item.invoiceId || 'invoice'}`,
+    debit: 0,
+    // Gross is recomputed from net + TDS rather than read from grossAmount,
+    // so the credit always reconciles with the figures beside it.
+    credit: money(item.netAmount) + money(item.tdsDeducted),
+    status: 'Cleared',
+  }));
+});
 
 export default function ReportsAnalyticsView({ state }) {
   const { addToast } = usePortal();
@@ -136,17 +168,14 @@ export default function ReportsAnalyticsView({ state }) {
       credit: 0,
       status: row.status === INVOICE_STATUS.CLEARED ? 'Cleared' : row.status,
     })),
-    ...payments.map((row) => ({
-      date: row.paymentDate || row.createdDate,
-      type: 'KZ (Payment)',
-      doc: row.utrCode || row.id,
-      // Every invoice the remittance settled, not just one (#63): the API
-      // returns the items, and `invoiceNumber` on the header is legacy.
-      desc: `Payment for ${(row.items || []).map((item) => item.invoiceNumber || item.invoiceId).filter(Boolean).join(', ') || row.invoiceNumber || row.invoiceId || 'invoice'}`,
-      debit: 0,
-      credit: money(row.netAmount) + money(row.tdsDeducted),
-      status: 'Cleared',
-    })),
+    // One credit row per settled invoice, not one per remittance (issue
+    // #282). Naming every settled invoice in one row's description (as this
+    // did) tells the supplier which invoices the money covered, but still
+    // left each of those invoices' debits without a matching credit of its
+    // own — the running balance came out right, but no invoice could be
+    // traced to the money that cleared it. Each item carries its own gross
+    // (net + TDS), so the rows still sum to the remittance.
+    ...paymentLedgerRows(payments),
   ].sort((a, b) => new Date(a.date) - new Date(b.date));
 
   const chronological = ledgerEvents.reduce((rows, event) => {
@@ -166,6 +195,8 @@ export default function ReportsAnalyticsView({ state }) {
   const exportSpend = () => exportFromApi('/reports/exports/spend-by-material', `spend-by-material-${today()}.csv`);
   const exportAging = () => exportFromApi('/reports/exports/invoice-ageing', `invoice-ageing-${today()}.csv`);
   const exportLedger = () => exportFromApi('/reports/exports/account-ledger', `account-ledger-${today()}.csv`);
+  // Issue #282's per-item TDS rows live in the endpoint now, not here — see
+  // the tds export in backend/controllers/report.controller.js.
   const exportTds = () => exportFromApi('/reports/exports/tds', `tds-deducted-${today()}.csv`);
 
   const downloadStatement = () => downloadFromApi('/reports/statement', `account-statement-${today()}.pdf`)

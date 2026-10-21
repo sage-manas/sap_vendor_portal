@@ -155,7 +155,9 @@ const exportAccountLedger = asyncHandler(async (req, res) => {
       select: {
         id: true, utrCode: true, paymentDate: true, createdAt: true,
         netAmount: true, tdsDeducted: true,
-        items: { select: { invoiceNumber: true, invoiceId: true } },
+        // Each item's own amounts, not just its invoice: a ledger credit is
+        // per settled invoice now (issue #282).
+        items: { select: { invoiceNumber: true, invoiceId: true, netAmount: true, tdsDeducted: true } },
       },
     }),
   ]);
@@ -173,17 +175,32 @@ const exportAccountLedger = asyncHandler(async (req, res) => {
       credit: 0,
       status: invoice.status,
     })),
-    // Net plus the TDS withheld: what the buyer withheld settles the debt as
-    // much as what they transferred.
-    ...payments.map((payment) => ({
-      date: payment.paymentDate || payment.createdAt,
-      type: 'KZ (Payment)',
-      doc: payment.utrCode || payment.id,
-      desc: `Payment for ${(payment.items || []).map((i) => i.invoiceNumber || i.invoiceId).filter(Boolean).join(', ') || 'invoice'}`,
-      debit: 0,
-      credit: (toNumber(payment.netAmount) || 0) + (toNumber(payment.tdsDeducted) || 0),
-      status: 'Cleared',
-    })),
+    // One credit row per settled invoice (issue #282), each crediting net
+    // plus the TDS withheld — what the buyer withheld settles the debt as
+    // much as what they transferred. Naming all of a remittance's invoices
+    // in one row's description told the supplier which invoices the money
+    // covered, but left each of those invoices' debits with no credit of its
+    // own to reconcile against. The rows still sum to the remittance, so the
+    // running balance is unchanged; and this is the same split the screen's
+    // ledger renders, so the file and the screen agree row for row.
+    ...payments.flatMap((payment) => {
+      const items = payment.items?.length
+        ? payment.items
+        // A remittance with no items recorded is still real money: one row
+        // with the header's own totals, rather than dropped for having no
+        // detail.
+        : [{ netAmount: payment.netAmount, tdsDeducted: payment.tdsDeducted }];
+
+      return items.map((item) => ({
+        date: payment.paymentDate || payment.createdAt,
+        type: 'KZ (Payment)',
+        doc: payment.utrCode || payment.id,
+        desc: `Payment for ${item.invoiceNumber || item.invoiceId || 'invoice'}`,
+        debit: 0,
+        credit: (toNumber(item.netAmount) || 0) + (toNumber(item.tdsDeducted) || 0),
+        status: 'Cleared',
+      }));
+    }),
   ].sort((a, b) => new Date(a.date) - new Date(b.date));
 
   let balance = 0;
