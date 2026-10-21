@@ -14,25 +14,14 @@
 import {
   Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
+import { formatMoney, formatMoneyCompact } from '@/lib/money';
 
-export const inrFull = (value) =>
-  `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-// ₹45K · ₹1.2L · ₹3.4Cr — Indian units for axis ticks only; tooltips and
-// tables carry the exact figure.
-export const inrCompact = (value) => {
-  const n = Number(value) || 0;
-  const abs = Math.abs(n);
-  const sign = n < 0 ? '−' : '';
-  if (abs >= 1e7) return `${sign}₹${+(abs / 1e7).toFixed(1)}Cr`;
-  if (abs >= 1e5) return `${sign}₹${+(abs / 1e5).toFixed(1)}L`;
-  if (abs >= 1e3) return `${sign}₹${+(abs / 1e3).toFixed(0)}K`;
-  return `${sign}₹${abs.toFixed(0)}`;
-};
+// Both formatters live in lib/money.js (issue #285), so a chart and the
+// table beside it cannot disagree about the same figure.
 
 const AXIS = { fill: 'var(--chart-axis)', fontSize: 12 };
 
-function ChartTooltip({ active, payload, label, format = inrFull, name }) {
+function ChartTooltip({ active, payload, label, format = formatMoney, name }) {
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs shadow-popover">
@@ -43,14 +32,14 @@ function ChartTooltip({ active, payload, label, format = inrFull, name }) {
 }
 
 /** Columns over a discrete axis (months). data: [{ label, value }] */
-export function ColumnChart({ data, ariaLabel, height = 220, format = inrFull }) {
+export function ColumnChart({ data, ariaLabel, height = 220, format = formatMoney }) {
   return (
     <div role="img" aria-label={ariaLabel} style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }} barCategoryGap={8}>
           <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
           <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={{ stroke: 'var(--chart-grid)' }} />
-          <YAxis tick={AXIS} tickLine={false} axisLine={false} width={56} tickFormatter={inrCompact} />
+          <YAxis tick={AXIS} tickLine={false} axisLine={false} width={56} tickFormatter={formatMoneyCompact} />
           <Tooltip cursor={{ fill: 'var(--hover)' }} content={<ChartTooltip format={format} />} />
           <Bar dataKey="value" fill="var(--chart-series)" radius={[4, 4, 0, 0]} maxBarSize={40} isAnimationActive={false} />
         </BarChart>
@@ -60,14 +49,14 @@ export function ColumnChart({ data, ariaLabel, height = 220, format = inrFull })
 }
 
 /** A value over time as a step line (a ledger balance changes in steps). */
-export function StepLineChart({ data, ariaLabel, height = 220, format = inrFull }) {
+export function StepLineChart({ data, ariaLabel, height = 220, format = formatMoney }) {
   return (
     <div role="img" aria-label={ariaLabel} style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
           <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
           <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={{ stroke: 'var(--chart-grid)' }} minTickGap={24} />
-          <YAxis tick={AXIS} tickLine={false} axisLine={false} width={56} tickFormatter={inrCompact} />
+          <YAxis tick={AXIS} tickLine={false} axisLine={false} width={56} tickFormatter={formatMoneyCompact} />
           <Tooltip cursor={{ stroke: 'var(--chart-axis)', strokeDasharray: '3 3' }} content={<ChartTooltip format={format} />} />
           <Line
             type="stepAfter"
@@ -89,7 +78,7 @@ export function StepLineChart({ data, ariaLabel, height = 220, format = inrFull 
  * (material, plant). Direct labels, so no tooltip or legend is needed. Rows
  * past `limit` fold into "Other" rather than shrinking into slivers.
  */
-export function RankedBars({ data, limit = 6, format = inrFull, ariaLabel }) {
+export function RankedBars({ data, limit = 6, format = formatMoney, ariaLabel }) {
   const top = data.slice(0, limit);
   const rest = data.slice(limit);
   const rows = rest.length
@@ -116,7 +105,7 @@ export function RankedBars({ data, limit = 6, format = inrFull, ariaLabel }) {
  * names every bucket and its amount — the colour is never the only label.
  * buckets: [{ label, value }] in order, youngest first.
  */
-export function BucketBar({ buckets, format = inrFull, ariaLabel }) {
+export function BucketBar({ buckets, format = formatMoney, ariaLabel }) {
   const total = buckets.reduce((s, b) => s + b.value, 0);
   const steps = ['var(--chart-seq-1)', 'var(--chart-seq-2)', 'var(--chart-seq-3)', 'var(--chart-seq-4)'];
   return (
@@ -148,7 +137,7 @@ export function BucketBar({ buckets, format = inrFull, ariaLabel }) {
  * Direct labels sit in the caller's legend row, never in a legend box.
  * data: [{ label, a, b }]; series: [{ key: 'a', name }, { key: 'b', name }]
  */
-export function SplineChart({ data, series, ariaLabel, height = 220, format = inrFull }) {
+export function SplineChart({ data, series, ariaLabel, height = 220, format = formatMoney }) {
   const colors = ['var(--chart-series)', 'var(--chart-series-2)'];
   return (
     <div role="img" aria-label={ariaLabel} style={{ height }}>
@@ -156,7 +145,7 @@ export function SplineChart({ data, series, ariaLabel, height = 220, format = in
         <LineChart data={data} margin={{ top: 12, right: 12, bottom: 0, left: 0 }}>
           <CartesianGrid horizontal={false} strokeDasharray="3 5" stroke="var(--chart-grid)" />
           <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={false} minTickGap={16} />
-          <YAxis tick={AXIS} tickLine={false} axisLine={false} width={56} tickFormatter={inrCompact} />
+          <YAxis tick={AXIS} tickLine={false} axisLine={false} width={56} tickFormatter={formatMoneyCompact} />
           <Tooltip
             cursor={{ stroke: 'var(--chart-axis)', strokeDasharray: '3 3' }}
             content={({ active, payload, label }) => (active && payload?.length ? (

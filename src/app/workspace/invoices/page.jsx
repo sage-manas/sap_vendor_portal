@@ -7,6 +7,7 @@ import {
   PageHeader, Notice, Status, Table, Loading, ListFilters, useResource, formatDate,
 } from '@/components/console/primitives';
 import { useListQuery } from '@/components/console/useListQuery';
+import { formatMoney } from '@/lib/money';
 
 // Every invoice submitted against this workspace's purchase orders, across
 // every supplier — the finance (and client_admin) tenant-wide view. GET
@@ -18,10 +19,6 @@ import { useListQuery } from '@/components/console/useListQuery';
 // reconcile against SAP, not something to act on from this screen. A row
 // links through to the supplier it belongs to, since that is where the
 // fuller trading history (payments, TDS, GRNs) already lives.
-
-const money = (value, currency = 'INR') =>
-  new Intl.NumberFormat('en-IN', { style: 'currency', currency, maximumFractionDigits: 0 })
-    .format(Number(value || 0));
 
 const PAGE_SIZE = 50;
 
@@ -81,7 +78,7 @@ export default function WorkspaceInvoicesPage() {
               ) : <span className="mono">{row.vendorId}</span>),
             },
             { key: 'poId', header: 'Order', render: (row) => <span className="mono">{row.poId}</span> },
-            { key: 'totalAmount', header: 'Amount', align: 'right', render: (row) => <span className="mono">{money(row.totalAmount, row.currency)}</span> },
+            { key: 'totalAmount', header: 'Amount', align: 'right', render: (row) => <span className="mono">{formatMoney(row.totalAmount, row.currency)}</span> },
             { key: 'status', header: 'Status', render: (row) => <Status value={row.status} /> },
             { key: 'invoiceDate', header: 'Invoiced', render: (row) => <span className="whitespace-nowrap">{formatDate(row.invoiceDate)}</span> },
           ]}

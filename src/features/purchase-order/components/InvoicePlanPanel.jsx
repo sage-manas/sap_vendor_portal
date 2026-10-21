@@ -12,6 +12,7 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import KPICard, { KPIStrip } from '@/components/ui/KPICard';
 import DataTable from '@/components/ui/DataTable';
 import { poService } from '../services/poService';
+import { formatMoney } from '@/lib/money';
 
 // The invoicing plan on a purchase order's line items — SAP's FPLA header and
 // its FPLT settlement dates, as a screen.
@@ -28,10 +29,6 @@ import { poService } from '../services/poService';
 // same split independently.
 
 const FREQUENCIES = ['Weekly', 'Monthly', 'Quarterly', 'Half-Yearly', 'Yearly'];
-
-const money = (value, currency = 'INR') =>
-  new Intl.NumberFormat('en-IN', { style: 'currency', currency, maximumFractionDigits: 2 })
-    .format(Number(value || 0));
 
 const day = (value) => (value ? new Date(value).toISOString().slice(0, 10) : '—');
 
@@ -176,7 +173,7 @@ function ConfigureDialog({ po, item, existingPlan, mode = 'manage', onClose, onS
         <div className="rounded-md border border-border bg-subtle px-4 py-3">
           <div className="text-sm font-medium text-fg">{item.materialCode} · {item.description}</div>
           <div className="mono mt-0.5 text-sm text-fg-muted">
-            Line value {money(netValue, po.currency)} · {item.quantity} {item.uom || 'EA'}
+            Line value {formatMoney(netValue, po.currency)} · {item.quantity} {item.uom || 'EA'}
           </div>
         </div>
 
@@ -217,7 +214,7 @@ function ConfigureDialog({ po, item, existingPlan, mode = 'manage', onClose, onS
             <div className="sm:col-span-2">
               <label className={labelClass} htmlFor="plan-amount">Amount per period</label>
               <input id="plan-amount" disabled type="number" min="0" step="0.01" className={inputClass}
-                placeholder={`Defaults to the line value, ${money(netValue, po.currency)}`}
+                placeholder={`Defaults to the line value, ${formatMoney(netValue, po.currency)}`}
                 value={periodic.periodicAmount} onChange={() => {}} />
               <p className="mt-1.5 text-xs text-fg-subtle">
                 A periodic plan invoices this amount on every date — the plan total is the amount times the number of periods, not the line value.
@@ -243,7 +240,7 @@ function ConfigureDialog({ po, item, existingPlan, mode = 'manage', onClose, onS
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-fg-subtle">%</span>
                 </div>
                 <div className="mono self-center text-right text-sm text-fg-muted sm:w-28">
-                  {money((netValue * (Number(milestone.percentage) || 0)) / 100, po.currency)}
+                  {formatMoney((netValue * (Number(milestone.percentage) || 0)) / 100, po.currency)}
                 </div>
               </div>
             ))}
@@ -330,7 +327,7 @@ function PlanCard({
     { key: 'description', header: 'Description', wrap: true, render: (line) => line.description || '—' },
     { key: 'settlementDate', header: 'Settlement', render: (line) => prettyDay(line.settlementDate) },
     { key: 'percentage', header: '%', align: 'right', mono: true, render: (line) => (line.percentage ? `${line.percentage}%` : '—') },
-    { key: 'amount', header: `Amount (${currency === 'INR' ? '₹' : currency})`, align: 'right', mono: true, render: (line) => money(line.amount, currency) },
+    { key: 'amount', header: `Amount (${currency === 'INR' ? '₹' : currency})`, align: 'right', mono: true, render: (line) => formatMoney(line.amount, currency) },
     {
       key: 'status',
       header: 'Status',
@@ -419,7 +416,7 @@ function PlanCard({
               </p>
               <ul className="mt-2 space-y-0.5">
                 {(pending.input.type === 'Periodic'
-                  ? [`Periodic · ${pending.input.frequency} · ${day(pending.input.startDate)} to ${day(pending.input.endDate)}${pending.input.periodicAmount ? ` · ${money(pending.input.periodicAmount, currency)}/period` : ''}`]
+                  ? [`Periodic · ${pending.input.frequency} · ${day(pending.input.startDate)} to ${day(pending.input.endDate)}${pending.input.periodicAmount ? ` · ${formatMoney(pending.input.periodicAmount, currency)}/period` : ''}`]
                   : (pending.input.milestones || []).map((m, i) =>
                     `${m.description || `Instalment ${i + 1}`} · ${day(m.settlementDate)} · ${m.percentage}%`)
                 ).map((line, i) => (
@@ -442,12 +439,12 @@ function PlanCard({
       )}
 
       <KPIStrip>
-        <KPICard label="Plan total" value={money(summary?.totalValue, currency)} hint={`${summary?.totalLines || 0} invoicing dates`} />
-        <KPICard label="Invoiced" value={money(summary?.invoicedValue, currency)} hint={`${summary?.invoicedLines || 0} of ${summary?.totalLines || 0}`} />
-        <KPICard label="Outstanding" value={money(summary?.openValue, currency)} hint={summary?.blockedLines ? `${summary.blockedLines} blocked` : 'Not yet invoiced'} />
+        <KPICard label="Plan total" value={formatMoney(summary?.totalValue, currency)} hint={`${summary?.totalLines || 0} invoicing dates`} />
+        <KPICard label="Invoiced" value={formatMoney(summary?.invoicedValue, currency)} hint={`${summary?.invoicedLines || 0} of ${summary?.totalLines || 0}`} />
+        <KPICard label="Outstanding" value={formatMoney(summary?.openValue, currency)} hint={summary?.blockedLines ? `${summary.blockedLines} blocked` : 'Not yet invoiced'} />
         <KPICard
           label={summary?.dueLines ? 'Billable now' : 'Next date'}
-          value={summary?.dueLines ? money(summary.dueValue, currency) : prettyDay(summary?.nextDueDate)}
+          value={summary?.dueLines ? formatMoney(summary.dueValue, currency) : prettyDay(summary?.nextDueDate)}
           hint={summary?.dueLines ? `${summary.dueLines} date${summary.dueLines === 1 ? '' : 's'} open` : (summary?.complete ? 'Plan complete' : 'Not yet due')}
           empty={false}
         />

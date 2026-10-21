@@ -9,6 +9,7 @@ import {
 } from '@/components/console/primitives';
 import { useListQuery } from '@/components/console/useListQuery';
 import { hasPendingInvoicePlanChange } from '@/features/purchase-order/poKind';
+import { formatMoney } from '@/lib/money';
 
 // Every purchase order this workspace has raised, across every supplier —
 // the buyer/finance/client_admin view of what suppliers/[id]'s "Recent
@@ -20,10 +21,6 @@ import { hasPendingInvoicePlanChange } from '@/features/purchase-order/poKind';
 // the invoicing plan on a line (the detail page) and — the one exception, added
 // deliberately and scoped to capex — raising an *asset* PO, which SAP creates
 // and numbers on submission (ADR-0042, new-asset/page.jsx).
-
-const money = (value, currency = 'INR') =>
-  new Intl.NumberFormat('en-IN', { style: 'currency', currency, maximumFractionDigits: 0 })
-    .format(Number(value || 0));
 
 const orderValue = (po) => (po.items || []).reduce((sum, item) => sum + Number(item.netValue || 0), 0);
 
@@ -97,7 +94,7 @@ export default function WorkspacePurchaseOrdersPage() {
               ) : <span className="mono">{row.vendorId}</span>),
             },
             { key: 'lines', header: 'Lines', align: 'right', render: (row) => (row.items || []).length },
-            { key: 'value', header: 'Value', align: 'right', render: (row) => <span className="mono">{money(orderValue(row), row.currency)}</span> },
+            { key: 'value', header: 'Value', align: 'right', render: (row) => <span className="mono">{formatMoney(orderValue(row), row.currency)}</span> },
             { key: 'status', header: 'Status', render: (row) => <Status value={row.status} /> },
             // A supplier's proposed invoicing-plan change (approved/rejected
             // on the order's own detail page) was previously invisible from

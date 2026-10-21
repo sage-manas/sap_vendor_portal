@@ -9,7 +9,8 @@ import KPICard, { KPIStrip } from '@/components/ui/KPICard';
 import { PageHeader } from '@/components/ui/Page';
 import { Section } from '@/components/ui/Card';
 import { DropdownMenu, Tabs } from '@/components/ui/controls';
-import { BucketBar, ColumnChart, RankedBars, StepLineChart, inrFull } from '@/components/ui/charts';
+import { BucketBar, ColumnChart, RankedBars, StepLineChart } from '@/components/ui/charts';
+import { formatAmount, formatMoney } from '@/lib/money';
 import { msmeStatusVariant, paymentStatusVariant } from '@/lib/statusColors';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { usePortal } from '@/lib/portal-context';
@@ -41,10 +42,6 @@ const MSME_PAYMENT_DAYS = 45;
 
 // Amounts arrive as Decimal strings from the API.
 const money = (value) => Number(value) || 0;
-
-// Exact figure without the currency sign — tables carry ₹ in the header.
-const amount = (value) =>
-  money(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const percent = (numerator, denominator) =>
   denominator > 0 ? `${((numerator / denominator) * 100).toFixed(1)}%` : '—';
@@ -214,7 +211,7 @@ export default function ReportsAnalyticsView({ state }) {
     { key: 'code', header: 'Material', mono: true, primary: true },
     { key: 'group', header: 'Description', wrap: true },
     { key: 'poCount', header: 'Orders', align: 'right', mono: true },
-    { key: 'spend', header: 'Order value (₹)', align: 'right', render: (r) => <span className="mono">{amount(r.spend)}</span> },
+    { key: 'spend', header: 'Order value (₹)', align: 'right', render: (r) => <span className="mono">{formatAmount(r.spend)}</span> },
   ];
 
   const ageingColumns = [
@@ -223,7 +220,7 @@ export default function ReportsAnalyticsView({ state }) {
     { key: 'date', header: 'Invoice date', render: (r) => displayDate(r.rawDate) },
     { key: 'invoiceStatus', header: 'Status', render: (r) => (r.invoiceStatus ? <StatusBadge label={r.invoiceStatus} /> : '—') },
     { key: 'days', header: 'Age (days)', align: 'right', mono: true },
-    { key: 'amount', header: 'Amount (₹)', align: 'right', render: (r) => <span className="mono">{amount(r.amount)}</span> },
+    { key: 'amount', header: 'Amount (₹)', align: 'right', render: (r) => <span className="mono">{formatAmount(r.amount)}</span> },
     // What is still owed on it, which is not the same as the total: a
     // part-settled invoice owes its balance, and a decided one owes nothing
     // (issue #283). The buckets above are built from this, not from `amount`.
@@ -231,7 +228,7 @@ export default function ReportsAnalyticsView({ state }) {
       key: 'outstanding',
       header: 'Outstanding (₹)',
       align: 'right',
-      render: (r) => (r.outstanding > 0 ? <span className="mono">{amount(r.outstanding)}</span> : <span className="text-fg-subtle">—</span>),
+      render: (r) => (r.outstanding > 0 ? <span className="mono">{formatAmount(r.outstanding)}</span> : <span className="text-fg-subtle">—</span>),
     },
     {
       key: 'msme',
@@ -247,9 +244,9 @@ export default function ReportsAnalyticsView({ state }) {
     { key: 'type', header: 'Type' },
     { key: 'doc', header: 'Reference', mono: true },
     { key: 'desc', header: 'Description', wrap: true },
-    { key: 'debit', header: 'Debit (₹)', align: 'right', render: (r) => (r.debit > 0 ? <span className="mono">{amount(r.debit)}</span> : <span className="text-fg-subtle">—</span>) },
-    { key: 'credit', header: 'Credit (₹)', align: 'right', render: (r) => (r.credit > 0 ? <span className="mono">{amount(r.credit)}</span> : <span className="text-fg-subtle">—</span>) },
-    { key: 'balance', header: 'Balance (₹)', align: 'right', render: (r) => <span className="mono font-medium">{amount(r.balance)}</span> },
+    { key: 'debit', header: 'Debit (₹)', align: 'right', render: (r) => (r.debit > 0 ? <span className="mono">{formatAmount(r.debit)}</span> : <span className="text-fg-subtle">—</span>) },
+    { key: 'credit', header: 'Credit (₹)', align: 'right', render: (r) => (r.credit > 0 ? <span className="mono">{formatAmount(r.credit)}</span> : <span className="text-fg-subtle">—</span>) },
+    { key: 'balance', header: 'Balance (₹)', align: 'right', render: (r) => <span className="mono font-medium">{formatAmount(r.balance)}</span> },
     { key: 'status', header: 'Status', render: (r) => <StatusBadge label={r.status} variant={paymentStatusVariant(r.status)} /> },
   ];
 
@@ -286,9 +283,9 @@ export default function ReportsAnalyticsView({ state }) {
         {detailTab === 'procurement' && (
           <div className="pt-6">
             <div className="flex flex-wrap gap-x-12 gap-y-5">
-              <KPICard size="hero" label="Total order value" value={<span className="mono">{inrFull(po?.totalValue)}</span>} empty={!po?.totalValue} />
+              <KPICard size="hero" label="Total order value" value={<span className="mono">{formatMoney(po?.totalValue)}</span>} empty={!po?.totalValue} />
               <KPICard size="hero" label="Purchase orders" value={po ? po.total : '—'} empty={!po} />
-              <KPICard size="hero" label="Open orders" value={po ? po.inFlightCount : '—'} empty={!po} hint={po?.inFlightCount ? `${inrFull(po.inFlightValue)} still open` : 'Nothing open'} />
+              <KPICard size="hero" label="Open orders" value={po ? po.inFlightCount : '—'} empty={!po} hint={po?.inFlightCount ? `${formatMoney(po.inFlightValue)} still open` : 'Nothing open'} />
               <KPICard size="hero"
                 label="RFQs you quoted on"
                 value={summary?.rfqs.invited ? percent(summary.rfqs.quoted, summary.rfqs.invited) : '—'}
@@ -302,7 +299,7 @@ export default function ReportsAnalyticsView({ state }) {
                 {!po
                   ? <p className="py-2 text-sm text-fg-muted">Loading your order history…</p>
                   : byMonth.length
-                  ? <ColumnChart data={byMonth} ariaLabel={`Order value by month: ${byMonth.map((m) => `${m.label} ${inrFull(m.value)}`).join(', ')}`} />
+                  ? <ColumnChart data={byMonth} ariaLabel={`Order value by month: ${byMonth.map((m) => `${m.label} ${formatMoney(m.value)}`).join(', ')}`} />
                   : <p className="py-2 text-sm text-fg-muted">Nothing to chart yet.</p>}
               </div>
             </Section>
@@ -340,7 +337,7 @@ export default function ReportsAnalyticsView({ state }) {
                 empty={po ? 'No purchase orders yet.' : 'Loading your orders…'}
                 totals={spendData.length > 1 ? {
                   label: `${spendData.length} materials`,
-                  spend: <span className="mono">{amount(po?.totalValue)}</span>,
+                  spend: <span className="mono">{formatAmount(po?.totalValue)}</span>,
                 } : undefined}
               />
             </Section>
@@ -388,8 +385,8 @@ export default function ReportsAnalyticsView({ state }) {
 
             <Section className="mt-8" title="Tax and processing">
               <KPIStrip>
-                <KPICard label="TDS deducted" value={<span className="mono">{inrFull(pmt?.tdsTotal)}</span>} empty={!pmt?.tdsTotal} hint="Across all payments" />
-                <KPICard label="GST charged" value={<span className="mono">{inrFull(inv?.taxTotal)}</span>} empty={!inv?.taxTotal} hint="On your invoices" />
+                <KPICard label="TDS deducted" value={<span className="mono">{formatMoney(pmt?.tdsTotal)}</span>} empty={!pmt?.tdsTotal} hint="Across all payments" />
+                <KPICard label="GST charged" value={<span className="mono">{formatMoney(inv?.taxTotal)}</span>} empty={!inv?.taxTotal} hint="On your invoices" />
                 <KPICard
                   label="Paid and cleared"
                   value={inv?.total ? `${inv.clearedCount} of ${inv.total}` : '—'}
@@ -412,10 +409,10 @@ export default function ReportsAnalyticsView({ state }) {
         {detailTab === 'selfservice' && (
           <div className="pt-6">
             <KPIStrip>
-              <KPICard label="Open order value" value={<span className="mono">{inrFull(po?.inFlightValue)}</span>} empty={!po?.inFlightValue} />
+              <KPICard label="Open order value" value={<span className="mono">{formatMoney(po?.inFlightValue)}</span>} empty={!po?.inFlightValue} />
               {/* What is still owed: open invoices, net of part payments. */}
-              <KPICard label="Awaiting payment" value={<span className="mono">{inrFull(inv?.openValue)}</span>} empty={!inv?.openValue} />
-              <KPICard label="Ledger balance" value={<span className="mono">{inrFull(summary?.ledgerBalance)}</span>} empty={!summary?.ledgerBalance} />
+              <KPICard label="Awaiting payment" value={<span className="mono">{formatMoney(inv?.openValue)}</span>} empty={!inv?.openValue} />
+              <KPICard label="Ledger balance" value={<span className="mono">{formatMoney(summary?.ledgerBalance)}</span>} empty={!summary?.ledgerBalance} />
               <KPICard label="Supplier score" value={performance.weightedScore == null ? '—' : `${performance.weightedScore} / 100`} empty={performance.weightedScore == null} />
             </KPIStrip>
 

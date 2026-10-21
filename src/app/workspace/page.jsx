@@ -8,12 +8,11 @@ import { useWorkspaceSession } from '@/lib/workspace-session';
 import { PageHeader, Notice, Loading, useResource } from '@/components/console/primitives';
 import Card, { Section } from '@/components/ui/Card';
 import KPICard, { KPIStrip } from '@/components/ui/KPICard';
+import { formatMoney } from '@/lib/money';
 
 // The tenant overview: what needs a decision today, measured against the
 // thresholds this workspace set for itself. Every number is a link to the
 // screen that acts on it — a count with nowhere to go is a decoration.
-
-const money = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 // One row of "Needs a decision": the count, what it means, and where to act.
 const Task = ({ count, children, href, cta }) => (
@@ -45,7 +44,7 @@ export default function WorkspaceOverviewPage() {
     ),
     data.finance.invoicesOverThreshold > 0 && (
       <Task key="invoices" count={data.finance.invoicesOverThreshold} href="/workspace/invoices" cta="Open invoices">
-        Invoice{data.finance.invoicesOverThreshold === 1 ? '' : 's'} at or above the {money(data.finance.reviewAmount)} review amount
+        Invoice{data.finance.invoicesOverThreshold === 1 ? '' : 's'} at or above the {formatMoney(data.finance.reviewAmount)} review amount
       </Task>
     ),
   ].filter(Boolean) : [];
@@ -119,21 +118,21 @@ export default function WorkspaceOverviewPage() {
               <KPICard
                 label="Invoices not yet cleared"
                 value={data.finance.invoicesOpen}
-                hint={`${money(data.finance.invoicesOpenValue)} still owed of ${money(data.finance.invoicesOpenFaceValue)} invoiced`}
+                hint={`${formatMoney(data.finance.invoicesOpenValue)} still owed of ${formatMoney(data.finance.invoicesOpenFaceValue)} invoiced`}
                 href="/workspace/invoices?view=open"
                 linkLabel="Invoices"
               />
               <KPICard
                 label="Above the review amount"
                 value={data.finance.invoicesOverThreshold}
-                hint={`At or above ${money(data.finance.reviewAmount)}`}
+                hint={`At or above ${formatMoney(data.finance.reviewAmount)}`}
                 delta={data.finance.invoicesOverThreshold > 0 ? 'Needs review' : undefined}
                 deltaTone="down"
                 href={`/workspace/invoices?view=open&minAmount=${data.finance.reviewAmount}`}
                 linkLabel="Invoices"
               />
-              <KPICard label="Payments made" value={data.finance.payments.count} hint={money(data.finance.payments.netPaid)} href="/workspace/payments" linkLabel="Payments" />
-              <KPICard label="TDS deducted" value={money(data.finance.payments.tdsDeducted)} href="/workspace/payments" linkLabel="Payments" />
+              <KPICard label="Payments made" value={data.finance.payments.count} hint={formatMoney(data.finance.payments.netPaid)} href="/workspace/payments" linkLabel="Payments" />
+              <KPICard label="TDS deducted" value={formatMoney(data.finance.payments.tdsDeducted)} href="/workspace/payments" linkLabel="Payments" />
             </KPIStrip>
           </Section>
 

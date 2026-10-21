@@ -8,6 +8,7 @@ import {
 } from '@/components/console/primitives';
 import { useListQuery } from '@/components/console/useListQuery';
 import { paymentInvoiceLabel } from '@/lib/paymentInvoiceLabel';
+import { formatMoney } from '@/lib/money';
 
 // Every settlement made against this workspace's invoices, across every
 // supplier, plus the TDS deducted along the way — the finance (and
@@ -28,10 +29,6 @@ import { paymentInvoiceLabel } from '@/lib/paymentInvoiceLabel';
 //   - "TDS deducted, by supplier" (?byVendor=true) is where that same money
 //     is broken out per supplier instead, each row correctly carrying its
 //     own PAN/section where SAP has supplied one.
-
-const money = (value, currency = 'INR') =>
-  new Intl.NumberFormat('en-IN', { style: 'currency', currency, maximumFractionDigits: 0 })
-    .format(Number(value || 0));
 
 const SectionTitle = ({ children }) => (
   <h2 className="text-base font-semibold text-fg">{children}</h2>
@@ -72,9 +69,9 @@ export default function WorkspacePaymentsPage() {
                 { key: 'id', header: 'Payment', render: (row) => <span className="mono">{row.id}</span> },
                 { key: 'vendorId', header: 'Supplier' },
                 { key: 'invoiceRefs', header: 'Invoice', render: (row) => <span className="mono">{paymentInvoiceLabel(row) || '—'}</span> },
-                { key: 'grossAmount', header: 'Gross', align: 'right', render: (row) => <span className="mono">{money(row.grossAmount)}</span> },
-                { key: 'tdsDeducted', header: 'TDS', align: 'right', render: (row) => <span className="mono">{money(row.tdsDeducted)}</span> },
-                { key: 'netAmount', header: 'Net', align: 'right', render: (row) => <span className="mono">{money(row.netAmount)}</span> },
+                { key: 'grossAmount', header: 'Gross', align: 'right', render: (row) => <span className="mono">{formatMoney(row.grossAmount)}</span> },
+                { key: 'tdsDeducted', header: 'TDS', align: 'right', render: (row) => <span className="mono">{formatMoney(row.tdsDeducted)}</span> },
+                { key: 'netAmount', header: 'Net', align: 'right', render: (row) => <span className="mono">{formatMoney(row.netAmount)}</span> },
                 { key: 'utrCode', header: 'UTR', render: (row) => <span className="mono">{row.utrCode || '—'}</span> },
                 { key: 'paymentMethod', header: 'Method' },
                 { key: 'paymentDate', header: 'Paid', render: (row) => <span className="whitespace-nowrap">{formatDate(row.paymentDate)}</span> },
@@ -103,8 +100,8 @@ export default function WorkspacePaymentsPage() {
               columns={[
                 { key: 'quarter', header: 'Quarter', render: (row) => `${row.fiscalYearLabel} ${row.quarterLabel}` },
                 { key: 'paymentCount', header: 'Payments', align: 'right', render: (row) => <span className="mono">{row.paymentCount}</span> },
-                { key: 'grossPaid', header: 'Gross paid', align: 'right', render: (row) => <span className="mono">{money(row.grossPaid)}</span> },
-                { key: 'taxWithheld', header: 'Tax withheld', align: 'right', render: (row) => <span className="mono">{money(row.taxWithheld)}</span> },
+                { key: 'grossPaid', header: 'Gross paid', align: 'right', render: (row) => <span className="mono">{formatMoney(row.grossPaid)}</span> },
+                { key: 'taxWithheld', header: 'Tax withheld', align: 'right', render: (row) => <span className="mono">{formatMoney(row.taxWithheld)}</span> },
                 { key: 'section', header: 'Section', render: (row) => row.section || '—' },
               ]}
               rows={quarterRows.map((row) => ({ ...row, key: row.id }))}
@@ -126,7 +123,7 @@ export default function WorkspacePaymentsPage() {
                 { key: 'quarter', header: 'Quarter', render: (row) => `${row.fiscalYearLabel} ${row.quarterLabel}` },
                 { key: 'vendorId', header: 'Supplier' },
                 { key: 'paymentCount', header: 'Payments', align: 'right', render: (row) => <span className="mono">{row.paymentCount}</span> },
-                { key: 'taxWithheld', header: 'Tax withheld', align: 'right', render: (row) => <span className="mono">{money(row.taxWithheld)}</span> },
+                { key: 'taxWithheld', header: 'Tax withheld', align: 'right', render: (row) => <span className="mono">{formatMoney(row.taxWithheld)}</span> },
                 { key: 'deducteePan', header: 'PAN', render: (row) => row.deducteePan || '—' },
               ]}
               rows={vendorRows.map((row) => ({ ...row, key: row.id }))}

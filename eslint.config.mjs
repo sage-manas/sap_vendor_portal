@@ -11,6 +11,32 @@ const eslintConfig = defineConfig([
   // runs it, with no path argument) walk the dependency tree until it blew the
   // call stack. `mongodb_data/**` is the committed WiredTiger data directory —
   // binary, and equally not source.
+  // Money is formatted in exactly one place, `src/lib/money.js` (issue #285).
+  // Four staff pages had each grown their own `Intl.NumberFormat` helper, and
+  // one of them rounded to whole rupees, so the same invoice read ₹1,235 on
+  // the workspace invoice list and ₹1,234.56 on the supplier detail page.
+  {
+    files: ["src/**/*.{js,jsx,ts,tsx}"],
+    ignores: ["src/lib/money.js", "src/lib/money.test.js"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "ObjectExpression:has(Property[key.name='style'][value.value='currency'])",
+          message:
+            "Format money with formatMoney/formatAmount/formatMoneyCompact from '@/lib/money' instead of building an Intl currency formatter here.",
+        },
+        {
+          selector:
+            "CallExpression[callee.property.name='toLocaleString'] ObjectExpression:has(Property[key.name=/FractionDigits$/][value.value=0])",
+          message:
+            "Rounding to whole units hides paise. Use formatMoney/formatAmount from '@/lib/money', or formatMoneyCompact for a KPI tile or chart axis.",
+        },
+      ],
+    },
+  },
+
   globalIgnores([
     // Default ignores of eslint-config-next:
     "node_modules/**",
