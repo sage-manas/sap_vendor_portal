@@ -15,6 +15,13 @@ export function useInvoices(profile) {
   const [invoicesLoaded, setInvoicesLoaded] = useState(false);
   const [sapMiroDocuments, setSapMiroDocuments] = useState(null);
   const [sapPaymentDetails, setSapPaymentDetails] = useState(null);
+  // Whether the MIRO cross-check was answered at all — 'loading' | 'ready' |
+  // 'error' — because an unanswered check and an empty answer are different
+  // things to tell a supplier. The same signal usePOs.js already keeps for
+  // the PO/GRN ledger; without it `sapMiroDocuments === null` means both
+  // "still asking" and "the ask failed", and the Confirmed column spins
+  // forever on a failure (issue #300).
+  const [sapMiroStatus, setSapMiroStatus] = useState('loading');
 
   const persistLocally = (updated) => {
     try {
@@ -46,14 +53,23 @@ export function useInvoices(profile) {
 
   const refreshSapMiroStatus = async () => {
     if (typeof window !== 'undefined' && (!localStorage.getItem('jwt_token') || hasOwnChrome(window.location.pathname))) return;
+    setSapMiroStatus('loading');
     try {
       const data = await invoiceService.getSapStatus();
-      if (data) {
-        setSapMiroDocuments(data.documents);
-        setSapPaymentDetails(data.paymentDetails || {});
+      // `data` is null for a connectivity error (api-client's convention) and
+      // for anything invoiceService's own catch swallowed. A body without
+      // `documents` is a contract change, not an empty ledger — say so rather
+      // than rendering it as "nothing on file". Mirrors usePOs.js.
+      if (!data || !Array.isArray(data.documents)) {
+        setSapMiroStatus('error');
+        return;
       }
+      setSapMiroDocuments(data.documents);
+      setSapPaymentDetails(data.paymentDetails || {});
+      setSapMiroStatus('ready');
     } catch (e) {
-      console.error(e);
+      console.error('Failed to fetch SAP MIRO status', e);
+      setSapMiroStatus('error');
     }
   };
 
@@ -67,7 +83,9 @@ export function useInvoices(profile) {
     invoices,
     invoicesLoaded,
     sapMiroDocuments,
+    sapMiroStatus,
     sapPaymentDetails,
-    refreshInvoices
+    refreshInvoices,
+    retrySapMiroStatus: refreshSapMiroStatus
   };
 }
