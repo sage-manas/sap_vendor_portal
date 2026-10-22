@@ -19,12 +19,19 @@ const SENTINEL = 'postgresql://sentinel:sentinel@localhost:5432/sentinel';
 // A developer machine has backend/.env; CI does not. Rather than skip there —
 // which would leave the defect unguarded exactly where it would be caught —
 // write a throwaway one for the duration, and never touch a real file.
+//
+// 'wx' rather than exists-then-write: the two-step version is a race (CodeQL
+// flags it, and rightly — a .env appearing in the gap would be overwritten,
+// then deleted in afterAll). This way the create either wins or reports
+// EEXIST, and only a file we know we created is cleaned up.
 let wroteEnvFile = false;
 
 beforeAll(() => {
-  if (!fs.existsSync(ENV_FILE)) {
-    fs.writeFileSync(ENV_FILE, `DATABASE_URL=${SENTINEL}\n`);
+  try {
+    fs.writeFileSync(ENV_FILE, `DATABASE_URL=${SENTINEL}\n`, { flag: 'wx' });
     wroteEnvFile = true;
+  } catch (error) {
+    if (error.code !== 'EEXIST') throw error; // a real .env is already there
   }
 });
 
