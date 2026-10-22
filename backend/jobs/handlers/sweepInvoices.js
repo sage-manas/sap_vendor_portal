@@ -133,33 +133,49 @@ const buildItems = (document, clientId) => (document.items || []).map((item, ind
 });
 
 // Genuinely unsolicited: SAP has an invoice for this vendor's PO the portal
-// has never seen. `Invoice.grnId`/`invoicePlanRef` are mutually exclusive
-// and exactly one must be set (a database CHECK constraint — see the
-// initial migration) — a portal-side submission always named the specific
-// receipt or plan date it billed, but a MIRO document carries no GRN
-// reference of its own (invoice verification here is PO/line-level, not
-// GRN-level). The best correlation available without one is the oldest
-// receipt against this PO still awaiting an invoice; claiming it is
-// expressed as the conditional `updateMany` issue #72 itself suggested, so
-// a concurrent sweep tick racing for the same receipt loses cleanly instead
-// of both creating an invoice for it. A PO with every receipt already
-// invoiced (or none at all) has nothing this sweep can claim, so the
-// document is left for the next tick — by then either a new receipt has
-// arrived or a human needs to look at why AP invoiced a PO the portal shows
-// nothing outstanding on.
+// has never seen. A MIRO document carries no GRN reference of its own
+// (invoice verification here is PO/line-level, not GRN-level), so the best
+// correlation available is the oldest receipt against this PO still awaiting
+// an invoice; claiming it is expressed as the conditional `updateMany` issue
+// #72 itself suggested, so a concurrent sweep tick racing for the same
+// receipt loses cleanly instead of both creating an invoice for it.
+//
+// With no receipt left to claim, what happens next is the vendor master's
+// call, not a guess:
+//
+//   - GR-based invoice verification OFF (`grBasedInvoiceVerification`, the
+//     default here) — AP is entitled to post MIRO straight against the PO,
+//     so there is no receipt coming and nothing to wait for. The invoice is
+//     real and gets a row anchored to the PO alone, `grnId` null. Before
+//     20261022120000_invoice_po_only a database CHECK forbade exactly that
+//     row, which is why such a document was invisible to the supplier and
+//     silently rediscovered every tick (issue #300).
+//
+//   - ON — a receipt must precede the invoice, so this is the transient
+//     state the old comment here assumed every case was: either the next
+//     tick finds the receipt that arrived in between, or AP has invoiced a
+//     PO the portal shows nothing outstanding on and a human needs to look.
+//     Deferring is right; doing it silently was not, so it is logged.
 async function createDiscoveredInvoice({ clientId, vendor, po, document }) {
   const created = await prisma.$transaction(async (tx) => {
     const candidate = await tx.gRN.findFirst({
       where: { poId: po.id, invoiceSubmitted: false },
       orderBy: { postingDate: 'asc' },
     });
-    if (!candidate) return null;
 
-    const claim = await tx.gRN.updateMany({
-      where: { pk: candidate.pk, invoiceSubmitted: false },
-      data: { invoiceSubmitted: true },
-    });
-    if (claim.count === 0) return null; // lost the race to another sweep tick
+    if (candidate) {
+      const claim = await tx.gRN.updateMany({
+        where: { pk: candidate.pk, invoiceSubmitted: false },
+        data: { invoiceSubmitted: true },
+      });
+      if (claim.count === 0) return null; // lost the race to another sweep tick
+    } else if (vendor.grBasedInvoiceVerification) {
+      logger.warn(
+        `[jobs] sweepInvoices deferring SAP ${document.miroDoc} for vendor ${vendor.vendorId}: `
+        + `PO ${po.id} has no un-invoiced goods receipt and the vendor master requires GR-based invoice verification`,
+      );
+      return null;
+    }
 
     const subTotal = Number(document.taxableAmount) || 0;
     const totalAmount = Number(document.grossAmount) || 0;
@@ -170,7 +186,7 @@ async function createDiscoveredInvoice({ clientId, vendor, po, document }) {
     return tx.invoice.create({
       data: {
         id,
-        grnId: candidate.id,
+        ...(candidate ? { grnId: candidate.id } : {}),
         poId: po.id,
         vendorId: vendor.vendorId,
         invoiceNumber: document.miroDoc,

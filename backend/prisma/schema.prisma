@@ -864,10 +864,14 @@ model Invoice {
   clientId String
   id       String
 
-  // Required for a GRN-matched invoice; null for one raised against an
-  // invoicing-plan entry — see invoicePlanRef below. Enforced mutually
-  // exclusive via the CHECK constraint added in the initial migration SQL
-  // (Prisma cannot express cross-field CHECK constraints natively).
+  // Set for a GRN-matched invoice; null for one raised against an
+  // invoicing-plan entry (see invoicePlanRef below) and null again for one
+  // AP posted straight against the PO, which is what a MIRO document is
+  // whenever the vendor master has GR-based invoice verification off. The
+  // two are mutually exclusive but neither is required — enforced via the
+  // CHECK constraint relaxed in 20261022120000_invoice_po_only (Prisma
+  // cannot express cross-field CHECK constraints natively). `poId` below is
+  // the anchor every invoice does have.
   grnId String?
   grn   GRN?    @relation(fields: [clientId, grnId], references: [clientId, id])
 

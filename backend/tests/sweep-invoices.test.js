@@ -7,14 +7,19 @@ const { runWithTenant } = require('../utils/tenantContext');
 const { buildTransientAdapter } = require('../sap');
 const sweepInvoices = require('../jobs/handlers/sweepInvoices');
 const { seedClient } = require('./helpers');
+const logger = require('../utils/logger');
 
-const seedVendor = (clientId, vendorId, sapVendorCode) => runWithTenant(clientId, () => prisma.vendor.create({
+// `grBasedInvoiceVerification` defaults to false in the schema, matching the
+// vendor master default: AP may post MIRO straight against the PO. Tests
+// that need a receipt to be mandatory before an invoice pass it explicitly.
+const seedVendor = (clientId, vendorId, sapVendorCode, overrides = {}) => runWithTenant(clientId, () => prisma.vendor.create({
   data: {
     vendorId, sapVendorCode,
     companyName: `${vendorId} Pvt Ltd`,
     gstin: `27AAAAA${vendorId.slice(-4).padStart(4, '0')}A1Z${vendorId.length % 10}`,
     pan: `AAAAA${vendorId.slice(-4).padStart(4, '0')}A`,
     email: `${vendorId}@example.com`,
+    ...overrides,
   },
 }));
 
@@ -149,15 +154,73 @@ describe('sweepInvoices discovery', () => {
     expect(reloadedGrn.invoiceSubmitted).toBe(false);
   });
 
-  it('skips a document when the PO has no un-invoiced GRN to claim', async () => {
-    await seedVendor('CLT-0001', 'vendor_inv_5', 'VENINV5');
+  // Issue #300: AP posted MIRO 5105609771 against a PO with zero goods
+  // receipts on a vendor whose master has GR-based invoice verification off.
+  // That is a legal posting, so the invoice is real and the supplier has to
+  // be able to see it — there is no receipt to wait for and none coming.
+  it('creates an invoice against the PO alone when the vendor does not require GR-based invoice verification', async () => {
+    await seedVendor('CLT-0001', 'vendor_inv_5', 'VENINV5', { grBasedInvoiceVerification: false });
     const po = await seedPo('CLT-0001', { id: 'PO-INVSWEEP-5', vendorId: 'vendor_inv_5' });
-    await seedGrn('CLT-0001', { id: 'GRN-INVSWEEP-5', poId: po.id, vendorId: 'vendor_inv_5', invoiceSubmitted: true });
 
-    await runSweep('CLT-0001', { invoice: [discoveryInvoice(po.id)] });
+    await runSweep('CLT-0001', { invoice: [discoveryInvoice(po.id, { sapMiroDoc: 'MIRO-NO-GRN-5' })] });
 
-    const count = await runWithTenant('CLT-0001', () => prisma.invoice.count({ where: { poId: po.id } }));
-    expect(count).toBe(0);
+    const invoice = await runWithTenant('CLT-0001', () => prisma.invoice.findFirst({
+      where: { poId: po.id }, include: { items: true },
+    }));
+    expect(invoice).toBeTruthy();
+    expect(invoice.grnId).toBeNull();
+    expect(invoice.sapMiroDoc).toBe('MIRO-NO-GRN-5');
+    expect(invoice.sapSyncState).toBe('synced');
+    expect(Number(invoice.totalAmount)).toBe(590);
+    expect(invoice.items).toHaveLength(1);
+  });
+
+  // Same shape, but every receipt on the PO is already invoiced rather than
+  // absent: still nothing to claim, still a legal posting.
+  it('creates a PO-only invoice when every receipt on the PO is already invoiced', async () => {
+    await seedVendor('CLT-0001', 'vendor_inv_5b', 'VENINV5B', { grBasedInvoiceVerification: false });
+    const po = await seedPo('CLT-0001', { id: 'PO-INVSWEEP-5B', vendorId: 'vendor_inv_5b' });
+    await seedGrn('CLT-0001', { id: 'GRN-INVSWEEP-5B', poId: po.id, vendorId: 'vendor_inv_5b', invoiceSubmitted: true });
+
+    await runSweep('CLT-0001', { invoice: [discoveryInvoice(po.id, { sapMiroDoc: 'MIRO-NO-GRN-5B' })] });
+
+    const invoice = await runWithTenant('CLT-0001', () => prisma.invoice.findFirst({ where: { poId: po.id } }));
+    expect(invoice).toBeTruthy();
+    expect(invoice.grnId).toBeNull();
+  });
+
+  // A free receipt is still the better correlation when one exists — the
+  // vendor master flag only decides what happens when there is none.
+  it('still claims an un-invoiced GRN when one exists, GR-based verification off or not', async () => {
+    await seedVendor('CLT-0001', 'vendor_inv_5c', 'VENINV5C', { grBasedInvoiceVerification: false });
+    const po = await seedPo('CLT-0001', { id: 'PO-INVSWEEP-5C', vendorId: 'vendor_inv_5c' });
+    const grn = await seedGrn('CLT-0001', { id: 'GRN-INVSWEEP-5C', poId: po.id, vendorId: 'vendor_inv_5c' });
+
+    await runSweep('CLT-0001', { invoice: [discoveryInvoice(po.id, { sapMiroDoc: 'MIRO-GRN-5C' })] });
+
+    const invoice = await runWithTenant('CLT-0001', () => prisma.invoice.findFirst({ where: { poId: po.id } }));
+    expect(invoice.grnId).toBe(grn.id);
+  });
+
+  // The one case where deferring is still correct: the vendor master says a
+  // receipt must precede the invoice, so one is genuinely outstanding.
+  it('defers a document when the vendor requires GR-based invoice verification and no receipt is free', async () => {
+    await seedVendor('CLT-0001', 'vendor_inv_5d', 'VENINV5D', { grBasedInvoiceVerification: true });
+    const po = await seedPo('CLT-0001', { id: 'PO-INVSWEEP-5D', vendorId: 'vendor_inv_5d' });
+    await seedGrn('CLT-0001', { id: 'GRN-INVSWEEP-5D', poId: po.id, vendorId: 'vendor_inv_5d', invoiceSubmitted: true });
+
+    const warn = jest.spyOn(logger, 'warn').mockImplementation(() => {});
+    try {
+      await runSweep('CLT-0001', { invoice: [discoveryInvoice(po.id, { sapMiroDoc: 'MIRO-DEFER-5D' })] });
+
+      const count = await runWithTenant('CLT-0001', () => prisma.invoice.count({ where: { poId: po.id } }));
+      expect(count).toBe(0);
+
+      // Deferring silently was half of why #300 was invisible from outside.
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('MIRO-DEFER-5D'));
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('skips a document whose PO the portal has no record of', async () => {
@@ -172,7 +235,9 @@ describe('sweepInvoices discovery', () => {
   // SAP's answer is identical on both ticks — only the portal's side changed
   // (the receipt arrived) — so a fingerprint-only shortcut would never retry.
   it('picks up a deferred document once its goods receipt arrives, even though SAP’s answer is unchanged', async () => {
-    await seedVendor('CLT-0001', 'vendor_inv_8', 'VENINV8');
+    // GR-based verification on, or there would be nothing to defer: the
+    // receipt is what this vendor's master requires before an invoice.
+    await seedVendor('CLT-0001', 'vendor_inv_8', 'VENINV8', { grBasedInvoiceVerification: true });
     const po = await seedPo('CLT-0001', { id: 'PO-INVSWEEP-8', vendorId: 'vendor_inv_8' });
     const doc = discoveryInvoice(po.id, { sapMiroDoc: 'MIRO-DEFERRED-8' });
 

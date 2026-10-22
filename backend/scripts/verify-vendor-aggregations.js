@@ -90,9 +90,10 @@ async function main() {
       items: { create: [{ clientId: 'CLT-0002', line: 10, materialCode: 'X', quantity: 1, unitPrice: 999999, netValue: 999999 }] } },
   }));
 
-  // Invoice.grnId/invoicePlanRef are an XOR (a real DB CHECK constraint added
-  // during the migration) — these are plan-style invoices for test simplicity,
-  // since manufacturing a real GRN for each would be unnecessary ceremony here.
+  // Invoice.grnId/invoicePlanRef are mutually exclusive (a real DB CHECK
+  // constraint; since 20261022120000_invoice_po_only neither is required) —
+  // these are plan-style invoices for test simplicity, since manufacturing a
+  // real GRN for each would be unnecessary ceremony here.
   const fakePlanRef = { line: 10, planLineNumber: 1, planType: 'Periodic', settlementDate: new Date().toISOString() };
   await runWithTenant('CLT-0001', () => prisma.invoice.create({
     data: {
