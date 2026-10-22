@@ -1,7 +1,8 @@
 import React from 'react';
-import { CheckCircle2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2 } from 'lucide-react';
 import StatusBadge from '@/components/ui/StatusBadge';
 import Spinner from '@/components/ui/Spinner';
+import { Button } from '@/components/ui/button';
 import DataTable from '@/components/ui/DataTable';
 import { PageHeader } from '@/components/ui/Page';
 import { invoiceStatusVariant } from '@/lib/statusColors';
@@ -34,15 +35,74 @@ export default function InvoiceProcessingView({ state }) {
   const sapMiroDocNumbers = new Set((sapMiroDocuments || []).map(d => d.miroDoc).filter(Boolean));
   const isConfirmedInSap = (inv) => Boolean(inv.sapMiroDoc) && sapMiroDocNumbers.has(inv.sapMiroDoc);
   const sapPaymentDetails = state.sapPaymentDetails || {};
+  const sapMiroStatus = state.sapMiroStatus ?? 'loading';
+  const retrySapMiroStatus = state.retrySapMiroStatus;
+
+  // One list, not two — the same rule PurchaseOrdersView applies to an order
+  // SAP raised directly. An invoice AP posted (MIRO) is real whether or not
+  // jobs/handlers/sweepInvoices.js has recorded it here, so it belongs in
+  // this table, carrying `sapOnly` so the row is honest that nothing here is
+  // tracking it yet.
+  //
+  // This is not only the gap between SAP posting and the next sweep. Where
+  // AP invoiced a PO with no goods receipt — legal whenever the vendor
+  // master has GR-based invoice verification off — the sweep can create no
+  // row at all, because an Invoice must hang off a GRN or an invoicing-plan
+  // date (a database CHECK). Until that is fixed (issue #300), this is the
+  // only place such an invoice is visible to the supplier at all.
+  const trackedMiroDocs = new Set((submittedInvoices || []).map(inv => inv.sapMiroDoc).filter(Boolean));
+  const poNumberOf = (document) =>
+    (document.items || []).map(item => item.poNumber).filter(Boolean)[0] || document.poNumber || null;
+
+  const sapOnlyInvoices = (Array.isArray(sapMiroDocuments) ? sapMiroDocuments : [])
+    .filter(document => document.miroDoc && !trackedMiroDocs.has(document.miroDoc))
+    .map((document) => {
+      // sweepInvoices.js's own mapping, so a row does not change shape under
+      // the supplier at the moment it is finally recorded.
+      const subTotal = Number(document.taxableAmount) || 0;
+      const totalAmount = Number(document.grossAmount) || 0;
+      return {
+        id: document.miroDoc,
+        sapOnly: true,
+        invoiceNumber: document.miroDoc,
+        // displayDate already reads SAP's YYYYMMDD, so it is passed through
+        // rather than converted to a timestamp it never was.
+        invoiceDate: document.docDate || null,
+        sapMiroDoc: document.miroDoc,
+        poId: poNumberOf(document) || '—',
+        subTotal,
+        taxAmount: Math.max(totalAmount - subTotal, 0),
+        totalAmount,
+        currency: document.currency || 'INR',
+        // Deliberately not 'Submitted': this supplier submitted nothing, AP
+        // posted it. The status column renders sapOnly rows on its own.
+        status: null,
+      };
+    });
+
+  const allInvoices = [...(submittedInvoices || []), ...sapOnlyInvoices];
 
   const columns = [
     {
       key: 'invoice',
       header: 'Your invoice',
       primary: true,
+      // A sapOnly row has no invoice of the supplier's own — the document is
+      // the buyer's, and it appears under their reference in the next column.
+      // Repeating the MIRO number here would dress it up as something this
+      // supplier raised.
       render: (inv) => (
         <div className="leading-tight">
-          <span className="mono text-fg">{inv.invoiceNumber}</span>
+          {inv.sapOnly ? (
+            <span
+              className="text-fg-muted"
+              title="Your buyer's finance team has posted this invoice. It is not recorded in this portal yet, so there is nothing here to act on."
+            >
+              Not recorded here yet
+            </span>
+          ) : (
+            <span className="mono text-fg">{inv.invoiceNumber}</span>
+          )}
           <span className="block text-xs text-fg-subtle">{displayDate(inv.invoiceDate)}</span>
         </div>
       ),
@@ -57,7 +117,10 @@ export default function InvoiceProcessingView({ state }) {
           {inv.sapMiroDoc
             ? <span className="mono text-fg">{inv.sapMiroDoc}</span>
             : <span className="text-fg-muted">Awaiting the buyer’s finance team</span>}
-          <span className="mono block text-xs text-fg-subtle">Ref {inv.id}</span>
+          {/* `Ref` is this portal's own record number; a sapOnly row has none
+              — its id is the MIRO number, and printing it here would read as
+              a second, portal-side reference that does not exist. */}
+          {!inv.sapOnly && <span className="mono block text-xs text-fg-subtle">Ref {inv.id}</span>}
         </div>
       ),
     },
@@ -83,13 +146,28 @@ export default function InvoiceProcessingView({ state }) {
     {
       key: 'status',
       header: 'Status',
-      render: (inv) => <StatusBadge label={inv.status || 'Submitted'} variant={invoiceStatusVariant(inv.status)} />,
+      // A sapOnly row has no portal status to report — the supplier submitted
+      // nothing and there is no local record to carry one. Saying "Submitted"
+      // would assert a step that never happened.
+      render: (inv) => (inv.sapOnly
+        ? <span className="text-fg-muted">Posted by your buyer</span>
+        : <StatusBadge label={inv.status || 'Submitted'} variant={invoiceStatusVariant(inv.status)} />),
     },
     {
       key: 'confirmed',
       header: 'Confirmed',
-      render: (inv) => (sapMiroDocuments === null ? (
+      render: (inv) => (sapMiroStatus === 'error' ? (
+        <span className="text-fg-muted" title="Could not reach your buyer's system to check this invoice. Nothing about the invoice has changed.">
+          Could not check
+        </span>
+      ) : (sapMiroStatus === 'loading' || sapMiroDocuments === null) ? (
         <Spinner size={14} label="Checking with your buyer's system" />
+      ) : inv.sapOnly ? (
+        // This row came from that system — the question it answers is already
+        // answered, and spinning or "not confirmed" would both be false.
+        <span className="inline-flex items-center gap-1.5 text-success" title="This invoice is in the buyer's finance system">
+          <CheckCircle2 className="size-4" strokeWidth={1.5} aria-hidden="true" /> Confirmed
+        </span>
       ) : isConfirmedInSap(inv) ? (
         <span className="inline-flex items-center gap-1.5 text-success" title="The buyer’s finance system confirms this invoice">
           <CheckCircle2 className="size-4" strokeWidth={1.5} aria-hidden="true" /> Confirmed
@@ -125,10 +203,27 @@ export default function InvoiceProcessingView({ state }) {
         title="Invoices"
         description="Invoices your buyer’s finance team has posted, and whether they’ve been confirmed and paid."
       />
+      {/* The MIRO read supplies both the not-yet-recorded rows merged into the
+          table below and the per-row Confirmed badge. When it has not
+          answered, say so once here rather than leaving a quietly short
+          list — the same notice PurchaseOrdersView shows for its own ledger. */}
+      {sapMiroStatus === 'error' && (
+        <div className="mb-4 flex items-start gap-2.5 rounded-lg border border-warning/30 bg-warning-tint px-3 py-2.5 text-sm text-warning" role="status">
+          <AlertCircle className="mt-0.5 size-4 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+          <p className="flex-1">
+            Could not reach your buyer&rsquo;s records, so any invoice their finance team has
+            posted that this portal has not recorded yet is missing from this list. Everything
+            already tracked here is unaffected.
+          </p>
+          {retrySapMiroStatus && (
+            <Button size="sm" variant="secondary" onClick={retrySapMiroStatus}>Try again</Button>
+          )}
+        </div>
+      )}
       <DataTable
         caption="Invoices"
         columns={columns}
-        rows={submittedInvoices}
+        rows={allInvoices}
         rowLabel={(inv) => inv.invoiceNumber}
         empty="No invoices yet — once your buyer’s finance team posts an invoice against your delivery, it appears here."
       />

@@ -214,6 +214,8 @@ export function PortalProvider({ children }) {
     invoices: invoiceHook.invoices,
     invoicesLoaded: invoiceHook.invoicesLoaded,
     sapMiroDocuments: invoiceHook.sapMiroDocuments,
+    sapMiroStatus: invoiceHook.sapMiroStatus,
+    retrySapMiroStatus: invoiceHook.retrySapMiroStatus,
     sapPaymentDetails: invoiceHook.sapPaymentDetails,
     payments: paymentHook.payments,
     sapPayments: paymentHook.sapPayments,
