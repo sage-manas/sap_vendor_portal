@@ -1,3 +1,13 @@
+// This module is its own entry point (`npm run jobs`, the vendorconnect-jobs
+// PM2 app), so it has to load .env the way server.js does — nothing else does
+// it for us here, and the first thing to notice was Prisma failing every tick
+// with "Environment variable not found: DATABASE_URL". `dotenv` never
+// overwrites a variable that is already set, so hosts that supply their own
+// environment (tests, e2e/api-server.mjs, a container) are unaffected.
+// `quiet` because tests/setup.js requires this module: without it dotenv's
+// "injected env" banner prints into every Jest file's output.
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env'), quiet: true });
+
 const { runWithTenant } = require('../utils/tenantContext');
 const { getSapAdapterForClient } = require('../sap');
 const logger = require('../utils/logger');
