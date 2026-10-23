@@ -188,7 +188,9 @@ function SidebarBody({ surface, identity, nav, footerNav, note, collapsed, onNav
   );
 }
 
-export default function AppShell({ surface, identity, nav, footerNav = [], note, topbar, mainId = 'main-content', children }) {
+// inlineLg: how many nav items sit in the pill from 1024px. The supplier
+// portal's labels are short enough to fit five.
+export default function AppShell({ surface, identity, nav, footerNav = [], note, topbar, mainId = 'main-content', inlineLg = INLINE_LG, children }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const sheetRef = useRef(null);
   const menuButtonRef = useRef(null);
@@ -230,10 +232,10 @@ export default function AppShell({ surface, identity, nav, footerNav = [], note,
     };
   }, [sheetOpen]);
 
-  const inline = nav.slice(0, INLINE_XL);
+  const inline = nav.slice(0, Math.max(INLINE_XL, inlineLg));
   const overflow = [
-    ...nav.slice(INLINE_LG).map((item, i) => ({ item, inlineXl: INLINE_LG + i < INLINE_XL })),
-    ...footerNav.map((item, i) => ({ item, separatorBefore: i === 0 && nav.length > INLINE_LG })),
+    ...nav.slice(inlineLg).map((item, i) => ({ item, inlineXl: inlineLg + i < INLINE_XL })),
+    ...footerNav.map((item, i) => ({ item, separatorBefore: i === 0 && nav.length > inlineLg })),
   ];
 
   return (
@@ -279,7 +281,7 @@ export default function AppShell({ surface, identity, nav, footerNav = [], note,
         <nav aria-label={`${s.label} navigation`} className="hidden min-w-0 flex-1 justify-center lg:flex">
           <div className="flex items-center gap-0.5 rounded-pill border border-border bg-surface p-1 shadow-card">
             {inline.map((item, i) => (
-              <PillItem key={item.key} item={item} display={i >= INLINE_LG ? 'hidden min-[1800px]:inline-flex' : 'inline-flex'} />
+              <PillItem key={item.key} item={item} display={i >= inlineLg ? 'hidden min-[1800px]:inline-flex' : 'inline-flex'} />
             ))}
             <MoreMenu items={overflow} />
           </div>

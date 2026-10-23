@@ -96,6 +96,7 @@ export default function PortalLayout({ children }) {
       <CommandPalette />
       <AppShell
         surface="supplier"
+        inlineLg={5}
         identity={{
           logo: branding?.logo || null,
           mark: (buyerName || 'VendorConnect').charAt(0).toUpperCase(),
