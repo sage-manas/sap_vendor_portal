@@ -13,6 +13,9 @@ const nextConfig: NextConfig = {
   },
   allowedDevOrigins: ['*.trycloudflare.com'],
   experimental: {
+    // Explicit `security` policy (also the default) for `next upgrade --agent`
+    // and dev/build upgrade reminders.
+    agentUpgrade: "security",
     // Next's static-generation workers run prerendering in parallel, and a
     // page can occasionally fail for reasons that have nothing to do with its
     // code (issue #160: /pos and /_global-error failed prerendering twice in
