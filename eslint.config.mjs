@@ -37,6 +37,19 @@ const eslintConfig = defineConfig([
     },
   },
 
+  // `.cjs` is CommonJS by definition, so `require()` in one is the file type
+  // working as intended rather than a legacy import to migrate. The rule comes
+  // from eslint-config-next/typescript and is aimed at ES-module source under
+  // src/; the only files this reaches are the Node build scripts under
+  // docs/redesign/directions/, which run via `node`, never through the bundler.
+  // (backend/ is CommonJS too and is ignored wholesale below.)
+  {
+    files: ["**/*.cjs"],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
+
   globalIgnores([
     // Default ignores of eslint-config-next:
     "node_modules/**",
@@ -46,6 +59,12 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     "backend/**",
     "mongodb_data/**",
+    // Agent-created git worktrees live here (gitignored via .git/info/exclude,
+    // which ESLint does not read). Each is a full checkout with its own nested
+    // node_modules — and the `node_modules/**` entry above only matches at the
+    // root, so one stray worktree turned a bare `eslint` into 17k problems
+    // across a dependency tree. Same failure this list's own comment describes.
+    ".claude/**",
   ]),
 ]);
 
