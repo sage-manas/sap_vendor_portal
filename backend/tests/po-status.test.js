@@ -30,6 +30,32 @@ describe('derivePoStatus (pure)', () => {
     expect(derivePoStatus({ items, acknowledgedAt: new Date() }, { ...noFacts, asnCount: 1 })).toBe('Dispatched');
   });
 
+  // Issue #313: a service line is confirmed by entry sheet, by value.
+  describe('service lines (entry sheets, not goods receipts)', () => {
+    const service = (entries) => ({ line: 10, quantity: 1, grnQuantity: 0, netValue: 1200, serviceEntries: entries });
+
+    it('is Delivered once entry sheets cover the line\'s net value', () => {
+      const items = [service([{ entrySheetNumber: '1000000001', netAmount: 400.1 }, { entrySheetNumber: '1000000002', netAmount: 799.9 }])];
+      expect(derivePoStatus({ items, acknowledgedAt: null }, noFacts)).toBe('Delivered');
+    });
+
+    it('is Dispatched, not Delivered, while entry sheets cover only part of it', () => {
+      const items = [service([{ entrySheetNumber: '1000000001', netAmount: 100 }])];
+      expect(derivePoStatus({ items, acknowledgedAt: null }, noFacts)).toBe('Dispatched');
+    });
+
+    it('stays Open with no entry sheet at all', () => {
+      expect(derivePoStatus({ items: [service(null)], acknowledgedAt: null }, noFacts)).toBe('Open');
+    });
+
+    it('a mixed order needs both its material receipt and its service value', () => {
+      const material = { line: 20, quantity: 5, grnQuantity: 5 };
+      const done = service([{ entrySheetNumber: '1000000001', netAmount: 1200 }]);
+      expect(derivePoStatus({ items: [done, { ...material, grnQuantity: 2 }], acknowledgedAt: null }, noFacts)).toBe('Dispatched');
+      expect(derivePoStatus({ items: [done, material], acknowledgedAt: null }, noFacts)).toBe('Delivered');
+    });
+  });
+
   it('is Delivered only once every line is fully received', () => {
     const items = [
       { line: 10, quantity: 10, grnQuantity: 10 },

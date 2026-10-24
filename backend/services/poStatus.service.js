@@ -21,6 +21,7 @@
 
 const { summarizePlan } = require('./invoicePlan.service');
 const { toNumber } = require('../utils/quantity');
+const { toNumber: toMoney } = require('../utils/money');
 
 const STATUS_ORDER = ['Open', 'Acknowledged', 'Dispatched', 'Delivered', 'Invoiced', 'Paid'];
 const STATUS_RANK = Object.fromEntries(STATUS_ORDER.map((status, index) => [status, index]));
@@ -32,7 +33,24 @@ const statusRank = (status) => STATUS_RANK[status] ?? 0;
 // Decimal instances compares decimal.js's own valueOf() strings
 // *lexicographically* ("10" < "9"), not numerically. See utils/money.js's
 // header comment for the same trap on `+`.
-const itemFullyDelivered = (item) => toNumber(item.quantity) > 0 && toNumber(item.grnQuantity) >= toNumber(item.quantity);
+const quantityFullyDelivered = (item) => toNumber(item.quantity) > 0 && toNumber(item.grnQuantity) >= toNumber(item.quantity);
+
+// A service line is confirmed by entry sheet, not received into stock, so
+// grnQuantity never moves on it (issue #313). It is delivered by value
+// instead: once the entry sheets' net amounts cover the line's net value.
+// Compared in paise, so a sum of 2-dp amounts cannot fall a float residue
+// short of the total it actually equals.
+const serviceEntriesOf = (item) => (Array.isArray(item.serviceEntries) ? item.serviceEntries : []);
+const paise = (value) => Math.round(toMoney(value) * 100);
+const serviceFullyPerformed = (item) => {
+  const performed = serviceEntriesOf(item).reduce((sum, entry) => sum + paise(entry.netAmount), 0);
+  const due = paise(item.netValue);
+  return due > 0 && performed >= due;
+};
+
+const itemFullyDelivered = (item) => (serviceEntriesOf(item).length
+  ? serviceFullyPerformed(item)
+  : quantityFullyDelivered(item));
 
 // A plan-enabled line is billed by percentage/amount against its own
 // schedule, not by quantity — "fully invoiced" for it means the plan itself
@@ -75,7 +93,10 @@ const derivePoStatus = (po, facts) => {
   // jobs/handlers/sweepPurchaseOrders.js) — because SAP already shows some
   // quantity received on at least one line. Either way, "nothing is moving
   // yet" would misrepresent a partially received order as untouched.
-  const shipmentInFlight = facts.asnCount > 0 || items.some((item) => toNumber(item.grnQuantity) > 0);
+  // A service line with some, but not all, of its work confirmed by entry
+  // sheet is in flight the same way a partially received material line is.
+  const shipmentInFlight = facts.asnCount > 0
+    || items.some((item) => toNumber(item.grnQuantity) > 0 || serviceEntriesOf(item).length > 0);
   if (shipmentInFlight) return 'Dispatched';
 
   return po.acknowledgedAt ? 'Acknowledged' : 'Open';

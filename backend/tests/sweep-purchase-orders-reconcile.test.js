@@ -209,6 +209,31 @@ describe('sweepPurchaseOrders reconciles an already-correlated order (issue #73)
     expect(reloaded.sapDeletedAt).toBeNull();
   });
 
+  // Issue #313: service entry sheets are stored and move status by value.
+  it('stores a service line\'s entry sheets and moves the order to Delivered once they cover it', async () => {
+    await seedVendor('CLT-0001', 'vendor_recon_svc', 'VENRCS');
+    await seedSyncedPo('CLT-0001', 'PO-RECON-SVC', 'vendor_recon_svc', '4500099120', [
+      { line: 10, materialCode: '', description: 'AMC visit', quantity: 1, grnQuantity: 0, unitPrice: 1200, netValue: 1200, uom: 'AU' },
+    ]);
+    const line = (serviceEntries) => ({
+      line: 10, materialCode: '', description: 'AMC visit', quantity: 1, grnQuantity: 0, unitPrice: 1200, netValue: 1200, uom: 'AU', serviceEntries,
+    });
+    const first = { entrySheetNumber: '1000000001', fiscalYear: '2026', netAmount: 600 };
+
+    await runSweep('CLT-0001', { po: [discoveryPo('4500099120', { items: [line([first])] })] });
+    let po = await runWithTenant('CLT-0001', () => prisma.purchaseOrder.findFirst({ where: { id: 'PO-RECON-SVC' }, include: { items: true } }));
+    expect(po.items[0].serviceEntries).toEqual([first]);
+    expect(po.status).toBe('Dispatched');
+
+    await forceDue('CLT-0001', 'VENRCS');
+    await runSweep('CLT-0001', {
+      po: [discoveryPo('4500099120', { items: [line([first, { entrySheetNumber: '1000000002', fiscalYear: '2026', netAmount: 600 }])] })],
+    });
+    po = await runWithTenant('CLT-0001', () => prisma.purchaseOrder.findFirst({ where: { id: 'PO-RECON-SVC' }, include: { items: true } }));
+    expect(po.items[0].serviceEntries).toHaveLength(2);
+    expect(po.status).toBe('Delivered');
+  });
+
   it('a repeated sweep over an unchanged order (same fingerprint) writes nothing new and does not re-notify', async () => {
     await seedVendor('CLT-0001', 'vendor_recon_8', 'VENRC8');
     await seedSyncedPo('CLT-0001', 'PO-RECON-8', 'vendor_recon_8', '4500099108', [
