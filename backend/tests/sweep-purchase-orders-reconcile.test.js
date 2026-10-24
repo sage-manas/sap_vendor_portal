@@ -209,6 +209,73 @@ describe('sweepPurchaseOrders reconciles an already-correlated order (issue #73)
     expect(reloaded.sapDeletedAt).toBeNull();
   });
 
+  // Issue #311: category and invoicing plan used to be written on first
+  // discovery only.
+  it('reclassifies an already-synced line from SAP: category and a newly reported invoicing plan', async () => {
+    await seedVendor('CLT-0001', 'vendor_recon_9', 'VENRC9');
+    await seedSyncedPo('CLT-0001', 'PO-RECON-9', 'vendor_recon_9', '4500099109', [
+      { line: 10, materialCode: 'MAT-1', description: 'Widget', quantity: 10, grnQuantity: 0, unitPrice: 50, netValue: 500, uom: 'EA' },
+      { line: 20, materialCode: 'MAT-2', description: 'Install', quantity: 1, grnQuantity: 0, unitPrice: 900, netValue: 900, uom: 'EA' },
+    ]);
+
+    await runSweep('CLT-0001', {
+      po: [discoveryPo('4500099109', {
+        items: [
+          { line: 10, materialCode: 'MAT-1', description: 'Widget', quantity: 10, grnQuantity: 0, unitPrice: 50, netValue: 500, uom: 'EA', accountAssignmentCategory: 'A', invoicePlanNumber: '0000001255' },
+          { line: 20, materialCode: 'MAT-2', description: 'Install', quantity: 1, grnQuantity: 0, unitPrice: 900, netValue: 900, uom: 'EA', accountAssignmentCategory: 'D' },
+        ],
+      })],
+    });
+
+    const po = await runWithTenant('CLT-0001', () => prisma.purchaseOrder.findFirst({
+      where: { id: 'PO-RECON-9' }, include: { items: { orderBy: { line: 'asc' }, include: { invoicePlan: true } } },
+    }));
+    expect(po.items[0].accountAssignmentCategory).toBe('A');
+    expect(po.items[0].invoicePlan).toMatchObject({ enabled: true, planNumber: '0000001255', source: 'sap', syncedAt: null });
+    expect(po.items[1].accountAssignmentCategory).toBe('D');
+    expect(po.items[1].invoicePlan).toBeNull();
+  });
+
+  it('gives a portal-awarded order SAP\'s category as soon as it is correlated', async () => {
+    await seedVendor('CLT-0001', 'vendor_recon_10', 'VENRC10');
+    await runWithTenant('CLT-0001', () => prisma.purchaseOrder.create({
+      data: {
+        id: 'PO-RECON-10', vendorId: 'vendor_recon_10', status: 'Open', sapSyncState: 'pending', sapPoNumber: '4500099110',
+        items: { create: [{ clientId: 'CLT-0001', line: 10, materialCode: 'MAT-1', description: 'Widget', quantity: 10, grnQuantity: 0, unitPrice: 50, netValue: 500, uom: 'EA' }] },
+      },
+    }));
+
+    await runSweep('CLT-0001', {
+      po: [discoveryPo('4500099110', {
+        items: [{ line: 10, materialCode: 'MAT-1', description: 'Widget', quantity: 10, grnQuantity: 0, unitPrice: 50, netValue: 500, uom: 'EA', accountAssignmentCategory: 'K' }],
+      })],
+    });
+
+    const po = await runWithTenant('CLT-0001', () => prisma.purchaseOrder.findFirst({ where: { id: 'PO-RECON-10' }, include: { items: true } }));
+    expect(po.sapSyncState).toBe('synced');
+    expect(po.items[0].accountAssignmentCategory).toBe('K');
+  });
+
+  it('leaves an invoicing plan the portal already numbered alone, whatever SAP reports', async () => {
+    await seedVendor('CLT-0001', 'vendor_recon_11', 'VENRC11');
+    await seedSyncedPo('CLT-0001', 'PO-RECON-11', 'vendor_recon_11', '4500099111', [
+      {
+        line: 10, materialCode: 'MAT-1', description: 'Widget', quantity: 10, grnQuantity: 0, unitPrice: 50, netValue: 500, uom: 'EA',
+        invoicePlan: { create: { clientId: 'CLT-0001', enabled: true, planNumber: '0000000777', source: 'portal' } },
+      },
+    ]);
+
+    await runSweep('CLT-0001', {
+      po: [discoveryPo('4500099111', {
+        items: [{ line: 10, materialCode: 'MAT-1', description: 'Widget', quantity: 10, grnQuantity: 0, unitPrice: 50, netValue: 500, uom: 'EA', invoicePlanNumber: '0000000999' }],
+      })],
+    });
+
+    const plans = await runWithTenant('CLT-0001', () => prisma.invoicePlan.findMany({ where: { item: { po: { id: 'PO-RECON-11' } } } }));
+    expect(plans).toHaveLength(1);
+    expect(plans[0]).toMatchObject({ planNumber: '0000000777', source: 'portal' });
+  });
+
   it('a repeated sweep over an unchanged order (same fingerprint) writes nothing new and does not re-notify', async () => {
     await seedVendor('CLT-0001', 'vendor_recon_8', 'VENRC8');
     await seedSyncedPo('CLT-0001', 'PO-RECON-8', 'vendor_recon_8', '4500099108', [
