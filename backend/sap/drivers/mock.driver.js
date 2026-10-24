@@ -315,9 +315,10 @@ const createMockDriver = ({ config = {} } = {}) => {
               // a real PO can ship from more than one plant.
               plant: item.plant || behaviour.plant,
               grns: [],
-              // The simulator has no service-procurement POs, so this is always
-              // empty — it exists so both drivers return the same item shape.
-              serviceEntries: [],
+              // Echoed from the caller's line (issue #313), or from a
+              // discovery's own `serviceEntries`; the simulator has no service
+              // procurement of its own to post entry sheets from.
+              serviceEntries: Array.isArray(item.serviceEntries) ? item.serviceEntries : [],
             })),
           })),
         },

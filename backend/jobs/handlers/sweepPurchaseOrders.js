@@ -71,6 +71,29 @@ async function sweepOneVendor({ clientId, vendor, adapter }) {
   await reconcileReceipts({ clientId, vendor, orders });
 }
 
+// A line's service entry sheets as stored on PurchaseOrderItem.serviceEntries
+// (issue #313) — null when SAP reported none, so a material line's column
+// stays empty instead of holding []. Sorted, so the same sheets read in a
+// different order never look like a change.
+const serviceEntriesFor = (item) => {
+  const entries = (item.serviceEntries || [])
+    .filter((entry) => entry.entrySheetNumber)
+    .map((entry) => ({
+      entrySheetNumber: String(entry.entrySheetNumber),
+      fiscalYear: entry.fiscalYear ? String(entry.fiscalYear) : null,
+      netAmount: Number(entry.netAmount) || 0,
+    }))
+    .sort((a, b) => `${a.fiscalYear}-${a.entrySheetNumber}`.localeCompare(`${b.fiscalYear}-${b.entrySheetNumber}`));
+  return entries.length ? entries : null;
+};
+
+// Compared field by field, not by JSON.stringify: Postgres JSONB hands keys
+// back in its own order, so a stored copy never stringifies the way it was
+// written, and every sweep would see a change that is not there.
+const serviceEntriesKey = (entries) => (entries || [])
+  .map((entry) => `${entry.fiscalYear}|${entry.entrySheetNumber}|${Number(entry.netAmount) || 0}`)
+  .join(';');
+
 const isUniqueViolation = (err) =>
   err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
 
@@ -229,8 +252,13 @@ async function reconcileOrder({ clientId, vendor, existing, order }) {
     const unitPrice = Number(orderItem.unitPrice) || 0;
     const netValue = Number(orderItem.netAmount) || 0;
     const plant = orderItem.plant || null;
+    const serviceEntries = serviceEntriesFor(orderItem);
 
     if (quantity !== toQty(item.quantity)) data.quantity = quantity;
+    if (serviceEntriesKey(serviceEntries) !== serviceEntriesKey(item.serviceEntries)) {
+      // Prisma writes JSON null as Prisma.DbNull, not a bare null.
+      data.serviceEntries = serviceEntries ?? Prisma.DbNull;
+    }
     if (grnQuantity !== toQty(item.grnQuantity)) data.grnQuantity = grnQuantity;
     if (unitPrice !== toMoney(item.unitPrice)) data.unitPrice = unitPrice;
     if (netValue !== toMoney(item.netValue)) data.netValue = netValue;
@@ -273,7 +301,11 @@ async function reconcileOrder({ clientId, vendor, existing, order }) {
       id: existing.id,
       sapPoNumber: order.poNumber,
       header: headerChanges,
-      lines: supplierVisible.map((c) => ({ line: c.line, ...c.data })),
+      lines: supplierVisible.map((c) => ({
+        line: c.line,
+        ...c.data,
+        ...(c.data.serviceEntries === Prisma.DbNull ? { serviceEntries: null } : {}),
+      })),
     });
   }
 }
@@ -330,6 +362,8 @@ async function upsertOrder({ clientId, vendor, order, localPos }) {
     // PO can ship from more than one plant. `null`, honestly, when SAP
     // didn't say — never a demo-value guess.
     plant: item.plant || null,
+    // Issue #313: what confirms a service line, in place of a goods receipt.
+    ...(serviceEntriesFor(item) ? { serviceEntries: serviceEntriesFor(item) } : {}),
     // EKPO-KNTTP: 'A' asset, 'D' service, 'K' cost centre, null an ordinary
     // material line. Recorded so an asset or service order SAP raised itself
     // is recognisable as one — the asset fields are only ever set by the

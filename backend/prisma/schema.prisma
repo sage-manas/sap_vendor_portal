@@ -644,6 +644,16 @@ model PurchaseOrderItem {
   // every row written before this column existed implicitly meant.
   priceUnit        Int     @default(1)
 
+  // Service entry sheets SAP has posted against this line (issue #313) — a
+  // service line is confirmed by entry sheet, never received into stock, so
+  // grnQuantity stays 0 on it and only these say the work was done. Read from
+  // the GRN[] rows of zpo_grn_vendor/Detail that carry SSES_NO instead of a
+  // GR_NUMBER: [{ entrySheetNumber, fiscalYear, netAmount }]. Null means SAP
+  // reported none; services/poStatus.service.js counts the line delivered
+  // once their net amounts cover its netValue. Json, not a table: small,
+  // always written whole from SAP's answer, never queried into.
+  serviceEntries   Json?
+
   invoicePlan InvoicePlan?
 
   @@unique([poPk, line])

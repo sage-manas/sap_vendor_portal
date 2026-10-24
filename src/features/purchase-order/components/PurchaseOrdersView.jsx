@@ -519,6 +519,16 @@ export default function PurchaseOrdersView({
               {item.invoicePlan?.type ? `${item.invoicePlan.type} plan` : `plan ${item.invoicePlanNumber}`}
             </button>
           )}
+          {/* Issue #313: a service line is confirmed by entry sheet, not by a
+              goods receipt; this is what counts towards its delivery. */}
+          {item.serviceEntries?.length > 0 && (
+            <span
+              className="mono ml-2 text-xs text-fg-subtle"
+              title={`Service entry sheets: ${item.serviceEntries.map(entry => entry.entrySheetNumber).join(', ')}`}
+            >
+              {item.serviceEntries.length} entry {item.serviceEntries.length === 1 ? 'sheet' : 'sheets'} · ₹{money2(item.serviceEntries.reduce((sum, entry) => sum + Number(entry.netAmount || 0), 0))} confirmed
+            </span>
+          )}
         </span>
       ),
     },
