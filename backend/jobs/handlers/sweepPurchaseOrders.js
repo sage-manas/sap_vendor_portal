@@ -1,5 +1,5 @@
 const { prisma } = require('../../db/prisma');
-const { formatPo, syncPoStatus } = require('../../db/poHelpers');
+const { PO_INCLUDE, formatPo, syncPoStatus } = require('../../db/poHelpers');
 const { nextSequentialId } = require('../../utils/nextSequentialId');
 const { EVENTS } = require('../../utils/socketEmitter');
 const { Prisma } = require('@prisma/client');
@@ -80,7 +80,9 @@ async function sweepOneVendor({ clientId, vendor, adapter, tenantGstin = null })
   // order is (`poId`, see vendorPoGrnDisplay in mock.driver.js); the real
   // driver ignores this entirely and always answers `poId: null` (no
   // correlation key exists on a live system either — see its own note).
-  const localPos = await prisma.purchaseOrder.findMany({ where: { vendorId: vendor.vendorId }, include: { items: true } });
+  // Each line's invoicePlan is included so syncLineClassification can tell a
+  // line that already has a plan from one SAP is only now reporting.
+  const localPos = await prisma.purchaseOrder.findMany({ where: { vendorId: vendor.vendorId }, include: PO_INCLUDE });
   const result = await adapter.vendorPoGrnDisplay({ vendor, pos: localPos.map(formatPo) });
   const orders = result?.orders || [];
 
@@ -269,6 +271,55 @@ async function unshippedLines(poId, lines) {
   return new Set(lines.filter((line) => !hasShipped.has(line)));
 }
 
+// What kind of line each of SAP's lines is (issue #311): its account
+// assignment category (EKPO-KNTTP — asset, service, cost centre or blank for
+// material) and whether it is billed on an invoicing plan (FPLA-FPLNR). Both
+// used to be written only on first discovery, so an order discovered before
+// the category column existed, every portal-awarded order once correlated,
+// and any order whose category or plan was changed in ME22N afterwards all
+// kept reading as an ordinary material line. Shared by reconcileOrder and the
+// correlation branch of upsertOrder so both paths classify the same way.
+//
+// SAP is the system of record for the category, so its answer always wins.
+// The plan is narrower on purpose: a line with no plan row gets one the same
+// way discovery creates it (number only, `source: sap`, no invented dates —
+// syncInvoicePlan reads the schedule itself), and a line whose plan row was
+// never given a number adopts SAP's. A plan the portal already holds with a
+// number is left alone, as is one SAP no longer reports: dropping invoicing
+// data on a sweep's say-so is not this function's call to make.
+async function syncLineClassification({ clientId, existing, order }) {
+  const itemsByLine = new Map(existing.items.map((item) => [item.line, item]));
+  let changed = 0;
+
+  for (const orderItem of order.items || []) {
+    const item = itemsByLine.get(Number(orderItem.itemNumber));
+    if (!item) continue;
+
+    const category = orderItem.accountAssignmentCategory || null;
+    if (category !== (item.accountAssignmentCategory || null)) {
+      // eslint-disable-next-line no-await-in-loop
+      await prisma.purchaseOrderItem.update({ where: { pk: item.pk }, data: { accountAssignmentCategory: category } });
+      changed += 1;
+    }
+
+    const planNumber = orderItem.invoicePlanNumber || null;
+    if (!planNumber) continue;
+    if (!item.invoicePlan) {
+      // eslint-disable-next-line no-await-in-loop
+      await prisma.invoicePlan.create({ data: { clientId, itemPk: item.pk, enabled: true, planNumber, source: 'sap' } });
+      changed += 1;
+    } else if (!item.invoicePlan.planNumber) {
+      // eslint-disable-next-line no-await-in-loop
+      await prisma.invoicePlan.update({ where: { pk: item.invoicePlan.pk }, data: { enabled: true, planNumber } });
+      changed += 1;
+    }
+  }
+
+  if (changed) {
+    logger.info(`[jobs] sweepPurchaseOrders reclassified ${changed} line field(s) on ${existing.id} (SAP ${order.poNumber})`);
+  }
+}
+
 // Field-level reconcile for an order already correlated (issue #73) —
 // replaces the old unconditional early return, which meant nothing written
 // in SAP after the first sight of an order (a re-priced line, a partial
@@ -282,6 +333,8 @@ async function unshippedLines(poId, lines) {
 // GRNs may already reference, which is the harder, still-open half of #73
 // this fix deliberately leaves for a follow-up rather than guessing at.
 async function reconcileOrder({ clientId, vendor, existing, order }) {
+  await syncLineClassification({ clientId, existing, order });
+
   const headerChanges = {};
   if (order.buyerName && order.buyerName !== existing.buyerName) headerChanges.buyerName = order.buyerName;
   if (order.companyCode && order.companyCode !== existing.companyCode) headerChanges.companyCode = order.companyCode;
@@ -392,6 +445,10 @@ async function upsertOrder({ clientId, vendor, order, localPos }) {
         sapSyncError: null,
       },
     });
+    // Only the classification, not the full reconcile: a just-correlated
+    // portal order's quantities and header are the portal's own until the
+    // next sweep reconciles it as `synced`.
+    await syncLineClassification({ clientId, existing, order });
     return;
   }
 
