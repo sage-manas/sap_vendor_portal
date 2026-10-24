@@ -292,6 +292,10 @@ const createMockDriver = ({ config = {} } = {}) => {
             // (see sapDotDateToIso in s4odata.driver.js) — callers that sort or
             // compare poDate as a string must not care which driver answered.
             poDate: po.createdDate ? new Date(po.createdDate).toISOString().slice(0, 10) : null,
+            // Issue #315: the parties are echoed only when a test's discovery
+            // names them, the same way the real endpoint omits them today.
+            vendorCode: po.vendorCode || null,
+            buyerGstin: po.buyerGstin || null,
             buyerName: po.buyerName,
             shipToCity: null,
             shipToState: null,
@@ -322,9 +326,10 @@ const createMockDriver = ({ config = {} } = {}) => {
               invoicePlanNumber: item.invoicePlanNumber
                 || (item.invoicePlan?.enabled ? item.invoicePlan.planNumber || null : null),
               grns: [],
-              // The simulator has no service-procurement POs, so this is always
-              // empty — it exists so both drivers return the same item shape.
-              serviceEntries: [],
+              // Echoed from the caller's line (issue #313), or from a
+              // discovery's own `serviceEntries`; the simulator has no service
+              // procurement of its own to post entry sheets from.
+              serviceEntries: Array.isArray(item.serviceEntries) ? item.serviceEntries : [],
             })),
           })),
         },

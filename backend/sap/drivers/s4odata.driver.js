@@ -646,7 +646,17 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
             // answer this field for real.
             poId: null,
             poDate: sapDotDateToIso(po.PO_DATE),
-            buyerName: po.BUYER_NAME,
+            // The parties, as SAP reports them (issue #315), so the sweep can
+            // check an order is really between this tenant and this vendor
+            // rather than assuming so because of what it asked for. Neither
+            // field is in this endpoint's rows today — the seller code is an
+            // open ABAP ask (docs/abap-requests/zpo_grn_vendor-party-fields.md),
+            // BUYER_GSTIN is on its single-order sibling zpo_grn/Detail — so
+            // both are read when present and null otherwise, and a null is
+            // never treated as a mismatch.
+            vendorCode: String(po.VENDOR || po.LIFNR || '').trim() || null,
+            buyerGstin: String(po.BUYER_GSTIN || '').trim().toUpperCase() || null,
+            buyerName: String(po.BUYER_NAME || '').trim() || null,
             shipToCity: po.SHIP_TO_CITY,
             shipToState: po.SHIP_TO_STATE,
             companyCode: po.COM_CODE,

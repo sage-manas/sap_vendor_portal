@@ -159,6 +159,62 @@ describe('sweepPurchaseOrders discovery', () => {
     expect(rows[0].sapPoNumber).toBeTruthy();
   });
 
+  // Issue #315: an order is imported only when the parties SAP reports on it
+  // are this tenant and this vendor.
+  describe('order parties', () => {
+    const setTenantGstin = (gstin) => withoutTenantScope(() => rawPrisma.client.update({ where: { clientId: 'CLT-0001' }, data: { gstin } }));
+    const found = (sapPoNumber) => runWithTenant('CLT-0001', () => prisma.purchaseOrder.findFirst({ where: { sapPoNumber } }));
+
+    it('refuses an order whose reported seller is a different vendor code', async () => {
+      await seedVendor('CLT-0001', 'vendor_party_1', 'VENP001');
+      await runSweep('CLT-0001', { po: [discoveryPo('4500098201', { vendorCode: 'VENP999' })] });
+      expect(await found('4500098201')).toBeNull();
+    });
+
+    it('accepts the same seller code with SAP\'s zero padding', async () => {
+      await seedVendor('CLT-0001', 'vendor_party_2', '10423');
+      await runSweep('CLT-0001', { po: [discoveryPo('4500098202', { vendorCode: '0000010423' })] });
+      expect(await found('4500098202')).toBeTruthy();
+    });
+
+    it('refuses an order whose buyer GSTIN is another legal entity\'s', async () => {
+      await setTenantGstin('27AABCN1234F1Z5');
+      await seedVendor('CLT-0001', 'vendor_party_3', 'VENP003');
+      await runSweep('CLT-0001', { po: [discoveryPo('4500098203', { buyerGstin: '27AAACX9999K1Z2' })] });
+      expect(await found('4500098203')).toBeNull();
+    });
+
+    it('accepts the tenant\'s own registration in another state (same PAN)', async () => {
+      await setTenantGstin('27AABCN1234F1Z5');
+      await seedVendor('CLT-0001', 'vendor_party_4', 'VENP004');
+      await runSweep('CLT-0001', { po: [discoveryPo('4500098204', { buyerGstin: '29AABCN1234F1Z7' })] });
+      expect(await found('4500098204')).toBeTruthy();
+    });
+
+    it('a refused order already in the portal is left untouched, not marked deleted', async () => {
+      await seedVendor('CLT-0001', 'vendor_party_5', 'VENP005');
+      await runWithTenant('CLT-0001', () => prisma.purchaseOrder.create({
+        data: {
+          id: 'PO-PARTY-5', vendorId: 'vendor_party_5', status: 'Open', buyerName: 'Original', companyCode: '1000',
+          sapPoNumber: '4500098205', sapDocNumber: '4500098205', sapSyncState: 'synced',
+          items: { create: [{ clientId: 'CLT-0001', line: 10, materialCode: 'MAT-1', description: 'Widget', quantity: 10, grnQuantity: 0, unitPrice: 50, netValue: 500, uom: 'EA' }] },
+        },
+      }));
+
+      await runSweep('CLT-0001', { po: [discoveryPo('4500098205', { vendorCode: 'VENP999', buyerName: 'Someone else' })] }, { vanishedPoIds: ['PO-PARTY-5'] });
+
+      const po = await found('4500098205');
+      expect(po.buyerName).toBe('Original');
+      expect(po.sapDeletedAt).toBeNull();
+    });
+
+    it('stores no buyer name rather than a placeholder when SAP names none', async () => {
+      await seedVendor('CLT-0001', 'vendor_party_6', 'VENP006');
+      await runSweep('CLT-0001', { po: [discoveryPo('4500098206', { buyerName: null })] });
+      expect((await found('4500098206')).buyerName).toBeNull();
+    });
+  });
+
   it('two tenants sweeping the same tick see only their own vendors', async () => {
     await seedClient({ clientId: 'CLT-SWEEP-2', slug: 'sweep-two', companyName: 'Sweep Two' });
     await seedVendor('CLT-0001', 'vendor_sweep_a', 'VEN00A');

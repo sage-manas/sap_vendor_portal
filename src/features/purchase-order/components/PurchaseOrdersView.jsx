@@ -94,12 +94,10 @@ export default function PurchaseOrdersView({
   const cleanPOs = (Array.isArray(state?.pos) ? state.pos : [])
     .filter(Boolean)
     .map(po => ({
-      plant: 'Plant 1000 (Mumbai)',
-      buyerName: 'Amit Sharma (Lead Procurement)',
-      paymentTerms: 'NET 30 Days',
+      // No buyer, plant, terms or address defaults (issue #315): a missing
+      // party detail renders as "—", never as an invented name or place that
+      // makes an incomplete order look complete.
       currency: 'INR',
-      incoterms: 'EXW',
-      deliveryAddress: 'Plant Gate 2, Industrial Sector, Mumbai, India',
       status: 'Open',
       ...po,
       items: (po.items || []).filter(Boolean).map(item => ({
@@ -280,8 +278,9 @@ export default function PurchaseOrdersView({
     : (detailTab === 'invoice_plan' && !showInvoicePlanTab ? 'po_detail' : detailTab);
 
   // Fetch unique plants and buyers from actual PO list for filters
-  const uniquePlants = Array.from(new Set(cleanPOs.map(p => p.plant)));
-  const uniqueBuyers = Array.from(new Set(cleanPOs.map(p => p.buyerName)));
+  // A PO with no plant or buyer has nothing to filter by, so it adds no option.
+  const uniquePlants = Array.from(new Set(cleanPOs.map(p => p.plant).filter(Boolean)));
+  const uniqueBuyers = Array.from(new Set(cleanPOs.map(p => p.buyerName).filter(Boolean)));
 
 
   // Prefills the shipment form the first time an order's "Send shipment" tab is
@@ -518,6 +517,16 @@ export default function PurchaseOrdersView({
                   only a number until its dates are fetched. */}
               {item.invoicePlan?.type ? `${item.invoicePlan.type} plan` : `plan ${item.invoicePlanNumber}`}
             </button>
+          )}
+          {/* Issue #313: a service line is confirmed by entry sheet, not by a
+              goods receipt; this is what counts towards its delivery. */}
+          {item.serviceEntries?.length > 0 && (
+            <span
+              className="mono ml-2 text-xs text-fg-subtle"
+              title={`Service entry sheets: ${item.serviceEntries.map(entry => entry.entrySheetNumber).join(', ')}`}
+            >
+              {item.serviceEntries.length} entry {item.serviceEntries.length === 1 ? 'sheet' : 'sheets'} · ₹{money2(item.serviceEntries.reduce((sum, entry) => sum + Number(entry.netAmount || 0), 0))} confirmed
+            </span>
           )}
         </span>
       ),
