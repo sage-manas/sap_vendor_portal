@@ -314,6 +314,13 @@ const createMockDriver = ({ config = {} } = {}) => {
               // Per line, not guessed from the order as a whole (issue #62) —
               // a real PO can ship from more than one plant.
               plant: item.plant || behaviour.plant,
+              // Same two fields the real driver reads from ACC_ASSIGNMNT_CAT
+              // and INV_PLANNO (issue #311). Echoed from the caller's line, or
+              // from a discovery's own `invoicePlanNumber`; the simulator has
+              // no purchasing master to read either from.
+              accountAssignmentCategory: item.accountAssignmentCategory || null,
+              invoicePlanNumber: item.invoicePlanNumber
+                || (item.invoicePlan?.enabled ? item.invoicePlan.planNumber || null : null),
               grns: [],
               // The simulator has no service-procurement POs, so this is always
               // empty — it exists so both drivers return the same item shape.
