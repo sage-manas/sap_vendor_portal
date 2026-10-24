@@ -29,17 +29,52 @@ const FEED = 'po';
 module.exports = async ({ job, adapter }) => {
   const { clientId } = job;
   const due = await dueVendors(clientId, FEED);
+  if (!due.length) return { done: true };
+
+  const tenant = await prisma.client.findUnique({ where: { clientId }, select: { gstin: true } });
 
   for (const { vendor } of due) {
     // eslint-disable-next-line no-await-in-loop
-    await sweepOneVendor({ clientId, vendor, adapter });
+    await sweepOneVendor({ clientId, vendor, adapter, tenantGstin: tenant?.gstin || null });
   }
 
   return { done: true };
 };
 
+// Leading zeros are SAP's padding, not part of the code (LIFNR is stored
+// unpadded on Vendor, sent padded to SAP — sap/mappings/fields.js).
+const sameVendorCode = (a, b) => String(a).replace(/^0+(?=.)/, '').toUpperCase()
+  === String(b).replace(/^0+(?=.)/, '').toUpperCase();
+
+// Characters 3-12 of a GSTIN are the holder's PAN. One legal entity holds a
+// GSTIN per state it is registered in, so two GSTINs with the same PAN are
+// the same buyer — comparing whole GSTINs would refuse a tenant's own orders
+// from another state's registration.
+const panOf = (gstin) => {
+  const value = String(gstin || '').trim().toUpperCase();
+  return value.length === 15 ? value.slice(2, 12) : null;
+};
+
+// Why an order SAP returned for this vendor is not this tenant's business with
+// this vendor, or null when nothing says so (issue #315). Only a field SAP
+// actually reported can fail: an absent vendor code or buyer GSTIN is no
+// evidence either way, and zpo_grn_vendor/Detail omits both today. The
+// company-code check that already guards the buyer side lives in the driver
+// (declaredCompanyCodes, issue #62).
+const partyMismatch = (order, vendor, tenantGstin) => {
+  if (order.vendorCode && vendor.sapVendorCode && !sameVendorCode(order.vendorCode, vendor.sapVendorCode)) {
+    return `seller ${order.vendorCode} is not vendor ${vendor.sapVendorCode}`;
+  }
+  const buyerPan = panOf(order.buyerGstin);
+  const tenantPan = panOf(tenantGstin);
+  if (buyerPan && tenantPan && buyerPan !== tenantPan) {
+    return `buyer GSTIN ${order.buyerGstin} belongs to a different legal entity than this tenant (${tenantGstin})`;
+  }
+  return null;
+};
+
 // Split out so the per-vendor unit is easy to read and to test in isolation.
-async function sweepOneVendor({ clientId, vendor, adapter }) {
+async function sweepOneVendor({ clientId, vendor, adapter, tenantGstin = null }) {
   // Passed in the same shape getSapPoStatus already sends (po.controller.js)
   // — the mock driver's only way to echo back which of *our* records an
   // order is (`poId`, see vendorPoGrnDisplay in mock.driver.js); the real
@@ -49,9 +84,22 @@ async function sweepOneVendor({ clientId, vendor, adapter }) {
   const result = await adapter.vendorPoGrnDisplay({ vendor, pos: localPos.map(formatPo) });
   const orders = result?.orders || [];
 
+  // An order whose reported parties do not match is never written — not
+  // created, not reconciled, no receipts recorded from it. It still counts as
+  // seen for markDeletedOrders below: SAP does list it, so a portal copy of
+  // it is not "gone from SAP", and marking it deleted would be a second wrong
+  // answer on top of the first.
+  const trusted = orders.filter((order) => {
+    const mismatch = partyMismatch(order, vendor, tenantGstin);
+    if (mismatch) {
+      logger.warn(`[jobs] sweepPurchaseOrders refused SAP ${order.poNumber} for vendor ${vendor.vendorId}: ${mismatch}`);
+    }
+    return !mismatch;
+  });
+
   const { changed } = await recordSweepTick({ clientId, feed: FEED, vendorCode: vendor.sapVendorCode, data: orders });
   if (changed) {
-    for (const order of orders) {
+    for (const order of trusted) {
       if (!order.poNumber) continue;
       // eslint-disable-next-line no-await-in-loop
       await upsertOrder({ clientId, vendor, order, localPos });
@@ -68,7 +116,7 @@ async function sweepOneVendor({ clientId, vendor, adapter }) {
   // Outside the `changed` gate on purpose: it reads only rows we already hold
   // plus the orders just fetched (no SAP call), and it must also catch a
   // receipt that was already in SAP the last time the fingerprint moved.
-  await reconcileReceipts({ clientId, vendor, orders });
+  await reconcileReceipts({ clientId, vendor, orders: trusted });
 }
 
 // A line's service entry sheets as stored on PurchaseOrderItem.serviceEntries
@@ -396,7 +444,9 @@ async function upsertOrder({ clientId, vendor, order, localPos }) {
       sapSyncedAt: new Date(),
       vendorId: vendor.vendorId,
       vendorPk: vendor.pk,
-      buyerName: order.buyerName || 'SAP System Procurement',
+      // Null when SAP named no buyer (issue #315) — a placeholder name made
+      // an order with missing data read as a complete, attributed one.
+      buyerName: order.buyerName || null,
       // The driver has already scoped `order` to a company code this tenant
       // declared (issue #62 — see declaredCompanyCodes in
       // sap/drivers/s4odata.driver.js), so this is always real when set.

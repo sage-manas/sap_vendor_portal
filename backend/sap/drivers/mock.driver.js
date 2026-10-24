@@ -292,6 +292,10 @@ const createMockDriver = ({ config = {} } = {}) => {
             // (see sapDotDateToIso in s4odata.driver.js) — callers that sort or
             // compare poDate as a string must not care which driver answered.
             poDate: po.createdDate ? new Date(po.createdDate).toISOString().slice(0, 10) : null,
+            // Issue #315: the parties are echoed only when a test's discovery
+            // names them, the same way the real endpoint omits them today.
+            vendorCode: po.vendorCode || null,
+            buyerGstin: po.buyerGstin || null,
             buyerName: po.buyerName,
             shipToCity: null,
             shipToState: null,

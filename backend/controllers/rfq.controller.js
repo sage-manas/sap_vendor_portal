@@ -780,7 +780,10 @@ const awardBid = asyncHandler(async (req, res, next) => {
         sapSyncState: 'pending',
         vendorId,
         vendorPk: vendor ? vendor.pk : winningBid.vendorPk,
-        buyerName: 'SAP System Procurement',
+        // Unknown until the PO sweep correlates this order and reads SAP's
+        // BUYER_NAME (issue #315) — the RFQ carries no buyer of its own, and a
+        // placeholder name would read as a real, attributed buyer.
+        buyerName: null,
         // Carried from the RFQ that was actually awarded, not guessed (issue
         // #62) — plant moved to the line item (poItemsData above) since a
         // multi-line order can ship from more than one.

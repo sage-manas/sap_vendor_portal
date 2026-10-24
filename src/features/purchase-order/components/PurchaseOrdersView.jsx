@@ -94,12 +94,10 @@ export default function PurchaseOrdersView({
   const cleanPOs = (Array.isArray(state?.pos) ? state.pos : [])
     .filter(Boolean)
     .map(po => ({
-      plant: 'Plant 1000 (Mumbai)',
-      buyerName: 'Amit Sharma (Lead Procurement)',
-      paymentTerms: 'NET 30 Days',
+      // No buyer, plant, terms or address defaults (issue #315): a missing
+      // party detail renders as "—", never as an invented name or place that
+      // makes an incomplete order look complete.
       currency: 'INR',
-      incoterms: 'EXW',
-      deliveryAddress: 'Plant Gate 2, Industrial Sector, Mumbai, India',
       status: 'Open',
       ...po,
       items: (po.items || []).filter(Boolean).map(item => ({
@@ -280,8 +278,9 @@ export default function PurchaseOrdersView({
     : (detailTab === 'invoice_plan' && !showInvoicePlanTab ? 'po_detail' : detailTab);
 
   // Fetch unique plants and buyers from actual PO list for filters
-  const uniquePlants = Array.from(new Set(cleanPOs.map(p => p.plant)));
-  const uniqueBuyers = Array.from(new Set(cleanPOs.map(p => p.buyerName)));
+  // A PO with no plant or buyer has nothing to filter by, so it adds no option.
+  const uniquePlants = Array.from(new Set(cleanPOs.map(p => p.plant).filter(Boolean)));
+  const uniqueBuyers = Array.from(new Set(cleanPOs.map(p => p.buyerName).filter(Boolean)));
 
 
   // Prefills the shipment form the first time an order's "Send shipment" tab is
