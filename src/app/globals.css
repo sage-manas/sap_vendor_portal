@@ -79,7 +79,7 @@
 
   /* ── 2. Semantic (light) ─────────────────────────────────────────────── */
   --canvas: var(--slate-25);
-  --surface: var(--slate-0);
+  --surface: var(--slate-25);
   --subtle: var(--slate-50);
   --hover: var(--slate-25);
   --border: var(--slate-100);
