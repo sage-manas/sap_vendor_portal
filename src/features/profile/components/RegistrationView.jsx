@@ -996,7 +996,7 @@ export default function RegistrationView({
                       value={companyForm.accountName}
                       onChange={e => handleFieldChange('accountName', e.target.value)}
                       placeholder="Bharat Steel Alloys Pvt. Ltd."
-                      className="w-[64ch] max-w-full"
+                      className="w-[64ch] max-w-full" 
                     />
                   </FieldCard>
 
