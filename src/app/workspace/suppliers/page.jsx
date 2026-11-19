@@ -14,7 +14,7 @@ import DeclineSupplier from '@/features/profile/components/DeclineSupplier';
 // decision, and the two ways a new one arrives — an invitation they answer, or
 // a record the tenant enters on their behalf.
 
-const EMPTY_SUPPLIER = Object.fromEntries(SUPPLIER_IDENTITY_FIELDS.map((field) => [field.name, '']));
+const EMPTY_SUPPLIER = { ...Object.fromEntries(SUPPLIER_IDENTITY_FIELDS.map((field) => [field.name, ''])), sapVendorCode: '' };
 
 function AddSupplier({ onClose, onCreated }) {
   const [form, setForm] = useState(EMPTY_SUPPLIER);
@@ -35,9 +35,12 @@ function AddSupplier({ onClose, onCreated }) {
     setBusy(true);
     setFailed('');
     try {
-      const res = await apiClient.post('/vendors', form);
-      onCreated(res.vendor);
+      const { sapVendorCode, ...identity } = form;
+      const code = sapVendorCode.trim();
+      const res = await apiClient.post('/vendors', { ...identity, ...(code && { sapVendorCode: code }) });
+      onCreated(res.vendor, res.sapLink);
     } catch (err) {
+      if (err.errors) setErrors(err.errors);
       setFailed(err.message);
     } finally {
       setBusy(false);
@@ -77,6 +80,24 @@ function AddSupplier({ onClose, onCreated }) {
             {errors[field.name] && <p className="mt-1 text-xs text-danger">{errors[field.name]}</p>}
           </div>
         ))}
+
+        {/* A supplier SAP already holds is linked to that vendor master, not
+            given a second one on approval. The API confirms the code against
+            SAP's own documents before anything is created. */}
+        <div className="sm:col-span-2">
+          <Field
+            label="Existing SAP vendor code (optional)"
+            value={form.sapVendorCode}
+            disabled={busy}
+            // No maxLength: it counts a pasted space, and silently cutting
+            // " 1120250081" to "112025008" names a different vendor. The value
+            // is trimmed on submit and the API enforces the length.
+            className="w-full mono"
+            hint="Only for a supplier SAP already has. Leave empty and SAP creates the vendor when you approve them."
+            onChange={(event) => setForm({ ...form, sapVendorCode: event.target.value })}
+          />
+          {errors.sapVendorCode && <p className="mt-1 text-xs text-danger">{errors.sapVendorCode}</p>}
+        </div>
       </form>
     </Modal>
   );
@@ -257,7 +278,11 @@ export default function SuppliersPage() {
       {dialog?.kind === 'add' && (
         <AddSupplier
           onClose={() => setDialog(null)}
-          onCreated={(vendor) => finish(`${vendor.companyName} was created as ${vendor.vendorId}, and has been emailed a link to sign in.`)}
+          onCreated={(vendor, sapLink) => finish(
+            `${vendor.companyName} was created as ${vendor.vendorId}, and has been emailed a link to sign in.${sapLink
+              ? ` Linked to SAP vendor ${sapLink.sapVendorCode} (${sapLink.documents} document${sapLink.documents === 1 ? '' : 's'} found) — approving them will not create a new vendor in SAP.`
+              : ''}`,
+          )}
         />
       )}
       {dialog?.kind === 'invite' && (

@@ -119,10 +119,25 @@ const profileCreateSchema = z.strictObject({
 
 const profileUpdateSchema = profileCreateSchema.partial();
 
+// SAP's LIFNR: up to ten characters, letters and digits.
+const sapVendorCodeRegex = /^[A-Z0-9]{1,10}$/i;
+
 // A supplier created from the tenant's directory. Derived from the
 // self-registration schema rather than restated, so the two can never drift:
 // the tenant supplies the same fields minus the vendorId (issued server-side).
-const vendorCreateSchema = profileCreateSchema.omit({ vendorId: true });
+//
+// Plus one field only the tenant may send: the code of a vendor master SAP
+// already holds. A supplier who has been trading with this buyer for years is
+// linked to that record rather than given a second one — approval then skips
+// VENDOR_CR (see approveVendor). Never on the supplier's own schemas: a
+// supplier naming its own SAP code could attach itself to another vendor's
+// documents and payments.
+const vendorCreateSchema = profileCreateSchema.omit({ vendorId: true }).extend({
+  sapVendorCode: z.union([
+    z.literal(''),
+    z.string().trim().regex(sapVendorCodeRegex, { message: 'SAP vendor code must be up to 10 letters or digits' }),
+  ]).optional().transform((value) => value || undefined),
+});
 
 const rejectVendorSchema = z.strictObject({
   reason: z.string().min(1, { message: "Rejection reason is required" })
