@@ -650,6 +650,47 @@ describe('platform SAP configuration', () => {
     expect(res.status).toBe(200);
   });
 
+  // Credentials are write-only: the console never has them to send back, so
+  // an edit that omits them means "keep what is stored". Judging only the
+  // request's own secrets refused every later edit of a production connection.
+  it('accepts an edit of a production connection that leaves its stored credentials alone', async () => {
+    const { token } = await createOperatorSession();
+    await configure(token, 'production', s4Body());
+
+    const res = await configure(token, 'production', s4Body({
+      config: { baseUrl: 'https://s4.example.com', sapClient: '100', companyCode: '1000', timeoutMs: 15000 },
+      secrets: {},
+    }));
+
+    expect(res.status).toBe(200);
+    expect(res.body.connection.config.timeoutMs).toBe(15000);
+    expect(res.body.connection.configuredSecrets).toEqual(['password', 'username']);
+  });
+
+  it('still refuses a production edit that clears a stored credential', async () => {
+    const { token } = await createOperatorSession();
+    await configure(token, 'production', s4Body());
+
+    const res = await configure(token, 'production', s4Body({ secrets: { password: '' } }));
+
+    expect(res.status).toBe(400);
+    expect(res.body.errors.credentials).toMatch(/password/i);
+  });
+
+  it('does not count another driver\'s stored credentials towards production', async () => {
+    const { token } = await createOperatorSession();
+    await configure(token, 'production', s4Body());
+
+    const res = await configure(token, 'production', {
+      driver: 'ecc_rfc',
+      config: { ashost: 'ecc.example.com', sysnr: '00', client: '100' },
+      secrets: {},
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.errors.credentials).toMatch(/production requires/i);
+  });
+
   it('refuses an unknown driver and an unknown environment', async () => {
     const { token } = await createOperatorSession();
 

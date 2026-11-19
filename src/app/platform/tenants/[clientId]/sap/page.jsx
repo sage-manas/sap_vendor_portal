@@ -20,6 +20,8 @@ const ENVIRONMENT_CAPTION = {
   production: 'The tenant\'s real system. Reached only through an explicit promotion.',
 };
 
+const capitalise = (word) => word.charAt(0).toUpperCase() + word.slice(1);
+
 const readPath = (object, path) =>
   path.split('.').reduce((value, key) => (value == null ? value : value[key]), object);
 
@@ -57,8 +59,33 @@ const TestResult = ({ result }) => {
 // ConnectionCard so that nothing reads `draft.<field>` behind a `draft ? …`
 // guard: React Compiler hoists such reads into its cache dependencies, where
 // they run while the draft is still null (see the note in ConnectionCard).
+// An emptied number field means "not set" — the driver then falls back to its
+// default. Number('') is 0, which used to be stored and shown as a real value.
+const fieldValue = (field, raw) => {
+  if (field.type !== 'number') return raw;
+  return raw === '' ? undefined : Number(raw);
+};
+
+const ConfigField = ({ field, draft, setDraft }) => (
+  <Field
+    label={field.label}
+    type={field.type === 'number' ? 'number' : 'text'}
+    placeholder={field.placeholder || (field.default != null ? String(field.default) : '')}
+    value={readPath(draft.config, field.name) ?? ''}
+    onChange={(event) => setDraft({
+      ...draft,
+      config: writePath({ ...draft.config }, field.name, fieldValue(field, event.target.value)),
+    })}
+  />
+);
+
 const ConnectionForm = ({ draft, setDraft, drivers, configuredSecrets, busy, onSubmit }) => {
   const definition = drivers.find((entry) => entry.key === draft.driver) || drivers[0];
+  // Per-endpoint overrides (one timeout per SAP method) are flagged `advanced`
+  // by the driver. They stay reachable, folded away, so the fields a new
+  // connection actually needs are not buried under thirty of them.
+  const essentials = definition.configFields.filter((field) => !field.advanced);
+  const advanced = definition.configFields.filter((field) => field.advanced);
 
   const submit = (event) => {
     event.preventDefault();
@@ -85,19 +112,8 @@ const ConnectionForm = ({ draft, setDraft, drivers, configuredSecrets, busy, onS
       </Field>
       <p className="-mt-2 text-xs text-fg-subtle">{definition.description}</p>
 
-      {definition.configFields.map((field) => (
-        <Field
-          key={field.name}
-          label={field.label}
-          type={field.type === 'number' ? 'number' : 'text'}
-          placeholder={field.placeholder || (field.default != null ? String(field.default) : '')}
-          value={readPath(draft.config, field.name) ?? ''}
-          onChange={(event) => setDraft({
-            ...draft,
-            config: writePath({ ...draft.config }, field.name,
-              field.type === 'number' ? Number(event.target.value) : event.target.value),
-          })}
-        />
+      {essentials.map((field) => (
+        <ConfigField key={field.name} field={field} draft={draft} setDraft={setDraft} />
       ))}
 
       {definition.secretFields.map((field) => (
@@ -113,6 +129,19 @@ const ConnectionForm = ({ draft, setDraft, drivers, configuredSecrets, busy, onS
           onChange={(event) => setDraft({ ...draft, secrets: { ...draft.secrets, [field.name]: event.target.value } })}
         />
       ))}
+
+      {advanced.length > 0 && (
+        <details className="rounded border border-border p-3">
+          <summary className="cursor-pointer text-sm text-fg-muted">
+            Advanced — per-endpoint timeouts ({advanced.length})
+          </summary>
+          <div className="mt-3 grid gap-4">
+            {advanced.map((field) => (
+              <ConfigField key={field.name} field={field} draft={draft} setDraft={setDraft} />
+            ))}
+          </div>
+        </details>
+      )}
 
       <div className="flex gap-2">
         <button type="submit" className="btn btn-v h-9" disabled={busy}>Save</button>
@@ -245,7 +274,7 @@ export default function TenantSapPage({ params }) {
   const save = (environment, body) =>
     act(async () => {
       const { warnings = [] } = await platformApi.configureSap(clientId, environment, body);
-      return `${environment} connection saved. Test it before making it live.${warnings.length ? ` Warning: ${warnings.join(' ')}` : ''}`;
+      return `${capitalise(environment)} connection saved. Test it before making it live.${warnings.length ? ` Warning: ${warnings.join(' ')}` : ''}`;
     }).catch(() => {});
 
   const test = (environment) => act(async () => {

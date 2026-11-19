@@ -1955,7 +1955,7 @@ module.exports = {
     { name: 'companyCodes', label: 'All company codes this tenant covers, comma-separated (optional — defaults to just Company code)', type: 'text', placeholder: '1000, 2000' },
     { name: 'supplierAccountGroup', label: 'Supplier account group', type: 'text', default: 'LIEF' },
     { name: 'bpGrouping', label: 'Business Partner grouping', type: 'text', default: 'BP03' },
-    { name: 'vendorCrPath', label: 'VENDOR_CR endpoint path (custom Z REST, not OData — unverified)', type: 'text', default: '/zvendor_create/VENDOR_CR' },
+    { name: 'vendorCrPath', label: 'VENDOR_CR endpoint path (custom Z REST, not OData — confirmed live)', type: 'text', default: '/zvendor_create/VENDOR_CR' },
     { name: 'regionCodePath', label: 'Region code catalogue path (custom Z REST)', type: 'text', default: '/ZREGION_CODE/REGION' },
     { name: 'paymentTermsPath', label: 'Payment terms catalogue path (custom Z REST)', type: 'text', default: '/zpaym_term/PAY_TERM' },
     { name: 'paymentMethodPath', label: 'Payment method catalogue path (custom Z REST)', type: 'text', default: '/ZPAYM_METHOD/PAYM_METHOD' },

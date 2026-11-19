@@ -112,6 +112,38 @@ describe('platform console — tenants', () => {
     expect(res.body.tenant.branding.primaryColor).toBe('#059669');
   });
 
+  // null is how the column says "unlimited" (utils/usage.js), and an
+  // operator who can tighten a limit has to be able to lift it again.
+  it('lifts a limit back to unlimited with null, and still refuses 0', async () => {
+    const { token } = await createOperatorSession();
+    await createTenant(token);
+    const update = (body) => request(app).put('/api/platform/tenants/CLT-0002').set(bearer(token)).send(body);
+
+    const lifted = await update({ limits: { vendors: null } });
+    expect(lifted.status).toBe(200);
+    expect(lifted.body.tenant.limits).toMatchObject({ vendors: null, rfqsPerMonth: 100, storageMb: 1024 });
+
+    const zero = await update({ limits: { vendors: 0 } });
+    expect(zero.status).toBe(400);
+    expect(zero.body.errors['limits.vendors']).toMatch(/Supplier limit must be at least 1/);
+  });
+
+  // Two operators creating workspaces at once both read the same "next"
+  // CLT number. The loser used to get a bare 409 for a conflict it did not
+  // cause; it should simply get the following number.
+  it('gives concurrent creations their own client IDs instead of refusing one', async () => {
+    const { token } = await createOperatorSession();
+
+    const results = await Promise.all([1, 2, 3].map((n) => createTenant(token, {
+      companyName: `Concurrent ${n} Ltd`,
+      slug: `concurrent-${n}`,
+      admin: { email: `ops${n}@concurrent.example.com` },
+    })));
+
+    expect(results.map((res) => res.status)).toEqual([201, 201, 201]);
+    expect(new Set(results.map((res) => res.body.tenant.clientId)).size).toBe(3);
+  });
+
   it('refuses an attempt to change a tenant clientId or slug, and changes nothing', async () => {
     const { token } = await createOperatorSession();
     await createTenant(token);
