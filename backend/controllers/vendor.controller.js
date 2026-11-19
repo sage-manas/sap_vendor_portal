@@ -219,6 +219,12 @@ const createVendor = asyncHandler(async (req, res, next) => {
 
   await assertCanCreate(req.client, 'vendors');
 
+  // Linking a vendor master SAP already holds, instead of creating one on
+  // approval. Checked before anything is written or emailed.
+  const sapLink = mappedBody.sapVendorCode
+    ? await confirmSapVendor(req, mappedBody.sapVendorCode)
+    : null;
+
   const vendorId = await generateVendorId();
   const passwordFields = await hashPassword(unguessablePassword());
   const { rawToken, fields: resetFields } = issueResetToken();
@@ -253,11 +259,50 @@ const createVendor = asyncHandler(async (req, res, next) => {
     action: AUDIT_ACTIONS.VENDOR_CREATED,
     req,
     target: { type: 'Vendor', id: vendorId, label: companyName },
-    meta: { email, gstin, pan },
+    meta: { email, gstin, pan, ...(sapLink && { sapVendorCode: sapLink.sapVendorCode, sapDocumentsFound: sapLink.documents }) },
   });
 
-  res.status(201).json({ success: true, vendor: formatVendorResponse(vendor) });
+  res.status(201).json({ success: true, vendor: formatVendorResponse(vendor), ...(sapLink && { sapLink }) });
 });
+
+// Confirms a vendor code the tenant typed names a vendor SAP actually knows,
+// before a supplier is linked to it.
+//
+// The contract has no vendor-master read (XK03), so existence is judged by
+// the vendor's purchasing documents: ME48 (vendorQuotationDisplay) returns
+// every RFQ and PO SAP holds for the code, and answers empty for a code with
+// nothing on file. Empty is refused rather than trusted — a mistyped code
+// would otherwise link a supplier to nothing, and approval would then skip
+// VENDOR_CR, leaving them with no vendor master at all. The cost is that a
+// vendor SAP holds but has never bought from cannot be linked this way; it
+// registers normally once it has a document, or through SAP's own XK01.
+const confirmSapVendor = async (req, sapVendorCode) => {
+  const taken = await prisma.vendor.findFirst({ where: { sapVendorCode }, select: { vendorId: true } });
+  if (taken) {
+    throw ApiError.conflict(
+      `SAP vendor ${sapVendorCode} is already linked to supplier ${taken.vendorId} in this workspace`,
+      { reason: 'sap_vendor_code_taken' },
+    );
+  }
+
+  let documents;
+  try {
+    const sap = await getSapAdapterForClient(req.clientId);
+    ({ documents } = await sap.vendorQuotationDisplay({ vendor: { sapVendorCode }, rfqs: [], pos: [] }));
+  } catch (error) {
+    req.log?.warn?.(`[vendor] could not confirm SAP vendor ${sapVendorCode}: ${error.message}`);
+    throw new ApiError(502, `Could not reach SAP to confirm vendor ${sapVendorCode}. Nothing was created — try again once SAP is reachable.`, { reason: 'sap_unreachable' });
+  }
+
+  if (!documents?.length) {
+    throw ApiError.badRequest(
+      `SAP holds no purchasing documents for vendor ${sapVendorCode}, so it cannot be confirmed. Check the code — or, for a supplier new to SAP, leave it empty and SAP will create one on approval.`,
+      { reason: 'sap_vendor_not_found', errors: { sapVendorCode: `No documents found in SAP for ${sapVendorCode}` } },
+    );
+  }
+
+  return { sapVendorCode, documents: documents.length };
+};
 
 // @desc    Update current vendor profile
 // @route   PUT /api/vendors/profile
@@ -354,9 +399,12 @@ const submitRegistration = asyncHandler(async (req, res, next) => {
   }
 
   // The vendor master is not created in SAP until a client admin approves —
-  // see approveVendor. Once approved, resubmitting would leave a stray VENDOR_CR
-  // behind for a record SAP already holds, so that's what this guards against.
-  if (vendor.sapVendorCode) {
+  // see approveVendor. An approved registration is finished; resubmitting it
+  // would put it back in the approval queue. Keyed on the status, not on
+  // holding a vendor code: a supplier the tenant linked to an existing SAP
+  // vendor (createVendor's sapVendorCode) holds a code from the start and
+  // still has to submit once.
+  if (vendor.status === VENDOR_STATUS.APPROVED) {
     return next(ApiError.conflict(
       'This registration has already been approved and created in SAP.',
       { reason: 'already_approved' },
@@ -368,8 +416,10 @@ const submitRegistration = asyncHandler(async (req, res, next) => {
   // an incomplete payload with a bare "Vendor Creation Failed" naming no field
   // — so without this check the gap surfaces as a 502 on the admin's approve
   // click, about a form the admin cannot fix. The list is derived from the
-  // VENDOR_CR field map, not restated here.
-  const missing = missingVendorCreateFields(vendor);
+  // VENDOR_CR field map, not restated here. A linked supplier skips it:
+  // approval never sends VENDOR_CR for one, and its terms already live on the
+  // vendor master SAP holds.
+  const missing = vendor.sapVendorCode ? [] : missingVendorCreateFields(vendor);
   if (missing.length) {
     return next(ApiError.badRequest(
       'Your registration is missing details needed before it can be approved.',
@@ -427,7 +477,8 @@ const approveVendor = asyncHandler(async (req, res, next) => {
   // submission. VENDOR_CR is not idempotent, so a vendor that already holds a
   // code (e.g. a retried approval request) must not be sent to SAP again.
   let { sapVendorCode } = vendor;
-  if (!sapVendorCode) {
+  const createdInSap = !sapVendorCode;
+  if (createdInSap) {
     ({ sapVendorCode } = await sap.vendorCreate({ vendor, settings: settingsFromClient(req.client) }));
   }
 
@@ -442,7 +493,9 @@ const approveVendor = asyncHandler(async (req, res, next) => {
     action: AUDIT_ACTIONS.VENDOR_APPROVED,
     req,
     target: { type: 'Vendor', id: updated.vendorId, label: updated.companyName },
-    meta: { sapVendorCode },
+    // Whether this approval made the vendor master or adopted one SAP already
+    // held (a linked supplier) — the two are very different events in SAP.
+    meta: { sapVendorCode, sapVendorMaster: createdInSap ? 'created' : 'linked' },
   });
 
   res.json({ message: 'Vendor approved successfully', vendor: formatVendorResponse(updated) });
