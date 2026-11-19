@@ -3,15 +3,21 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, Search } from 'lucide-react';
-import { platformApi } from '@/lib/platform-client';
+import { platformApi, describeFailure } from '@/lib/platform-client';
 import { usePlatformSession } from '@/lib/platform-session';
 import { PageHeader, Notice, Field, Status, Table, Loading, useResource, formatDate } from '@/components/console/primitives';
 
 // The tenant list, and the create flow that is this phase's whole point:
 // creating a workspace issues its first client_admin's credentials by email.
 
-const slugify = (value) =>
-  value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+// While the operator types, a trailing hyphen has to survive: stripping it on
+// every keystroke made `acme-corp` impossible to type by hand (the hyphen
+// vanished before the next letter arrived). The edges are trimmed when the
+// value is final — derived from the company name, or submitted.
+const slugify = (value, { final = true } = {}) => {
+  const slug = value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+/, '').slice(0, 40);
+  return final ? slug.replace(/-+$/, '') : slug;
+};
 
 function CreateTenant({ onCreated, onCancel }) {
   const [form, setForm] = useState({ companyName: '', slug: '', plan: 'trial', adminEmail: '', adminName: '' });
@@ -34,13 +40,13 @@ function CreateTenant({ onCreated, onCancel }) {
     try {
       const res = await platformApi.createTenant({
         companyName: form.companyName,
-        slug: form.slug,
+        slug: slugify(form.slug),
         plan: form.plan,
         admin: { email: form.adminEmail, ...(form.adminName && { name: form.adminName }) },
       });
       onCreated(res);
     } catch (err) {
-      setError(err.message);
+      setError(describeFailure(err));
     } finally {
       setBusy(false);
     }
@@ -56,7 +62,8 @@ function CreateTenant({ onCreated, onCancel }) {
           onChange={(e) => setCompany(e.target.value)} />
         <Field label="Workspace address" required value={form.slug} disabled={busy}
           hint="Becomes their subdomain. Cannot be changed later."
-          onChange={(e) => { setSlugTouched(true); setForm({ ...form, slug: slugify(e.target.value) }); }} />
+          onChange={(e) => { setSlugTouched(true); setForm({ ...form, slug: slugify(e.target.value, { final: false }) }); }}
+          onBlur={() => setForm((prev) => ({ ...prev, slug: slugify(prev.slug) }))} />
         <Field label="Plan" value={form.plan} disabled={busy}
           onChange={(e) => setForm({ ...form, plan: e.target.value })} />
         <div />
@@ -101,7 +108,7 @@ export default function TenantsPage() {
     },
     { key: 'status', header: 'Status', render: (row) => <Status value={row.status} /> },
     { key: 'plan', header: 'Plan' },
-    { key: 'limits', header: 'Supplier limit', render: (row) => <span className="mono">{row.limits?.vendors ?? '—'}</span> },
+    { key: 'limits', header: 'Supplier limit', render: (row) => <span className="mono">{row.limits?.vendors ?? 'Unlimited'}</span> },
     { key: 'createdAt', header: 'Created', render: (row) => <span className="mono text-fg-muted">{formatDate(row.createdAt)}</span> },
   ];
 

@@ -13,11 +13,29 @@ const slugField = z.string()
     message: 'Workspace address may contain lowercase letters, digits and hyphens, and cannot start or end with a hyphen',
   });
 
+const limitField = (label) => z.number({ message: `${label} must be a number` })
+  .int({ message: `${label} must be a whole number` })
+  .positive({ message: `${label} must be at least 1 — leave it empty for no limit` });
+
 const limitsSchema = z.strictObject({
-  vendors: z.number().int().positive().optional(),
-  rfqsPerMonth: z.number().int().positive().optional(),
-  storageMb: z.number().int().positive().optional(),
+  vendors: limitField('Supplier limit').optional(),
+  rfqsPerMonth: limitField('RFQs per month').optional(),
+  storageMb: limitField('Storage (MB)').optional(),
 });
+
+// On an edit, null is a value: it means "unlimited", which is what the column
+// already stores for no limit (utils/usage.js reads `limit == null`). Without
+// it an operator could tighten a limit but never lift one again.
+const limitsUpdateSchema = z.strictObject({
+  vendors: limitField('Supplier limit').nullable().optional(),
+  rfqsPerMonth: limitField('RFQs per month').nullable().optional(),
+  storageMb: limitField('Storage (MB)').nullable().optional(),
+});
+
+const companyNameField = z.string()
+  .trim()
+  .min(2, { message: 'Company name must be at least 2 characters' })
+  .max(120, { message: 'Company name must be at most 120 characters' });
 
 const brandingSchema = z.strictObject({
   logo: z.string().max(500).optional(),
@@ -58,7 +76,7 @@ const GSTIN_STATE_MISMATCH = {
 };
 
 const createTenantSchema = z.strictObject({
-  companyName: z.string().min(2).max(120),
+  companyName: companyNameField,
   slug: slugField,
   plan: z.string().min(2).max(40).optional(),
   limits: limitsSchema.optional(),
@@ -73,16 +91,16 @@ const createTenantSchema = z.strictObject({
   // The first client_admin. Not optional: a tenant nobody can sign in to is
   // not a tenant, and this is the flow the phase exists for.
   admin: z.strictObject({
-    email: z.string().email(),
-    name: z.string().min(2).max(120).optional(),
+    email: z.string().trim().email({ message: 'Administrator email is not a valid email address' }),
+    name: z.string().trim().min(2, { message: 'Administrator name must be at least 2 characters' }).max(120).optional(),
   }),
 }).refine(gstinAgreesWithState, GSTIN_STATE_MISMATCH);
 
 // Neither clientId nor slug is editable — see EDITABLE in the controller.
 const updateTenantSchema = z.strictObject({
-  companyName: z.string().min(2).max(120).optional(),
+  companyName: companyNameField.optional(),
   plan: z.string().min(2).max(40).optional(),
-  limits: limitsSchema.optional(),
+  limits: limitsUpdateSchema.optional(),
   branding: brandingSchema.optional(),
   featureFlags: z.record(z.string(), z.boolean()).optional(),
   gstin: gstinField.optional(),

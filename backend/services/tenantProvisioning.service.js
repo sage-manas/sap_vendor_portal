@@ -28,8 +28,8 @@ const generatePassword = () => crypto.randomBytes(18).toString('base64url');
 /**
  * The next free CLT-#### . Sequential rather than random because operators
  * read these aloud; the uniqueness guarantee is the unique index, and a
- * collision under concurrency surfaces as a duplicate-key error the caller
- * retries.
+ * collision under concurrency surfaces as a duplicate-key error that
+ * createClient below retries.
  */
 const nextClientId = async () => {
   const [latest] = await withoutTenantScope(() =>
@@ -43,6 +43,25 @@ const nextClientId = async () => {
 
   const highest = latest ? Number(latest.clientId.slice(CLIENT_ID_PREFIX.length)) : 0;
   return `${CLIENT_ID_PREFIX}${String((Number.isFinite(highest) ? highest : 0) + 1).padStart(4, '0')}`;
+};
+
+// Two operators creating workspaces at the same moment both read the same
+// "next" number; the loser's create hits the clientId unique index. That is a
+// race to re-run, not a conflict to report — the operator asked for a new
+// workspace, not for a particular number. A collision on any other column
+// (the slug, raced the same way) is a real conflict and is rethrown.
+const CLIENT_ID_ATTEMPTS = 5;
+const isClientIdCollision = (error) => error?.code === 'P2002'
+  && [].concat(error.meta?.target || []).some((field) => String(field).includes('clientId') || String(field).includes('client_id'));
+
+const createWithNextClientId = async (create) => {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await create(await nextClientId());
+    } catch (error) {
+      if (!isClientIdCollision(error) || attempt >= CLIENT_ID_ATTEMPTS) throw error;
+    }
+  }
 };
 
 const assertSlugAvailable = async (slug) => {
@@ -126,9 +145,7 @@ const provisionTenant = async ({ companyName, slug, plan, limits, branding, feat
   const normalizedSlug = await assertSlugAvailable(slug);
   const adminEmail = await assertEmailAvailable(admin?.email);
 
-  const clientId = await nextClientId();
-
-  const client = await withoutTenantScope(() => prisma.client.create({
+  const client = await createWithNextClientId((clientId) => withoutTenantScope(() => prisma.client.create({
     data: {
       clientId,
       companyName,
@@ -155,7 +172,7 @@ const provisionTenant = async ({ companyName, slug, plan, limits, branding, feat
       ...(state && { state: canonicalStateName(state) }),
       createdBy,
     },
-  }));
+  })));
 
   try {
     const clientAdmin = await issueClientAdmin({

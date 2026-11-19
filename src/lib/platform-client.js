@@ -25,6 +25,11 @@ export class PlatformApiError extends Error {
   }
 }
 
+// A refused form names every problem, not only the first: `message` carries
+// just one of the validator's field errors.
+export const describeFailure = (err) =>
+  (err?.errors && Object.keys(err.errors).length ? Object.values(err.errors).join(' · ') : err?.message);
+
 const request = async (endpoint, { method = 'GET', body, auth = true } = {}) => {
   const headers = { 'Content-Type': 'application/json' };
   const token = auth ? platformToken.get() : null;

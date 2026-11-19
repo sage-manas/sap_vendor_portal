@@ -24,8 +24,12 @@ const DRIVERS = {
   s4_odata: {
     key: 's4_odata',
     label: 'S/4HANA (OData)',
-    description: 'S/4HANA Cloud or on-premise via the OData APIs. Connection test only so far.',
-    implemented: false,
+    // The production path: every contract method is wired to the custom Z
+    // REST endpoints (docs/abap-requests/standard-vs-custom-endpoint-matrix.md)
+    // and runs against a live S/4 sandbox. The one gap, vendorBankUpdate, is
+    // handled by the manual XK02 confirmation flow rather than this flag.
+    description: 'S/4HANA on-premise or private cloud, through the custom Z REST endpoints your SAP team deploys.',
+    implemented: true,
     create: s4odata.createS4ODataDriver,
     validateConfig: s4odata.validateConfig,
     configWarnings: s4odata.configWarnings,

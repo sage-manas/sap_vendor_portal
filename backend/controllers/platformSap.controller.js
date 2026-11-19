@@ -127,14 +127,6 @@ const configureSap = asyncHandler(async (req, res) => {
 
   const definition = driverDefinition(driver);
 
-  // Issue #79: a production connection with no credentials means the
-  // driver's own Z endpoints answer with no authentication at all — the
-  // console must refuse to save one, not just warn.
-  const errors = definition.validateConfig(config, { environment, secrets });
-  if (Object.keys(errors).length) {
-    throw ApiError.badRequest('The connection details are incomplete', { errors });
-  }
-
   const unknownSecrets = Object.keys(secrets)
     .filter((name) => !definition.secretFields.some((field) => field.name === name));
   if (unknownSecrets.length) {
@@ -145,6 +137,26 @@ const configureSap = asyncHandler(async (req, res) => {
     where: { clientId: client.clientId, environment },
     omit: { wrappedDataKey: false },
   });
+
+  // Credentials are write-only, so the console never has them to send back:
+  // an edit that leaves them out means "keep what is stored". The production
+  // rule below has to judge the credentials the connection will hold after
+  // this save, not only the ones in this request — otherwise every later
+  // edit of a production connection (a timeout, a path) is refused until
+  // someone re-types the password. Stored ones count only for the same
+  // driver: another driver's technical user is not this one's.
+  const storedSecrets = existing && existing.driver === driver
+    ? Object.fromEntries((await secretNames(existing)).map((name) => [name, true]))
+    : {};
+  const effectiveSecrets = { ...storedSecrets, ...secrets };
+
+  // Issue #79: a production connection with no credentials means the
+  // driver's own Z endpoints answer with no authentication at all — the
+  // console must refuse to save one, not just warn.
+  const errors = definition.validateConfig(config, { environment, secrets: effectiveSecrets });
+  if (Object.keys(errors).length) {
+    throw ApiError.badRequest('The connection details are incomplete', { errors });
+  }
 
   const isNew = !existing;
   const before = { driver: existing?.driver, ...(existing?.config || {}) };

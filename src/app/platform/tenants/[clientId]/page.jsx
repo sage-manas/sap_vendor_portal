@@ -3,7 +3,7 @@
 import React, { use, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Download, Mail, PlugZap } from 'lucide-react';
-import { platformApi } from '@/lib/platform-client';
+import { platformApi, describeFailure } from '@/lib/platform-client';
 import { usePlatformSession } from '@/lib/platform-session';
 import { useIndianStates } from '@/lib/indianStates';
 import { PageHeader, Notice, Field, Status, Table, Loading, useResource, formatDate } from '@/components/console/primitives';
@@ -18,6 +18,12 @@ const LIFECYCLE = {
   Suspended: [{ action: 'reactivate', label: 'Reactivate', className: 'btn-g' }, { action: 'terminate', label: 'Terminate', className: 'btn-r' }],
   Terminated: [],
 };
+
+// An emptied limit field means "no limit", which the API stores as null.
+// Number('') is 0, and 0 is a real (and refused) limit, so it cannot be sent
+// for an empty field.
+const limitValue = (value) => (String(value).trim() === '' ? null : Number(value));
+const showLimit = (value) => (value == null ? 'Unlimited' : value);
 
 const CONFIRM = {
   suspend: 'Suspend this workspace? Its users will not be able to sign in.',
@@ -45,7 +51,7 @@ export default function TenantDetailPage({ params }) {
       setMessage(note || res.message || 'Done.');
       await reload();
     } catch (err) {
-      setFailure(err.message);
+      setFailure(describeFailure(err));
     } finally {
       setBusy(false);
     }
@@ -73,9 +79,9 @@ export default function TenantDetailPage({ params }) {
         companyName: edit.companyName,
         plan: edit.plan,
         limits: {
-          vendors: Number(edit.vendors),
-          rfqsPerMonth: Number(edit.rfqsPerMonth),
-          storageMb: Number(edit.storageMb),
+          vendors: limitValue(edit.vendors),
+          rfqsPerMonth: limitValue(edit.rfqsPerMonth),
+          storageMb: limitValue(edit.storageMb),
         },
         // The tenant's own GST registration (finding 4.4). Sent uppercased
         // because a GSTIN is one — the server's regex is case-insensitive, so
@@ -152,11 +158,12 @@ export default function TenantDetailPage({ params }) {
               <Field label="Company name" required value={edit.companyName}
                 onChange={(e) => setEdit({ ...edit, companyName: e.target.value })} />
               <Field label="Plan" value={edit.plan} onChange={(e) => setEdit({ ...edit, plan: e.target.value })} />
-              <Field label="Supplier limit" type="number" min="1" value={edit.vendors}
+              <Field label="Supplier limit" type="number" min="1" value={edit.vendors} placeholder="Unlimited"
+                hint="Leave empty for no limit."
                 onChange={(e) => setEdit({ ...edit, vendors: e.target.value })} />
-              <Field label="RFQs per month" type="number" min="1" value={edit.rfqsPerMonth}
+              <Field label="RFQs per month" type="number" min="1" value={edit.rfqsPerMonth} placeholder="Unlimited"
                 onChange={(e) => setEdit({ ...edit, rfqsPerMonth: e.target.value })} />
-              <Field label="Storage (MB)" type="number" min="1" value={edit.storageMb}
+              <Field label="Storage (MB)" type="number" min="1" value={edit.storageMb} placeholder="Unlimited"
                 onChange={(e) => setEdit({ ...edit, storageMb: e.target.value })} />
 
               {/* The tenant's own GST registration (finding 4.4). Both columns
@@ -212,9 +219,9 @@ export default function TenantDetailPage({ params }) {
               {[
                 ['Workspace address', tenant.slug],
                 ['Plan', tenant.plan],
-                ['Supplier limit', tenant.limits?.vendors],
-                ['RFQs per month', tenant.limits?.rfqsPerMonth],
-                ['Storage (MB)', tenant.limits?.storageMb],
+                ['Supplier limit', showLimit(tenant.limits?.vendors)],
+                ['RFQs per month', showLimit(tenant.limits?.rfqsPerMonth)],
+                ['Storage (MB)', showLimit(tenant.limits?.storageMb)],
                 // Finding 4.4 — both render '—' when unset, which is the
                 // honest reading: no registration on file, so no place of
                 // supply can be derived for this tenant's invoices.
