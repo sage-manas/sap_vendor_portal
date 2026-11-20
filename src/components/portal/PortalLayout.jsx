@@ -14,7 +14,7 @@ import UserMenu from '../shell/UserMenu';
 import { usePortal } from '@/lib/portal-context';
 import { useWhoami } from '@/lib/whoami';
 import { useWorkspaceRealm } from '@/lib/workspace-realm';
-import { modulesFor, isOnboarding } from '@/lib/onboarding';
+import { modulesFor, isOnboarding, isAwaitingApproval } from '@/lib/onboarding';
 import { hasOwnChrome, isAuthPath } from '@/lib/planes';
 
 const isDevEnv = process.env.NODE_ENV !== 'production';
@@ -63,6 +63,12 @@ export default function PortalLayout({ children }) {
 
   const profile = state.profile || {};
   const onboarding = mounted && !isTenantStaff && isOnboarding(profile);
+  const awaitingApproval = mounted && !isTenantStaff && isAwaitingApproval(profile);
+  const onboardingNote = onboarding
+    ? 'Complete and submit your registration to unlock RFQs, purchase orders, invoices and payments.'
+    : awaitingApproval
+      ? `Your registration is with ${buyerName || 'your buyer'} for approval. RFQs, purchase orders, invoices and payments open once they approve it.`
+      : null;
   const modules = modulesFor(SUPPLIER_MODULES, { isSupplier: !isTenantStaff, profile });
 
   const openOrders = mounted ? (state.pos || []).filter((p) => p.status === 'Open').length : 0;
@@ -105,7 +111,7 @@ export default function PortalLayout({ children }) {
         }}
         nav={nav}
         footerNav={footerNav}
-        note={onboarding ? 'Complete and submit your registration to unlock RFQs, purchase orders, invoices and payments.' : null}
+        note={onboardingNote}
         topbar={{
           start: (
             <button

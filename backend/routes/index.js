@@ -10,8 +10,8 @@ const requireOnboarded = require('../middleware/requireOnboarded');
 // and can only run after `protect` has bound it (see middleware/rateLimiter.js).
 const protectTenant = [protect, tenantLimiter];
 
-// The transacting modules, which a supplier reaches only once they have
-// submitted their registration (middleware/requireOnboarded.js). Tenant staff
+// The transacting modules, which a supplier reaches only once their buyer has
+// approved their registration (middleware/requireOnboarded.js). Tenant staff
 // are unaffected. `/vendors`, `/uploads` and `/dashboard` are deliberately not
 // in this list: they are the registration form, the documents it collects, and
 // the shell it is rendered in.

@@ -370,6 +370,10 @@ const rfqSummary = async (vendorId) => {
   return { invited, quoted, openForBids };
 };
 
+// Matches no row: every document table carries vendorId.
+const NO_DOCUMENTS = { vendorId: { in: [] } };
+const NO_RFQS = { invited: 0, quoted: 0, openForBids: 0 };
+
 /**
  * Every figure the supplier screens render, for one supplier (or, for tenant
  * staff, the whole tenant — `vendorId` null, `where` unscoped).
@@ -378,8 +382,14 @@ const rfqSummary = async (vendorId) => {
  * @param {string|null} args.vendorId  the supplier in scope, or null for the tenant
  * @param {object} args.where          the vendor scope as a Prisma filter
  * @param {Date}   [args.now]          "now" for ageing; injected so a test can fix it
+ * @param {boolean} [args.withholdDocuments]  answer the same shape with every
+ *   document figure at zero — for a supplier their buyer has not approved yet,
+ *   who may reach the Overview but not the documents it summarises
+ *   (middleware/requireOnboarded.js). Zero rather than absent, so the screen
+ *   renders the same layout either way.
  */
-const buildSupplierSummary = async ({ vendorId, where, now = new Date() }) => {
+const buildSupplierSummary = async ({ vendorId, where: scope, now = new Date(), withholdDocuments = false }) => {
+  const where = withholdDocuments ? NO_DOCUMENTS : scope;
   const nowMs = now.getTime();
 
   // The MSME 45-day clock only applies to a supplier who is registered under
@@ -397,7 +407,9 @@ const buildSupplierSummary = async ({ vendorId, where, now = new Date() }) => {
     invoiceSummary(where, { isMsme, now: nowMs }),
     paymentSummary(where),
     monthlyFlow(where, { now }),
-    rfqSummary(vendorId),
+    // Keyed on the vendor id, not on `where`, so the no-match filter above
+    // would not stop it counting their invitations.
+    withholdDocuments ? NO_RFQS : rfqSummary(vendorId),
   ]);
 
   return {
