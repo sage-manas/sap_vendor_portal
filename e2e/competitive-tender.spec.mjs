@@ -40,6 +40,21 @@ const submitQuote = async (page, rfqId, { unitPrice, leadTimeDays }) => {
 };
 
 test.describe('a competitive tender with two invited suppliers', () => {
+  // A tender is open to suppliers their buyer has approved
+  // (backend/middleware/requireOnboarded.js). The demo seed leaves supplier B
+  // Under Review — it is the one the workspace's approval queue shows — so the
+  // client admin approves it here, through the same endpoint the Suppliers
+  // screen's Approve button calls. Idempotent: a re-run finds it Approved.
+  test.beforeAll(async ({ request }) => {
+    const admin = api(request, await tokenFor(request, ACCOUNTS.admin));
+    const { vendors } = ok(await admin.get(`/vendors?search=${ACCOUNTS.supplierB.vendorId}`));
+    const supplierB = vendors.find((v) => v.vendorId === ACCOUNTS.supplierB.vendorId);
+    expect(supplierB, `${ACCOUNTS.supplierB.vendorId} is not in the seeded directory`).toBeTruthy();
+    if (supplierB.status !== 'Approved') {
+      ok(await admin.put(`/vendors/${supplierB.pk}/approve`, {}));
+    }
+  });
+
   test('both suppliers can bid, and the buyer ranks two quotes', async ({ page, request }) => {
     const buyer = api(request, await tokenFor(request, ACCOUNTS.buyer));
 
