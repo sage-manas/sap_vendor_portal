@@ -56,6 +56,7 @@
     "supertest": "^7.2.2"
   },
   "overrides": {
-    "deepmerge-ts": "^8.0.2"
+    "deepmerge-ts": "^8.0.2",
+    "effect": "^3.22.1"
   }
 }
