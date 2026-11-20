@@ -17,6 +17,7 @@ export const PROFILE_WRITABLE_FIELDS = [
   'incorporationDate',
   'cin',
   'msmeNumber',
+  'gstType',
   'tdsSection',
   'vendorCategory',
   'msmeRegistered',

@@ -122,6 +122,19 @@ describe('the registration form round-trip', () => {
     expect(submitted.status).toBe(200);
   });
 
+  it('saves the GST registration type the form collects and reads it back', async () => {
+    const { token, profile } = await signUpAndRead();
+
+    const saved = await request(app)
+      .put('/api/vendors/profile')
+      .set('Authorization', `Bearer ${token}`)
+      .send(profileFormPayload({ ...profile, gstType: '01' }));
+    expect(saved.status).toBe(200);
+
+    const read = await request(app).get('/api/vendors/profile').set('Authorization', `Bearer ${token}`);
+    expect(read.body.gstType).toBe('01');
+  });
+
   it('keeps bank details typed into the flat fields when the stale nested copy is sent too', async () => {
     const { token, profile } = await signUpAndRead();
     // profile.bankDetails is the response's re-nested copy: all empty strings.
