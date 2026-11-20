@@ -75,6 +75,13 @@ const profileCreateSchema = z.strictObject({
   incorporationDate: optionalText,
   cin: optionalText,
   msmeNumber: optionalText,
+  // GST registration type ('01' Regular, '02' Composition, …). Step 2 of the
+  // registration form collects and requires it and the Vendor column exists,
+  // but it was missing here and from the form's own writable list
+  // (src/features/profile/profileFields.js), so the form dropped it before
+  // every save: the value never persisted and the field read as required again
+  // on every reload.
+  gstType: optionalText,
   tdsSection: optionalText,
   vendorCategory: optionalText,
   msmeRegistered: optionalFlag,
