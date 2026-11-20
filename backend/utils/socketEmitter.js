@@ -6,6 +6,7 @@ const EVENTS = {
   PO_DELETED:       'po:deleted',
   INVOICE_NEW:      'invoice:new',
   GRN_RECEIVED:     'grn:received',
+  ASN_CANCELLED:    'asn:cancelled',
   PAYMENT_CLEARED:  'payment:cleared',
   RFQ_AWARDED:      'rfq:awarded',
   BID_RECEIVED:     'rfq:bid_received',

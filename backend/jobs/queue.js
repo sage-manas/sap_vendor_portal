@@ -89,4 +89,14 @@ const retryByPk = async (pk) => {
   }));
 };
 
-module.exports = { enqueue, claim, release, reapStale, retryByPk, LEASE_MS };
+// Stops a watch whose document no longer needs one — a shipment notice the
+// supplier withdrew. Only a job that is waiting is cancelled: one a worker
+// holds right now is left alone, and its handler re-reads the document inside
+// its own transaction and finds nothing to do (jobs/handlers/
+// awaitGoodsReceipt.js checks the ASN is still Submitted).
+const cancelByDedupeKey = (dedupeKey) => withoutTenantScope(() => rawPrisma.sapJob.updateMany({
+  where: { dedupeKey, status: { in: ['pending', 'failed'] } },
+  data: { status: 'cancelled', lockedBy: null, lockedAt: null },
+}));
+
+module.exports = { enqueue, claim, release, reapStale, retryByPk, cancelByDedupeKey, LEASE_MS };

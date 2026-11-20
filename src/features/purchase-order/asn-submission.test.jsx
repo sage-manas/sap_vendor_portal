@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { usePortal } from '@/lib/portal-context';
 import { renderWithPortal } from '@/test/renderWithPortal';
@@ -39,6 +39,8 @@ const Harness = ({ onReady }) => {
         trackingNumber: 'BD-778899',
         vehicleNumber: 'MH-12-AB-4455',
         invoiceReference: 'INV-778899',
+        invoiceDate: '2026-01-31',
+        invoiceValue: '1357.00',
         shipDate: '2026-02-01',
         estimatedDeliveryDate: '2026-02-05',
         items: { 10: 100, 20: 150 },
@@ -57,6 +59,23 @@ const renderHarness = (api) => renderWithPortal(<Harness />, {
 });
 
 describe('raising an advance shipping notice', () => {
+  it('sends the supplier\'s invoice, as a number for its value', async () => {
+    const user = userEvent.setup();
+    const { apiMock } = renderHarness({
+      'POST /pos/PO-2026-0001/asn': { message: 'ASN created', asn: { id: 'ASN-000001' } },
+    });
+
+    await user.click(await screen.findByRole('button', { name: 'fill asn' }));
+    await user.click(screen.getByRole('button', { name: 'send asn' }));
+
+    await waitFor(() => expect(apiMock.callsTo('POST', '/pos/PO-2026-0001/asn')).toHaveLength(1));
+    expect(apiMock.lastBody('POST', '/pos/PO-2026-0001/asn')).toMatchObject({
+      invoiceReference: 'INV-778899',
+      invoiceDate: '2026-01-31',
+      invoiceValue: 1357,
+    });
+  });
+
   it('sends the carrier, dates and per-line shipped quantities', async () => {
     const user = userEvent.setup();
     const { apiMock } = renderHarness({
@@ -88,19 +107,49 @@ describe('raising an advance shipping notice', () => {
     ]);
   });
 
-  it('falls back to shipping the ordered quantity for a line left blank', async () => {
+  // This used to be pinned the other way round, as "falls back to shipping
+  // the ordered quantity for a line left blank": clearing a field put the
+  // line's whole ordered quantity on the shipment, the opposite of what
+  // clearing it means.
+  it('leaves a line the supplier left blank off the shipment', async () => {
     const user = userEvent.setup();
-    const { apiMock } = renderHarness({
-      'POST /pos/PO-2026-0001/asn': { message: 'ASN created', asn: { id: 'ASN-000001' } },
+    let portal;
+    const { apiMock } = renderWithPortal(<Harness onReady={(p) => { portal = p; }} />, {
+      plane: 'supplier',
+      route: '/pos',
+      api: { ...EMPTY_SUPPLIER_API, 'POST /pos/PO-2026-0001/asn': { message: 'ASN created', asn: { id: 'ASN-000001' } } },
     });
 
-    // No "fill asn" click: the form is untouched, so every line defaults.
-    await user.click(await screen.findByRole('button', { name: 'send asn' }));
+    await screen.findByRole('button', { name: 'send asn' });
+    await act(async () => {
+      portal.setAsnForm({ shipDate: '2026-02-01', estimatedDeliveryDate: '2026-02-05', items: { 10: 40, 20: '' } });
+    });
+    await user.click(screen.getByRole('button', { name: 'send asn' }));
 
     await waitFor(() => expect(apiMock.callsTo('POST', '/pos/PO-2026-0001/asn')).toHaveLength(1));
     expect(apiMock.lastBody('POST', '/pos/PO-2026-0001/asn').items).toEqual([
-      { line: 10, shippedQuantity: 100 },
-      { line: 20, shippedQuantity: 200 },
+      { line: 10, shippedQuantity: 40 },
     ]);
+  });
+});
+
+describe('cancelling a shipment', () => {
+  it('posts the reason to the shipment\'s own cancel endpoint', async () => {
+    let portal;
+    const { apiMock } = renderWithPortal(<Harness onReady={(p) => { portal = p; }} />, {
+      plane: 'supplier',
+      route: '/pos',
+      api: {
+        ...EMPTY_SUPPLIER_API,
+        'POST /pos/PO-2026-0001/asn/ASN-000001/cancel': { message: 'Shipment cancelled.', asn: { id: 'ASN-000001', status: 'Cancelled' } },
+      },
+    });
+
+    await screen.findByRole('button', { name: 'send asn' });
+    await act(async () => {
+      await portal.poHook.cancelASN('PO-2026-0001', 'ASN-000001', 'Vehicle did not leave');
+    });
+
+    expect(apiMock.lastBody('POST', '/pos/PO-2026-0001/asn/ASN-000001/cancel')).toEqual({ reason: 'Vehicle did not leave' });
   });
 });

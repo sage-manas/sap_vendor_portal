@@ -3,7 +3,7 @@ const { withoutTenantScope } = require('../utils/tenantContext');
 const asyncHandler = require('../utils/asyncHandler');
 const ApiError = require('../utils/ApiError');
 const { retryDocumentWatch } = require('../jobs/syncState');
-const { SAP_SYNC_STATE } = require('../config/statuses');
+const { SAP_SYNC_STATE, ASN_STATUS } = require('../config/statuses');
 
 // The reconciliation queue (Phase 3 of docs/04-sap-runtime-engineering-plan.md):
 // everything `pending` past its SLA, plus everything `failed` or `orphaned`,
@@ -21,10 +21,14 @@ const PENDING_SLA_HOURS = Number(process.env.RECONCILIATION_PENDING_SLA_HOURS) |
 // backlog is 200 (issue #286).
 const PAGE_SIZE = 200;
 
+// `withdrawn` is a fixed SQL predicate (no user input) for rows that have left
+// the queue's business without reaching `synced`: a shipment notice the
+// supplier cancelled keeps the sync state it had — `local` is not re-enterable
+// (config/statuses.js) — but there is no longer anything for SAP to answer.
 const DOCUMENT_TYPES = [
   { type: 'RFQ', table: 'rfqs' },
   { type: 'PurchaseOrder', table: 'purchase_orders' },
-  { type: 'ASN', table: 'asns' },
+  { type: 'ASN', table: 'asns', withdrawn: `"status" = '${ASN_STATUS.CANCELLED}'` },
   { type: 'GRN', table: 'grns' },
   { type: 'Invoice', table: 'invoices' },
   { type: 'Payment', table: 'payments' },
@@ -73,7 +77,7 @@ const decodeCursor = (raw) => {
 // unconditionally, same as 'failed'/'orphaned': a retry alone never resolves
 // it, so it must not wait out the SLA window a merely-slow 'pending' row
 // does. Keep in sync with config/statuses.js's SAP_SYNC_STATE.
-const buildWhere = ({ clientId, state, cursor }) => {
+const buildWhere = ({ clientId, state, cursor, withdrawn }) => {
   const slaThreshold = new Date(Date.now() - PENDING_SLA_HOURS * 3600 * 1000);
   const params = [];
   const clauses = [];
@@ -83,6 +87,7 @@ const buildWhere = ({ clientId, state, cursor }) => {
   };
 
   if (clientId) clauses.push(`"clientId" = ${bind(clientId)}`);
+  if (withdrawn) clauses.push(`NOT (${withdrawn})`);
 
   if (state === SAP_SYNC_STATE.PENDING) {
     clauses.push(`("sapSyncState" = ${bind(state)} AND "updatedAt" < ${bind(slaThreshold)})`);
@@ -110,10 +115,10 @@ const buildWhere = ({ clientId, state, cursor }) => {
 
 // withoutTenantScope + rawPrisma: this reads across every tenant by design
 // (the operator picks a tenant filter in the UI, not the database).
-const rowsFor = async ({ type, table }, filters) => {
+const rowsFor = async ({ type, table, withdrawn }, filters) => {
   const {
     countWhere, countParams, pageWhere, pageParams,
-  } = buildWhere(filters);
+  } = buildWhere({ ...filters, withdrawn });
 
   const [rows, counted] = await withoutTenantScope(() => Promise.all([
     rawPrisma.$queryRawUnsafe(

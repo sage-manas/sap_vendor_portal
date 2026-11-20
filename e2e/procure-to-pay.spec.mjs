@@ -91,6 +91,11 @@ test.describe('procure to pay, on the mock SAP driver', () => {
       carrierName: 'BlueDart Express',
       trackingNumber: 'BD-E2E-0001',
       vehicleNumber: 'MH-12-AB-4455',
+      // Unique per run: an invoice number may not repeat for a supplier in one
+      // financial year, and this suite runs against a database that keeps them.
+      invoiceReference: `E2E/${Date.now() % 1e9}`,
+      invoiceDate: new Date().toISOString(),
+      invoiceValue: Number((quantity * unitPrice * 1.18).toFixed(2)),
       items: [{ line: 10, shippedQuantity: quantity }],
     }));
 
