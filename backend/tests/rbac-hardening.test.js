@@ -133,7 +133,7 @@ describe('a supplier cannot bid on an RFQ they were not invited to', () => {
   });
 });
 
-describe('the transacting modules are closed until registration is submitted', () => {
+describe('the transacting modules are closed until the buyer approves the registration', () => {
   const CLOSED = [
     ['get', '/api/rfqs'],
     ['get', '/api/pos'],
@@ -179,17 +179,59 @@ describe('the transacting modules are closed until registration is submitted', (
     expect(dashboard.status).toBe(200);
   });
 
+  // Submitting is the supplier's half; approval is the buyer's. A supplier
+  // awaiting that decision used to be let in, which showed a supplier linked
+  // to an existing SAP vendor every RFQ and order SAP held for it — swept in
+  // before anyone had looked at the registration — and let it write
+  // quotation prices into SAP.
   it.each([
     VENDOR_STATUS.PENDING_APPROVAL,
     VENDOR_STATUS.UNDER_REVIEW,
-    VENDOR_STATUS.APPROVED,
-  ])('opens them again once the supplier is %s', async (status) => {
+  ])('keeps them closed while the supplier is %s, and says why', async (status) => {
     const { token, vendor } = await registerVendor(app);
     await setStatus(vendor.vendorId, status);
+
+    for (const [method, path] of CLOSED) {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await request(app)[method](path).set(auth(token));
+      expect([path, res.status]).toEqual([path, 403]);
+      expect(res.body.reason).toBe('registration_awaiting_approval');
+    }
+
+    const bid = await request(app)
+      .post('/api/rfqs/RFQ-2026-001/bid')
+      .set(auth(token))
+      .send({ unitPrices: { 1: 100 }, gstRate: 18 });
+    expect(bid.status).toBe(403);
+    expect(bid.body.reason).toBe('registration_awaiting_approval');
+  });
+
+  it('opens them once the supplier is Approved', async () => {
+    const { token, vendor } = await registerVendor(app);
+    await setStatus(vendor.vendorId, VENDOR_STATUS.APPROVED);
 
     const res = await request(app).get('/api/rfqs').set(auth(token));
 
     expect(res.status).toBe(200);
+  });
+
+  it('withholds document figures from the open dashboard until approval', async () => {
+    const { token, vendor } = await registerVendor(app);
+    await setStatus(vendor.vendorId, VENDOR_STATUS.PENDING_APPROVAL);
+    await asTenant(() => prisma.purchaseOrder.create({
+      data: {
+        id: 'PO-2026-9901', vendorId: vendor.vendorId, status: 'Open',
+        items: { create: [{ clientId: 'CLT-0001', line: 10, materialCode: 'MAT-1', description: 'Widget', quantity: 10, grnQuantity: 0, unitPrice: 50, netValue: 500, uom: 'EA' }] },
+      },
+    }));
+
+    const pending = await request(app).get('/api/dashboard/summary').set(auth(token));
+    expect(pending.status).toBe(200);
+    expect(pending.body.openPOCount).toBe(0);
+
+    await setStatus(vendor.vendorId, VENDOR_STATUS.APPROVED);
+    const approved = await request(app).get('/api/dashboard/summary').set(auth(token));
+    expect(approved.body.openPOCount).toBe(1);
   });
 
   // A rejected supplier never reaches this gate: Vendor.canAuthenticate() closes

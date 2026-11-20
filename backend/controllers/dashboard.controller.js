@@ -1,5 +1,6 @@
 const asyncHandler = require('../utils/asyncHandler');
-const { withVendorScope, vendorScope } = require('../utils/requestScope');
+const { withVendorScope, vendorScope, isSupplier } = require('../utils/requestScope');
+const { VENDOR_TRANSACTING } = require('../config/statuses');
 const { getSapAdapterForClient } = require('../sap');
 const { sapTrafficFor, withCircuit } = require('../utils/sapHealth');
 const { buildSupplierSummary } = require('../services/supplierSummary.service');
@@ -15,10 +16,14 @@ const { buildSupplierSummary } = require('../services/supplierSummary.service');
 // ten of them. services/supplierSummary.service.js is where each figure is
 // defined now; the client renders what it answers rather than aggregating.
 const getDashboardSummary = asyncHandler(async (req, res, next) => {
-  // Suppliers see their own numbers; tenant staff see the whole tenant.
+  // Suppliers see their own numbers; tenant staff see the whole tenant. This
+  // route stays open to an unapproved supplier (it is the shell their
+  // registration tab lives in), so it withholds what the transacting modules
+  // would refuse them — middleware/requireOnboarded.js.
   res.json(await buildSupplierSummary({
     vendorId: vendorScope(req),
     where: withVendorScope(req),
+    withholdDocuments: isSupplier(req) && !VENDOR_TRANSACTING.includes(req.vendor?.status),
   }));
 });
 

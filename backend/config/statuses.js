@@ -26,16 +26,26 @@ const VENDOR_AWAITING_DECISION = [VENDOR_STATUS.UNDER_REVIEW, VENDOR_STATUS.PEND
 // Onboarding is not finished and no one is waiting on us.
 const VENDOR_IN_ONBOARDING = [VENDOR_STATUS.DRAFT, VENDOR_STATUS.PENDING];
 
-// The supplier still owes us a submission, so the transacting modules are not
-// theirs yet — see middleware/requireOnboarded.js. Distinct from
-// VENDOR_IN_ONBOARDING because Rejected belongs here (they are back to fixing
-// their registration) but not there (a rejection is a decision, not a queue).
-// A supplier merely *awaiting* a decision has done their part and is let in.
+// The supplier still owes us a submission. Distinct from VENDOR_IN_ONBOARDING
+// because Rejected belongs here (they are back to fixing their registration)
+// but not there (a rejection is a decision, not a queue). It decides what the
+// supplier is *told* when the transacting modules refuse them — see
+// middleware/requireOnboarded.js — not whether they are refused: only
+// VENDOR_TRANSACTING opens those.
 const VENDOR_PRE_SUBMISSION = [
   VENDOR_STATUS.DRAFT,
   VENDOR_STATUS.PENDING,
   VENDOR_STATUS.REJECTED,
 ];
+
+// The only statuses that reach the transacting modules (RFQs, orders,
+// invoices, payments). Submitting is not enough: a supplier awaiting a decision
+// used to be let in on the grounds that nothing they did could reach SAP
+// without an approved vendor master. That stopped being true twice — a
+// supplier linked to an existing SAP vendor holds a vendor master from the day
+// it is created, so its SAP documents are swept in before anyone has looked at
+// it, and submitting a quotation now writes the price to SAP's own record.
+const VENDOR_TRANSACTING = [VENDOR_STATUS.APPROVED];
 
 const isVendorStatus = (value) => VENDOR_STATUSES.includes(value);
 
@@ -208,6 +218,7 @@ module.exports = {
   VENDOR_AWAITING_DECISION,
   VENDOR_IN_ONBOARDING,
   VENDOR_PRE_SUBMISSION,
+  VENDOR_TRANSACTING,
   VENDOR_STATUS_GROUPS,
   vendorStatusFilter,
   isVendorStatus,
