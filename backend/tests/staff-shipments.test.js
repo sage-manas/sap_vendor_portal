@@ -42,6 +42,9 @@ const seedPoFor = (vendorId, poId) => asTenant(() => prisma.purchaseOrder.create
 }));
 
 const asnPayload = (overrides = {}) => ({
+  invoiceReference: 'INV/26/0001',
+  invoiceDate: new Date().toISOString(),
+  invoiceValue: 1180,
   shipDate: new Date().toISOString(),
   estimatedDeliveryDate: new Date(Date.now() + 5 * 86400000).toISOString(),
   carrierName: 'Blue Dart Express',

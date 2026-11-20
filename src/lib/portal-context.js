@@ -246,7 +246,7 @@ export function PortalProvider({ children }) {
 
   const [asnForm, setAsnForm] = useState({
     carrierName: '', trackingNumber: '', vehicleNumber: '',
-    invoiceReference: '', shipDate: '', estimatedDeliveryDate: '',
+    invoiceReference: '', invoiceDate: '', invoiceValue: '', shipDate: '', estimatedDeliveryDate: '',
     items: {}
   });
 
@@ -366,7 +366,11 @@ export function PortalProvider({ children }) {
       carrierName: asnForm.carrierName || undefined,
       trackingNumber: asnForm.trackingNumber || undefined,
       vehicleNumber: asnForm.vehicleNumber || undefined,
+      // The invoice is required (ASN design D1/D5); left blank, the API says
+      // so rather than this inventing one.
       invoiceReference: asnForm.invoiceReference || undefined,
+      invoiceDate: asnForm.invoiceDate || undefined,
+      invoiceValue: asnForm.invoiceValue ? Number(asnForm.invoiceValue) : undefined,
       ewayBillNo: po.ewayBillNo || '',
       documentIds: po.documentIds || [],
       items
@@ -375,7 +379,7 @@ export function PortalProvider({ children }) {
     setSelectedPoId(null);
     setAsnForm({
       carrierName: '', trackingNumber: '', vehicleNumber: '',
-      invoiceReference: '', shipDate: '', estimatedDeliveryDate: '',
+      invoiceReference: '', invoiceDate: '', invoiceValue: '', shipDate: '', estimatedDeliveryDate: '',
       items: {}
     });
 

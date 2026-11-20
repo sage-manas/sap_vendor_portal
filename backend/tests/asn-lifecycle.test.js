@@ -31,7 +31,11 @@ const seedPo = (vendorId, poId, items) => asTenant(() => prisma.purchaseOrder.cr
   },
 }));
 
+let invoiceSeq = 0;
 const shipment = (items, overrides = {}) => ({
+  invoiceReference: `INV/26/${(invoiceSeq += 1)}`,
+  invoiceDate: new Date().toISOString(),
+  invoiceValue: 1180,
   shipDate: new Date().toISOString(),
   estimatedDeliveryDate: new Date(Date.now() + 5 * 86400000).toISOString(),
   carrierName: 'Blue Dart Express',
@@ -161,19 +165,30 @@ describe('e-way bill', () => {
   // 100 units at ₹600 — ₹60,000, over the ₹50,000 limit.
   const valuable = [{ clientId: 'CLT-0001', line: 10, materialCode: 'MAT-002', description: 'Flanges', quantity: 100, unitPrice: 600, netValue: 60000 }];
 
-  it('is required for a shipment worth more than ₹50,000', async () => {
+  it('is required for an invoice worth more than ₹50,000', async () => {
     const a = await acknowledgedOrder('PO-2026-ASN1', valuable);
 
-    const res = await submit(a.token, 'PO-2026-ASN1', shipment([{ line: 10, shippedQuantity: 100 }]));
+    const res = await submit(a.token, 'PO-2026-ASN1', shipment([{ line: 10, shippedQuantity: 100 }], { invoiceValue: 70800 }));
 
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/e-way bill/);
   });
 
-  it('is not required for a part of the same order worth less', async () => {
+  it('is measured on the invoice\'s value with tax, not the order\'s net price', async () => {
+    // 80 units at ₹600 is ₹48,000 net — under the limit — but ₹56,640 with
+    // 18% GST, which is the value the rule is about (ASN design D5).
     const a = await acknowledgedOrder('PO-2026-ASN1', valuable);
 
-    const res = await submit(a.token, 'PO-2026-ASN1', shipment([{ line: 10, shippedQuantity: 50 }]));
+    const res = await submit(a.token, 'PO-2026-ASN1', shipment([{ line: 10, shippedQuantity: 80 }], { invoiceValue: 56640 }));
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/e-way bill/);
+  });
+
+  it('is not required for an invoice worth less', async () => {
+    const a = await acknowledgedOrder('PO-2026-ASN1', valuable);
+
+    const res = await submit(a.token, 'PO-2026-ASN1', shipment([{ line: 10, shippedQuantity: 50 }], { invoiceValue: 35400 }));
 
     expect(res.status).toBe(201);
   });
@@ -181,12 +196,59 @@ describe('e-way bill', () => {
   it('accepts a 12-digit number, printed with spaces or not, and refuses anything else', async () => {
     const a = await acknowledgedOrder('PO-2026-ASN1', valuable);
 
-    const bad = await submit(a.token, 'PO-2026-ASN1', shipment([{ line: 10, shippedQuantity: 100 }], { ewayBillNo: '12345' }));
+    const bad = await submit(a.token, 'PO-2026-ASN1', shipment([{ line: 10, shippedQuantity: 100 }], { invoiceValue: 70800, ewayBillNo: '12345' }));
     expect(bad.status).toBe(400);
 
-    const good = await submit(a.token, 'PO-2026-ASN1', shipment([{ line: 10, shippedQuantity: 100 }], { ewayBillNo: '1234 5678 9012' }));
+    const good = await submit(a.token, 'PO-2026-ASN1', shipment([{ line: 10, shippedQuantity: 100 }], { invoiceValue: 70800, ewayBillNo: '1234 5678 9012' }));
     expect(good.status).toBe(201);
     expect(good.body.asn.ewayBillNo).toBe('123456789012');
+  });
+});
+
+describe('the supplier\'s invoice', () => {
+  it('is required: number, date and value', async () => {
+    const a = await acknowledgedOrder();
+
+    for (const missing of ['invoiceReference', 'invoiceDate', 'invoiceValue']) {
+      const body = shipment([{ line: 10, shippedQuantity: 10 }]);
+      delete body[missing];
+      // eslint-disable-next-line no-await-in-loop
+      expect((await submit(a.token, 'PO-2026-ASN1', body)).status).toBe(400);
+    }
+  });
+
+  it('cannot reuse a number in the same financial year, on any order', async () => {
+    const a = await acknowledgedOrder();
+    await seedPo('vendor_asn_a', 'PO-2026-ASN2');
+    expect((await request(app).put('/api/pos/PO-2026-ASN2/acknowledge').set(auth(a.token))).status).toBe(200);
+    const first = await submit(a.token, 'PO-2026-ASN1', shipment([{ line: 10, shippedQuantity: 10 }], { invoiceReference: 'INV/26/0871', invoiceDate: '2026-11-02' }));
+    expect(first.status).toBe(201);
+
+    const reused = await submit(a.token, 'PO-2026-ASN2', shipment([{ line: 10, shippedQuantity: 10 }], { invoiceReference: 'inv/26/0871', invoiceDate: '2026-06-15' }));
+
+    expect(reused.status).toBe(400);
+    expect(reused.body.error).toMatch(first.body.asn.id);
+  });
+
+  it('may reuse a number from the previous financial year, or from a cancelled shipment', async () => {
+    const a = await acknowledgedOrder();
+    const lastYear = await submit(a.token, 'PO-2026-ASN1', shipment([{ line: 10, shippedQuantity: 10 }], { invoiceReference: 'INV/0871', invoiceDate: '2026-03-31' }));
+    expect(lastYear.status).toBe(201);
+    expect((await submit(a.token, 'PO-2026-ASN1', shipment([{ line: 10, shippedQuantity: 10 }], { invoiceReference: 'INV/0871', invoiceDate: '2026-04-01' }))).status).toBe(201);
+
+    const withdrawn = await submit(a.token, 'PO-2026-ASN1', shipment([{ line: 10, shippedQuantity: 10 }], { invoiceReference: 'INV/0999' }));
+    expect((await cancel(a.token, 'PO-2026-ASN1', withdrawn.body.asn.id)).status).toBe(200);
+    expect((await submit(a.token, 'PO-2026-ASN1', shipment([{ line: 10, shippedQuantity: 10 }], { invoiceReference: 'INV/0999' }))).status).toBe(201);
+  });
+
+  it('refuses a number that is not a GST invoice number', async () => {
+    const a = await acknowledgedOrder();
+
+    const tooLong = await submit(a.token, 'PO-2026-ASN1', shipment([{ line: 10, shippedQuantity: 10 }], { invoiceReference: 'INV/2026/000000001' }));
+    const badChars = await submit(a.token, 'PO-2026-ASN1', shipment([{ line: 10, shippedQuantity: 10 }], { invoiceReference: 'INV 0871' }));
+
+    expect(tooLong.status).toBe(400);
+    expect(badChars.status).toBe(400);
   });
 });
 

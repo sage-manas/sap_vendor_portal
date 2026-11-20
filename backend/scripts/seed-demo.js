@@ -808,7 +808,8 @@ const seedDeliveries = async (pos) => {
         clientId, id: s.asnId, poId: s.poId, vendorId: VENDOR_ID, status: s.status,
         shipDate: day(s.ship), estimatedDeliveryDate: day(s.eta),
         carrierName: s.carrier, trackingNumber: s.tracking, vehicleNumber: s.vehicle,
-        invoiceReference: null, ewayBillNo: s.eway,
+        // The supplier's invoice travelling with the goods (ASN design D1).
+        invoiceReference: `INV/2526/${s.asnId.slice(-4)}`, invoiceDate: day(s.ship), ewayBillNo: s.eway,
         // The portal creates no inbound delivery in SAP — the receipt is
         // discovered on the purchase order number instead.
         sapInboundDelivery: null,

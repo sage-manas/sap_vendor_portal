@@ -123,6 +123,7 @@ const runCycle = async (tenant) => {
     carrierName: 'BlueDart Express',
     trackingNumber: 'BD-100200',
     items: [{ line: 10, shippedQuantity: 100 }],
+    invoiceReference: 'INV/26/0001', invoiceDate: new Date().toISOString(), invoiceValue: 1180,
   });
   expect(asnRes.status).toBe(201);
   const asnId = asnRes.body.asn.id;

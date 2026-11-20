@@ -746,7 +746,15 @@ model ASN {
   carrierName           String?
   trackingNumber        String?
   vehicleNumber         String?
+  // The supplier's tax invoice (or delivery challan) travelling with the
+  // goods. `invoiceReference` is its number: it becomes LIKP-LIFEX on the
+  // inbound delivery (ASN design decision D1) and is unique per supplier per
+  // financial year among shipments not cancelled. `invoiceValue` is the
+  // GST-inclusive total the e-way bill rule is measured on (D5). Required on
+  // submission; nullable only for rows written before they existed.
   invoiceReference      String?
+  invoiceDate           DateTime?
+  invoiceValue          Decimal? @db.Decimal(14, 2)
   ewayBillNo            String?
   sapInboundDelivery    String?
   submittedAt           DateTime @default(now())

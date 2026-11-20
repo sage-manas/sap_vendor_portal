@@ -4,7 +4,7 @@
 // API then refuses.
 
 const { toNumber: toQty } = require('../utils/quantity');
-const { lineNetValue } = require('../utils/lineValue');
+const { toNumber: toMoney } = require('../utils/money');
 const { ASN_OPEN } = require('../config/statuses');
 
 // Quantities are Decimal(13,3) — SAP's MENGE (issue #65). Compared in
@@ -16,9 +16,10 @@ const fromMilli = (value) => value / 1000;
 // The Central GST rule: a consignment worth more than ₹50,000 needs an
 // e-way bill before it moves. Some states set a higher intra-state limit;
 // this is the floor that applies everywhere, so it can only ask for a bill
-// a state would also ask for, never waive one. Measured on the shipment's net
-// value, because a PO line carries no tax amount — a consignment whose GST
-// pushes it over the limit is not caught, and the form says so.
+// a state would also ask for, never waive one. Measured on the invoice's
+// GST-inclusive value, the figure the rule itself names (ASN design D5) —
+// it used to be the PO's net value, which let a consignment pushed over the
+// limit by its tax through without a bill.
 const EWAY_BILL_THRESHOLD_INR = 50000;
 
 // A service line is confirmed by a service entry sheet in SAP, never by a
@@ -114,9 +115,10 @@ const ASN_INCLUDE = {
 };
 
 const formatAsn = (asn) => {
-  const { items, documents, ...rest } = asn;
+  const { items, documents, invoiceValue, ...rest } = asn;
   return {
     ...rest,
+    invoiceValue: invoiceValue == null ? null : toMoney(invoiceValue),
     items: (items || []).map(({ pk, clientId, asnPk, shippedQuantity, receivedQuantity, ...item }) => {
       const received = receivedQuantity == null ? null : toQty(receivedQuantity);
       return {
@@ -130,15 +132,17 @@ const formatAsn = (asn) => {
   };
 };
 
-// Net value of what is on this shipment, at the PO's own prices.
-const shipmentValue = (po, shippedItems) => shippedItems.reduce((sum, shipped) => {
-  const poItem = po.items.find((item) => item.line === shipped.line);
-  if (!poItem) return sum;
-  return sum + lineNetValue({ quantity: shipped.shippedQuantity, unitPrice: poItem.unitPrice, priceUnit: poItem.priceUnit });
-}, 0);
+const ewayBillRequired = (po, invoiceValue) => (po.currency || 'INR') === 'INR'
+  && Number(invoiceValue) > EWAY_BILL_THRESHOLD_INR;
 
-const ewayBillRequired = (po, shippedItems) => (po.currency || 'INR') === 'INR'
-  && shipmentValue(po, shippedItems) > EWAY_BILL_THRESHOLD_INR;
+// The Indian financial year (1 April to 31 March) a date falls in, as the
+// half-open range [start, end). An invoice number is unique per supplier
+// within one — the same number may legitimately recur the next year.
+const financialYearOf = (value) => {
+  const date = new Date(value);
+  const startYear = date.getUTCMonth() >= 3 ? date.getUTCFullYear() : date.getUTCFullYear() - 1;
+  return { start: new Date(Date.UTC(startYear, 3, 1)), end: new Date(Date.UTC(startYear + 1, 3, 1)) };
+};
 
 module.exports = {
   ASN_INCLUDE,
@@ -148,6 +152,6 @@ module.exports = {
   milli,
   shippableByLine,
   withShippableQuantities,
-  shipmentValue,
   ewayBillRequired,
+  financialYearOf,
 };

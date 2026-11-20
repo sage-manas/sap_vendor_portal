@@ -35,6 +35,7 @@ const {
   isServiceLine,
   milli,
   shippableByLine,
+  financialYearOf,
   withShippableQuantities,
 } = require('../services/asn.service');
 
@@ -229,7 +230,10 @@ const acknowledgePO = asyncHandler(async (req, res, next) => {
 // each see the same open quantity and together ship it twice.
 const submitASN = asyncHandler(async (req, res, next) => {
   const vendorId = requireVendorScope(req);
-  const { carrierName, trackingNumber, vehicleNumber, invoiceReference, ewayBillNo, shipDate, estimatedDeliveryDate, items, documentIds = [] } = req.body;
+  const {
+    carrierName, trackingNumber, vehicleNumber, invoiceReference, invoiceDate, invoiceValue,
+    ewayBillNo, shipDate, estimatedDeliveryDate, items, documentIds = [],
+  } = req.body;
 
   const po = await prisma.purchaseOrder.findFirst({ where: scopedWhere(req, { id: req.params.id }), include: PO_INCLUDE });
   if (!po) {
@@ -264,9 +268,9 @@ const submitASN = asyncHandler(async (req, res, next) => {
     };
   });
 
-  if (!ewayBillNo && ewayBillRequired(po, shippedItems)) {
+  if (!ewayBillNo && ewayBillRequired(po, invoiceValue)) {
     return next(ApiError.badRequest(
-      `This shipment is worth more than ₹${EWAY_BILL_THRESHOLD_INR.toLocaleString('en-IN')}. Enter its e-way bill number.`,
+      `This invoice is worth more than ₹${EWAY_BILL_THRESHOLD_INR.toLocaleString('en-IN')}. Enter its e-way bill number.`,
     ));
   }
 
@@ -294,6 +298,25 @@ const submitASN = asyncHandler(async (req, res, next) => {
     create: (asnId) => prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT pk FROM "purchase_orders" WHERE pk = ${po.pk}::uuid AND "clientId" = ${clientId} FOR UPDATE`;
 
+      // An invoice number is unique per supplier per financial year (ASN
+      // design V5) — across all of their orders, so the PO lock above does
+      // not cover it. This advisory lock serialises the supplier's own
+      // submissions for as long as this transaction runs.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`asn-invoice:${clientId}:${vendorId}`}))`;
+      const year = financialYearOf(invoiceDate);
+      const reused = await tx.aSN.findFirst({
+        where: {
+          vendorId,
+          invoiceReference: { equals: invoiceReference, mode: 'insensitive' },
+          invoiceDate: { gte: year.start, lt: year.end },
+          status: { not: ASN_STATUS.CANCELLED },
+        },
+        select: { id: true },
+      });
+      if (reused) {
+        throw ApiError.badRequest(`Invoice number ${invoiceReference} is already used on ${reused.id}.`);
+      }
+
       const shippable = await shippableByLine(tx, po);
       for (const item of shippedItems) {
         const { open } = shippable.get(item.line);
@@ -316,6 +339,8 @@ const submitASN = asyncHandler(async (req, res, next) => {
           trackingNumber,
           vehicleNumber,
           invoiceReference,
+          invoiceDate: new Date(invoiceDate),
+          invoiceValue,
           ewayBillNo,
           // The portal does not create an inbound delivery in SAP — the dispatch
           // notice is recorded here, and the goods receipt is discovered by polling

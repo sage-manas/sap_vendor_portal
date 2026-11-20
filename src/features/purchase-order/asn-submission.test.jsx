@@ -39,6 +39,8 @@ const Harness = ({ onReady }) => {
         trackingNumber: 'BD-778899',
         vehicleNumber: 'MH-12-AB-4455',
         invoiceReference: 'INV-778899',
+        invoiceDate: '2026-01-31',
+        invoiceValue: '1357.00',
         shipDate: '2026-02-01',
         estimatedDeliveryDate: '2026-02-05',
         items: { 10: 100, 20: 150 },
@@ -57,6 +59,23 @@ const renderHarness = (api) => renderWithPortal(<Harness />, {
 });
 
 describe('raising an advance shipping notice', () => {
+  it('sends the supplier\'s invoice, as a number for its value', async () => {
+    const user = userEvent.setup();
+    const { apiMock } = renderHarness({
+      'POST /pos/PO-2026-0001/asn': { message: 'ASN created', asn: { id: 'ASN-000001' } },
+    });
+
+    await user.click(await screen.findByRole('button', { name: 'fill asn' }));
+    await user.click(screen.getByRole('button', { name: 'send asn' }));
+
+    await waitFor(() => expect(apiMock.callsTo('POST', '/pos/PO-2026-0001/asn')).toHaveLength(1));
+    expect(apiMock.lastBody('POST', '/pos/PO-2026-0001/asn')).toMatchObject({
+      invoiceReference: 'INV-778899',
+      invoiceDate: '2026-01-31',
+      invoiceValue: 1357,
+    });
+  });
+
   it('sends the carrier, dates and per-line shipped quantities', async () => {
     const user = userEvent.setup();
     const { apiMock } = renderHarness({

@@ -64,6 +64,7 @@ describe('cross-supplier PO writes (issue #52)', () => {
       shipDate: new Date().toISOString(),
       estimatedDeliveryDate: new Date(Date.now() + 86400000).toISOString(),
       items: [{ line: 10, shippedQuantity: 100 }],
+      invoiceReference: 'INV/26/0001', invoiceDate: new Date().toISOString(), invoiceValue: 1180,
     }));
     expect(res.status).toBe(404);
 
@@ -94,6 +95,7 @@ describe('cross-supplier PO writes (issue #52)', () => {
       shipDate: new Date().toISOString(),
       estimatedDeliveryDate: new Date(Date.now() + 86400000).toISOString(),
       items: [{ line: 10, shippedQuantity: 100 }],
+      invoiceReference: 'INV/26/0001', invoiceDate: new Date().toISOString(), invoiceValue: 1180,
     }));
     expect(asn.status).toBe(201);
   });

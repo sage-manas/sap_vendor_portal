@@ -67,14 +67,10 @@ const isoDateInDays = (days) => new Date(Date.now() + days * 24 * 60 * 60 * 1000
 // figure, so it falls back to ordered less received.
 const openToShip = (item) => (item.openToShipQuantity ?? Math.max(0, Number(item.quantity) - Number(item.grnQuantity || 0)));
 
-// The same rule the API applies (backend/services/asn.service.js): a
-// consignment over ₹50,000 needs an e-way bill. Net value only — a PO line
-// carries no tax amount — so this can under-ask, never over-ask.
+// The same rule the API applies (backend/services/asn.service.js): an invoice
+// worth more than ₹50,000 with tax needs an e-way bill.
 const EWAY_BILL_THRESHOLD_INR = 50000;
-const shipmentNetValue = (items, quantities) => items.reduce((sum, item) => {
-  const qty = Number(quantities[item.line]) || 0;
-  return sum + (qty / (Number(item.priceUnit) || 1)) * Number(item.unitPrice || 0);
-}, 0);
+const INVOICE_NUMBER = /^[A-Za-z0-9/-]{1,16}$/;
 
 const ASN_STATUS_TONE = { Submitted: 'progress', 'In Transit': 'progress', Received: 'done', Cancelled: 'neutral' };
 
@@ -318,10 +314,10 @@ export default function PurchaseOrdersView({
   // The shipment whose cancel dialog is open, or null.
   const [cancellingAsn, setCancellingAsn] = useState(null);
 
-  // Recomputed as quantities are typed, so the field is marked required the
-  // moment the shipment crosses the limit rather than after a refused submit.
+  // Recomputed as the invoice value is typed, so the field is marked required
+  // the moment it crosses the limit rather than after a refused submit.
   const ewayBillRequired = Boolean(activePo) && (activePo.currency || 'INR') === 'INR'
-    && shipmentNetValue(activePo.items || [], dispatchQuantities) > EWAY_BILL_THRESHOLD_INR;
+    && Number(asnForm.invoiceValue) > EWAY_BILL_THRESHOLD_INR;
 
   // Invoice planning is a per-line setting, and the tab only exists for orders
   // that use it — an order invoiced against goods receipts should look exactly
@@ -388,6 +384,8 @@ export default function PurchaseOrdersView({
       trackingNumber: prev.trackingNumber || '',
       vehicleNumber: prev.vehicleNumber || '',
       invoiceReference: prev.invoiceReference || '',
+      invoiceDate: prev.invoiceDate || '',
+      invoiceValue: prev.invoiceValue || '',
       shipDate: prev.shipDate || new Date().toISOString().split('T')[0],
       estimatedDeliveryDate: prev.estimatedDeliveryDate || isoDateInDays(3),
       items: initialQtys
@@ -471,6 +469,8 @@ export default function PurchaseOrdersView({
       trackingNumber: '',
       vehicleNumber: '',
       invoiceReference: '',
+      invoiceDate: '',
+      invoiceValue: '',
       shipDate: new Date().toISOString().split('T')[0],
       estimatedDeliveryDate: isoDateInDays(3),
       items: initialQtys
@@ -513,8 +513,16 @@ export default function PurchaseOrdersView({
       alert('Enter a quantity on at least one line.');
       return;
     }
+    if (!INVOICE_NUMBER.test(asnForm.invoiceReference || '')) {
+      alert('Enter the invoice number: up to 16 letters, digits, - or /.');
+      return;
+    }
+    if (!asnForm.invoiceDate || !(Number(asnForm.invoiceValue) > 0)) {
+      alert('Enter the invoice date and its value with tax.');
+      return;
+    }
     if (ewayBillRequired && ewayBillNo.length !== 12) {
-      alert(`This shipment is worth more than ₹${EWAY_BILL_THRESHOLD_INR.toLocaleString('en-IN')}. Enter its 12-digit e-way bill number.`);
+      alert(`This invoice is worth more than ₹${EWAY_BILL_THRESHOLD_INR.toLocaleString('en-IN')}. Enter its 12-digit e-way bill number.`);
       return;
     }
 
@@ -1209,6 +1217,38 @@ export default function PurchaseOrdersView({
                             className="mono w-56! uppercase"
                           />
                         </SapInputField>
+                        <SapInputField label="Invoice number" required>
+                          <input
+                            type="text"
+                            required
+                            maxLength={16}
+                            value={asnForm.invoiceReference || ''}
+                            onChange={e => setAsnForm({ ...asnForm, invoiceReference: e.target.value.trim() })}
+                            placeholder="INV/2526/0871"
+                            className="mono w-48!"
+                          />
+                        </SapInputField>
+                        <SapInputField label="Invoice date" required>
+                          <input
+                            type="date"
+                            required
+                            max={new Date().toISOString().split('T')[0]}
+                            value={asnForm.invoiceDate || ''}
+                            onChange={e => setAsnForm({ ...asnForm, invoiceDate: e.target.value })}
+                            className="w-48!"
+                          />
+                        </SapInputField>
+                        <SapInputField label="Invoice value with tax (₹)" required>
+                          <input
+                            type="number"
+                            required
+                            min="0.01"
+                            step="0.01"
+                            value={asnForm.invoiceValue || ''}
+                            onChange={e => setAsnForm({ ...asnForm, invoiceValue: e.target.value })}
+                            className="mono w-48! text-right"
+                          />
+                        </SapInputField>
                         <SapInputField label="E-way bill number" required={ewayBillRequired}>
                           <input
                             type="text"
@@ -1224,8 +1264,8 @@ export default function PurchaseOrdersView({
                       </div>
                       <p className="-mt-4 text-xs text-fg-subtle">
                         {ewayBillRequired
-                          ? `Required: this shipment is worth more than ₹${EWAY_BILL_THRESHOLD_INR.toLocaleString('en-IN')} before tax.`
-                          : `Needed for a consignment worth more than ₹${EWAY_BILL_THRESHOLD_INR.toLocaleString('en-IN')}. The portal checks the value before tax, so check GST-inclusive value yourself near the limit.`}
+                          ? `Required: this invoice is worth more than ₹${EWAY_BILL_THRESHOLD_INR.toLocaleString('en-IN')} with tax.`
+                          : `Needed when the invoice is worth more than ₹${EWAY_BILL_THRESHOLD_INR.toLocaleString('en-IN')} with tax.`}
                       </p>
 
                       <section>
