@@ -185,6 +185,17 @@ changing the shipment. After gate-in, only the tenant admin can cancel. With `GM
 portal shows **Partially received** and **Received**. With `DELETED`, the portal detects a
 delivery that was removed in SAP.
 
+## 5. Report the delivery on each goods receipt
+
+On `zpo_grn_vendor/Detail`, add one field to each row of `GRN[]`:
+
+- **`INB_DELIVERY`**: the inbound delivery the material document was posted against
+  (MSEG-VBELN_IM on ECC, MATDOC-VBELN_IM on S/4). Blank when MIGO was posted directly against
+  the PO.
+
+This lets the portal match a receipt to its shipment exactly. It is still needed with
+endpoint 4, because a receipt record in the portal is created from this feed.
+
 ## 6. Receiving points: `POST /zinb_delivery/receiving_points`
 
 The ASN screen offers the supplier a list of unloading points for the plant. The user chose
@@ -202,17 +213,6 @@ SAP's own receiving points as the source.
 
 Return the receiving points (shipping points used for inbound, TVST/TVSWZ) and any
 unloading points you keep for the plant. Read-only. The portal caches the answer per plant.
-
-## 5. Report the delivery on each goods receipt
-
-On `zpo_grn_vendor/Detail`, add one field to each row of `GRN[]`:
-
-- **`INB_DELIVERY`**: the inbound delivery the material document was posted against
-  (MSEG-VBELN_IM on ECC, MATDOC-VBELN_IM on S/4). Blank when MIGO was posted directly against
-  the PO.
-
-This lets the portal match a receipt to its shipment exactly. It is still needed with
-endpoint 4, because a receipt record in the portal is created from this feed.
 
 ## SAP configuration this depends on
 
