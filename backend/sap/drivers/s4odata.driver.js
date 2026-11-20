@@ -1751,11 +1751,14 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
       const payload = {
         VENDOR: vendor.sapVendorCode,
         PO_NUMBER: po.sapPoNumber,
-        // LIKP-LIFEX, the supplier's own delivery-note reference. It is also
-        // the idempotency key the endpoint is asked to honour: a retry after a
-        // timeout must get back the delivery the first attempt made, not a
-        // second one.
-        EXT_DELIVERY_ID: asn.id,
+        // The idempotency key the endpoint is asked to honour, kept in its
+        // Z-table ZVP_ASN_HDR: a retry after a timeout must get back the
+        // delivery the first attempt made, not a second one (ASN design D1).
+        PORTAL_ASN: asn.id,
+        // LIKP-LIFEX: the supplier's invoice / challan number, which MIGO
+        // also shows as the delivery note.
+        INVOICE_NO: asn.invoiceReference || '',
+        INVOICE_DATE: isoToSapDay(asn.invoiceDate),
         DELIVERY_DATE: isoToSapDay(asn.estimatedDeliveryDate),
         SHIP_DATE: isoToSapDay(asn.shipDate),
         BILL_OF_LADING: asn.trackingNumber || '',
@@ -1821,7 +1824,7 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
       const base = String(config.baseUrl || '').replace(/\/$/, '');
       const url = `${base}${path}${config.sapClient ? `?sap-client=${encodeURIComponent(config.sapClient)}` : ''}`;
       const headers = { ...baseHeaders(config, secrets), 'Content-Type': 'application/json' };
-      const payload = { DELIVERY: asn.sapInboundDelivery, EXT_DELIVERY_ID: asn.id };
+      const payload = { DELIVERY: asn.sapInboundDelivery, PORTAL_ASN: asn.id };
 
       const response = await abortableFetch(
         url,

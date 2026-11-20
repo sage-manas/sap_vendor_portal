@@ -319,7 +319,7 @@ rest is read-only:
   paying against the wrong invoice is worse than showing one as unrecognised.
 - **An inbound delivery only where the connection can make one (ADR-0049).** `submitASN`
   enqueues `createInboundDelivery`; on a connection with `inboundDeliveryCreatePath` set,
-  SAP creates the delivery (idempotent on the ASN id, sent as LIKP-LIFEX) and its number
+  SAP creates the delivery (idempotent on the ASN id, sent as `PORTAL_ASN` and kept in Z-table ZVP_ASN_HDR; LIKP-LIFEX carries the supplier's invoice number) and its number
   lands in `ASN.sapInboundDelivery` — the delivery SAP holds *now*, cleared again when
   `cancelASN` deletes it (SAP first, then the portal; refused if SAP refuses). With no path
   set — every tenant today — nothing is sent or logged and the shipment stays a portal

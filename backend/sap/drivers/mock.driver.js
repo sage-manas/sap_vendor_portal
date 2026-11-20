@@ -98,7 +98,7 @@ const mockMiroDoc = (invoice) => {
 };
 
 // The simulated delivery for each ASN, so asking twice answers the same
-// number — the idempotency the real endpoint is asked for (LIFEX). Module
+// number — the idempotency the real endpoint is asked for (PORTAL_ASN). Module
 // level, because a driver instance does not outlive one adapter lookup; keyed
 // on the ASN's pk, which unlike its business id is unique across tenants.
 const mockDeliveries = new Map();
@@ -741,7 +741,7 @@ const createMockDriver = ({ config = {} } = {}) => {
     // --- Delivery and goods receipt ---------------------------------------
 
     // Mirrors the contract docs/abap-requests/inbound-delivery.md asks the
-    // real endpoint for, including its idempotency: the same ASN (LIFEX) asked
+    // real endpoint for, including its idempotency: the same ASN (PORTAL_ASN) asked
     // for twice gets the same delivery, so a retried job never makes a second.
     inboundDeliveryCreate: async ({ asn, po, vendor }) => {
       const existing = mockDeliveries.get(deliveryKey(asn));
@@ -751,7 +751,7 @@ const createMockDriver = ({ config = {} } = {}) => {
         data: { created: true, delivery, existing: Boolean(existing) },
         log: {
           vendorId: vendor?.vendorId || asn.vendorId,
-          payload: { EXT_DELIVERY_ID: asn.id, PO_NUMBER: po.sapPoNumber, DELIVERY: delivery, ITEMS: (asn.items || []).length },
+          payload: { PORTAL_ASN: asn.id, INVOICE_NO: asn.invoiceReference, PO_NUMBER: po.sapPoNumber, DELIVERY: delivery, ITEMS: (asn.items || []).length },
           status: 'SUCCESS',
           documentRef: delivery,
         },
@@ -764,7 +764,7 @@ const createMockDriver = ({ config = {} } = {}) => {
         data: { cancelled: true, delivery: asn.sapInboundDelivery },
         log: {
           vendorId: vendorId || asn.vendorId,
-          payload: { DELIVERY: asn.sapInboundDelivery, EXT_DELIVERY_ID: asn.id },
+          payload: { DELIVERY: asn.sapInboundDelivery, PORTAL_ASN: asn.id },
           status: 'SUCCESS',
           documentRef: asn.sapInboundDelivery,
         },

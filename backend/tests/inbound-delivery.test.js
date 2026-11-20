@@ -37,6 +37,7 @@ const setup = async ({ sapPoNumber = '4500022828' } = {}) => {
   return a;
 };
 
+let invoiceSeq = 0;
 const ship = async (token, quantity = 40) => {
   const res = await request(app).post('/api/pos/PO-2026-INB1/asn').set(auth(token)).send({
     shipDate: '2026-11-20T00:00:00.000Z',
@@ -44,6 +45,9 @@ const ship = async (token, quantity = 40) => {
     carrierName: 'Blue Dart',
     trackingNumber: 'BD-1',
     vehicleNumber: 'MH12AB1234',
+    invoiceReference: `INV/26/${(invoiceSeq += 1)}`,
+    invoiceDate: '2026-11-19T00:00:00.000Z',
+    invoiceValue: 472,
     items: [{ line: 10, shippedQuantity: quantity }],
   });
   expect(res.status).toBe(201);
@@ -167,6 +171,8 @@ describe('the S/4 driver against the requested contract', () => {
     vehicleNumber: 'MH12AB1234',
     carrierName: 'Blue Dart',
     ewayBillNo: '123456789012',
+    invoiceReference: 'INV/2526/0871',
+    invoiceDate: new Date('2026-11-19T00:00:00Z'),
     items: [{ line: 10, shippedQuantity: '40.5', uom: 'ea' }],
   };
   const po = { sapPoNumber: '4500022828' };
@@ -200,7 +206,9 @@ describe('the S/4 driver against the requested contract', () => {
     expect(capture.body).toEqual({
       VENDOR: '1120250081',
       PO_NUMBER: '4500022828',
-      EXT_DELIVERY_ID: 'ASN-482913',
+      PORTAL_ASN: 'ASN-482913',
+      INVOICE_NO: 'INV/2526/0871',
+      INVOICE_DATE: '20261119',
       DELIVERY_DATE: '20261123',
       SHIP_DATE: '20261120',
       BILL_OF_LADING: 'BD-1',

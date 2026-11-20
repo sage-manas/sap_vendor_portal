@@ -38,10 +38,12 @@ SAP issues the number, and the portal never invents one.
   delete *before* cancelling, and refuses (502, or 409 when the connection cannot delete)
   rather than leave SAP expecting a truck the portal says is not coming. The SAP call is
   made before the PO row lock is taken, never under it.
-- **Idempotent on the ASN id.** The create request carries the ASN id as LIKP-LIFEX, and the
-  endpoint is asked to return the existing delivery for a repeated LIFEX. That is what
-  makes a retried job safe, and it is what lets the job undo a delivery it created while
-  the supplier was cancelling.
+- **Idempotent on the ASN id.** The create request carries the portal ASN id
+  (`PORTAL_ASN`), which the endpoint keeps in its Z-table ZVP_ASN_HDR and answers a repeat
+  of with the existing delivery. That is what makes a retried job safe, and it is what lets
+  the job undo a delivery it created while the supplier was cancelling. LIKP-LIFEX carries
+  the supplier's invoice number instead, as the ASN design doc sets it (decision D1): MIGO
+  shows LIFEX as the delivery note, and that is the number stores staff match the paper to.
 - **`ASN.sapInboundDelivery` is the delivery SAP holds now.** It is cleared when the
   delivery is deleted. The number survives in the SAP log and the `asn.cancelled` audit
   entry.
