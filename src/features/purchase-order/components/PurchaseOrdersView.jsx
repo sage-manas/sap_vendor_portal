@@ -1342,6 +1342,16 @@ export default function PurchaseOrdersView({
                       { key: 'id', header: 'Shipment', mono: true, primary: true },
                       { key: 'status', header: 'Status', render: (asn) => <StatusBadge label={asn.status} tone={ASN_STATUS_TONE[asn.status]} /> },
                       { key: 'shipDate', header: 'Dispatched', render: (asn) => displayDate(asn.shipDate) },
+                      // SAP's own inbound delivery number, once SAP has made
+                      // one (ADR-0049). Blank is the honest answer on a
+                      // connection that does not create deliveries.
+                      {
+                        key: 'sapInboundDelivery',
+                        header: 'SAP delivery',
+                        render: (asn) => (asn.sapInboundDelivery
+                          ? <span className="mono">{asn.sapInboundDelivery}</span>
+                          : <span className="text-fg-subtle" title="SAP has no inbound delivery for this shipment">—</span>),
+                      },
                       { key: 'shipped', header: 'Shipped (line: qty)', render: (asn) => <span className="mono">{lineSummary(asn, 'shippedQuantity')}</span> },
                       {
                         key: 'received',

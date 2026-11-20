@@ -9,6 +9,7 @@ const { toNumber: toMoney } = require('../../utils/money');
 const { toNumber: toQty } = require('../../utils/quantity');
 const logger = require('../../utils/logger');
 const { ASN_OPEN } = require('../../config/statuses');
+const { sameDelivery } = require('../../sap/mappings/goods-receipt-match');
 
 const FEED = 'po';
 
@@ -149,7 +150,8 @@ const isUniqueViolation = (err) =>
   err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
 
 // Records each SAP goods receipt the portal holds no GRN for, as a GRN with no
-// ASN. A PO whose shipment is still being watched (a Submitted ASN) is left to
+// ASN — unless SAP says it was posted against one of the portal's inbound
+// deliveries, which names its ASN exactly. A PO whose shipment is still being watched (a Submitted ASN) is left to
 // awaitGoodsReceipt, which links the receipt to that ASN — recording it here
 // first would leave the shipment unmatched. grnQuantity is not touched: the PO
 // already carries SAP's received quantity per line from the order read.
@@ -164,12 +166,20 @@ async function reconcileReceipts({ clientId, vendor, orders }) {
   if (!pos.length) return;
   const poByNumber = new Map(pos.map((po) => [po.sapPoNumber, po]));
 
-  const [grns, openAsns] = await Promise.all([
+  const [grns, openAsns, deliveredAsns] = await Promise.all([
     prisma.gRN.findMany({ where: { poId: { in: pos.map((p) => p.id) } }, select: { id: true, sapMigoDoc: true } }),
     prisma.aSN.findMany({ where: { poId: { in: pos.map((p) => p.id) }, status: { in: ASN_OPEN } }, select: { poId: true } }),
+    prisma.aSN.findMany({ where: { poId: { in: pos.map((p) => p.id) }, sapInboundDelivery: { not: null } }, select: { id: true, poId: true, sapInboundDelivery: true } }),
   ]);
   const haveDoc = new Set(grns.flatMap((g) => [g.id, g.sapMigoDoc]));
   const watched = new Set(openAsns.map((a) => a.poId));
+  // A receipt SAP posted against one of the portal's inbound deliveries
+  // (ADR-0049) belongs to that delivery's ASN even when the ASN's own watch
+  // has already taken an earlier posting — the second half of a truck the
+  // warehouse received in two MIGO postings.
+  const asnForDelivery = (poId, delivery) => (delivery
+    ? deliveredAsns.find((asn) => asn.poId === poId && sameDelivery(asn.sapInboundDelivery, delivery))?.id || null
+    : null);
 
   for (const order of withReceipts) {
     const po = poByNumber.get(order.poNumber);
@@ -184,7 +194,8 @@ async function reconcileReceipts({ clientId, vendor, orders }) {
         const year = gr.grYear || (gr.grDate ? new Date(gr.grDate).getFullYear() : null);
         if (!year) continue;
         const key = `${year}-${gr.grNumber}`;
-        const doc = docs.get(key) || { id: `GRN-${key}`, grNumber: gr.grNumber, year, date: gr.grDate, lines: new Map() };
+        const doc = docs.get(key) || { id: `GRN-${key}`, grNumber: gr.grNumber, year, date: gr.grDate, delivery: null, lines: new Map() };
+        doc.delivery = doc.delivery || gr.inboundDelivery || null;
         const line = doc.lines.get(item.itemNumber) || { item, quantity: 0 };
         line.quantity += Number(gr.quantity) || 0;
         doc.lines.set(item.itemNumber, line);
@@ -194,13 +205,14 @@ async function reconcileReceipts({ clientId, vendor, orders }) {
 
     for (const doc of docs.values()) {
       if (haveDoc.has(doc.id) || haveDoc.has(doc.grNumber)) continue;
+      const asnId = asnForDelivery(po.id, doc.delivery);
       try {
         // eslint-disable-next-line no-await-in-loop
         const grn = await prisma.gRN.create({
           data: {
             id: doc.id,
             poId: po.id,
-            asnId: null,
+            asnId,
             vendorId: po.vendorId,
             sapMigoDoc: doc.grNumber,
             sapDocYear: doc.year,
@@ -228,7 +240,7 @@ async function reconcileReceipts({ clientId, vendor, orders }) {
           include: { items: true },
         });
         haveDoc.add(doc.id);
-        logger.info(`[jobs] sweepPurchaseOrders recorded ${grn.id} (SAP ${doc.grNumber}) on ${po.id} — no portal ASN`);
+        logger.info(`[jobs] sweepPurchaseOrders recorded ${grn.id} (SAP ${doc.grNumber}) on ${po.id} — ${asnId ? `against ${asnId} by inbound delivery` : 'no portal ASN'}`);
         notifyVendor(clientId, po.vendorId, EVENTS.GRN_RECEIVED, grn);
       } catch (error) {
         if (!isUniqueViolation(error)) throw error;
