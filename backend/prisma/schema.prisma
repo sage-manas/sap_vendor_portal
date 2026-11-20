@@ -97,7 +97,7 @@ enum PlanLineStatus {
 
 // ASN.status is NOT a Prisma enum: 'In Transit' has the same
 // identifier-vs-display-string problem. Valid values: Submitted, 'In
-// Transit', Received.
+// Transit', Received, Cancelled — see config/statuses.js ASN_STATUS.
 
 // Invoice.status is NOT a Prisma enum, for the same reason — several values
 // are multi-word: Submitted, 'Under Review', 'Match Warning', Approved,
@@ -751,6 +751,13 @@ model ASN {
   sapInboundDelivery    String?
   submittedAt           DateTime @default(now())
 
+  // A supplier can withdraw a shipment notice until its goods are received
+  // (controllers/po.controller.js's cancelASN). The row stays — it is part of
+  // the order's history — but it stops counting against the line's open
+  // quantity and stops the goods-receipt watch.
+  cancelledAt  DateTime?
+  cancelReason String?
+
   // Dual identity / sync state — see the note on RFQ above. jobs/syncState.js
   // sets this to `pending` when the goods-receipt watch is enqueued
   // (jobs/handlers/awaitGoodsReceipt.js), `synced` (with the MIGO doc number)
@@ -763,8 +770,9 @@ model ASN {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  items AsnItem[]
-  grns  GRN[]
+  items     AsnItem[]
+  grns      GRN[]
+  documents Document[]
 
   @@unique([clientId, id])
   @@index([clientId, vendorId])
@@ -785,6 +793,11 @@ model AsnItem {
   // Decimal(13,3), matching SAP's MENGE (issue #65) — see utils/quantity.js.
   shippedQuantity Decimal @db.Decimal(13, 3)
   uom             String  @default("EA")
+  // What SAP's goods receipt recorded for this line, set when the receipt is
+  // matched (jobs/handlers/awaitGoodsReceipt.js). Null until then. Differs
+  // from shippedQuantity on a short or excess delivery — the API reports the
+  // difference rather than this column storing it twice.
+  receivedQuantity Decimal? @db.Decimal(13, 3)
 
   @@map("asn_items")
 }
@@ -1097,10 +1110,18 @@ model Document {
   filePath      String           @default("")
   linkedTo      DocumentLinkType @default(Profile)
 
+  // The shipment this file was attached to (packing list, invoice copy,
+  // transport document). `linkedTo: ASN` alone said only what *kind* of
+  // document it was, not which shipment — submitASN used to accept the ids
+  // and drop them. Set once, by submitASN; null for every other kind.
+  asnId String?
+  asn   ASN?    @relation(fields: [clientId, asnId], references: [clientId, id])
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([clientId, vendorId])
+  @@index([clientId, asnId])
   @@map("documents")
 }
 

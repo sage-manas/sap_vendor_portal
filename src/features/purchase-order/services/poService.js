@@ -34,6 +34,12 @@ export const poService = {
     return apiClient.post(`/pos/${poId}/asn`, body);
   },
 
+  // Withdraws a shipment notice that has not been received. The reason is
+  // required — the buyer may already have planned a receipt around it.
+  async cancelASN(poId, asnId, reason) {
+    return apiClient.post(`/pos/${poId}/asn/${asnId}/cancel`, { reason });
+  },
+
   // Answers `{ asns, pagination }` as of finding 4.1. It used to be a bare
   // array of every row — the only list endpoint shaped that way, which
   // src/test/fixtures.js noted in a comment, and one of those issue #186

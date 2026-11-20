@@ -167,6 +167,18 @@ export function usePOs(profile) {
     }
   };
 
+  // No optimistic status change: whether the order goes back to Acknowledged
+  // depends on whether another shipment is still open, which only the API
+  // knows.
+  const cancelASN = async (poId, asnId, reason) => {
+    try {
+      return await poService.cancelASN(poId, asnId, reason);
+    } finally {
+      refreshPOs();
+      refreshASNs();
+    }
+  };
+
   return {
     pos,
     posLoaded,
@@ -177,6 +189,7 @@ export function usePOs(profile) {
     addPO,
     acknowledgePO,
     submitASN,
+    cancelASN,
     refreshPOs,
     refreshGRNs,
     refreshASNs,

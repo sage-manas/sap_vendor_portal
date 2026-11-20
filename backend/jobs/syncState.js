@@ -1,5 +1,5 @@
 const { prisma, rawPrisma } = require('../db/prisma');
-const { SAP_SYNC_STATE, isLegalSyncTransition } = require('../config/statuses');
+const { SAP_SYNC_STATE, ASN_STATUS, isLegalSyncTransition } = require('../config/statuses');
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
 const logger = require('../utils/logger');
 
@@ -105,9 +105,11 @@ const retryDocumentWatch = async (table, pk, req) => {
   if (!kind) return null;
 
   const [row] = await withoutTenantScope(() => rawPrisma.$queryRawUnsafe(
-    `SELECT id, "clientId" FROM "${table}" WHERE pk = $1::uuid`, pk,
+    `SELECT id, "clientId", status FROM "${table}" WHERE pk = $1::uuid`, pk,
   ));
   if (!row) return null;
+  // A cancelled shipment has nothing left for SAP to receive.
+  if (table === 'asns' && row.status === ASN_STATUS.CANCELLED) return null;
 
   const { idField } = documentFor(kind);
   const dedupeKey = `${kind}:${row.clientId}:${row.id}`;

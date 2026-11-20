@@ -150,6 +150,26 @@ const PO_NOT_INVOICED = [...PO_AWAITING_SUPPLIER, ...PO_IN_FLIGHT];
 // against it is an invoice question (INVOICE_OPEN), not an order one.
 const PO_CLOSED = [PO_STATUS.INVOICED, PO_STATUS.PAID];
 
+// --- ASN --------------------------------------------------------------------
+//
+// ASN.status is a plain String column ('In Transit' is multi-word). Three
+// places need to agree on which shipments are still on their way: the open
+// quantity a new ASN is checked against, the PO's derived status, and the
+// sweep that leaves a watched PO's receipts to awaitGoodsReceipt.
+const ASN_STATUS = {
+  SUBMITTED: 'Submitted',
+  IN_TRANSIT: 'In Transit',
+  RECEIVED: 'Received',
+  CANCELLED: 'Cancelled',
+};
+
+const ASN_STATUSES = Object.values(ASN_STATUS);
+
+// Shipped and not yet received. Their quantity is committed against the PO
+// line: a second ASN cannot ship it again. A Received ASN's quantity is in
+// the line's grnQuantity instead, and a Cancelled one counts for nothing.
+const ASN_OPEN = [ASN_STATUS.SUBMITTED, ASN_STATUS.IN_TRANSIT];
+
 // --- RFQ --------------------------------------------------------------------
 //
 // RFQ.status is a plain String column too. Here for the reason the header
@@ -233,6 +253,9 @@ module.exports = {
   PO_IN_FLIGHT,
   PO_NOT_INVOICED,
   PO_CLOSED,
+  ASN_STATUS,
+  ASN_STATUSES,
+  ASN_OPEN,
   RFQ_STATUS,
   SAP_SYNC_STATE,
   SAP_SYNC_STATES,

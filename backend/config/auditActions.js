@@ -71,6 +71,11 @@ const AUDIT_ACTIONS = {
   PO_INVOICE_PLAN_CHANGE_APPROVED: 'po.invoice_plan_change_approved',
   PO_INVOICE_PLAN_CHANGE_REJECTED: 'po.invoice_plan_change_rejected',
 
+  // A supplier withdrawing a shipment notice. Submitting one is not audited:
+  // the ASN row itself is that record. A cancellation changes a row the buyer
+  // may already have planned a receipt around, so who did it and why is kept.
+  ASN_CANCELLED: 'asn.cancelled',
+
   // SAP job runtime (Phase 1 of docs/04-sap-runtime-engineering-plan.md)
   JOB_RETRIED: 'job.retried',
 };

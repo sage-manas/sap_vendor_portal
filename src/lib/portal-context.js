@@ -350,10 +350,12 @@ export function PortalProvider({ children }) {
   };
 
   const handleAsnSubmit = async (po) => {
-    const items = po.items.map(item => ({
-      line: item.line,
-      shippedQuantity: Number(asnForm.items[item.line] || item.quantity)
-    }));
+    // Only the lines this shipment carries. A line left blank or at 0 is not
+    // on it — it used to fall back to the line's full ordered quantity, so
+    // clearing a field shipped everything ordered on that line.
+    const items = po.items
+      .map(item => ({ line: item.line, shippedQuantity: Number(asnForm.items[item.line]) }))
+      .filter(item => item.shippedQuantity > 0);
 
     const res = await poHook.submitASN({
       poId: po.id,
