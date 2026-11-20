@@ -45,6 +45,7 @@ const TENANT_SCOPED_MODELS = new Set([
   'InvoicePlanLine',
   'ASN',
   'AsnItem',
+  'AsnDraft',
   'GRN',
   'GrnItem',
   'Invoice',

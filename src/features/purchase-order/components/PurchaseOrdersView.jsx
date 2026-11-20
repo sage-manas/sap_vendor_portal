@@ -19,6 +19,7 @@ import { describeSyncState } from '@/lib/syncState';
 import { poKind, lineKind, lineHasInvoicePlan, hasInvoicePlan as poHasInvoicePlan, hasPendingInvoicePlanChange, invoicePlanNumbers } from '@/features/purchase-order/poKind';
 import { useWhoami } from '@/lib/whoami';
 import { rfqService } from '@/features/rfq/services/rfqService';
+import { poService } from '@/features/purchase-order/services/poService';
 import InvoicePlanPanel from './InvoicePlanPanel';
 
 import { useLabelledControl } from '@/components/ui/FieldCard';
@@ -139,6 +140,7 @@ export default function PurchaseOrdersView({
   handleAsnSubmit,
   acknowledgePO,
   cancelASN,
+  submitAsnDraft,
   retrySapStatus
 }) {
   const [isLoading, setIsLoading] = useState(true);
@@ -475,11 +477,98 @@ export default function PurchaseOrdersView({
       estimatedDeliveryDate: isoDateInDays(3),
       items: initialQtys
     });
+    // A fresh form is not any saved draft; the order's drafts are listed to
+    // resume instead.
+    setDraftPk(null);
+    setDraftSavedAt(null);
+    loadPoDrafts(po.id);
     setDetailTab('create_asn');
     setCurrentView('detail');
   };
 
   // Validate and submit ASN
+  // --- Drafts -------------------------------------------------------------
+  // A draft is the form as it stands, saved on the server with no ASN number
+  // (backend/controllers/asnDraft.controller.js). Nothing is checked when it
+  // is saved; everything is checked when it is submitted.
+  const [draftPk, setDraftPk] = useState(null);
+  const [draftSavedAt, setDraftSavedAt] = useState(null);
+  const [poDrafts, setPoDrafts] = useState([]);
+
+  const draftBody = () => ({
+    poId: activePo?.id || null,
+    step: 1,
+    payload: {
+      ...Object.fromEntries(
+        ['carrierName', 'trackingNumber', 'vehicleNumber', 'invoiceReference', 'invoiceDate', 'invoiceValue', 'shipDate', 'estimatedDeliveryDate']
+          .filter((key) => asnForm[key] !== undefined && asnForm[key] !== '')
+          .map((key) => [key, String(asnForm[key])]),
+      ),
+      ...(ewayBillNo ? { ewayBillNo } : {}),
+      items: (activePo?.items || [])
+        .filter((item) => dispatchQuantities[item.line] !== undefined && dispatchQuantities[item.line] !== '')
+        .map((item) => ({ line: item.line, shippedQuantity: String(dispatchQuantities[item.line]) })),
+      attachments: Object.fromEntries(Object.entries(asnDocs).filter(([, doc]) => doc?.documentId)
+        .map(([slot, doc]) => [slot, { documentId: doc.documentId, originalName: doc.originalName, size: doc.size }])),
+    },
+  });
+
+  const loadPoDrafts = async (poId) => {
+    try {
+      const res = await poService.listAsnDrafts();
+      setPoDrafts((res?.drafts || []).filter((draft) => draft.poId === poId));
+    } catch {
+      setPoDrafts([]);
+    }
+  };
+
+  const handleSaveDraft = async () => {
+    try {
+      const saved = await poService.saveAsnDraft(draftPk, draftBody());
+      setDraftPk(saved.pk);
+      setDraftSavedAt(saved.updatedAt);
+      loadPoDrafts(activePo?.id);
+    } catch (e) {
+      alert('Could not save the draft: ' + (e.message || e));
+    }
+  };
+
+  const handleResumeDraft = (draft) => {
+    const p = draft.payload || {};
+    const quantities = Object.fromEntries((p.items || []).map((item) => [item.line, item.shippedQuantity]));
+    setDispatchQuantities(quantities);
+    setValidationErrors({});
+    setEwayBillNo(p.ewayBillNo || '');
+    setAsnDocs({ packingList: null, invoiceCopy: null, transportDoc: null, ...(p.attachments || {}) });
+    setAsnForm({
+      carrierName: p.carrierName || '',
+      trackingNumber: p.trackingNumber || '',
+      vehicleNumber: p.vehicleNumber || '',
+      invoiceReference: p.invoiceReference || '',
+      invoiceDate: p.invoiceDate || '',
+      invoiceValue: p.invoiceValue || '',
+      shipDate: p.shipDate || new Date().toISOString().split('T')[0],
+      estimatedDeliveryDate: p.estimatedDeliveryDate || isoDateInDays(3),
+      items: quantities,
+    });
+    setDraftPk(draft.pk);
+    setDraftSavedAt(draft.updatedAt);
+  };
+
+  const handleDeleteDraft = async (draft) => {
+    if (!confirm('Delete this draft? This cannot be undone.')) return;
+    try {
+      await poService.deleteAsnDraft(draft.pk);
+      if (draft.pk === draftPk) {
+        setDraftPk(null);
+        setDraftSavedAt(null);
+      }
+      loadPoDrafts(activePo?.id);
+    } catch (e) {
+      alert('Could not delete the draft: ' + (e.message || e));
+    }
+  };
+
   const handleAsnSubmitClick = async () => {
     let hasErrors = false;
     const newErrors = {};
@@ -527,15 +616,23 @@ export default function PurchaseOrdersView({
     }
 
     try {
-      // Call store dispatch
       // The Delivery status tab lists the new shipment once the hook's
       // refresh lands — it reads the API's rows, not a local copy of the form.
-      await handleAsnSubmit({
-        ...activePo,
-        items: activePo?.items || [],
-        ewayBillNo,
-        documentIds: Object.values(asnDocs).filter(Boolean).map(d => d.documentId)
-      });
+      if (draftPk) {
+        // Submitted through the draft so the server deletes it in the same
+        // transaction that creates the shipment: the form is saved first, so
+        // what is submitted is what is on screen.
+        await poService.saveAsnDraft(draftPk, draftBody());
+        await submitAsnDraft(draftPk);
+        setDraftPk(null);
+      } else {
+        await handleAsnSubmit({
+          ...activePo,
+          items: activePo?.items || [],
+          ewayBillNo,
+          documentIds: Object.values(asnDocs).filter(Boolean).map(d => d.documentId)
+        });
+      }
 
       setDetailTab('grn_status');
       setCurrentView('detail');
@@ -1108,7 +1205,7 @@ export default function PurchaseOrdersView({
               aria-label="Order sections"
               value={activeDetailTab}
               onValueChange={(tab) => {
-                if (tab === 'create_asn') ensureAsnPrefill();
+                if (tab === 'create_asn') { ensureAsnPrefill(); loadPoDrafts(activePo?.id); }
                 setDetailTab(tab);
               }}
               items={activePoIsSapOnly
@@ -1173,6 +1270,28 @@ export default function PurchaseOrdersView({
                         <h2 className="text-lg font-semibold text-fg">Shipment notice</h2>
                         <p className="text-sm text-fg-muted">The goods you are dispatching against this order. Your buyer receives it as an inbound delivery.</p>
                       </div>
+
+                      {poDrafts.length > 0 && (
+                        <section aria-label="Drafts for this order" className="card p-4">
+                          <h3 className="mb-2 text-base font-semibold text-fg">Drafts for this order</h3>
+                          <p className="mb-3 text-sm text-fg-muted">Not sent. A draft gets a shipment number when you submit it.</p>
+                          <ul className="divide-y divide-border">
+                            {poDrafts.map((draft) => (
+                              <li key={draft.pk} className="flex flex-wrap items-center gap-3 py-2 text-sm">
+                                <span className="flex-1">
+                                  Saved {new Date(draft.updatedAt).toLocaleString('en-IN')}
+                                  {draft.payload?.invoiceReference ? <span className="mono ml-2 text-fg-muted">{draft.payload.invoiceReference}</span> : null}
+                                  {draft.pk === draftPk ? <span className="ml-2 text-fg-subtle">(open)</span> : null}
+                                </span>
+                                {draft.pk !== draftPk && (
+                                  <Button size="sm" variant="secondary" onClick={() => handleResumeDraft(draft)}>Resume</Button>
+                                )}
+                                <Button size="sm" variant="ghost" onClick={() => handleDeleteDraft(draft)}>Delete</Button>
+                              </li>
+                            ))}
+                          </ul>
+                        </section>
+                      )}
 
                       <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
                         <SapInputField label="Purchase order">
@@ -1313,7 +1432,12 @@ export default function PurchaseOrdersView({
 
                       {/* Sticky action bar: the one primary action on this tab. */}
                       <div className="sticky bottom-0 z-10 -mx-4 flex items-center justify-end gap-3 border-t border-border bg-canvas/95 px-4 py-3 backdrop-blur-none md:-mx-6 md:px-6">
-                        <p className="mr-auto hidden text-sm text-fg-muted sm:block">Check the quantities before sending — your buyer receives them as entered.</p>
+                        <p className="mr-auto hidden text-sm text-fg-muted sm:block">
+                          {draftSavedAt
+                            ? `Draft saved ${new Date(draftSavedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
+                            : 'Check the quantities before sending — your buyer receives them as entered.'}
+                        </p>
+                        <Button variant="secondary" onClick={handleSaveDraft}>Save draft</Button>
                         <Button onClick={handleAsnSubmitClick}>Submit Inbound Delivery</Button>
                       </div>
                     </section>

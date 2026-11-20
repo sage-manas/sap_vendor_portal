@@ -228,25 +228,29 @@ const acknowledgePO = asyncHandler(async (req, res, next) => {
 // (services/asn.service.js's shippableByLine). That check and the create run
 // under a row lock on the PO: two notices submitted at once would otherwise
 // each see the same open quantity and together ship it twice.
-const submitASN = asyncHandler(async (req, res, next) => {
+// Shared by POST /pos/:id/asn and POST /asn-drafts/:pk/submit. Throws an
+// ApiError rather than calling next(). `inTransaction(tx, asn)` runs inside the
+// create's own transaction — the draft submit deletes its draft there, so a
+// double-click cannot turn one draft into two shipments.
+const createAsn = async (req, poId, body, { inTransaction } = {}) => {
   const vendorId = requireVendorScope(req);
   const {
     carrierName, trackingNumber, vehicleNumber, invoiceReference, invoiceDate, invoiceValue,
     ewayBillNo, shipDate, estimatedDeliveryDate, items, documentIds = [],
-  } = req.body;
+  } = body;
 
-  const po = await prisma.purchaseOrder.findFirst({ where: scopedWhere(req, { id: req.params.id }), include: PO_INCLUDE });
+  const po = await prisma.purchaseOrder.findFirst({ where: scopedWhere(req, { id: poId }), include: PO_INCLUDE });
   if (!po) {
-    return next(ApiError.notFound('Purchase Order not found'));
+    throw ApiError.notFound('Purchase Order not found');
   }
 
   if (po.sapDeletedAt) {
-    return next(ApiError.badRequest('This order has been deleted in SAP. Nothing can be shipped against it.'));
+    throw ApiError.badRequest('This order has been deleted in SAP. Nothing can be shipped against it.');
   }
   if (!SHIPPABLE_PO_STATUSES.includes(po.status)) {
-    return next(ApiError.badRequest(po.status === PO_STATUS.OPEN
+    throw ApiError.badRequest(po.status === PO_STATUS.OPEN
       ? 'Acknowledge the order before you send shipment details.'
-      : `Cannot send shipment details for an order with status '${po.status}'.`));
+      : `Cannot send shipment details for an order with status '${po.status}'.`);
   }
 
   // Line existence and service lines need nothing but the PO, so they are
@@ -269,9 +273,9 @@ const submitASN = asyncHandler(async (req, res, next) => {
   });
 
   if (!ewayBillNo && ewayBillRequired(po, invoiceValue)) {
-    return next(ApiError.badRequest(
+    throw ApiError.badRequest(
       `This invoice is worth more than ₹${EWAY_BILL_THRESHOLD_INR.toLocaleString('en-IN')}. Enter its e-way bill number.`,
-    ));
+    );
   }
 
   // Attachments must be this supplier's own shipment documents, not yet on
@@ -283,7 +287,7 @@ const submitASN = asyncHandler(async (req, res, next) => {
       select: { pk: true },
     });
     if (docs.length !== new Set(documentIds).size) {
-      return next(ApiError.badRequest('One or more attached documents cannot be used for this shipment. Upload them again.'));
+      throw ApiError.badRequest('One or more attached documents cannot be used for this shipment. Upload them again.');
     }
   }
 
@@ -365,6 +369,8 @@ const submitASN = asyncHandler(async (req, res, next) => {
       // rather than declaring it Dispatched outright.
       await syncPoStatus(tx, po.pk);
 
+      if (inTransaction) await inTransaction(tx, created);
+
       return tx.aSN.findFirst({ where: { pk: created.pk }, include: ASN_INCLUDE });
     }),
   });
@@ -393,8 +399,16 @@ const submitASN = asyncHandler(async (req, res, next) => {
     args: { asnId: asn.id },
   });
 
-  res.status(201).json({ message: 'Shipment details submitted successfully. Your buyer will confirm the delivery once the goods arrive.', asn: formatAsn(asn) });
+  return asn;
+};
+
+const ASN_SUBMITTED_MESSAGE = 'Shipment details submitted successfully. Your buyer will confirm the delivery once the goods arrive.';
+
+const submitASN = asyncHandler(async (req, res) => {
+  const asn = await createAsn(req, req.params.id, req.body);
+  res.status(201).json({ message: ASN_SUBMITTED_MESSAGE, asn: formatAsn(asn) });
 });
+
 
 // @desc    Cancel an ASN the supplier submitted
 // @route   POST /api/pos/:id/asn/:asnId/cancel
@@ -1162,6 +1176,8 @@ module.exports = {
   getPOById,
   acknowledgePO,
   submitASN,
+  createAsn,
+  ASN_SUBMITTED_MESSAGE,
   cancelASN,
   getASNForPO,
   getASNs,

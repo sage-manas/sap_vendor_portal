@@ -77,6 +77,7 @@ router.get('/uploads/signed/:id', require('../controllers/upload.controller').do
 router.use('/uploads', protectTenant, require('./upload.routes'));
 router.use('/reports', protectOnboarded, require('./report.routes'));
 router.use('/asns', protectOnboarded, require('./asn.routes'));
+router.use('/asn-drafts', protectOnboarded, require('./asnDraft.routes'));
 router.use('/logs', protectOnboarded, require('./saplog.routes'));
 router.use('/dashboard', protectTenant, require('./dashboard.routes'));
 

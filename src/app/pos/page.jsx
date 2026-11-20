@@ -25,6 +25,7 @@ export default function PurchaseOrdersPage() {
       handleAsnSubmit={handleAsnSubmit}
       acknowledgePO={poHook.acknowledgePO}
       cancelASN={poHook.cancelASN}
+      submitAsnDraft={poHook.submitAsnDraft}
       retrySapStatus={poHook.refreshSapPoStatus}
     />
   );

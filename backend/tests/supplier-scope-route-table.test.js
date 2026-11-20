@@ -96,7 +96,10 @@ describe('supplier-reachable GET /:id routes are scoped to the owning supplier',
       .attach('file', Buffer.from('%PDF-1.4 beta'), 'beta.pdf');
     expect(upload.status).toBe(201);
 
-    docs = { ...seeded, rfqId: rfq.body.id, documentId: upload.body.documentId };
+    const draft = await request(app).post('/api/asn-drafts').set(bearer(vendorB.token)).send({ poId: seeded.po.id });
+    expect(draft.status).toBe(201);
+
+    docs = { ...seeded, rfqId: rfq.body.id, documentId: upload.body.documentId, draftPk: draft.body.pk };
   });
 
   // owner: what the rightful owner (B) gets, so a blanket 404 can't pass.
@@ -108,6 +111,7 @@ describe('supplier-reachable GET /:id routes are scoped to the owning supplier',
     'GET /pos/:id': { path: () => `/pos/${docs.po.id}`, owner: 200 },
     'GET /pos/:id/invoice-plan': { path: () => `/pos/${docs.po.id}/invoice-plan`, owner: 200 },
     'GET /pos/:id/asn': { path: () => `/pos/${docs.po.id}/asn`, owner: 200 },
+    'GET /asn-drafts/:pk': { path: () => `/asn-drafts/${docs.draftPk}`, owner: 200 },
     'GET /grns/:id': { path: () => `/grns/${docs.grn.id}`, owner: 200 },
     'GET /invoices/:id': { path: () => `/invoices/${docs.invoice.id}`, owner: 200 },
     'GET /payments/:id': { path: () => `/payments/${docs.payment.id}`, owner: 200 },

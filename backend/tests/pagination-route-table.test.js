@@ -34,6 +34,9 @@ const NOT_A_LIST = new Set([
   'GET /users/roles', 'GET /users/:id',
   'GET /rfqs/:id', 'GET /rfqs/:id/evaluate', 'GET /rfqs/:id/export',
   'GET /pos/:id', 'GET /pos/:id/invoice-plan', 'GET /pos/:id/asn',
+  // A supplier's own shipment drafts: capped at MAX_DRAFTS_PER_SUPPLIER (50)
+  // when created, so the list is bounded without a page.
+  'GET /asn-drafts', 'GET /asn-drafts/:pk',
   'GET /grns/:id', 'GET /invoices/:id', 'GET /payments/:id', 'GET /payments/tds-summary',
   'GET /uploads/:id', 'GET /uploads/:id/link', 'GET /uploads/signed/:id', 'GET /reports/statement', 'GET /reports/invoice/:id', 'GET /reports/metrics',
   // Generated files, not collections (issue #280). A supplier's report export
