@@ -74,6 +74,15 @@ Request:
 | `MEANS_OF_TRANSPORT_ID` | Vehicle number, may be blank | LIKP-TRAID |
 | `CARRIER` | Transporter name, may be blank | Header text ID 0001, or partner SP |
 | `EWAY_BILL` | 12-digit e-way bill number, may be blank | ZVP_ASN_HDR |
+| `ARRIVAL_TIME` | Expected arrival time `HHMMSS`, may be blank | LIKP-LFUHR |
+| `RECEIVING_POINT` | From endpoint 6, may be blank | LIKP-VSTEL / unloading point LIKP-ABLAD, your choice |
+| `VEHICLE_TYPE` | Means-of-transport type, may be blank | LIKP-TRATY |
+| `PACKAGES` | Number of packages, may be blank | LIKP-ANZPK |
+| `GROSS_WEIGHT` / `WEIGHT_UNIT` | May be blank | LIKP-BTGEW / GEWEI |
+| `TAXABLE_VALUE` / `INVOICE_VALUE` | Invoice values, ₹ | ZVP_ASN_HDR |
+| `EWAY_BILL_DATE` | May be blank | ZVP_ASN_HDR |
+| `TRANSPORTER_GSTIN` | May be blank | ZVP_ASN_HDR |
+| `DRIVER_MOBILE` | May be blank; personal data, keep access narrow | ZVP_ASN_HDR |
 | `ITEMS[].PO_ITEM` | PO line, 5 digits | LIPS-VGPOS |
 | `ITEMS[].QUANTITY` | Quantity shipped | LIPS-LFIMG |
 | `ITEMS[].UNIT` | Unit as on the PO line | LIPS-VRKME |
@@ -175,6 +184,24 @@ With `GATE_IN_AT`, the portal shows **At gate** and stops the supplier from canc
 changing the shipment. After gate-in, only the tenant admin can cancel. With `GM_STATUS`, the
 portal shows **Partially received** and **Received**. With `DELETED`, the portal detects a
 delivery that was removed in SAP.
+
+## 6. Receiving points: `POST /zinb_delivery/receiving_points`
+
+The ASN screen offers the supplier a list of unloading points for the plant. The user chose
+SAP's own receiving points as the source.
+
+```json
+{ "PLANT": "1100" }
+```
+
+```json
+{ "TYPE": "S", "RESULTS": [
+  { "CODE": "1100", "DESCRIPTION": "Stores – Gate 2", "STORAGE_LOCATIONS": ["0001", "0002"] }
+] }
+```
+
+Return the receiving points (shipping points used for inbound, TVST/TVSWZ) and any
+unloading points you keep for the plant. Read-only. The portal caches the answer per plant.
 
 ## 5. Report the delivery on each goods receipt
 
