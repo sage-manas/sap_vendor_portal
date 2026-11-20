@@ -250,11 +250,14 @@ const { documents } = await sap.vendorMiroDisplay({ vendor });   // the portal r
 
 **The portal does not write documents into SAP (except the vendor master).**
 The contract is now read-mostly. Removed by design: `invoiceCreate`,
-`deliveryCreate`, `poProvision`/`poProvisioned`, `poInboundSync`, and the five
+`deliveryCreate` (the old fabricating one), `poProvision`/`poProvisioned`, `poInboundSync`, and the five
 sourcing writes (`rfqCreate`, `rfqCancel`, `rfqReissue`, `rfqSubmitBid`,
 `infoRecordCreate`). What remains that writes: `vendorCreate` (the vendor master,
-on approval), `poAssetCreate` (the one document the portal *creates* in SAP —
-an asset PO, ADR-0042), `poAcknowledge` (a supplier confirming an order SAP
+on approval), `poAssetCreate` (an asset PO SAP numbers, ADR-0042),
+`inboundDeliveryCreate`/`inboundDeliveryCancel` (the inbound delivery for a
+shipment notice, ADR-0049 — **switched off** until the Z endpoints in
+`docs/abap-requests/inbound-delivery.md` exist and a connection sets
+`inboundDeliveryCreatePath`/`inboundDeliveryCancelPath`), `poAcknowledge` (a supplier confirming an order SAP
 already owns), `quotationUpdatePrice` (ME47 net price on a document SAP holds) and
 `poInvoicePlanUpdate` (the invoicing plan on an order SAP holds — a buyer's
 change to a document SAP owns, same category as the acknowledgement, and paired
@@ -314,10 +317,15 @@ rest is read-only:
   clearing via `zpayment_api/payment`. The discovered number is written back, so a
   match happens once. The matcher returns null on ambiguity rather than guessing —
   paying against the wrong invoice is worse than showing one as unrecognised.
-- **No inbound delivery either.** The supplier's dispatch notice is recorded in the
-  portal; `awaitGoodsReceipt` polls SAP's own PO/GRN ledger keyed on the **purchase
-  order number**, which never referenced a delivery document anyway. `ASN.sapInboundDelivery`
-  is always null.
+- **An inbound delivery only where the connection can make one (ADR-0049).** `submitASN`
+  enqueues `createInboundDelivery`; on a connection with `inboundDeliveryCreatePath` set,
+  SAP creates the delivery (idempotent on the ASN id, sent as LIKP-LIFEX) and its number
+  lands in `ASN.sapInboundDelivery` — the delivery SAP holds *now*, cleared again when
+  `cancelASN` deletes it (SAP first, then the portal; refused if SAP refuses). With no path
+  set — every tenant today — nothing is sent or logged and the shipment stays a portal
+  record. `awaitGoodsReceipt` still polls SAP's PO/GRN ledger on the **purchase order
+  number**; it matches by delivery when the feed reports `INB_DELIVERY` on a receipt, and
+  by elimination otherwise.
 - **Sourcing is portal-internal — but an RFQ can now originate on either side.**
   Core S/4 exposes no public API for issuing an RFQ to, or capturing a bid from,
   an external portal vendor — that is SAP Ariba/Business Network territory. The
@@ -495,7 +503,7 @@ several places (a holdover from the abandoned Clerk-auth plan, §4).
 - `id` `ASN-######`, `poId`, `vendorId`, `status` (`Submitted`|`In Transit`|`Received`|`Cancelled` — `config/statuses.js` `ASN_STATUS`; `ASN_OPEN` is Submitted + In Transit), `shipDate`, `estimatedDeliveryDate`, `carrierName`, `trackingNumber`, `vehicleNumber`, `invoiceReference` + `invoiceDate` + `invoiceValue` (the supplier's tax invoice — **required** on submit; number ≤16 chars of `A-Z0-9/-`, unique per supplier per Indian financial year among non-cancelled ASNs, checked under a per-supplier advisory lock; value is GST-inclusive), `ewayBillNo` (12 digits), `sapInboundDelivery`, `cancelledAt`, `cancelReason`. `AsnItem[]` (`asnPk` FK): `line, materialCode, description, shippedQuantity, uom, receivedQuantity` (what SAP's goods receipt recorded; null until received). `Document[]` via `Document.asnId`.
 - **An order ships in parts.** `submitASN` accepts an order that is `Acknowledged` or already `Dispatched`. Each line's open quantity is ordered − received (`grnQuantity`) − shipped on **open** ASNs (`services/asn.service.js` `shippableByLine`); the check and the create run under a `FOR UPDATE` lock on the PO row, so two simultaneous ASNs cannot both take the same quantity. A line appears at most once per ASN; service lines (KNTTP `D` or carrying entry sheets) are refused. An invoice worth more than ₹50,000 with tax on an INR order needs an e-way bill (ASN design D5). `GET /pos` and `GET /pos/:id` add `inTransitQuantity`/`openToShipQuantity` to each item so the form offers what the API accepts.
 - **A supplier can cancel an open ASN** (`POST /pos/:id/asn/:asnId/cancel`, reason required, audited as `asn.cancelled`). Received is final. Cancelling cancels the `awaitGoodsReceipt` job, stops counting the quantity, and is the one case `syncPoStatus` may step a PO back (`Dispatched` → `Acknowledged`, via `shipmentWithdrawn`). The ASN keeps its `sapSyncState` (`local` is not re-enterable); the reconciliation queue and its retry skip cancelled ASNs instead. There is no edit — cancel and resend keeps both versions in the history.
-- **Which SAP receipt is which shipment's** (`sap/mappings/goods-receipt-match.js`): the earliest GR document not already recorded in the portal, dated no earlier than a day before the ASN, touching any shipped line — with that document's own quantities, not the line total. Best guess where SAP gives no key; a truck split across two MIGO postings leaves the second for the sweep. `awaitGoodsReceipt` refuses to adopt a receipt already recorded against a different ASN.
+- **Which SAP receipt is which shipment's** (`sap/mappings/goods-receipt-match.js`): where the receipt feed reports `INB_DELIVERY`, a receipt is only ever the shipment whose `sapInboundDelivery` it names (ADR-0049), and the sweep links a later posting against the same delivery to that ASN. Otherwise, the earliest GR document not already recorded in the portal, dated no earlier than a day before the ASN, touching any shipped line — with that document's own quantities, not the line total. Best guess where SAP gives no key; a truck split across two MIGO postings leaves the second for the sweep. `awaitGoodsReceipt` refuses to adopt a receipt already recorded against a different ASN.
 
 ### GRN — goods receipt (MIGO)
 - `id` `GRN-{year}-…`, `poId`, `asnId` (**nullable** — a receipt SAP posted with no portal ASN behind it, discovered below, has none), `vendorId`, `sapMigoDoc` (bare MBLNR), `sapDocYear` (MJAHR — SAP's own document number is only unique together with its fiscal year; minted into the `id` and stored here too, since the number range recycles across a fiscal-year boundary. The live Z endpoint carries no MJAHR field yet, so this is derived from the receipt's posting date — see sap/drivers/s4odata.driver.js's `grFiscalYear`), `postingDate`, `receivedBy`, `invoiceSubmitted`. `GrnItem[]` (`grnPk` FK): `line, materialCode, description, receivedQuantity, acceptedQuantity, rejectedQuantity, rejectionReason, uom`.

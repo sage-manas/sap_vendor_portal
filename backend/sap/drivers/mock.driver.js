@@ -97,6 +97,13 @@ const mockMiroDoc = (invoice) => {
   return `51${serial}${String(new Date(invoice.invoiceDate || Date.now()).getFullYear()).slice(-2)}`;
 };
 
+// The simulated delivery for each ASN, so asking twice answers the same
+// number — the idempotency the real endpoint is asked for (LIFEX). Module
+// level, because a driver instance does not outlive one adapter lookup; keyed
+// on the ASN's pk, which unlike its business id is unique across tenants.
+const mockDeliveries = new Map();
+const deliveryKey = (asn) => asn.pk || asn.id;
+
 const createMockDriver = ({ config = {} } = {}) => {
   // Timings default to zero under test: a suite must not wait twelve real
   // seconds to assert that a payment lands, and a timer outliving the test that
@@ -732,6 +739,37 @@ const createMockDriver = ({ config = {} } = {}) => {
     }),
 
     // --- Delivery and goods receipt ---------------------------------------
+
+    // Mirrors the contract docs/abap-requests/inbound-delivery.md asks the
+    // real endpoint for, including its idempotency: the same ASN (LIFEX) asked
+    // for twice gets the same delivery, so a retried job never makes a second.
+    inboundDeliveryCreate: async ({ asn, po, vendor }) => {
+      const existing = mockDeliveries.get(deliveryKey(asn));
+      const delivery = existing || `018${digits(7)}`;
+      mockDeliveries.set(deliveryKey(asn), delivery);
+      return {
+        data: { created: true, delivery, existing: Boolean(existing) },
+        log: {
+          vendorId: vendor?.vendorId || asn.vendorId,
+          payload: { EXT_DELIVERY_ID: asn.id, PO_NUMBER: po.sapPoNumber, DELIVERY: delivery, ITEMS: (asn.items || []).length },
+          status: 'SUCCESS',
+          documentRef: delivery,
+        },
+      };
+    },
+
+    inboundDeliveryCancel: async ({ asn, vendorId }) => {
+      mockDeliveries.delete(deliveryKey(asn));
+      return {
+        data: { cancelled: true, delivery: asn.sapInboundDelivery },
+        log: {
+          vendorId: vendorId || asn.vendorId,
+          payload: { DELIVERY: asn.sapInboundDelivery, EXT_DELIVERY_ID: asn.id },
+          status: 'SUCCESS',
+          documentRef: asn.sapInboundDelivery,
+        },
+      };
+    },
 
     // One-shot probe, called once per job attempt (jobs/worker.js) rather
     // than owning its own timer — see docs/04-sap-runtime-engineering-plan.md

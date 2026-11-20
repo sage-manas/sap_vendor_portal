@@ -570,6 +570,11 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
               unitPrice: Number(gr.UNIT_PRICE),
               netAmount: Number(gr.NET_AMOUNT),
               location: gr.LOCATION || null,
+              // MSEG-VBELN_IM: the inbound delivery this receipt was posted
+              // against. Requested of ABAP alongside the delivery endpoints
+              // (docs/abap-requests/inbound-delivery.md) and absent until that
+              // ships — null then, and matching falls back to elimination.
+              inboundDelivery: String(gr.INB_DELIVERY || '').trim() || null,
             }));
 
             return {
@@ -1718,24 +1723,140 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
 
     // --- Delivery and goods receipt ------------------------------------
 
-    // No confirmed way to create an inbound delivery on this tenant's SAP
-    // system: the standard OData write 401s — confirmed live, this instance's
-    // Z REST endpoints (VENDOR_CR, the MIRO/payment/PO-GRN displays, ...) are
-    // deliberately open, but its OData gateway needs a technical user this
-    // tenant's SapConnection has no credentials for (see `secretFields`
-    // below). Rather than throw and block every ASN submission on a step
-    // nobody can complete, this records the shipment locally and skips the
-    // SAP write when no credentials are configured — the real POST is still
-    // here and starts running the moment credentials are added, no code
-    // change required. Safe to leave local-only either way: awaitGoodsReceipt
-    // below no longer needs a real inbound-delivery number to correlate
-    // against — it reads GRNs off zpo_grn_vendor/Detail by PO number instead.
+    // Inbound delivery (VL31N) — ADR-0049. The standard OData write
+    // (API_INBOUND_DELIVERY_SRV) 401s on this tenant's gateway, like every
+    // standard OData service here, so this speaks a custom Z REST endpoint,
+    // the same as VENDOR_CR and zasset_po/create. Its contract is the one
+    // docs/abap-requests/inbound-delivery.md asks the ABAP team for.
+    //
+    // **Not yet confirmed live.** So there is no default path: until a tenant's
+    // connection names one (inboundDeliveryCreatePath), this sends nothing,
+    // logs nothing and answers `{ created: false }` — the shipment stays a
+    // portal record and the goods receipt is matched by PO, as it always was.
+    // Throwing not_implemented instead would write a FAILED call into the
+    // buyer's SAP log for every shipment, for a request that was never made.
+    inboundDeliveryCreate: async ({ asn, po, vendor } = {}) => {
+      const path = config.inboundDeliveryCreatePath;
+      if (!path) return { data: { created: false, reason: 'not_configured' } };
+
+      // Checked before anything is sent, for the reason poAssetCreate gives.
+      if (!asn?.id || !asn.items?.length) throw new Error('inboundDeliveryCreate: an ASN with at least one line is required');
+      if (!po?.sapPoNumber) throw new Error('inboundDeliveryCreate: po.sapPoNumber is required — a delivery has to reference the order SAP holds');
+      if (!vendor?.sapVendorCode) throw new Error('inboundDeliveryCreate: vendor.sapVendorCode is required');
+
+      const base = String(config.baseUrl || '').replace(/\/$/, '');
+      const url = `${base}${path}${config.sapClient ? `?sap-client=${encodeURIComponent(config.sapClient)}` : ''}`;
+      const headers = { ...baseHeaders(config, secrets), 'Content-Type': 'application/json' };
+
+      const payload = {
+        VENDOR: vendor.sapVendorCode,
+        PO_NUMBER: po.sapPoNumber,
+        // LIKP-LIFEX, the supplier's own delivery-note reference. It is also
+        // the idempotency key the endpoint is asked to honour: a retry after a
+        // timeout must get back the delivery the first attempt made, not a
+        // second one.
+        EXT_DELIVERY_ID: asn.id,
+        DELIVERY_DATE: isoToSapDay(asn.estimatedDeliveryDate),
+        SHIP_DATE: isoToSapDay(asn.shipDate),
+        BILL_OF_LADING: asn.trackingNumber || '',
+        MEANS_OF_TRANSPORT_ID: asn.vehicleNumber || '',
+        CARRIER: asn.carrierName || '',
+        EWAY_BILL: asn.ewayBillNo || '',
+        ITEMS: asn.items.map((item) => ({
+          PO_ITEM: String(item.line).padStart(5, '0'),
+          // MENGE, three places — see poAssetCreate.
+          QUANTITY: Number(item.shippedQuantity).toFixed(3),
+          // SAP's own internal unit code, as stored; see poAssetCreate for why
+          // this is not routed through the ISO MEINS registry.
+          UNIT: String(item.uom || 'EA').trim().toUpperCase(),
+        })),
+      };
+
+      const response = await abortableFetch(
+        url,
+        { method: 'POST', headers, body: JSON.stringify(payload) },
+        timeoutFor('inboundDeliveryCreate', config),
+      );
+      const text = await response.text();
+      let json = {};
+      try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text }; }
+
+      const { failed, message: failure, results } = bulkWriteFailure(json);
+      if (!response.ok || failed) {
+        const error = new Error(`SAP inbound delivery create POST ${path} failed for ${asn.id}: ${failure || json.raw || `${response.status} ${response.statusText}`}`);
+        error.status = response.status;
+        throw error;
+      }
+
+      // Success without a number is a failure — the same rule poAssetCreate
+      // applies to PO_NUMBER, for the same reason.
+      const delivery = String(json.DELIVERY || '').trim();
+      if (!delivery) {
+        const error = new Error(`SAP inbound delivery create POST ${path} reported success but returned no DELIVERY: ${json.MESSAGE || text}`);
+        error.status = response.status;
+        throw error;
+      }
+
+      return {
+        data: { created: true, delivery, message: json.MESSAGE || null },
+        log: {
+          vendorId: vendor.vendorId,
+          payload: { request: payload, response: { TYPE: json.TYPE, MESSAGE: json.MESSAGE, DELIVERY: delivery, RESULTS: results } },
+          status: 'SUCCESS',
+          documentRef: delivery,
+        },
+      };
+    },
+
+    // Deletes the delivery when the supplier withdraws the shipment. Same
+    // not-configured answer as above; cancelASN refuses to cancel a shipment
+    // whose delivery it cannot remove, rather than leave SAP expecting goods
+    // the portal says are not coming. SAP refuses once a goods receipt has
+    // been posted against the delivery, and that refusal is passed through.
+    inboundDeliveryCancel: async ({ asn, vendorId } = {}) => {
+      const path = config.inboundDeliveryCancelPath;
+      if (!path) return { data: { cancelled: false, reason: 'not_configured' } };
+      if (!asn?.sapInboundDelivery) throw new Error('inboundDeliveryCancel: asn.sapInboundDelivery is required');
+
+      const base = String(config.baseUrl || '').replace(/\/$/, '');
+      const url = `${base}${path}${config.sapClient ? `?sap-client=${encodeURIComponent(config.sapClient)}` : ''}`;
+      const headers = { ...baseHeaders(config, secrets), 'Content-Type': 'application/json' };
+      const payload = { DELIVERY: asn.sapInboundDelivery, EXT_DELIVERY_ID: asn.id };
+
+      const response = await abortableFetch(
+        url,
+        { method: 'POST', headers, body: JSON.stringify(payload) },
+        timeoutFor('inboundDeliveryCancel', config),
+      );
+      const text = await response.text();
+      let json = {};
+      try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text }; }
+
+      const { failed, message: failure, results } = bulkWriteFailure(json);
+      if (!response.ok || failed) {
+        const error = new Error(`SAP inbound delivery delete POST ${path} failed for ${asn.sapInboundDelivery}: ${failure || json.raw || `${response.status} ${response.statusText}`}`);
+        error.status = response.status;
+        throw error;
+      }
+
+      return {
+        data: { cancelled: true, delivery: asn.sapInboundDelivery },
+        log: {
+          vendorId: vendorId || asn.vendorId,
+          payload: { request: payload, response: { TYPE: json.TYPE, MESSAGE: json.MESSAGE, RESULTS: results } },
+          status: 'SUCCESS',
+          documentRef: asn.sapInboundDelivery,
+        },
+      };
+    },
+
     // MIGO happens on SAP's own schedule; there is no push in scope here.
     // This used to poll A_MaterialDocumentItem via OData, but that gateway
     // 401s for this tenant, like every standard OData service here — it polls
-    // zpo_grn_vendor/Detail instead, confirmed live and open, matching by PO
-    // number rather than an inbound-delivery reference (the portal issues no
-    // inbound delivery: it does not write to SAP at all). Only total received quantity is on this
+    // zpo_grn_vendor/Detail instead, confirmed live and open. A receipt is
+    // matched to its shipment by inbound delivery where the feed reports one,
+    // and by elimination on the PO number where it does not (see
+    // sap/mappings/goods-receipt-match.js). Only total received quantity is on this
     // endpoint — no rejected-quantity field exists anywhere in it, so an
     // accepted/rejected split still isn't derivable without the QM
     // inspection-lot API; until that's available everything received is
@@ -1976,6 +2097,11 @@ module.exports = {
     { name: 'poDetailPath', label: 'Single order/RFQ detail path (custom Z REST — the source of each PO line\'s INV_PLANNO, and confirmed live for RFQ document numbers too)', type: 'text', default: '/zpo_grn/Detail' },
     { name: 'assetPoCreatePath', label: 'Asset purchase order create path (custom Z REST, ME21N with account assignment A — the one document the portal creates in SAP)', type: 'text', default: '/zasset_po/create' },
     { name: 'assetPoDocType', label: 'Purchasing document type (BSART) for an asset PO', type: 'text', default: 'NB' },
+    // No defaults, on purpose: blank is "off" (ADR-0049). Set these only once
+    // the endpoints in docs/abap-requests/inbound-delivery.md exist and have
+    // been checked against this system.
+    { name: 'inboundDeliveryCreatePath', label: 'Inbound delivery create path (custom Z REST, VL31N) — blank keeps shipments portal-only', type: 'text' },
+    { name: 'inboundDeliveryCancelPath', label: 'Inbound delivery delete path (custom Z REST, VL32N) — needed to cancel a shipment SAP already has a delivery for', type: 'text' },
     { name: 'invoicePlanPath', label: 'Invoicing plan display path (custom Z REST, FPLA/FPLT — confirmed live)', type: 'text', default: '/zinv_milestone/plan' },
     { name: 'invoicePlanUpdatePath', label: 'Invoicing plan update path (custom Z REST, FPLA/FPLT — confirmed live)', type: 'text', default: '/zinv_plan/update' },
     // Invoicing-plan customizing (IMG values, per SAP client — see
