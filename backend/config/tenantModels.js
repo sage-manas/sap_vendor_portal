@@ -14,6 +14,7 @@ const TENANT_MODELS = [
   { name: 'RFQ', label: 'RFQs', metric: 'rfqs' },
   { name: 'PurchaseOrder', label: 'Purchase orders' },
   { name: 'ASN', label: 'Advance shipping notices' },
+  { name: 'AsnDraft', label: 'Shipment notice drafts' },
   { name: 'GRN', label: 'Goods receipts' },
   { name: 'Invoice', label: 'Invoices' },
   { name: 'Payment', label: 'Payments' },

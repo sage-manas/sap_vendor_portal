@@ -179,9 +179,20 @@ export function usePOs(profile) {
     }
   };
 
+  // Submitting a draft makes a shipment, so the lists that show one refresh.
+  const submitAsnDraft = async (pk) => {
+    try {
+      return await poService.submitAsnDraft(pk);
+    } finally {
+      refreshPOs();
+      refreshASNs();
+    }
+  };
+
   return {
     pos,
     posLoaded,
+    submitAsnDraft,
     asns,
     grns,
     sapPoOrders,

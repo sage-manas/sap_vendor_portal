@@ -789,6 +789,32 @@ model ASN {
   @@map("asns")
 }
 
+// A shipment notice the supplier has started and not submitted. Deliberately
+// not an ASN row with a "Draft" status: a draft has no ASN number (the user's
+// decision — numbers are given on submit, so abandoned drafts leave no gaps),
+// reserves no open quantity and claims no invoice number. Every rule runs
+// again, against current data, when it is submitted (POST
+// /asn-drafts/:pk/submit). `payload` is the form as the supplier left it, in
+// the shape POST /pos/:id/asn accepts, every field optional; `step` is the
+// wizard step to resume at.
+model AsnDraft {
+  pk       String @id @default(uuid()) @db.Uuid
+  clientId String
+  vendorId String
+
+  // The order the draft ships against, once chosen. Plain string, no FK: a
+  // draft outlives nothing and must not block an order's lifecycle.
+  poId    String?
+  step    Int     @default(1)
+  payload Json    @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId, vendorId])
+  @@map("asn_drafts")
+}
+
 model AsnItem {
   pk       String @id @default(uuid()) @db.Uuid
   clientId String
