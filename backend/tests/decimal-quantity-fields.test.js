@@ -80,6 +80,7 @@ describe('quantity fields survive the Float → Decimal migration', () => {
       shipDate: new Date().toISOString(), estimatedDeliveryDate: futureDate(2),
       items: [{ line: 10, shippedQuantity: 10 }],
       invoiceReference: 'INV/26/0001', invoiceDate: new Date().toISOString(), invoiceValue: 1180,
+      carrierName: 'Blue Dart', trackingNumber: 'LR-0001',
     });
 
     const grn = await until(async () => {

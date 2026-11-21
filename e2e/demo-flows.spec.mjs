@@ -191,23 +191,36 @@ test.describe('demo flows, through the UI', () => {
     await expect(poHeader.getByText('Acknowledged', { exact: true })).toBeVisible();
 
     // --- Ship -------------------------------------------------------------------
+    // The order's Send shipment tab leads to the ASN module's wizard, with this
+    // order's open line already chosen.
     await page.getByRole('tab', { name: 'Send shipment' }).click();
-    // Nothing is invented on the supplier's behalf: the references start empty.
-    await expect(page.getByLabel(/^Carrier\b/)).toHaveValue('');
-    await expect(page.getByLabel('E-way bill number')).toHaveValue('');
-    await page.getByLabel(/^Carrier\b/).fill('Safexpress');
-    await page.getByLabel('Vehicle or tracking number').fill('MH-14-KL-2211');
-    // The supplier's invoice is required. Unique per run, since the number may
-    // not repeat for this supplier within a financial year.
-    await page.getByLabel(/^Invoice number\b/).fill(`DEMO/${Date.now() % 1e9}`);
-    await page.getByLabel(/^Invoice date\b/).fill(new Date().toISOString().slice(0, 10));
-    await page.getByLabel(/^Invoice value with tax\b/).fill('1652');
-    await page.getByRole('button', { name: 'Submit Inbound Delivery' }).click();
+    await page.getByRole('button', { name: 'Create ASN for this order' }).click();
+    await expect(page).toHaveURL(new RegExp(`/asn\\?new=1&po=${po.id}`));
+    await expect(page.getByRole('heading', { name: 'Create ASN', level: 1 })).toBeVisible();
 
+    await page.getByRole('button', { name: 'Next: quantities' }).click();
+    await page.getByRole('button', { name: 'Next: shipment and documents' }).click();
+
+    // Nothing is invented on the supplier's behalf: the references start empty.
+    await expect(page.getByLabel(/^Transporter( \*)?$/)).toHaveValue('');
+    await expect(page.getByLabel(/^E-way bill no\./)).toHaveValue('');
+    // Unique per run: an invoice number may not repeat for this supplier
+    // within a financial year, and this database keeps them.
+    await page.getByLabel(/^Invoice \/ challan no\./).fill(`DEMO/${Date.now() % 1e9}`);
+    await page.getByLabel(/^Invoice date/).fill(new Date().toISOString().slice(0, 10));
+    await page.getByLabel(/^Invoice total/).fill('1652');
+    await page.getByLabel(/^Transporter( \*)?$/).fill('Safexpress');
+    await page.getByLabel(/^Vehicle no\./).fill('MH-14-KL-2211');
+    await page.getByRole('group', { name: 'Invoice copy' }).locator('input[type="file"]').setInputFiles(pdf('invoice.pdf'));
+    await expect(page.getByText('invoice.pdf')).toBeVisible();
+    await page.getByRole('button', { name: 'Next: review and submit' }).click();
+    await page.getByRole('button', { name: 'Submit ASN' }).click();
+
+    // Stored as a registration is written, without spaces or hyphens.
     await expect.poll(async () => {
       const asns = (await supplier.get('/asns')).body?.asns ?? [];
       return asns.find((asn) => asn.poId === po.id) ?? null;
-    }, { timeout: 20_000 }).toMatchObject({ carrierName: 'Safexpress', vehicleNumber: 'MH-14-KL-2211', trackingNumber: null });
+    }, { timeout: 20_000 }).toMatchObject({ carrierName: 'Safexpress', vehicleNumber: 'MH14KL2211', trackingNumber: null });
 
     // --- The goods receipt arrives from the job worker --------------------------
     const grnFor = async () => ((await supplier.get('/grns')).body.grns ?? []).find((g) => g.poId === po.id) ?? null;

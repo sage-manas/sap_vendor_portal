@@ -9,9 +9,6 @@ export default function PurchaseOrdersPage() {
     state,
     selectedPoId,
     setSelectedPoId,
-    asnForm,
-    setAsnForm,
-    handleAsnSubmit,
     poHook
   } = usePortal();
 
@@ -20,12 +17,8 @@ export default function PurchaseOrdersPage() {
       state={state}
       selectedPoId={selectedPoId}
       setSelectedPoId={setSelectedPoId}
-      asnForm={asnForm}
-      setAsnForm={setAsnForm}
-      handleAsnSubmit={handleAsnSubmit}
       acknowledgePO={poHook.acknowledgePO}
       cancelASN={poHook.cancelASN}
-      submitAsnDraft={poHook.submitAsnDraft}
       retrySapStatus={poHook.refreshSapPoStatus}
     />
   );

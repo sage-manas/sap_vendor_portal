@@ -1,5 +1,5 @@
 import {
-  BarChart3, Building2, CreditCard, FileText, Gauge, LayoutDashboard, Receipt, ShoppingBag, Warehouse,
+  BarChart3, Building2, CreditCard, FileText, Gauge, LayoutDashboard, Receipt, ShoppingBag, Truck, Warehouse,
 } from 'lucide-react';
 
 // The supplier portal's destinations, in the order a supplier works through
@@ -17,6 +17,9 @@ export const BACK_OFFICE = { id: 'workspace', name: 'Workspace back office', ico
 
 export const SUPPLIER_MODULES = [
   { id: 'pos', name: 'Orders', icon: ShoppingBag },
+  // Shipment notices: between orders and invoices, where a shipment sits in
+  // the flow — ordered, dispatched, received, invoiced.
+  { id: 'asn', name: 'ASN', icon: Truck },
   { id: 'invoices', name: 'Invoices', icon: Receipt },
   { id: 'payments', name: 'Payments', icon: CreditCard },
   { id: 'rfqs', name: 'RFQs', icon: FileText },
