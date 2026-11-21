@@ -2,7 +2,7 @@ const request = require('supertest');
 const buildTestApp = require('./testApp');
 const { prisma, rawPrisma } = require('../db/prisma');
 const { withoutTenantScope } = require('../utils/tenantContext');
-const { registerVendor, createOperatorSession, asTenant } = require('./helpers');
+const { registerVendor, createOperatorSession, asTenant, withoutAsnApproval } = require('./helpers');
 const { markFailed } = require('../jobs/syncState');
 const awaitGoodsReceiptHandler = require('../jobs/handlers/awaitGoodsReceipt');
 
@@ -17,6 +17,10 @@ const awaitGoodsReceiptHandler = require('../jobs/handlers/awaitGoodsReceipt');
 // handler.
 
 const app = buildTestApp();
+
+// Shipments here go straight to SAP: the workspace's approval step
+// (tests/asn-approval.test.js) is a precondition this suite does not test.
+beforeEach(() => withoutAsnApproval());
 const auth = (token) => ({ Authorization: `Bearer ${token}` });
 
 const seedPo = (vendorId, poId, items) => asTenant(() => prisma.purchaseOrder.create({

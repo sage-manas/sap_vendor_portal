@@ -222,6 +222,12 @@ test.describe('demo flows, through the UI', () => {
       return asns.find((asn) => asn.poId === po.id) ?? null;
     }, { timeout: 20_000 }).toMatchObject({ carrierName: 'Safexpress', vehicleNumber: 'MH14KL2211', trackingNumber: null });
 
+    // The workspace admin approves it; only then does it go to SAP.
+    const shipped = ((await supplier.get('/asns')).body?.asns ?? []).find((asn) => asn.poId === po.id);
+    expect(shipped.status).toBe('Pending Approval');
+    const approver = api(request, await tokenFor(request, ACCOUNTS.admin));
+    ok(await approver.post(`/asns/${shipped.id}/approve`, {}));
+
     // --- The goods receipt arrives from the job worker --------------------------
     const grnFor = async () => ((await supplier.get('/grns')).body.grns ?? []).find((g) => g.poId === po.id) ?? null;
     await expect.poll(grnFor, { timeout: 90_000, intervals: [1000] }).not.toBeNull();

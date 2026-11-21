@@ -85,7 +85,7 @@ test.describe('procure to pay, on the mock SAP driver', () => {
       .toBe('Acknowledged');
 
     // ---------------------------------------------------------------- 5. ASN
-    ok(await supplier.post(`/pos/${poId}/asn`, {
+    const { asn: shipped } = ok(await supplier.post(`/pos/${poId}/asn`, {
       shipDate: new Date().toISOString(),
       estimatedDeliveryDate: new Date(Date.now() + 2 * 86400000).toISOString(),
       carrierName: 'BlueDart Express',
@@ -98,6 +98,11 @@ test.describe('procure to pay, on the mock SAP driver', () => {
       invoiceValue: Number((quantity * unitPrice * 1.18).toFixed(2)),
       items: [{ line: 10, shippedQuantity: quantity }],
     }));
+
+    // Every workspace approves shipment notices by default; SAP hears of it
+    // (and the receipt watch starts) only then.
+    const admin = api(request, await tokenFor(request, ACCOUNTS.admin));
+    ok(await admin.post(`/asns/${shipped.id}/approve`, {}));
 
     // [UI · supplier] The shipment shows on the order once raised.
     await page.goto('/pos');

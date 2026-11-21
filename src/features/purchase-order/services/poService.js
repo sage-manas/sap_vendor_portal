@@ -41,6 +41,13 @@ export const poService = {
   async cancelShipment(asnId, reason) {
     return apiClient.post(`/asns/${asnId}/cancel`, { reason });
   },
+  // The tenant admin's decision (asn:approve).
+  async approveShipment(asnId) {
+    return apiClient.post(`/asns/${asnId}/approve`, {});
+  },
+  async rejectShipment(asnId, reason) {
+    return apiClient.post(`/asns/${asnId}/reject`, { reason });
+  },
 
   // Shipment notice drafts: the supplier's own, with no ASN number until
   // submitted. `pk` is the draft's id.

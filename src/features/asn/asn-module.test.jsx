@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithPortal } from '@/test/renderWithPortal';
@@ -7,6 +7,11 @@ import AsnPage from '@/app/asn/page';
 
 // The ASN module (ASN design screens V1–V6) through the real page, provider
 // stack and API client, against a mocked API.
+//
+// These walk whole screens (the wizard is four steps of typing), so they get
+// more than the default 5s: under a full parallel run they were timing out
+// while passing alone.
+vi.setConfig({ testTimeout: 20_000 });
 
 const po = (id, overrides = {}, item = {}) => ({
   id,
@@ -239,5 +244,21 @@ describe('one shipment', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Cancel shipment' }));
 
     await waitFor(() => expect(apiMock.lastBody('POST', '/asns/ASN-100001/cancel')).toEqual({ reason: 'Vehicle did not leave' }));
+  });
+});
+
+describe('approval by the buyer', () => {
+  it('shows a shipment waiting for approval, which can still be withdrawn', async () => {
+    render('/asn?id=ASN-100001', { asns: [asn({ status: 'Pending Approval' })] });
+
+    expect(await screen.findByText("Waiting for your buyer's approval")).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel shipment' })).toBeInTheDocument();
+  });
+
+  it('shows why a shipment was rejected, and what to do', async () => {
+    render('/asn?id=ASN-100001', { asns: [asn({ status: 'Rejected', rejectionReason: 'Wrong plant' })] });
+
+    expect(await screen.findByText(/Rejected by your buyer: Wrong plant\. Create a new ASN with the corrections\./)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel shipment' })).not.toBeInTheDocument();
   });
 });

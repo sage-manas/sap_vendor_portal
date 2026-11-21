@@ -3,7 +3,7 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { requireVendorScope } = require('../utils/requestScope');
 const { asnCreateSchema } = require('../validators/asn.validator');
-const { createAsn, ASN_SUBMITTED_MESSAGE } = require('./po.controller');
+const { createAsn, asnSubmittedMessage } = require('./po.controller');
 const { formatAsn } = require('../services/asn.service');
 
 // Shipment notice drafts — see the note on AsnDraft in schema.prisma. A draft
@@ -111,7 +111,7 @@ const submitDraft = asyncHandler(async (req, res) => {
     },
   });
 
-  res.status(201).json({ message: ASN_SUBMITTED_MESSAGE, asn: formatAsn(asn) });
+  res.status(201).json({ message: asnSubmittedMessage(asn), asn: formatAsn(asn) });
 });
 
 module.exports = {

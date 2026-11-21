@@ -2,7 +2,7 @@ const request = require('supertest');
 const buildTestApp = require('./testApp');
 const { prisma, rawPrisma } = require('../db/prisma');
 const { withoutTenantScope } = require('../utils/tenantContext');
-const { registerVendor, asTenant } = require('./helpers');
+const { registerVendor, asTenant, withoutAsnApproval } = require('./helpers');
 const { getSapAdapterForClient, invalidateSapAdapter } = require('../sap');
 const { createS4ODataDriver } = require('../sap/drivers/s4odata.driver');
 const createInboundDelivery = require('../jobs/handlers/createInboundDelivery');
@@ -18,6 +18,10 @@ const createInboundDelivery = require('../jobs/handlers/createInboundDelivery');
 // with `fetch` stubbed.
 
 const app = buildTestApp();
+
+// Shipments here go straight to SAP: the workspace's approval step
+// (tests/asn-approval.test.js) is a precondition this suite does not test.
+beforeEach(() => withoutAsnApproval());
 const auth = (token) => ({ Authorization: `Bearer ${token}` });
 
 const setup = async ({ sapPoNumber = '4500022828' } = {}) => {
