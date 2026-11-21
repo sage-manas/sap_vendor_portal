@@ -215,7 +215,7 @@ describe('the S/4 driver against the requested contract', () => {
       MEANS_OF_TRANSPORT_ID: 'MH12AB1234',
       CARRIER: 'Blue Dart',
       EWAY_BILL: '123456789012',
-      ITEMS: [{ PO_ITEM: '00010', QUANTITY: '40.500', UNIT: 'EA' }],
+      ITEMS: [{ PO_NUMBER: '4500022828', PO_ITEM: '00010', QUANTITY: '40.500', UNIT: 'EA' }],
     });
   });
 

@@ -144,6 +144,35 @@ describe('submitting a draft', () => {
   });
 });
 
+describe('a draft across several orders', () => {
+  it('names each line\'s order and submits as one shipment', async () => {
+    const a = await setup();
+    await asTenant(() => prisma.purchaseOrder.create({
+      data: {
+        id: 'PO-2026-DRF2', vendorId: 'vendor_draft_a',
+        items: { create: [{ clientId: 'CLT-0001', line: 10, materialCode: 'MAT-009', description: 'Washers', quantity: 20, unitPrice: 1, netValue: 20 }] },
+      },
+    }));
+    expect((await request(app).put('/api/pos/PO-2026-DRF2/acknowledge').set(auth(a.token))).status).toBe(200);
+    const draft = await save(a.token, { payload: complete({ items: [
+      { poId: 'PO-2026-DRF1', line: 10, shippedQuantity: 5 },
+      { poId: 'PO-2026-DRF2', line: 10, shippedQuantity: 5 },
+    ] }) });
+
+    const res = await submit(a.token, draft.body.pk);
+
+    expect(res.status).toBe(201);
+    expect(res.body.asn.items.map((item) => item.poId)).toEqual(['PO-2026-DRF1', 'PO-2026-DRF2']);
+  });
+
+  it('cannot be submitted while a line has no order', async () => {
+    const a = await setup();
+    const draft = await save(a.token, { payload: complete() });
+
+    expect((await submit(a.token, draft.body.pk)).status).toBe(400);
+  });
+});
+
 describe('attachments on a draft', () => {
   it('are kept by slot, and become the shipment\'s documents on submit', async () => {
     const a = await setup();

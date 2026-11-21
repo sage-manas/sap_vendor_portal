@@ -567,6 +567,7 @@ model PurchaseOrder {
 
   items        PurchaseOrderItem[]
   asns         ASN[]
+  asnItems     AsnItem[]
   grns         GRN[]
   invoices     Invoice[]
   paymentItems PaymentItem[]
@@ -736,8 +737,16 @@ model ASN {
   clientId String
   id       String // 'ASN-826291'
 
+  // The first order on the shipment. A shipment can carry lines from several
+  // of the supplier's orders for one plant (ASN design V2); each line names
+  // its own order in AsnItem.poId, and that is what per-order logic reads.
+  // This stays for lists and links that show one order per shipment.
   poId String
   po   PurchaseOrder @relation(fields: [clientId, poId], references: [clientId, id])
+
+  // The receiving plant every line shares (V2). Null when the orders' lines
+  // carry no plant — a portal-awarded order may not know one.
+  plant String?
 
   vendorId              String
   status                String   @default("Submitted")
@@ -821,6 +830,11 @@ model AsnItem {
   asnPk    String @db.Uuid
   asn      ASN    @relation(fields: [asnPk], references: [pk], onDelete: Cascade)
 
+  // The order this line ships against — the order, with `line`, names the
+  // PO line. Not always the ASN's own poId: see the note on ASN.poId.
+  poId String
+  po   PurchaseOrder @relation(fields: [clientId, poId], references: [clientId, id])
+
   line            Int?
   materialCode    String
   description     String?
@@ -833,6 +847,7 @@ model AsnItem {
   // difference rather than this column storing it twice.
   receivedQuantity Decimal? @db.Decimal(13, 3)
 
+  @@index([clientId, poId])
   @@map("asn_items")
 }
 

@@ -73,7 +73,7 @@ const openToShip = (item) => (item.openToShipQuantity ?? Math.max(0, Number(item
 const EWAY_BILL_THRESHOLD_INR = 50000;
 const INVOICE_NUMBER = /^[A-Za-z0-9/-]{1,16}$/;
 
-const ASN_STATUS_TONE = { Submitted: 'progress', 'In Transit': 'progress', Received: 'done', Cancelled: 'neutral' };
+const ASN_STATUS_TONE = { Submitted: 'progress', 'In Transit': 'progress', 'Partially Received': 'progress', Received: 'done', Cancelled: 'neutral' };
 
 // Withdrawing a shipment notice, with the reason the buyer will see.
 function CancelShipmentDialog({ asn, onClose, onCancel }) {
@@ -1457,10 +1457,15 @@ export default function PurchaseOrdersView({
                     // Every shipment sent against this order, newest first —
                     // an order can ship in parts, and a cancelled shipment
                     // stays in the list as history.
-                    const poAsns = cleanAsns.filter(a => a.poId === activePo.id);
+                    // A shipment can carry lines of several orders, so it is
+                    // this order's if any of its lines is.
+                    const onThisOrder = (a) => a.poId === activePo.id || (a.items || []).some(item => item.poId === activePo.id);
+                    const poAsns = cleanAsns.filter(onThisOrder);
                     if (!poAsns.length) return null;
+                    // A line of another order on the same shipment is named
+                    // with its order, so the quantities are not read as this one's.
                     const lineSummary = (asn, field) => (asn.items || [])
-                      .map(item => `${item.line}: ${item[field] ?? '—'}`)
+                      .map(item => `${item.poId && item.poId !== activePo.id ? `${item.poId}/` : ''}${item.line}: ${item[field] ?? '—'}`)
                       .join(' · ');
                     const shipmentColumns = [
                       { key: 'id', header: 'Shipment', mono: true, primary: true },

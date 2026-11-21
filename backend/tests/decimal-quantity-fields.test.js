@@ -138,7 +138,7 @@ describe('quantity fields survive the Float → Decimal migration', () => {
         data: {
           id: `ASN-QTY-PARTIAL-${i}`, poId: created.id, vendorId, status: 'Submitted', sapSyncState: 'pending',
           shipDate: new Date(), estimatedDeliveryDate: new Date(),
-          items: { create: [{ clientId: 'CLT-0001', line: 10, materialCode: 'MAT-1', description: 'Widget', shippedQuantity, uom: 'EA' }] },
+          items: { create: [{ clientId: 'CLT-0001', poId: created.id, line: 10, materialCode: 'MAT-1', description: 'Widget', shippedQuantity, uom: 'EA' }] },
         },
       })));
 

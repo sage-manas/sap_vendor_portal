@@ -84,7 +84,12 @@ const deleteDraft = asyncHandler(async (req, res) => {
 // submit of the same draft finds nothing to submit.
 const submitDraft = asyncHandler(async (req, res) => {
   const draft = await ownDraft(req);
-  if (!draft.poId) throw ApiError.badRequest('Choose the purchase order this shipment is for.');
+  // A draft across several orders names the order on each line; one for a
+  // single order may leave that to draft.poId.
+  const lines = draft.payload?.items || [];
+  if (!draft.poId && !(lines.length && lines.every((line) => line.poId))) {
+    throw ApiError.badRequest('Choose the purchase order each line is for.');
+  }
 
   // `attachments` is the draft's own record of which file sits in which slot;
   // the shipment only takes the ids.

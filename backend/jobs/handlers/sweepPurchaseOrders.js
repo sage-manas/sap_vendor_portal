@@ -168,8 +168,13 @@ async function reconcileReceipts({ clientId, vendor, orders }) {
 
   const [grns, openAsns, deliveredAsns] = await Promise.all([
     prisma.gRN.findMany({ where: { poId: { in: pos.map((p) => p.id) } }, select: { id: true, sapMigoDoc: true } }),
-    prisma.aSN.findMany({ where: { poId: { in: pos.map((p) => p.id) }, status: { in: ASN_OPEN } }, select: { poId: true } }),
-    prisma.aSN.findMany({ where: { poId: { in: pos.map((p) => p.id) }, sapInboundDelivery: { not: null } }, select: { id: true, poId: true, sapInboundDelivery: true } }),
+    // By the lines' own orders: a shipment can carry several (ASN design
+    // V2), and an order is watched if any open shipment has a line on it.
+    prisma.asnItem.findMany({ where: { poId: { in: pos.map((p) => p.id) }, asn: { status: { in: ASN_OPEN } } }, select: { poId: true } }),
+    prisma.asnItem.findMany({
+      where: { poId: { in: pos.map((p) => p.id) }, asn: { sapInboundDelivery: { not: null } } },
+      select: { poId: true, asn: { select: { id: true, sapInboundDelivery: true } } },
+    }),
   ]);
   const haveDoc = new Set(grns.flatMap((g) => [g.id, g.sapMigoDoc]));
   const watched = new Set(openAsns.map((a) => a.poId));
@@ -178,7 +183,7 @@ async function reconcileReceipts({ clientId, vendor, orders }) {
   // has already taken an earlier posting — the second half of a truck the
   // warehouse received in two MIGO postings.
   const asnForDelivery = (poId, delivery) => (delivery
-    ? deliveredAsns.find((asn) => asn.poId === poId && sameDelivery(asn.sapInboundDelivery, delivery))?.id || null
+    ? deliveredAsns.find((row) => row.poId === poId && sameDelivery(row.asn.sapInboundDelivery, delivery))?.asn.id || null
     : null);
 
   for (const order of withReceipts) {
@@ -277,7 +282,7 @@ async function markDeletedOrders({ clientId, vendor, localPos, orders }) {
 async function unshippedLines(poId, lines) {
   if (!lines.length) return new Set();
   const shipped = await prisma.asnItem.findMany({
-    where: { line: { in: lines }, asn: { poId } },
+    where: { line: { in: lines }, poId },
     select: { line: true, shippedQuantity: true },
   });
   const hasShipped = new Set(shipped.filter((item) => toQty(item.shippedQuantity) > 0).map((item) => item.line));

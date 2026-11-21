@@ -816,7 +816,7 @@ const seedDeliveries = async (pos) => {
         submittedAt: day(s.ship),
         items: {
           create: order.items.map((item) => ({
-            clientId, line: item.line, materialCode: item.materialCode,
+            clientId, poId: s.poId, line: item.line, materialCode: item.materialCode,
             description: item.description, shippedQuantity: item.quantity, uom: item.uom,
           })),
         },
@@ -836,7 +836,7 @@ const seedDeliveries = async (pos) => {
             const accepted = Math.round(received * ACCEPTANCE);
             const rejected = received - accepted;
             return {
-              clientId, line: item.line, materialCode: item.materialCode, description: item.description,
+              clientId, poId: s.poId, line: item.line, materialCode: item.materialCode, description: item.description,
               receivedQuantity: received, acceptedQuantity: accepted, rejectedQuantity: rejected,
               rejectionReason: rejected > 0 ? REJECTION_REASON : null, uom: item.uom,
             };
