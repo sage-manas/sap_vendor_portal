@@ -248,6 +248,10 @@ const SAP_METHODS = {
   // document the warehouse may be planning a receipt around.
   inboundDeliveryCreate: { transaction: 'INBOUND_DELIVERY_CREATE', createsDocument: true, fields: { 'po.sapPoNumber': 'EBELN', 'vendor.sapVendorCode': 'LIFNR' } },
   inboundDeliveryCancel: { transaction: 'INBOUND_DELIVERY_CANCEL', deletesDocument: true },
+  // Changing a delivery the portal created (ASN design D6). `needsLiveDocument`:
+  // there is nothing it can be exercised against but a real delivery, and
+  // changing one the warehouse may be planning around is not a test.
+  inboundDeliveryChange: { transaction: 'INBOUND_DELIVERY_CHANGE', needsLiveDocument: true },
 
   // The goods receipt is still discovered by polling SAP's own PO/GRN ledger.
   // It matches on the inbound delivery where SAP reports one against the
@@ -274,7 +278,8 @@ const DEFERRED_METHODS = METHOD_NAMES.filter((name) => SAP_METHODS[name].deferre
 // counting the old way.
 const isUnsafeToExercise = (method) => Boolean(SAP_METHODS[method]?.createsDocument
   || SAP_METHODS[method]?.changesMasterData
-  || SAP_METHODS[method]?.deletesDocument);
+  || SAP_METHODS[method]?.deletesDocument
+  || SAP_METHODS[method]?.needsLiveDocument);
 
 class NotImplementedError extends Error {
   constructor(driver, method) {

@@ -116,7 +116,7 @@ as a failure.
 Optional, from the design doc: `"TESTRUN": "X"` runs steps 1–2 only and returns the
 messages, for a "Validate with SAP" button. The portal does not send it yet.
 
-## 2. Change: `POST /zinb_delivery/change` (D6; portal side not built yet)
+## 2. Change: `POST /zinb_delivery/change` (D6)
 
 ```json
 {
@@ -139,6 +139,8 @@ messages, for a "Validate with SAP" button. The portal does not send it yet.
 - Refuse (`E`) if `PORTAL_ASN` does not match ZVP_ASN_HDR for this delivery, if the vehicle
   is through gate-in, or if a goods receipt is posted against the delivery.
 - Validate quantities as in create, step 2.
+- The portal sends every line still on the shipment with its new quantity, and `DELETE: "X"` for each line taken off. It never asks for a line the delivery does not already have: the supplier puts a new line on a new ASN.
+- The portal changes SAP first and its own record only on `S`. Connection field `inboundDeliveryChangePath`; blank means the portal refuses to change a shipment SAP holds a delivery for.
 
 ## 3. Delete: `POST /zinb_delivery/delete`
 
@@ -241,8 +243,8 @@ Built (ADR-0049) and switched off until a tenant's SAP connection names the path
 - `INB_DELIVERY` is read when present. A missing field falls back to today's matching rule,
   so this change is safe to ship on either side first.
 
-Next portal slice: change (endpoint 2), the status poll (endpoint 4), and the statuses At
-gate and Partially received.
+Change (endpoint 2) is built too. Next portal slice: the status poll (endpoint 4) and the
+At gate status.
 
 ## Checking it once built
 

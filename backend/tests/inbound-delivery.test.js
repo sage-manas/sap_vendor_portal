@@ -253,4 +253,35 @@ describe('the S/4 driver against the requested contract', () => {
 
     await expect(d.inboundDeliveryCancel({ asn: { ...asn, sapInboundDelivery: '0180000123' } })).rejects.toThrow(/Goods receipt already posted/);
   });
+
+  it('changes a delivery: new quantities for kept lines, DELETE for removed ones', async () => {
+    const capture = {};
+    const d = driver({ inboundDeliveryChangePath: '/zinb_delivery/change' }, { TYPE: 'S', MESSAGE: 'Delivery changed' }, capture);
+    const previous = {
+      ...asn,
+      sapInboundDelivery: '0180000123',
+      items: [{ poId: 'PO-1', line: 10, shippedQuantity: '40.5' }, { poId: 'PO-1', line: 20, shippedQuantity: '5' }],
+    };
+    const changed = { ...asn, estimatedDeliveryDate: new Date('2026-11-24T00:00:00Z'), items: [{ poId: 'PO-1', line: 10, shippedQuantity: 35, uom: 'EA' }] };
+
+    const { data } = await d.inboundDeliveryChange({ asn: changed, previous, pos: [{ id: 'PO-1', sapPoNumber: '4500022828' }], vendor });
+
+    expect(data).toEqual({ changed: true, delivery: '0180000123' });
+    expect(capture.body).toMatchObject({
+      PORTAL_ASN: 'ASN-482913',
+      DELIVERY: '0180000123',
+      DELIVERY_DATE: '20261124',
+      ITEMS: [
+        { PO_NUMBER: '4500022828', PO_ITEM: '00010', QUANTITY: '35.000', UNIT: 'EA' },
+        { PO_NUMBER: '4500022828', PO_ITEM: '00020', DELETE: 'X' },
+      ],
+    });
+  });
+
+  it('changes nothing until the connection names the change endpoint', async () => {
+    const d = driver({}, {});
+
+    expect(await d.inboundDeliveryChange({ asn, previous: { ...asn, sapInboundDelivery: '0180000123' } })).toEqual({ data: { changed: false, reason: 'not_configured' } });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
 });

@@ -185,6 +185,14 @@ export function usePOs(profile) {
       refreshASNs();
     }
   };
+  const updateShipment = async (asnId, body) => {
+    try {
+      return await poService.updateShipment(asnId, body);
+    } finally {
+      refreshPOs();
+      refreshASNs();
+    }
+  };
   const cancelShipment = async (asnId, reason) => {
     try {
       return await poService.cancelShipment(asnId, reason);
@@ -199,6 +207,7 @@ export function usePOs(profile) {
     posLoaded,
     submitAsnDraft,
     submitShipment,
+    updateShipment,
     cancelShipment,
     asns,
     grns,

@@ -38,7 +38,7 @@ describe('the conformance suite', () => {
     // thing. Note this is NOT "every method without a fixture": most reads need
     // no arguments and are deliberately fixture-less but still exercised.
     const skippable = METHOD_NAMES.filter(isUnsafeToExercise);
-    expect(skippable).toEqual(['vendorCreate', 'vendorBankUpdate', 'poAssetCreate', 'inboundDeliveryCreate', 'inboundDeliveryCancel']);
+    expect(skippable).toEqual(['vendorCreate', 'vendorBankUpdate', 'poAssetCreate', 'inboundDeliveryCreate', 'inboundDeliveryCancel', 'inboundDeliveryChange']);
 
     const notSkipped = report.results.filter((r) => r.status !== 'skipped');
     expect(notSkipped.every((r) => r.status === 'passed')).toBe(true);

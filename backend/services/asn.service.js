@@ -149,7 +149,16 @@ const financialYearOf = (value) => {
   return { start: new Date(Date.UTC(startYear, 3, 1)), end: new Date(Date.UTC(startYear + 1, 3, 1)) };
 };
 
+// The lines as SAP's inbound delivery is given them (ASN.sapLines), and
+// whether a shipment's lines still match what SAP was last given.
+const sapLinesOf = (items) => (items || [])
+  .map((item) => ({ poId: item.poId, line: item.line, shippedQuantity: toQty(item.shippedQuantity), uom: item.uom || 'EA' }))
+  .sort((a, b) => `${a.poId}:${a.line}`.localeCompare(`${b.poId}:${b.line}`));
+const sameSapLines = (a, b) => JSON.stringify(a || []) === JSON.stringify(b || []);
+
 module.exports = {
+  sapLinesOf,
+  sameSapLines,
   ASN_INCLUDE,
   formatAsn,
   EWAY_BILL_THRESHOLD_INR,

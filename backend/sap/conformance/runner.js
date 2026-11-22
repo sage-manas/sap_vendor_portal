@@ -84,6 +84,7 @@ const runConformanceSuite = async ({ adapter, clientId, timeoutMs = DEFAULT_TIME
     if (isUnsafeToExercise(method)) {
       const what = (spec.createsDocument && 'creates a document or master record')
         || (spec.deletesDocument && 'deletes a document')
+        || (spec.needsLiveDocument && 'changes a document only a live system holds')
         || 'changes vendor master data';
       results.push({
         method,

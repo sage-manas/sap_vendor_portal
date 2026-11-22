@@ -9,6 +9,7 @@ const EVENTS = {
   ASN_CANCELLED:    'asn:cancelled',
   ASN_APPROVED:     'asn:approved',
   ASN_REJECTED:     'asn:rejected',
+  ASN_CHANGED:      'asn:changed',
   PAYMENT_CLEARED:  'payment:cleared',
   RFQ_AWARDED:      'rfq:awarded',
   BID_RECEIVED:     'rfq:bid_received',

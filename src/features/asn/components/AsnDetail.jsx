@@ -19,7 +19,7 @@ import { ASN_STATUS_TONE } from './AsnDashboard';
 
 const money = (value) => (value == null ? '—' : `₹${Number(value).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
 
-export default function AsnDetail({ asn, asnId, cancelShipment, onBack }) {
+export default function AsnDetail({ asn, asnId, cancelShipment, onChange, onBack }) {
   const [cancelling, setCancelling] = useState(false);
 
   if (!asn) {
@@ -76,6 +76,8 @@ export default function AsnDetail({ asn, asnId, cancelShipment, onBack }) {
   ];
 
   const cancellable = ['Pending Approval', 'Submitted', 'In Transit'].includes(asn.status);
+  // ASN design D6: anything not yet received, and a rejected one to resend.
+  const changeable = ['Pending Approval', 'Rejected', 'Submitted', 'In Transit'].includes(asn.status);
 
   return (
     <div className="space-y-6">
@@ -83,8 +85,13 @@ export default function AsnDetail({ asn, asnId, cancelShipment, onBack }) {
         breadcrumb={<button type="button" className="text-accent-text hover:underline" onClick={onBack}>ASN</button>}
         title={asn.id}
         caption={(asn.status === 'Cancelled' && asn.cancelReason ? `Cancelled: ${asn.cancelReason}` : undefined)
-          || (asn.status === 'Rejected' ? `Rejected by your buyer: ${asn.rejectionReason || 'no reason given'}. Create a new ASN with the corrections.` : undefined)}
-        primary={cancellable ? <Button variant="secondary" onClick={() => setCancelling(true)}>Cancel shipment</Button> : undefined}
+          || (asn.status === 'Rejected' ? `Rejected by your buyer: ${asn.rejectionReason || 'no reason given'}. Change it and send it again.` : undefined)}
+        primary={(changeable || cancellable) ? (
+          <span className="flex gap-2">
+            {changeable && <Button variant="secondary" onClick={onChange}>Change</Button>}
+            {cancellable && <Button variant="secondary" onClick={() => setCancelling(true)}>Cancel shipment</Button>}
+          </span>
+        ) : undefined}
         className="mb-0!"
       />
       <StatusBadge label={asn.status} tone={ASN_STATUS_TONE[asn.status]} />
