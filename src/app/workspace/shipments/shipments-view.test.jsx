@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithPortal, TENANT_SESSION } from '@/test/renderWithPortal';
 import { EMPTY_WORKSPACE_API } from '@/test/fixtures';
@@ -107,7 +107,8 @@ describe('an overdue shipment is called overdue', () => {
     renderPage(withAsns({ ...ASN, estimatedDeliveryDate: '2020-01-01T00:00:00.000Z' }));
 
     await screen.findByText('ASN-826291');
-    expect(screen.getByText(/overdue/i)).toBeInTheDocument();
+    // In the all-shipments list: the monitor above has an Overdue section of its own.
+    expect(within(screen.getByRole('region', { name: 'All shipments' })).getByText(/overdue/i)).toBeInTheDocument();
   });
 
   it('does not mark one that is still due', async () => {
@@ -115,14 +116,14 @@ describe('an overdue shipment is called overdue', () => {
     renderPage(withAsns({ ...ASN, estimatedDeliveryDate: future }));
 
     await screen.findByText('ASN-826291');
-    expect(screen.queryByText(/overdue/i)).not.toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'All shipments' })).queryByText(/overdue/i)).not.toBeInTheDocument();
   });
 
   it('does not call a shipment with no estimate overdue', async () => {
     renderPage(withAsns({ ...ASN, estimatedDeliveryDate: null }));
 
     await screen.findByText('ASN-826291');
-    expect(screen.queryByText(/overdue/i)).not.toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'All shipments' })).queryByText(/overdue/i)).not.toBeInTheDocument();
   });
 });
 

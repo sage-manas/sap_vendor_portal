@@ -2,6 +2,7 @@ const router = require('express').Router();
 const {
   getASNs, submitAsnMulti, cancelAsnById, approveAsn, rejectAsn, updateAsn,
 } = require('../controllers/po.controller');
+const { getAsnMonitor, retryAsnSap } = require('../controllers/asnMonitor.controller');
 const { noBody } = require('../validators/common.validator');
 const { requirePermission } = require('../middleware/auth');
 const validate = require('../middleware/validate');
@@ -15,6 +16,9 @@ const { PERMISSIONS } = require('../config/permissions');
 // permission gate is unchanged; ASN_READ is already held by the staff roles
 // that could not previously get an answer out of this endpoint.
 router.get('/', requirePermission(PERMISSIONS.ASN_READ), validateQuery(paginationSchema), getASNs);
+// The buying organisation's monitor (ASN design B1). Before '/:asnId' routes.
+// workspace:read as well: it is tenant-wide, and a supplier holds asn:read.
+router.get('/monitor', requirePermission(PERMISSIONS.WORKSPACE_READ), requirePermission(PERMISSIONS.ASN_READ), getAsnMonitor);
 
 // A shipment across one or more of the supplier's orders for one plant (ASN
 // design V2). POST /pos/:id/asn stays for a shipment against one order.
@@ -28,6 +32,7 @@ router.put('/:asnId', requirePermission(PERMISSIONS.ASN_CREATE), validate(asnCre
 // (shipments.asnApprovalRequired). A reason is required to reject, the same
 // shape as a cancel's.
 router.post('/:asnId/approve', requirePermission(PERMISSIONS.ASN_APPROVE), validate(noBody), approveAsn);
+router.post('/:asnId/retry', requirePermission(PERMISSIONS.ASN_APPROVE), validate(noBody), retryAsnSap);
 router.post('/:asnId/reject', requirePermission(PERMISSIONS.ASN_APPROVE), validate(asnCancelSchema), rejectAsn);
 
 module.exports = router;
