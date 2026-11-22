@@ -6,6 +6,7 @@ import { usePortal } from '@/lib/portal-context';
 import AsnDashboard from './AsnDashboard';
 import AsnWizard from './AsnWizard';
 import AsnDetail from './AsnDetail';
+import AsnSlip from './AsnSlip';
 
 // The ASN module (ASN design screens V1–V6) on one route, /asn, so the
 // sidebar keeps it highlighted wherever the supplier is in it:
@@ -16,12 +17,14 @@ import AsnDetail from './AsnDetail';
 //   /asn?draft=<pk>          the wizard, resuming a saved draft
 //   /asn?id=ASN-…            one shipment, with its tracking (V6)
 //   /asn?edit=ASN-…          the wizard, changing a sent shipment (D6)
+//   /asn?slip=ASN-…          the printable ASN slip with its QR code
 //
 // The view lives in state, read from the URL on arrival and when the URL
 // changes (back/forward), and pushed to it on every move so a view can be
 // bookmarked or shared.
 const viewFrom = (params) => {
   if (params?.get('edit')) return { name: 'wizard', editId: params.get('edit') };
+  if (params?.get('slip')) return { name: 'slip', id: params.get('slip') };
   if (params?.get('id')) return { name: 'detail', id: params.get('id') };
   if (params?.get('draft')) return { name: 'wizard', draftPk: params.get('draft') };
   if (params?.get('new')) return { name: 'wizard', poId: params.get('po') || null };
@@ -30,6 +33,7 @@ const viewFrom = (params) => {
 
 const urlFor = (view) => {
   if (view.name === 'detail') return `/asn?id=${encodeURIComponent(view.id)}`;
+  if (view.name === 'slip') return `/asn?slip=${encodeURIComponent(view.id)}`;
   if (view.name === 'wizard' && view.editId) return `/asn?edit=${encodeURIComponent(view.editId)}`;
   if (view.name === 'wizard' && view.draftPk) return `/asn?draft=${encodeURIComponent(view.draftPk)}`;
   if (view.name === 'wizard') return `/asn?new=1${view.poId ? `&po=${encodeURIComponent(view.poId)}` : ''}`;
@@ -88,6 +92,12 @@ export default function AsnView() {
     );
   }
 
+  if (view.name === 'slip') {
+    const asn = (state.asns || []).find((row) => row.id === view.id);
+    if (!asn) return <p className="text-sm text-fg-muted">Loading {view.id}…</p>;
+    return <AsnSlip asn={asn} supplierName={state.profile?.companyName} onBack={() => go({ name: 'detail', id: view.id })} />;
+  }
+
   if (view.name === 'detail') {
     return (
       <AsnDetail
@@ -95,6 +105,7 @@ export default function AsnView() {
         asnId={view.id}
         cancelShipment={poHook.cancelShipment}
         onChange={() => go({ name: 'wizard', editId: view.id })}
+        onPrint={() => go({ name: 'slip', id: view.id })}
         onBack={() => go({ name: 'list' })}
       />
     );

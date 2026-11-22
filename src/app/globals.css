@@ -741,3 +741,15 @@ textarea:focus-visible {
     scroll-behavior: auto !important;
   }
 }
+
+/* The ASN slip (src/features/asn/components/AsnSlip.jsx) prints alone: while
+   one is on the page, everything else is hidden from print and the slip is
+   placed at the top-left of the sheet. Visibility rather than display, so the
+   slip's own layout is untouched. */
+@media print {
+  @page { size: A4; margin: 12mm; }
+  body:has(.print-slip) * { visibility: hidden; }
+  body:has(.print-slip) .print-slip,
+  body:has(.print-slip) .print-slip * { visibility: visible; }
+  body:has(.print-slip) .print-slip { position: absolute; top: 0; left: 0; width: 100%; max-width: none; padding: 0; }
+}

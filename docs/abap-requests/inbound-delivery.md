@@ -218,6 +218,24 @@ SAP's own receiving points as the source.
 Return the receiving points (shipping points used for inbound, TVST/TVSWZ) and any
 unloading points you keep for the plant. Read-only. The portal caches the answer per plant.
 
+## The ASN slip (for the gate-entry transaction)
+
+Gate entry stays in SAP, in your Z gate-entry transaction (decision of 2026-11-21). The
+supplier prints an ASN slip from the portal, and the driver carries it. Its QR code holds
+plain text:
+
+```
+ASN-482913|0180000123
+```
+
+- Before the `|`: the portal ASN number, as stored in ZVP_ASN_HDR.
+- After it: the SAP inbound delivery (VBELN). It is empty (`ASN-482913|`) when the slip was
+  printed before SAP created the delivery, so the transaction should then look the delivery
+  up by the ASN number.
+- No other characters: a handheld scanner that types into a SAP field can deliver it as is.
+
+The slip also prints both numbers in text, for manual entry.
+
 ## SAP configuration this depends on
 
 This is from section 3 of the design doc, and is the functional consultant's work, not the
