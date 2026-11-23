@@ -246,7 +246,7 @@ export function PortalProvider({ children }) {
 
   const [asnForm, setAsnForm] = useState({
     carrierName: '', trackingNumber: '', vehicleNumber: '',
-    invoiceReference: '', shipDate: '', estimatedDeliveryDate: '',
+    invoiceReference: '', invoiceDate: '', invoiceValue: '', shipDate: '', estimatedDeliveryDate: '',
     items: {}
   });
 
@@ -350,10 +350,12 @@ export function PortalProvider({ children }) {
   };
 
   const handleAsnSubmit = async (po) => {
-    const items = po.items.map(item => ({
-      line: item.line,
-      shippedQuantity: Number(asnForm.items[item.line] || item.quantity)
-    }));
+    // Only the lines this shipment carries. A line left blank or at 0 is not
+    // on it — it used to fall back to the line's full ordered quantity, so
+    // clearing a field shipped everything ordered on that line.
+    const items = po.items
+      .map(item => ({ line: item.line, shippedQuantity: Number(asnForm.items[item.line]) }))
+      .filter(item => item.shippedQuantity > 0);
 
     const res = await poHook.submitASN({
       poId: po.id,
@@ -364,7 +366,11 @@ export function PortalProvider({ children }) {
       carrierName: asnForm.carrierName || undefined,
       trackingNumber: asnForm.trackingNumber || undefined,
       vehicleNumber: asnForm.vehicleNumber || undefined,
+      // The invoice is required (ASN design D1/D5); left blank, the API says
+      // so rather than this inventing one.
       invoiceReference: asnForm.invoiceReference || undefined,
+      invoiceDate: asnForm.invoiceDate || undefined,
+      invoiceValue: asnForm.invoiceValue ? Number(asnForm.invoiceValue) : undefined,
       ewayBillNo: po.ewayBillNo || '',
       documentIds: po.documentIds || [],
       items
@@ -373,7 +379,7 @@ export function PortalProvider({ children }) {
     setSelectedPoId(null);
     setAsnForm({
       carrierName: '', trackingNumber: '', vehicleNumber: '',
-      invoiceReference: '', shipDate: '', estimatedDeliveryDate: '',
+      invoiceReference: '', invoiceDate: '', invoiceValue: '', shipDate: '', estimatedDeliveryDate: '',
       items: {}
     });
 

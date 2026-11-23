@@ -8,6 +8,7 @@ const { dueVendors, recordSweepTick } = require('../sweepHelpers');
 const { toNumber: toMoney } = require('../../utils/money');
 const { toNumber: toQty } = require('../../utils/quantity');
 const logger = require('../../utils/logger');
+const { ASN_OPEN } = require('../../config/statuses');
 
 const FEED = 'po';
 
@@ -165,7 +166,7 @@ async function reconcileReceipts({ clientId, vendor, orders }) {
 
   const [grns, openAsns] = await Promise.all([
     prisma.gRN.findMany({ where: { poId: { in: pos.map((p) => p.id) } }, select: { id: true, sapMigoDoc: true } }),
-    prisma.aSN.findMany({ where: { poId: { in: pos.map((p) => p.id) }, status: 'Submitted' }, select: { poId: true } }),
+    prisma.aSN.findMany({ where: { poId: { in: pos.map((p) => p.id) }, status: { in: ASN_OPEN } }, select: { poId: true } }),
   ]);
   const haveDoc = new Set(grns.flatMap((g) => [g.id, g.sapMigoDoc]));
   const watched = new Set(openAsns.map((a) => a.poId));

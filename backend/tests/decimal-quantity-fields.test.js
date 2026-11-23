@@ -79,6 +79,7 @@ describe('quantity fields survive the Float → Decimal migration', () => {
     await asSupplier(request(app).post(`/api/pos/${poId}/asn`)).send({
       shipDate: new Date().toISOString(), estimatedDeliveryDate: futureDate(2),
       items: [{ line: 10, shippedQuantity: 10 }],
+      invoiceReference: 'INV/26/0001', invoiceDate: new Date().toISOString(), invoiceValue: 1180,
     });
 
     const grn = await until(async () => {

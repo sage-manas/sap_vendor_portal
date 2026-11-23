@@ -4,6 +4,7 @@ const {
   getPOById,
   acknowledgePO,
   submitASN,
+  cancelASN,
   getASNForPO,
   getSapPoStatus,
   createAssetPo,
@@ -21,7 +22,7 @@ const { noBody } = require('../validators/common.validator');
 const validateQuery = require('../middleware/validateQuery');
 const { requirePermission } = require('../middleware/auth');
 const { PERMISSIONS } = require('../config/permissions');
-const { asnCreateSchema } = require('../validators/asn.validator');
+const { asnCreateSchema, asnCancelSchema } = require('../validators/asn.validator');
 const { invoicePlanSchema, invoicePlanLineBlockSchema, rejectInvoicePlanChangeSchema } = require('../validators/invoicePlan.validator');
 const { assetPoSchema } = require('../validators/assetPo.validator');
 const { paginationSchema } = require('../validators/pagination.validator');
@@ -61,5 +62,8 @@ router.put('/:id/acknowledge', requirePermission(PERMISSIONS.PO_ACKNOWLEDGE), va
 // (issue #60) — see db/poHelpers.js's syncPoStatus.
 router.post('/:id/asn', requirePermission(PERMISSIONS.ASN_CREATE), validate(asnCreateSchema), submitASN);
 router.get('/:id/asn', requirePermission(PERMISSIONS.ASN_READ), getASNForPO);
+// Withdrawing a shipment notice is the supplier's own act on their own
+// document, so it sits behind the permission that created it.
+router.post('/:id/asn/:asnId/cancel', requirePermission(PERMISSIONS.ASN_CREATE), validate(asnCancelSchema), cancelASN);
 
 module.exports = router;

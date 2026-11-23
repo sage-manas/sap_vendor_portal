@@ -2,6 +2,7 @@ const { prisma } = require('./prisma');
 const { toNumber } = require('../utils/money');
 const { toNumber: toQty } = require('../utils/quantity');
 const { statusRank, derivePoStatus } = require('../services/poStatus.service');
+const { ASN_STATUS, PO_STATUS } = require('../config/statuses');
 
 // Shared between po.controller.js and invoice.controller.js: both need a
 // PurchaseOrder reshaped with its items' invoicePlan back into the plain-
@@ -164,12 +165,20 @@ const persistInvoicePlan = async (item, plan) => {
 // Never regresses: only writes when the derived status outranks the stored
 // one, so a stale/duplicate job re-running this against an already-`Paid`
 // order can never move it backward.
-const syncPoStatus = async (client, poPk) => {
+//
+// One exception, and only when the caller asks for it: `shipmentWithdrawn`.
+// A supplier who cancels their only shipment notice has taken back the one
+// fact that made the order Dispatched, so leaving it Dispatched would show
+// goods in flight that are not. Only that step back is allowed (Dispatched to
+// Acknowledged/Open), and only from cancelASN — a receipt, an invoice or a
+// payment is never un-done this way.
+const syncPoStatus = async (client, poPk, { shipmentWithdrawn = false } = {}) => {
   const po = await client.purchaseOrder.findFirst({ where: { pk: poPk }, include: PO_INCLUDE });
   if (!po) return null;
 
   const [asnCount, invoices] = await Promise.all([
-    client.aSN.count({ where: { poId: po.id } }),
+    // A cancelled shipment notice is history, not a shipment.
+    client.aSN.count({ where: { poId: po.id, status: { not: ASN_STATUS.CANCELLED } } }),
     client.invoice.findMany({ where: { poId: po.id }, include: { items: true } }),
   ]);
 
@@ -191,7 +200,10 @@ const syncPoStatus = async (client, poPk) => {
     allInvoicesCleared: invoices.length > 0 && invoices.every((invoice) => invoice.status === 'Cleared'),
   });
 
-  if (statusRank(derived) <= statusRank(po.status)) return po;
+  const withdrawnShipment = shipmentWithdrawn
+    && po.status === PO_STATUS.DISPATCHED
+    && statusRank(derived) < statusRank(PO_STATUS.DISPATCHED);
+  if (!withdrawnShipment && statusRank(derived) <= statusRank(po.status)) return po;
 
   return client.purchaseOrder.update({ where: { pk: po.pk }, data: { status: derived }, include: PO_INCLUDE });
 };

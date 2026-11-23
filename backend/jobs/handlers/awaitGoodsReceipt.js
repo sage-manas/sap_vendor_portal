@@ -5,6 +5,7 @@ const { toNumber: toQty } = require('../../utils/quantity');
 const { EVENTS } = require('../../utils/socketEmitter');
 const { notifyVendor } = require('../notify');
 const { markSynced } = require('../syncState');
+const { ASN_STATUS } = require('../../config/statuses');
 
 const isUniqueViolation = (err) =>
   err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
@@ -24,8 +25,9 @@ module.exports = async ({ job, adapter }) => {
 
   // The watch is stale if either side vanished, or the shipment is no longer
   // awaiting one (a previous attempt already succeeded and this is a
-  // duplicate/retry) — nothing left to wait for, so the job is done.
-  if (!asn || !po || asn.status !== 'Submitted') return { done: true };
+  // duplicate/retry), or the supplier cancelled it — nothing left to wait
+  // for, so the job is done.
+  if (!asn || !po || asn.status !== ASN_STATUS.SUBMITTED) return { done: true };
 
   const onCall = ({ code, type }) => notifyVendor(job.clientId, vendorId, EVENTS.LOG_NEW, { type, name: code });
 
@@ -44,7 +46,7 @@ module.exports = async ({ job, adapter }) => {
           // Guards a retried/duplicate deferred answer, which atomicity alone
           // does not — a cancelled or already-received ASN must not gain a
           // second GRN.
-          if (!latestPo || !latestAsn || latestAsn.status !== 'Submitted') return null;
+          if (!latestPo || !latestAsn || latestAsn.status !== ASN_STATUS.SUBMITTED) return null;
 
           const createdGrn = await tx.gRN.create({
             data: {
@@ -68,7 +70,17 @@ module.exports = async ({ job, adapter }) => {
             include: { items: true },
           });
 
-          await tx.aSN.update({ where: { pk: latestAsn.pk }, data: { status: 'Received' } });
+          await tx.aSN.update({ where: { pk: latestAsn.pk }, data: { status: ASN_STATUS.RECEIVED } });
+
+          // What SAP actually received against each shipped line, so a short
+          // or excess delivery shows against the shipment that caused it.
+          for (const asnItem of asn.items) {
+            const received = receipt.items.find((gItem) => gItem.line === asnItem.line);
+            await tx.asnItem.update({
+              where: { pk: asnItem.pk },
+              data: { receivedQuantity: received ? toQty(received.receivedQuantity) : 0 },
+            });
+          }
 
           for (const gItem of receipt.items) {
             const poItem = latestPo.items.find((pItem) => pItem.line === gItem.line);
@@ -100,7 +112,16 @@ module.exports = async ({ job, adapter }) => {
         // generic SAP failure that backs off and eventually abandons the
         // watch, which would leave a real receipt unrecorded.
         if (!isUniqueViolation(error)) throw error;
-        return prisma.gRN.findFirst({ where: { id: receipt.grnId }, include: { items: true } });
+        const existing = await prisma.gRN.findFirst({ where: { id: receipt.grnId }, include: { items: true } });
+        // Only *this* shipment's receipt counts as already handled. A receipt
+        // recorded against another ASN on the same order (partial shipments)
+        // or with none is not this one's — adopting it would mark this ASN
+        // synced to someone else's goods. Thrown, so the job retries and the
+        // driver picks a receipt not yet recorded.
+        if (existing && existing.asnId !== asn.id) {
+          throw new Error(`Goods receipt ${receipt.grnId} is already recorded against ${existing.asnId || 'no shipment'}, not ${asn.id}`);
+        }
+        return existing;
       }
 
       if (!grn) return null;

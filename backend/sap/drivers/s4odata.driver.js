@@ -2,6 +2,7 @@ const { notImplementedDriver, assertImplements } = require('../contract');
 const logger = require('../../utils/logger');
 const { buildVendorCreatePayload } = require('../mappings/vendor-create.map');
 const { matchInvoiceDocument } = require('../mappings/invoice-match');
+const { pickGoodsReceiptForAsn, receiptId } = require('../mappings/goods-receipt-match');
 const { decodeFromSap } = require('../mappings/fields');
 const { requireProductionCredentials } = require('./requireProductionCredentials');
 const { assertSafeTarget, literalTargetProblem } = require('../networkGuard');
@@ -1765,21 +1766,27 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
       const order = orders.find((o) => o.poNumber === po.sapPoNumber);
       if (!order) return false;
 
-      const matched = asn.items.map((asnItem) => ({
-        asnItem,
-        orderItem: order.items.find((i) => Number(i.itemNumber) === Number(asnItem.line)),
-      }));
-      // Not "received" until every shipped line has at least one GRN posted
-      // against it in SAP — a GRN on one line while another is still in
-      // transit isn't the goods receipt for this ASN yet.
-      if (matched.some(({ orderItem }) => !orderItem || !orderItem.grns.length)) return false;
+      // An order can carry several shipments, so "the first receipt on the
+      // line" is no longer this shipment's receipt — see
+      // sap/mappings/goods-receipt-match.js for the rule. Receipts the portal
+      // already holds are ruled out by id, tenant-wide: the sweep and other
+      // ASNs on this order both record them.
+      const candidateIds = order.items.flatMap((item) => (item.grns || [])
+        .filter((gr) => gr.grNumber && gr.grYear)
+        .map((gr) => receiptId(gr.grYear, gr.grNumber)));
+      const recorded = candidateIds.length
+        ? await prisma.gRN.findMany({ where: { id: { in: candidateIds } }, select: { id: true } })
+        : [];
+      const receipt = pickGoodsReceiptForAsn({ asn, order, recordedIds: new Set(recorded.map((grn) => grn.id)) });
+      if (!receipt) return false;
 
-      const firstGrn = matched[0].orderItem.grns[0];
-      const docYear = firstGrn.grYear;
-      const items = matched.map(({ asnItem, orderItem }) => {
-        const received = orderItem.receivedQuantity;
+      const docYear = receipt.year;
+      const items = [...receipt.quantityByLine].map(([line, received]) => {
+        const orderItem = order.items.find((i) => Number(i.itemNumber) === line);
         return {
-          line: asnItem.line, materialCode: orderItem.materialCode, description: orderItem.description,
+          line, materialCode: orderItem.materialCode, description: orderItem.description,
+          // This receipt's own quantity, not the line's running total across
+          // every receipt SAP holds for it.
           receivedQuantity: received, acceptedQuantity: received, rejectedQuantity: 0,
           // No `|| 'EA'` default (sap/mappings/fields.js, Phase 2 of
           // docs/04-sap-runtime-engineering-plan.md): vendorPoGrnDisplay
@@ -1798,12 +1805,12 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
           // it goes into both the minted business id and its own column
           // (sapDocYear), matching how sapMiroDoc/fiscalYear is already
           // handled below for MIRO documents.
-          grnId: `GRN-${docYear}-${firstGrn.grNumber}`,
-          sapMigoDoc: firstGrn.grNumber,
+          grnId: receipt.id,
+          sapMigoDoc: receipt.grNumber,
           sapDocYear: docYear,
           // grDate already comes off vendorPoGrnDisplay as an ISO
           // "YYYY-MM-DD" string (via sapDayToIso), not raw digits.
-          postingDate: firstGrn.grDate ? new Date(firstGrn.grDate) : new Date(),
+          postingDate: receipt.date ? new Date(receipt.date) : new Date(),
           receivedBy: 'SAP',
           items,
         },
