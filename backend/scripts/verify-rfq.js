@@ -58,10 +58,10 @@ async function main() {
   }));
 
   const vendorA = await runWithTenant('CLT-0001', () => rawPrisma.vendor.create({
-    data: { clientId: 'CLT-0001', vendorId: 'VND-AAAAA', companyName: 'Vendor A', gstin: '27AABCB1234F1Z5', pan: 'AABCB1234F', email: 'a@example.com' },
+    data: { clientId: 'CLT-0001', vendorId: 'VND-AAAAA', companyName: 'Vendor A', gstin: '27AABCB1234F3Z6', pan: 'AABCB1234F', email: 'a@example.com' },
   }));
   const vendorB = await runWithTenant('CLT-0001', () => rawPrisma.vendor.create({
-    data: { clientId: 'CLT-0001', vendorId: 'VND-BBBBB', companyName: 'Vendor B', gstin: '27AABCB1234F1Z6', pan: 'AABCB1234G', email: 'b@example.com' },
+    data: { clientId: 'CLT-0001', vendorId: 'VND-BBBBB', companyName: 'Vendor B', gstin: '27AABCB1234F4Z5', pan: 'AABCB1234G', email: 'b@example.com' },
   }));
 
   let rfqId;

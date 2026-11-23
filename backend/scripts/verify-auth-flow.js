@@ -58,7 +58,7 @@ async function main() {
     const req = fakeReq({
       headers: { 'x-client-slug': 'legacy' },
       body: {
-        password: 'secret123', companyName: 'Acme Industries', gstin: '27AABCB1234F1Z5',
+        password: 'secret123', companyName: 'Acme Industries', gstin: '27AABCB1234F3Z6',
         pan: 'AABCB1234F', email: 'acme@example.com', phone: '9876543210',
         address: '12 MG Road', city: 'Pune', state: 'Maharashtra', postalCode: '411001',
         bankName: 'HDFC', accountNumber: '123', ifscCode: 'HDFC0000060', accountName: 'Acme', bankBranch: 'Pune',
@@ -79,7 +79,7 @@ async function main() {
   await test('register rejects a duplicate email', async () => {
     const req = fakeReq({
       headers: { 'x-client-slug': 'legacy' },
-      body: { password: 'x', companyName: 'Dup', gstin: '27AABCB1234F1Z6', pan: 'AABCB1234G', email: 'acme@example.com' },
+      body: { password: 'x', companyName: 'Dup', gstin: '27AABCB1234F4Z5', pan: 'AABCB1234G', email: 'acme@example.com' },
     });
     const res = fakeRes();
     const next = capturedNext();

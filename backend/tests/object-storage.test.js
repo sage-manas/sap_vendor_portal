@@ -70,8 +70,8 @@ describe('with S3-compatible storage configured', () => {
     s3.objects.clear();
     s3.requests.length = 0;
 
-    ({ token: vendorToken } = await registerVendor(app, { vendorId: 'storage_a', gstin: '27AAAAA4001A1Z1', email: 'a@example.com' }));
-    ({ token: otherVendorToken } = await registerVendor(app, { vendorId: 'storage_b', gstin: '27AAAAA4002A1Z2', email: 'b@example.com' }));
+    ({ token: vendorToken } = await registerVendor(app, { vendorId: 'storage_a', gstin: '27AAAAA4001A1ZT', email: 'a@example.com' }));
+    ({ token: otherVendorToken } = await registerVendor(app, { vendorId: 'storage_b', gstin: '27AAAAA4002A2ZR', email: 'b@example.com' }));
   });
 
   describe('storing a file', () => {
@@ -230,7 +230,7 @@ describe('with the local disk driver (development)', () => {
   beforeEach(async () => {
     restoreEnv();
     delete process.env.STORAGE_DRIVER;
-    ({ token: vendorToken } = await registerVendor(app, { vendorId: 'storage_local', gstin: '27AAAAA4003A1Z3', email: 'local@example.com' }));
+    ({ token: vendorToken } = await registerVendor(app, { vendorId: 'storage_local', gstin: '27AAAAA4003A2ZQ', email: 'local@example.com' }));
   });
 
   it('issues a signed link served by the API, valid for the file it names and nothing else', async () => {
@@ -334,7 +334,7 @@ describe('moving existing uploads to object storage', () => {
   it('copies each local file to the bucket, repoints its row, keeps the file readable, and can be run again', async () => {
     restoreEnv();
     delete process.env.STORAGE_DRIVER;
-    const { token } = await registerVendor(app, { vendorId: 'storage_move', gstin: '27AAAAA4004A1Z4', email: 'move@example.com' });
+    const { token } = await registerVendor(app, { vendorId: 'storage_move', gstin: '27AAAAA4004A1ZQ', email: 'move@example.com' });
     const { body: { documentId } } = await upload(token);
     const missing = await upload(token, { filename: 'gone.pdf' });
     const gonePath = (await withoutTenantScope(() => rawPrisma.document.findUnique({ where: { pk: missing.body.documentId } }))).filePath;
@@ -369,7 +369,7 @@ describe('moving existing uploads to object storage', () => {
   it('changes nothing in a dry run', async () => {
     restoreEnv();
     delete process.env.STORAGE_DRIVER;
-    const { token } = await registerVendor(app, { vendorId: 'storage_dry', gstin: '27AAAAA4005A1Z5', email: 'dry@example.com' });
+    const { token } = await registerVendor(app, { vendorId: 'storage_dry', gstin: '27AAAAA4005A1ZP', email: 'dry@example.com' });
     const { body: { documentId } } = await upload(token);
     Object.assign(process.env, {
       STORAGE_DRIVER: 's3', S3_ENDPOINT: s3.endpoint, S3_BUCKET: s3.bucket, S3_REGION: 'ap-south-1',

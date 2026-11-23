@@ -94,7 +94,7 @@ describe('sign-in through production-shaped hostnames', () => {
   const prod = (fn) => withEnv({
     PORTAL_BASE_DOMAIN: BASE, NODE_ENV: 'production', MAIL_TRANSPORT: 'memory', MASTER_KEY: 'production-shaped-hostnames-test-key',
   }, fn);
-  const payload = { ...baseVendor, email: 'acme-supplier@example.com', vendorId: 'vendor_acme_1', gstin: '27AABCA1234F1Z5', pan: 'AABCA1234F' };
+  const payload = { ...baseVendor, email: 'acme-supplier@example.com', vendorId: 'vendor_acme_1', gstin: '27AABCA1234F1Z9', pan: 'AABCA1234F' };
 
   beforeEach(() => seedClient({ clientId: 'CLT-0002', slug: 'acme', companyName: 'Acme Ltd' }));
 

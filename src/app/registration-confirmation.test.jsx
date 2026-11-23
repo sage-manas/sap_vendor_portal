@@ -27,7 +27,7 @@ describe('sign-up', () => {
     await user.type(await screen.findByLabelText(/Company Registered Name/i), 'Acme Manufacturing Ltd');
     await user.type(screen.getByLabelText(/Corporate Contact Email/i), 'partner@acme.example');
     await user.type(screen.getByLabelText(/Create Password/i), 'Secret12345');
-    await user.type(screen.getByLabelText(/GSTIN Number/i), '27AAAAA1111A1Z1');
+    await user.type(screen.getByLabelText(/GSTIN Number/i), '27AAAAA1111A1ZW');
     await user.type(screen.getByLabelText(/PAN Number/i), 'AAAAA1111A');
     await user.click(screen.getByRole('button', { name: /Create Account/i }));
   };
@@ -54,7 +54,7 @@ describe('sign-up', () => {
       companyName: 'Acme Manufacturing Ltd',
       email: 'partner@acme.example',
       password: 'Secret12345',
-      gstin: '27AAAAA1111A1Z1',
+      gstin: '27AAAAA1111A1ZW',
       pan: 'AAAAA1111A',
     });
     expect(localStorage.getItem('jwt_token')).toBeNull();

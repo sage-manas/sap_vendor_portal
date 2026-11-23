@@ -1,6 +1,6 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
-const { registerVendor, createAdminUser } = require('./helpers');
+const { registerVendor, createAdminUser, gstinFor } = require('./helpers');
 const { prisma } = require('../db/prisma');
 const { PO_INCLUDE, persistInvoicePlan } = require('../db/poHelpers');
 const { runWithTenant } = require('../utils/tenantContext');
@@ -155,7 +155,7 @@ describe('invoicing plan endpoints', () => {
   });
 
   it('refuses to create a plan where none exists — only SAP originates one', async () => {
-    const { vendor } = await registerVendor(app, { vendorId: 'vendor_plan_0', gstin: '27AAAAA1000A1Z1' }, { onboarded: true });
+    const { vendor } = await registerVendor(app, { vendorId: 'vendor_plan_0', gstin: '27AAAAA1000A1Z0' }, { onboarded: true });
     const { token: adminToken } = await createAdminUser({ email: 'plan-admin-0@example.com' });
     await seedPO({ id: 'PO-PLAN-0', vendorId: vendor.vendorId });
 
@@ -165,7 +165,7 @@ describe('invoicing plan endpoints', () => {
   });
 
   it('lets the buying organisation move the dates on a plan SAP already holds', async () => {
-    const { vendor } = await registerVendor(app, { vendorId: 'vendor_plan_1', gstin: '27AAAAA1001A1Z1' }, { onboarded: true });
+    const { vendor } = await registerVendor(app, { vendorId: 'vendor_plan_1', gstin: '27AAAAA1001A1ZZ' }, { onboarded: true });
     const { token: adminToken } = await createAdminUser({ email: 'plan-admin-1@example.com' });
     await seedPO({ id: 'PO-PLAN-1', vendorId: vendor.vendorId });
     await seedPlan('PO-PLAN-1', 10, partialBody);
@@ -193,7 +193,7 @@ describe('invoicing plan endpoints', () => {
   });
 
   it('refuses to restructure the plan rather than just move its dates', async () => {
-    const { vendor } = await registerVendor(app, { vendorId: 'vendor_plan_1b', gstin: '27AAAAA1011A1Z1' }, { onboarded: true });
+    const { vendor } = await registerVendor(app, { vendorId: 'vendor_plan_1b', gstin: '27AAAAA1011A1ZX' }, { onboarded: true });
     const { token: adminToken } = await createAdminUser({ email: 'plan-admin-1b@example.com' });
     await seedPO({ id: 'PO-PLAN-1B', vendorId: vendor.vendorId });
     await seedPlan('PO-PLAN-1B', 10, partialBody);
@@ -207,7 +207,7 @@ describe('invoicing plan endpoints', () => {
   });
 
   it('does not let a supplier configure a plan on their own order', async () => {
-    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_plan_2', gstin: '27AAAAA1002A1Z1' }, { onboarded: true });
+    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_plan_2', gstin: '27AAAAA1002A1ZY' }, { onboarded: true });
     await seedPO({ id: 'PO-PLAN-2', vendorId: vendor.vendorId });
 
     const res = await configure(token, 'PO-PLAN-2', 10, partialBody);
@@ -215,7 +215,7 @@ describe('invoicing plan endpoints', () => {
   });
 
   it('leaves an order without invoice planning exactly as it was', async () => {
-    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_plan_3', gstin: '27AAAAA1003A1Z1' }, { onboarded: true });
+    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_plan_3', gstin: '27AAAAA1003A1ZX' }, { onboarded: true });
     await seedPO({ id: 'PO-PLAN-3', vendorId: vendor.vendorId });
 
     const res = await request(app).get('/api/pos/PO-PLAN-3/invoice-plan').set('Authorization', `Bearer ${token}`);
@@ -226,7 +226,7 @@ describe('invoicing plan endpoints', () => {
   });
 
   it('blocks and releases one date without touching the schedule', async () => {
-    const { vendor } = await registerVendor(app, { vendorId: 'vendor_plan_4', gstin: '27AAAAA1004A1Z1' }, { onboarded: true });
+    const { vendor } = await registerVendor(app, { vendorId: 'vendor_plan_4', gstin: '27AAAAA1004A1ZW' }, { onboarded: true });
     const { token: adminToken } = await createAdminUser({ email: 'plan-admin-4@example.com' });
     await seedPO({ id: 'PO-PLAN-4', vendorId: vendor.vendorId });
     await seedPlan('PO-PLAN-4', 10, partialBody);
@@ -243,7 +243,7 @@ describe('invoicing plan endpoints', () => {
   });
 
   it('refuses to move an already-invoiced date, even inside an otherwise dates-only edit', async () => {
-    const { vendor } = await registerVendor(app, { vendorId: 'vendor_plan_5', gstin: '27AAAAA1005A1Z1' }, { onboarded: true });
+    const { vendor } = await registerVendor(app, { vendorId: 'vendor_plan_5', gstin: '27AAAAA1005A1ZV' }, { onboarded: true });
     const { token: adminToken } = await createAdminUser({ email: 'plan-admin-5@example.com' });
     await seedPO({ id: 'PO-PLAN-5', vendorId: vendor.vendorId });
     await seedPlan('PO-PLAN-5', 10, partialBody);
@@ -307,7 +307,7 @@ describe('a supplier proposing a change to their own invoicing plan', () => {
   });
 
   const setUp = async (n) => {
-    const { token, vendor } = await registerVendor(app, { vendorId: `vendor_propose_${n}`, gstin: `27AAAAA20${n}0A1Z1` }, { onboarded: true });
+    const { token, vendor } = await registerVendor(app, { vendorId: `vendor_propose_${n}`, gstin: gstinFor(`27AAAAA20${n}0A1Z`) }, { onboarded: true });
     const { token: adminToken } = await createAdminUser({ email: `plan-propose-admin-${n}@example.com` });
     await seedPO({ id: `PO-PROPOSE-${n}`, vendorId: vendor.vendorId });
     await seedPlan(`PO-PROPOSE-${n}`, 10, partialBody);
@@ -383,7 +383,7 @@ describe('a supplier proposing a change to their own invoicing plan', () => {
   });
 
   it('refuses a proposal on a line with no invoicing plan to change', async () => {
-    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_propose_5', gstin: '27AAAAA2050A1Z1' }, { onboarded: true });
+    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_propose_5', gstin: '27AAAAA2050A1ZO' }, { onboarded: true });
     await seedPO({ id: 'PO-PROPOSE-5', vendorId: vendor.vendorId });
 
     const res = await propose(token, 'PO-PROPOSE-5', 10, partialBody);
@@ -392,11 +392,11 @@ describe('a supplier proposing a change to their own invoicing plan', () => {
   });
 
   it("does not let a supplier propose a change on another supplier's order", async () => {
-    const { vendor: owner } = await registerVendor(app, { vendorId: 'vendor_propose_owner_6', gstin: '27AAAAA2061A1Z1', email: 'owner-6@example.com' }, { onboarded: true });
+    const { vendor: owner } = await registerVendor(app, { vendorId: 'vendor_propose_owner_6', gstin: '27AAAAA2061A1ZL', email: 'owner-6@example.com' }, { onboarded: true });
     await seedPO({ id: 'PO-PROPOSE-6', vendorId: owner.vendorId });
     await seedPlan('PO-PROPOSE-6', 10, partialBody);
 
-    const { token: strangerToken } = await registerVendor(app, { vendorId: 'vendor_propose_stranger_6', gstin: '27AAAAA2062A1Z1', email: 'stranger-6@example.com' }, { onboarded: true });
+    const { token: strangerToken } = await registerVendor(app, { vendorId: 'vendor_propose_stranger_6', gstin: '27AAAAA2062A1ZK', email: 'stranger-6@example.com' }, { onboarded: true });
 
     const res = await propose(strangerToken, 'PO-PROPOSE-6', 10, partialBody);
     expect(res.status).toBe(404);

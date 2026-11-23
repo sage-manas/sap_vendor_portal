@@ -64,7 +64,7 @@ beforeEach(async () => {
   auth2 = await registerVendor(app, {
     vendorId: 'vendor_test_002',
     companyName: 'Beta Supplies Pvt Ltd',
-    gstin: '27AABCB1234F1Z6',
+    gstin: '27AABCB1234F4Z5',
     pan: 'AABCB1235F',
     email: 'beta@example.com',
   }, { onboarded: true });

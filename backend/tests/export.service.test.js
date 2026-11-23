@@ -14,7 +14,7 @@ const basePo = ({ vendorName = 'Acme Pvt Ltd', description = 'Widget' } = {}) =>
     sapSyncState: 'synced',
     buyerName: 'Buyer Co',
     vendorId: 'vendor_1',
-    vendor: { companyName: vendorName, gstin: '27AAAAA0000A1Z5', sapVendorCode: 'VEN001' },
+    vendor: { companyName: vendorName, gstin: '27AAAAA0000A2Z1', sapVendorCode: 'VEN001' },
     companyCode: '1000',
     purchasingOrg: '1000',
     purchasingGroup: '100',

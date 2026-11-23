@@ -12,7 +12,7 @@ const vendor = {
   pk: 'VENDORDOC-CONFORMANCE-1',
   vendorId: 'vendor_conformance',
   companyName: 'Conformance Testing Pvt Ltd',
-  gstin: '27AAAPL1234C1ZV',
+  gstin: '27AAAPL1234C1ZE',
   pan: 'AAAPL1234C',
   email: 'conformance@example.com',
   phone: '+91 22 4000 1000',

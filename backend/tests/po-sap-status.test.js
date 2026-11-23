@@ -38,7 +38,7 @@ describe('GET /api/pos/sap-status', () => {
   });
 
   it('serves the second request from cache instead of re-reading Mongo', async () => {
-    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_sapstatus_2', gstin: '27AAAAA0002A1Z1' }, { onboarded: true });
+    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_sapstatus_2', gstin: '27AAAAA0002A1Z0' }, { onboarded: true });
     await seedPO({ vendorId: vendor.vendorId });
 
     const findSpy = jest.spyOn(prisma.purchaseOrder, 'findMany');
@@ -57,7 +57,7 @@ describe('GET /api/pos/sap-status', () => {
   });
 
   it('?refresh=true bypasses the cache', async () => {
-    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_sapstatus_3', gstin: '27AAAAA0003A1Z1' }, { onboarded: true });
+    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_sapstatus_3', gstin: '27AAAAA0003A1ZZ' }, { onboarded: true });
     await seedPO({ vendorId: vendor.vendorId });
 
     const findSpy = jest.spyOn(prisma.purchaseOrder, 'findMany');
@@ -71,7 +71,7 @@ describe('GET /api/pos/sap-status', () => {
   });
 
   it('paginates by page/limit, newest poDate first, with a pagination block', async () => {
-    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_sapstatus_4', gstin: '27AAAAA0004A1Z1' }, { onboarded: true });
+    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_sapstatus_4', gstin: '27AAAAA0004A1ZY' }, { onboarded: true });
     await seedPO({ vendorId: vendor.vendorId, id: 'PO-2026-0001', sapPoNumber: '4500010001', createdDate: new Date('2026-01-10') });
     await seedPO({ vendorId: vendor.vendorId, id: 'PO-2026-0002', sapPoNumber: '4500010002', createdDate: new Date('2026-03-05') });
     await seedPO({ vendorId: vendor.vendorId, id: 'PO-2026-0003', sapPoNumber: '4500010003', createdDate: new Date('2026-02-01') });
@@ -89,8 +89,8 @@ describe('GET /api/pos/sap-status', () => {
   });
 
   it('caches independently per vendor', async () => {
-    const a = await registerVendor(app, { vendorId: 'vendor_sapstatus_5a', gstin: '27AAAAA0005A1Z1', email: 'sapstatus5a@example.com' }, { onboarded: true });
-    const b = await registerVendor(app, { vendorId: 'vendor_sapstatus_5b', gstin: '27AAAAA0006A1Z1', email: 'sapstatus5b@example.com' }, { onboarded: true });
+    const a = await registerVendor(app, { vendorId: 'vendor_sapstatus_5a', gstin: '27AAAAA0005A1ZX', email: 'sapstatus5a@example.com' }, { onboarded: true });
+    const b = await registerVendor(app, { vendorId: 'vendor_sapstatus_5b', gstin: '27AAAAA0006A1ZW', email: 'sapstatus5b@example.com' }, { onboarded: true });
     await seedPO({ vendorId: a.vendor.vendorId, id: 'PO-2026-A', sapPoNumber: '4500020001' });
     await seedPO({ vendorId: b.vendor.vendorId, id: 'PO-2026-B', sapPoNumber: '4500020002' });
 

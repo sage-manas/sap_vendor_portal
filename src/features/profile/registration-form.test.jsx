@@ -24,7 +24,7 @@ describe('the rules the wizard enforces', () => {
   // Guards the wiring rather than the rules: if validateField stopped
   // recognising these, every step gate in the wizard would silently open.
   it.each([
-    ['gstin', '27AABCB1234F1Z5', 'NOTAGSTIN'],
+    ['gstin', '27AABCB1234F3Z6', 'NOTAGSTIN'],
     ['pan', 'AABCB1234F', 'BADPAN'],
     ['ifscCode', 'HDFC0000060', 'nope'],
   ])('%s accepts a valid value and rejects a malformed one', (fieldName, good, bad) => {
@@ -62,7 +62,7 @@ const SubmitHarness = () => {
       onClick={() => profileHook.submitRegistration({
         ...VENDOR_PROFILE,
         companyName: 'Test Supplier Pvt Ltd',
-        gstin: '27AABCB1234F1Z5',
+        gstin: '27AABCB1234F3Z6',
         pan: 'AABCB1234F',
         ifscCode: 'HDFC0000060',
       })}
@@ -97,7 +97,7 @@ describe('submitting a completed registration', () => {
     const saved = apiMock.lastBody('PUT', '/vendors/profile');
     expect(saved).toMatchObject({
       companyName: 'Test Supplier Pvt Ltd',
-      gstin: '27AABCB1234F1Z5',
+      gstin: '27AABCB1234F3Z6',
       pan: 'AABCB1234F',
       ifscCode: 'HDFC0000060',
     });

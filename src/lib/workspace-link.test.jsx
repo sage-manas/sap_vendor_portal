@@ -162,7 +162,7 @@ describe('sign-up under account tenancy', () => {
     await user.type(field('signup-company'), 'Acme Fabrication Pvt Ltd');
     await user.type(field('signup-email'), 'partner@acme.example');
     await user.type(field('signup-password'), 'Passw0rd-long');
-    await user.type(field('signup-gstin'), '27AAAAA1111A1Z1');
+    await user.type(field('signup-gstin'), '27AAAAA1111A1ZW');
     await user.type(field('signup-pan'), 'AAAAA1111A');
     await user.click(screen.getByRole('button', { name: /create account/i }));
 

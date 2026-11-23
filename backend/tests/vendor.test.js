@@ -33,7 +33,7 @@ describe('POST /api/vendors/profile', () => {
   const body = {
     vendorId: 'vendor_anon_1',
     companyName: 'Anonymous Corp Ltd',
-    gstin: '29AABCN9876Q1Z2',
+    gstin: '29AABCN9876Q1Z9',
     pan: 'AABCN9876Q',
     email: 'anon@example.com',
   };
@@ -83,7 +83,7 @@ describe('the registration form round-trip', () => {
     vendorId: 'vendor_signup_001',
     password: 'Secret12345',
     companyName: 'Sahyadri Fasteners Pvt Ltd',
-    gstin: '27AAHCS4321K1Z5',
+    gstin: '27AAHCS4321K1Z8',
     pan: 'AAHCS4321K',
     email: 'accounts@sahyadri.example',
     bankName: '',
@@ -313,7 +313,7 @@ describe('GET /api/vendors (admin list)', () => {
       data: {
         vendorId: 'vendor_approved_1',
         companyName: 'Approved Co Ltd',
-        gstin: '07AABCA1111B1Z9',
+        gstin: '07AABCA1111B1ZR',
         pan: 'AABCA1111B',
         email: 'approved@example.com',
         status: 'Approved'

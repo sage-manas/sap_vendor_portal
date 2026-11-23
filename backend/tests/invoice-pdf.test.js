@@ -88,7 +88,7 @@ describe('GET /api/reports/invoice/:id — no fabricated tax figures (issue #57)
   it('an invoice with real stored figures prints them as-is, still with no CGST/SGST split', async () => {
     const { token, vendor } = await registerVendor(app, {
       vendorId: 'vendor_test_002', companyName: 'Beta Supplies Pvt Ltd',
-      gstin: '27AABCB1234F1Z6', pan: 'AABCB1235F', email: 'beta@example.com',
+      gstin: '27AABCB1234F4Z5', pan: 'AABCB1235F', email: 'beta@example.com',
     }, { onboarded: true });
 
     const invoice = await asTenant(async () => {
@@ -133,7 +133,7 @@ describe('GET /api/reports/invoice/:id — renders a real per-line GST breakdown
   it('prints HSN, rate and a CGST+SGST split for an intra-state invoice', async () => {
     const { token, vendor } = await registerVendor(app, {
       vendorId: 'vendor_test_gst1', companyName: 'Gst Test Supplies Pvt Ltd',
-      gstin: '27AABCG1234F1Z1', pan: 'AABCG1235F', email: 'gst1@example.com',
+      gstin: '27AABCG1234F1Z3', pan: 'AABCG1235F', email: 'gst1@example.com',
     }, { onboarded: true });
 
     const invoice = await asTenant(async () => {
@@ -179,7 +179,7 @@ describe('GET /api/reports/invoice/:id — renders a real per-line GST breakdown
   it('prints IGST, not CGST/SGST, for an inter-state invoice', async () => {
     const { token, vendor } = await registerVendor(app, {
       vendorId: 'vendor_test_gst2', companyName: 'Gst Test Supplies Two Pvt Ltd',
-      gstin: '27AABCG5678F1Z2', pan: 'AABCG5679F', email: 'gst2@example.com',
+      gstin: '27AABCG5678F1ZF', pan: 'AABCG5679F', email: 'gst2@example.com',
     }, { onboarded: true });
 
     const invoice = await asTenant(async () => {

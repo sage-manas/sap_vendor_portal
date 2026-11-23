@@ -46,7 +46,7 @@ const seedPO = (vendorId, overrides = {}) =>
 
 describe('GET /api/rfqs/sap-quotations', () => {
   it('returns quotations and purchase orders together, each tagged with its type', async () => {
-    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_me48_1', gstin: '27AAAAA0101A1Z1' }, { onboarded: true });
+    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_me48_1', gstin: '27AAAAA0101A1Z0' }, { onboarded: true });
     await withSapCode(vendor.vendorId);
     await seedRFQ(vendor.vendorId);
     await seedPO(vendor.vendorId);
@@ -64,7 +64,7 @@ describe('GET /api/rfqs/sap-quotations', () => {
   });
 
   it('sends dates in SAP\'s YYYYMMDD form, as the live endpoint does', async () => {
-    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_me48_2', gstin: '27AAAAA0102A1Z1' }, { onboarded: true });
+    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_me48_2', gstin: '27AAAAA0102A1ZZ' }, { onboarded: true });
     await withSapCode(vendor.vendorId);
     await seedPO(vendor.vendorId, { createdDate: new Date('2025-11-12') });
 
@@ -74,7 +74,7 @@ describe('GET /api/rfqs/sap-quotations', () => {
   });
 
   it('?type filters to one document category', async () => {
-    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_me48_3', gstin: '27AAAAA0103A1Z1' }, { onboarded: true });
+    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_me48_3', gstin: '27AAAAA0103A1ZY' }, { onboarded: true });
     await withSapCode(vendor.vendorId);
     await seedRFQ(vendor.vendorId);
     await seedPO(vendor.vendorId);
@@ -92,7 +92,7 @@ describe('GET /api/rfqs/sap-quotations', () => {
     // Guard, not an optimisation: ZCL_ME48/vendor with an empty LIFNR answers
     // 200 with every purchasing document in the client — every other
     // supplier's included — so this call must not be made at all.
-    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_me48_4', gstin: '27AAAAA0104A1Z1' }, { onboarded: true });
+    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_me48_4', gstin: '27AAAAA0104A1ZX' }, { onboarded: true });
     await seedPO(vendor.vendorId);
     await runWithTenant('CLT-0001', () => prisma.vendor.updateMany({ where: { vendorId: vendor.vendorId }, data: { sapVendorCode: '' } }));
 
@@ -109,8 +109,8 @@ describe('GET /api/rfqs/sap-quotations', () => {
   });
 
   it('only ever reports the caller\'s own documents', async () => {
-    const a = await registerVendor(app, { vendorId: 'vendor_me48_5a', gstin: '27AAAAA0105A1Z1', email: 'me485a@example.com' }, { onboarded: true });
-    const b = await registerVendor(app, { vendorId: 'vendor_me48_5b', gstin: '27AAAAA0106A1Z1', email: 'me485b@example.com' }, { onboarded: true });
+    const a = await registerVendor(app, { vendorId: 'vendor_me48_5a', gstin: '27AAAAA0105A1ZW', email: 'me485a@example.com' }, { onboarded: true });
+    const b = await registerVendor(app, { vendorId: 'vendor_me48_5b', gstin: '27AAAAA0106A1ZV', email: 'me485b@example.com' }, { onboarded: true });
     await withSapCode(a.vendor.vendorId);
     await withSapCode(b.vendor.vendorId, '1120250011');
     await seedPO(a.vendor.vendorId, { id: 'PO-2026-A', sapPoNumber: '4500030001' });

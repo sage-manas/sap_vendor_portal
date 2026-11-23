@@ -48,8 +48,8 @@ describe.each([
   ['finance', ROLES.FINANCE],
 ])('%s sees every vendor, not just one', (label, role) => {
   it(`GET /api/rfqs returns RFQs regardless of which vendor they were raised for (${label})`, async () => {
-    const { vendor: a } = await registerVendor(app, { vendorId: 'vendor_wide_a1', gstin: '27AAAAA1111A1Z1' }, { onboarded: true });
-    const { vendor: b } = await registerVendor(app, { vendorId: 'vendor_wide_b1', gstin: '27AAAAA1112A1Z1', email: 'b1@example.com' }, { onboarded: true });
+    const { vendor: a } = await registerVendor(app, { vendorId: 'vendor_wide_a1', gstin: '27AAAAA1111A1ZW' }, { onboarded: true });
+    const { vendor: b } = await registerVendor(app, { vendorId: 'vendor_wide_b1', gstin: '27AAAAA1112A1ZV', email: 'b1@example.com' }, { onboarded: true });
     await seedTradeFor(a.vendorId, 'WA1');
     await seedTradeFor(b.vendorId, 'WB1');
     const { token } = await createTenantUser({ role });
@@ -61,8 +61,8 @@ describe.each([
   });
 
   it(`GET /api/pos returns purchase orders across vendors, unfiltered (${label})`, async () => {
-    const { vendor: a } = await registerVendor(app, { vendorId: 'vendor_wide_a2', gstin: '27AAAAA1113A1Z1' }, { onboarded: true });
-    const { vendor: b } = await registerVendor(app, { vendorId: 'vendor_wide_b2', gstin: '27AAAAA1114A1Z1', email: 'b2@example.com' }, { onboarded: true });
+    const { vendor: a } = await registerVendor(app, { vendorId: 'vendor_wide_a2', gstin: '27AAAAA1113A1ZU' }, { onboarded: true });
+    const { vendor: b } = await registerVendor(app, { vendorId: 'vendor_wide_b2', gstin: '27AAAAA1114A1ZT', email: 'b2@example.com' }, { onboarded: true });
     await seedTradeFor(a.vendorId, 'WA2');
     await seedTradeFor(b.vendorId, 'WB2');
     const { token } = await createTenantUser({ role });
@@ -75,8 +75,8 @@ describe.each([
   });
 
   it(`GET /api/invoices returns invoices across vendors, unfiltered (${label})`, async () => {
-    const { vendor: a } = await registerVendor(app, { vendorId: 'vendor_wide_a3', gstin: '27AAAAA1115A1Z1' }, { onboarded: true });
-    const { vendor: b } = await registerVendor(app, { vendorId: 'vendor_wide_b3', gstin: '27AAAAA1116A1Z1', email: 'b3@example.com' }, { onboarded: true });
+    const { vendor: a } = await registerVendor(app, { vendorId: 'vendor_wide_a3', gstin: '27AAAAA1115A1ZS' }, { onboarded: true });
+    const { vendor: b } = await registerVendor(app, { vendorId: 'vendor_wide_b3', gstin: '27AAAAA1116A1ZR', email: 'b3@example.com' }, { onboarded: true });
     await seedTradeFor(a.vendorId, 'WA3');
     await seedTradeFor(b.vendorId, 'WB3');
     const { token } = await createTenantUser({ role });
@@ -89,8 +89,8 @@ describe.each([
   });
 
   it(`GET /api/payments returns payments across vendors, unfiltered (${label})`, async () => {
-    const { vendor: a } = await registerVendor(app, { vendorId: 'vendor_wide_a4', gstin: '27AAAAA1117A1Z1' }, { onboarded: true });
-    const { vendor: b } = await registerVendor(app, { vendorId: 'vendor_wide_b4', gstin: '27AAAAA1118A1Z1', email: 'b4@example.com' }, { onboarded: true });
+    const { vendor: a } = await registerVendor(app, { vendorId: 'vendor_wide_a4', gstin: '27AAAAA1117A1ZQ' }, { onboarded: true });
+    const { vendor: b } = await registerVendor(app, { vendorId: 'vendor_wide_b4', gstin: '27AAAAA1118A1ZP', email: 'b4@example.com' }, { onboarded: true });
     await seedTradeFor(a.vendorId, 'WA4');
     await seedTradeFor(b.vendorId, 'WB4');
     const { token } = await createTenantUser({ role });
@@ -103,8 +103,8 @@ describe.each([
   });
 
   it(`?vendorId= still narrows to one supplier when staff ask for it (${label})`, async () => {
-    const { vendor: a } = await registerVendor(app, { vendorId: 'vendor_wide_a5', gstin: '27AAAAA1119A1Z1' }, { onboarded: true });
-    const { vendor: b } = await registerVendor(app, { vendorId: 'vendor_wide_b5', gstin: '27AAAAA1120A1Z1', email: 'b5@example.com' }, { onboarded: true });
+    const { vendor: a } = await registerVendor(app, { vendorId: 'vendor_wide_a5', gstin: '27AAAAA1119A1ZO' }, { onboarded: true });
+    const { vendor: b } = await registerVendor(app, { vendorId: 'vendor_wide_b5', gstin: '27AAAAA1120A1ZV', email: 'b5@example.com' }, { onboarded: true });
     await seedTradeFor(a.vendorId, 'WA5');
     await seedTradeFor(b.vendorId, 'WB5');
     const { token } = await createTenantUser({ role });
@@ -118,8 +118,8 @@ describe.each([
 
 describe('a supplier sees only their own records, not any other vendor', () => {
   it('GET /api/pos and /api/invoices and /api/payments stay narrowed to the caller', async () => {
-    const { token, vendor: a } = await registerVendor(app, { vendorId: 'vendor_wide_self1', gstin: '27AAAAA1121A1Z1' }, { onboarded: true });
-    const { vendor: b } = await registerVendor(app, { vendorId: 'vendor_wide_self2', gstin: '27AAAAA1122A1Z1', email: 'self2@example.com' }, { onboarded: true });
+    const { token, vendor: a } = await registerVendor(app, { vendorId: 'vendor_wide_self1', gstin: '27AAAAA1121A1ZU' }, { onboarded: true });
+    const { vendor: b } = await registerVendor(app, { vendorId: 'vendor_wide_self2', gstin: '27AAAAA1122A1ZT', email: 'self2@example.com' }, { onboarded: true });
     await seedTradeFor(a.vendorId, 'SA1');
     await seedTradeFor(b.vendorId, 'SB1');
 
@@ -135,8 +135,8 @@ describe('a supplier sees only their own records, not any other vendor', () => {
 
 describe('the workspace overview surfaces real finance figures, tenant-wide', () => {
   it('sums invoice value and payment/TDS totals across every vendor, not just counts', async () => {
-    const { vendor: a } = await registerVendor(app, { vendorId: 'vendor_wide_fin1', gstin: '27AAAAA1123A1Z1' }, { onboarded: true });
-    const { vendor: b } = await registerVendor(app, { vendorId: 'vendor_wide_fin2', gstin: '27AAAAA1124A1Z1', email: 'fin2@example.com' }, { onboarded: true });
+    const { vendor: a } = await registerVendor(app, { vendorId: 'vendor_wide_fin1', gstin: '27AAAAA1123A1ZS' }, { onboarded: true });
+    const { vendor: b } = await registerVendor(app, { vendorId: 'vendor_wide_fin2', gstin: '27AAAAA1124A1ZR', email: 'fin2@example.com' }, { onboarded: true });
     await seedTradeFor(a.vendorId, 'FA1');
     await seedTradeFor(b.vendorId, 'FB1');
     const { token } = await createTenantUser({ role: ROLES.CLIENT_ADMIN });

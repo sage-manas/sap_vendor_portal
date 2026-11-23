@@ -84,7 +84,7 @@ const poFor = (grNumber, grDate) => ({
 const seedVendor = (clientId, vendorId) => runWithTenant(clientId, () => prisma.vendor.create({
   data: {
     vendorId, sapVendorCode: 'VEN0001', companyName: `${vendorId} Pvt Ltd`,
-    gstin: '27AAAAA0000A1Z5', pan: 'AAAAA0000A', email: `${vendorId}@example.com`,
+    gstin: '27AAAAA0000A2Z1', pan: 'AAAAA0000A', email: `${vendorId}@example.com`,
   },
 }));
 

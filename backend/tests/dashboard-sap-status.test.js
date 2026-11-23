@@ -138,7 +138,7 @@ describe('GET /api/dashboard/sap-status', () => {
   });
 
   it('gives a supplier the workspace state but only their own call counts and last sync', async () => {
-    const supplier = await registerVendor(app, { vendorId: 'vendor_sap_status_1', gstin: '27AAAAA3101A1Z1' }, { onboarded: true });
+    const supplier = await registerVendor(app, { vendorId: 'vendor_sap_status_1', gstin: '27AAAAA3101A1ZU' }, { onboarded: true });
     await log('CLT-0001', 'SUCCESS', 50, { vendorId: 'vendor_sap_status_1' });
     // Another supplier's very recent activity: it must not show through.
     await log('CLT-0001', 'SUCCESS', 1, { vendorId: 'VND-SOMEONE-ELSE' });

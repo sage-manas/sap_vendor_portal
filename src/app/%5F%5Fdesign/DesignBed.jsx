@@ -92,7 +92,7 @@ function Bed({ themeName }) {
           <p className="text-[14px] leading-5">14 · Body — the base size for dense UI.</p>
           <p className="text-sm text-fg-muted">13 · Secondary text, table cells, labels</p>
           <p className="text-xs text-fg-subtle">12 · Captions, helper text, table headers</p>
-          <p className="text-sm">Mono only for <span className="mono">PO-2026-0080</span>, <span className="mono">27AACCM4519R1ZK</span> and <span className="mono">₹1,00,000.00</span>.</p>
+          <p className="text-sm">Mono only for <span className="mono">PO-2026-0080</span>, <span className="mono">27AACCM4519R1ZX</span> and <span className="mono">₹1,00,000.00</span>.</p>
         </div>
       </Block>
 

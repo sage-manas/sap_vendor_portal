@@ -62,7 +62,7 @@ async function main() {
     data: { clientId: 'CLT-0001', slug: 'legacy', companyName: 'Legacy', status: 'Active' },
   }));
   const vendor = await runWithTenant('CLT-0001', () => prisma.vendor.create({
-    data: { vendorId: 'VND-AAAAA', companyName: 'Vendor A', gstin: '27AABCB1234F1Z5', pan: 'AABCB1234F', email: 'a@example.com' },
+    data: { vendorId: 'VND-AAAAA', companyName: 'Vendor A', gstin: '27AABCB1234F3Z6', pan: 'AABCB1234F', email: 'a@example.com' },
   }));
 
   const po = await runWithTenant('CLT-0001', () => prisma.purchaseOrder.create({

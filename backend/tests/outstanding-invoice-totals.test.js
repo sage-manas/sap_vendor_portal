@@ -123,7 +123,7 @@ describe('outstanding invoice totals', () => {
   let supplier;
 
   beforeEach(async () => {
-    supplier = await registerVendor(app, { vendorId: VENDOR, gstin: '27AAAAA9283A1Z1' }, { onboarded: true });
+    supplier = await registerVendor(app, { vendorId: VENDOR, gstin: '27AAAAA9283A1ZZ' }, { onboarded: true });
     admin = await createAdminUser();
     await seed();
   });

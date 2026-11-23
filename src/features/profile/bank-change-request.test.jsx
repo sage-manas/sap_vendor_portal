@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BankChangeRequest } from './components/BankChangeRequest';
@@ -34,6 +34,20 @@ const NEW_ACCOUNT = {
   bankName: 'Axis Bank',
   bankBranch: 'Powai',
 };
+
+// The IFSC directory (hooks/useIfscLookup.js) is a real third-party host, so
+// every test answers it here. By default it cannot be reached, which leaves
+// the bank name and branch for the supplier to type — what the tests below
+// that fill the whole form rely on. The IFSC tests answer it themselves.
+const ifscDirectory = (answers) => vi.stubGlobal('fetch', vi.fn(async (url) => {
+  const code = String(url).split('/').pop();
+  if (!(code in answers)) throw new TypeError('Failed to fetch');
+  const answer = answers[code];
+  if (answer === 404) return { ok: false, status: 404, json: async () => 'Not Found' };
+  return { ok: true, status: 200, json: async () => answer };
+}));
+
+beforeEach(() => ifscDirectory({}));
 
 const renderCard = (profile = APPROVED, onSubmit = vi.fn().mockResolvedValue({ success: true })) => {
   const result = render(<BankChangeRequest profile={profile} onSubmit={onSubmit} />);
@@ -152,6 +166,54 @@ describe('the request is validated before it is sent', () => {
     await userEvent.click(screen.getByRole('button', { name: /send request/i }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Network unreachable');
+  });
+});
+
+describe('the IFSC code is looked up in the directory', () => {
+  const openWithIfsc = async (ifscCode) => {
+    await userEvent.click(screen.getByRole('button', { name: /request a change/i }));
+    await userEvent.clear(screen.getByLabelText(/ifsc code/i));
+    await userEvent.type(screen.getByLabelText(/ifsc code/i), ifscCode);
+  };
+
+  it('fills the bank and branch from it, and holds them to it', async () => {
+    ifscDirectory({ HDFC0000060: {}, UTIB0000123: { BANK: 'Axis Bank', BRANCH: 'POWAI' } });
+    renderCard();
+
+    await openWithIfsc('UTIB0000123');
+
+    await waitFor(() => expect(screen.getByLabelText(/bank name/i)).toHaveValue('Axis Bank'));
+    expect(screen.getByLabelText(/bank branch/i)).toHaveValue('POWAI');
+    // A request cannot pair one bank's IFSC with another bank's name.
+    expect(screen.getByLabelText(/bank name/i)).toHaveAttribute('readonly');
+  });
+
+  it('says so when no branch has the code, and lets the supplier carry on', async () => {
+    ifscDirectory({ HDFC0000060: {}, UTIB0009999: 404 });
+    const { onSubmit } = renderCard();
+
+    await userEvent.click(screen.getByRole('button', { name: /request a change/i }));
+    await fillForm({ ...NEW_ACCOUNT, ifscCode: 'UTIB0009999' });
+
+    expect(await screen.findByText(/no bank branch has this ifsc code/i)).toBeInTheDocument();
+    // Not a refusal: the directory trails RBI's list, so a new branch can be missing.
+    await userEvent.click(screen.getByRole('button', { name: /send request/i }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ ...NEW_ACCOUNT, ifscCode: 'UTIB0009999' }));
+  });
+
+  it('tells the supplier to type the bank details when the directory cannot be reached', async () => {
+    renderCard();
+
+    await openWithIfsc('UTIB0000123');
+
+    expect(await screen.findByText(/could not look up this ifsc code/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/bank name/i)).not.toHaveAttribute('readonly');
+  });
+
+  it('asks nothing until the form is opened', () => {
+    renderCard();
+
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 

@@ -248,7 +248,7 @@ describe('looking a supplier up by an encrypted field', () => {
 
   it('does not stop the lookups that do work', async () => {
     await registerVendor(app, {}, { onboarded: false });
-    const found = await asTenant(() => prisma.vendor.findFirst({ where: { gstin: '27AABCB1234F1Z5', status: { not: 'Rejected' } } }));
+    const found = await asTenant(() => prisma.vendor.findFirst({ where: { gstin: '27AABCB1234F3Z6', status: { not: 'Rejected' } } }));
     expect(found.pan).toBe(PAN);
   });
 });

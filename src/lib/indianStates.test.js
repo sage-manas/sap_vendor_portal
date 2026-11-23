@@ -80,7 +80,7 @@ describe('the registry is internally consistent', () => {
 
   it('treats a missing GSTIN or state as no contradiction', () => {
     expect(gstinMatchesState(null, 'Maharashtra')).toBe(true);
-    expect(gstinMatchesState('27AABCU9603R1ZM', null)).toBe(true);
+    expect(gstinMatchesState('27AABCU9603R1ZN', null)).toBe(true);
     expect(gstinMatchesState(null, null)).toBe(true);
   });
 
@@ -89,6 +89,6 @@ describe('the registry is internally consistent', () => {
     // union territory would be another. The registry cannot speak about them,
     // and silence is not a contradiction — the GSTIN regex has already
     // vouched for the shape.
-    expect(gstinMatchesState('97AABCU9603R1ZM', 'Maharashtra')).toBe(true);
+    expect(gstinMatchesState('97AABCU9603R1ZG', 'Maharashtra')).toBe(true);
   });
 });

@@ -45,7 +45,7 @@ describe('workspace overview', () => {
     await registerVendor(app, {
       vendorId: 'vendor_other_1',
       email: 'other@example.com',
-      gstin: '27ZZZZZ1234F1Z5',
+      gstin: '27ZZZZZ1234F1ZH',
       pan: 'ZZZZZ1234F',
       clientId: OTHER.clientId,
     }, { clientSlug: OTHER.slug });
@@ -174,7 +174,7 @@ describe('feature flags close the API, not just the screen', () => {
       .set('x-client-slug', 'legacy')
       .send({
         vendorId: 'VND-90001', password: 'Secret12345', companyName: 'Walk In Ltd',
-        gstin: '27WWWWW1234F1Z5', pan: 'WWWWW1234F', email: 'walkin@example.com',
+        gstin: '27WWWWW1234F1Z2', pan: 'WWWWW1234F', email: 'walkin@example.com',
       });
     // Answered like any registration; the refusal is emailed, and nothing is created.
     expect(walkIn.status).toBe(202);
@@ -192,7 +192,7 @@ describe('feature flags close the API, not just the screen', () => {
       .set('x-client-slug', 'legacy')
       .send({
         vendorId: 'VND-90002', password: 'Secret12345', companyName: 'Invited Ltd',
-        gstin: '27VVVVV1234F1Z5', pan: 'VVVVV1234F', email: 'invited@example.com',
+        gstin: '27VVVVV1234F1Z9', pan: 'VVVVV1234F', email: 'invited@example.com',
       });
     expect(invited.status).toBe(202);
     await drainBackground();
@@ -203,7 +203,7 @@ describe('feature flags close the API, not just the screen', () => {
 describe('supplier directory', () => {
   const supplierPayload = {
     companyName: 'Directory Supplies Pvt Ltd',
-    gstin: '27DDDDD1234F1Z5',
+    gstin: '27DDDDD1234F1ZT',
     pan: 'DDDDD1234F',
     email: 'directory@example.com',
     phone: '9876543211',
@@ -252,7 +252,7 @@ describe('supplier directory', () => {
     await registerVendor(app, {
       vendorId: 'vendor_other_3',
       email: supplierPayload.email,
-      gstin: '27XXXXX1234F1Z5',
+      gstin: '27XXXXX1234F1ZV',
       pan: 'XXXXX1234F',
     }, { clientSlug: OTHER.slug });
 

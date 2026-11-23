@@ -92,7 +92,7 @@ describe('a new registration', () => {
 });
 
 describe('registration does not say what already exists', () => {
-  const first = { vendorId: 'enum_first', email: 'first@example.com', gstin: '27AAAAA5001A1Z1', pan: 'AAAAA5001A' };
+  const first = { vendorId: 'enum_first', email: 'first@example.com', gstin: '27AAAAA5001A1ZR', pan: 'AAAAA5001A' };
 
   beforeEach(async () => {
     await register(first);
@@ -103,10 +103,10 @@ describe('registration does not say what already exists', () => {
   });
 
   it('answers a taken email, GSTIN and vendor ID exactly as it answers a free one', async () => {
-    const fresh = await register({ vendorId: 'enum_fresh', email: 'fresh@example.com', gstin: '27AAAAA5002A1Z1', pan: 'AAAAA5002A' });
-    const takenEmail = await register({ vendorId: 'enum_b', email: first.email, gstin: '27AAAAA5003A1Z1', pan: 'AAAAA5003A' });
+    const fresh = await register({ vendorId: 'enum_fresh', email: 'fresh@example.com', gstin: '27AAAAA5002A1ZQ', pan: 'AAAAA5002A' });
+    const takenEmail = await register({ vendorId: 'enum_b', email: first.email, gstin: '27AAAAA5003A1ZP', pan: 'AAAAA5003A' });
     const takenGstin = await register({ vendorId: 'enum_c', email: 'c@example.com', gstin: first.gstin, pan: 'AAAAA5004A' });
-    const takenId = await register({ vendorId: first.vendorId, email: 'd@example.com', gstin: '27AAAAA5005A1Z1', pan: 'AAAAA5005A' });
+    const takenId = await register({ vendorId: first.vendorId, email: 'd@example.com', gstin: '27AAAAA5005A1ZN', pan: 'AAAAA5005A' });
 
     for (const res of [takenEmail, takenGstin, takenId]) {
       expect(res.status).toBe(fresh.status);
@@ -115,7 +115,7 @@ describe('registration does not say what already exists', () => {
   });
 
   it('tells the owner of an existing address by email, and creates nothing', async () => {
-    await register({ vendorId: 'enum_b', email: first.email, gstin: '27AAAAA5003A1Z1', pan: 'AAAAA5003A' });
+    await register({ vendorId: 'enum_b', email: first.email, gstin: '27AAAAA5003A1ZP', pan: 'AAAAA5003A' });
     await drainBackground();
 
     expect(mailsTo(first.email, 'registrationExisting')).toHaveLength(1);
@@ -143,8 +143,8 @@ describe('registration does not say what already exists', () => {
         return { res, ms: Date.now() - started };
       };
 
-      const fresh = await timed({ vendorId: 'enum_t1', email: 't1@example.com', gstin: '27AAAAA5006A1Z1', pan: 'AAAAA5006A' });
-      const known = await timed({ vendorId: 'enum_t2', email: first.email, gstin: '27AAAAA5007A1Z1', pan: 'AAAAA5007A' });
+      const fresh = await timed({ vendorId: 'enum_t1', email: 't1@example.com', gstin: '27AAAAA5006A1ZM', pan: 'AAAAA5006A' });
+      const known = await timed({ vendorId: 'enum_t2', email: first.email, gstin: '27AAAAA5007A1ZL', pan: 'AAAAA5007A' });
 
       expect(fresh.res.status).toBe(202);
       expect(known.res.status).toBe(202);

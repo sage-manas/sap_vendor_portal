@@ -57,10 +57,10 @@ const asnPayload = (overrides = {}) => ({
 // it through the API.
 const seedTwoShipments = async () => {
   const a = await registerVendor(app, {
-    vendorId: 'vendor_ship_a', companyName: 'Acme Industries Pvt Ltd', gstin: '27AAAAA4441A1Z1',
+    vendorId: 'vendor_ship_a', companyName: 'Acme Industries Pvt Ltd', gstin: '27AAAAA4441A1ZH',
   }, { onboarded: true });
   const b = await registerVendor(app, {
-    vendorId: 'vendor_ship_b', companyName: 'Beta Supplies Pvt Ltd', gstin: '27AAAAA4442A1Z1',
+    vendorId: 'vendor_ship_b', companyName: 'Beta Supplies Pvt Ltd', gstin: '27AAAAA4442A1ZG',
     pan: 'AAAAA4442A', email: 'beta-ship@example.com',
   }, { onboarded: true });
 

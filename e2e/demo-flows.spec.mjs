@@ -19,6 +19,20 @@ const pdf = (name) => ({
   buffer: Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n'),
 });
 
+// The GSTIN's check character, as backend/utils/gstin.js computes it: the
+// registration form and the API both refuse a GSTIN without the right one, so
+// a made-up GSTIN needs it too. Restated here rather than imported because a
+// Playwright spec cannot reliably load the app's own ES modules.
+const CHARSET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const withCheckCharacter = (first14) => {
+  let sum = 0;
+  for (let i = 0; i < 14; i += 1) {
+    const product = CHARSET.indexOf(first14[i]) * (i % 2 === 0 ? 1 : 2);
+    sum += Math.floor(product / 36) + (product % 36);
+  }
+  return `${first14}${CHARSET[(36 - (sum % 36)) % 36]}`;
+};
+
 // A GSTIN/PAN pair unique to this run, so the spec can run against a database
 // that already holds the last run's supplier.
 const uniqueIdentity = () => {
@@ -30,7 +44,7 @@ const uniqueIdentity = () => {
     company: `Sahyadri Fasteners ${digits} Pvt Ltd`,
     email: `accounts${digits}@sahyadri-fasteners.test`,
     pan,
-    gstin: `27${pan}1Z5`,
+    gstin: withCheckCharacter(`27${pan}1Z`),
   };
 };
 

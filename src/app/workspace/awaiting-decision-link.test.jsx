@@ -21,7 +21,7 @@ const vendorRow = (vendorId, status) => ({
   companyName: `${vendorId} Pvt Ltd`,
   email: `${vendorId}@example.com`,
   status,
-  gstin: '27AAAAA0000A1Z1',
+  gstin: '27AAAAA0000A1Z2',
 });
 
 describe('the workspace "Awaiting a decision" tile', () => {

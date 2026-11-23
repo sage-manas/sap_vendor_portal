@@ -174,7 +174,7 @@ export default function TenantDetailPage({ params }) {
                 label="GSTIN"
                 value={edit.gstin}
                 maxLength={15}
-                placeholder="27AABCU9603R1ZM"
+                placeholder="27AABCU9603R1ZN"
                 aria-label="GSTIN"
                 className="w-full mono"
                 hint="The buying organisation's own GST registration. Its first two digits must match the state."

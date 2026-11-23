@@ -26,6 +26,22 @@ keeps it.
 | 7 | Live `fetch` has no timeout, no retry, no breaker. | A hanging provider hangs vendor submission. |
 | 8 | The `vendor.validator.js` regexes deliberately "allow digits in alphabetic slots for testing". | Test convenience is in the production validation path. |
 
+### Free checks now in place (2026-11-23)
+
+These cost nothing and need no provider, so they landed ahead of everything below:
+
+- **GSTIN check character.** The fifteenth character is computed from the first fourteen
+  (`backend/utils/gstin.js`, mirrored in `src/lib/gstin.js`). A GSTIN that fails it cannot
+  exist, so every write refuses it (`gstinField` in `validators/common.validator.js`: sign-up,
+  supplier profile, tenant registration), and the mock verification fails it for rows written
+  earlier. Narrows gap #1 to "well-formed but cancelled or never issued".
+- **PAN inside the GSTIN**, told to the supplier while they type (registration form). The API
+  still checks it only at verification, as before.
+- **IFSC directory lookup** (Razorpay's public list, built from RBI's) on both supplier forms
+  that take an IFSC — registration and the bank-change request
+  (`src/features/profile/hooks/useIfscLookup.js`). "No such branch" is now told apart from
+  "directory unreachable". It proves the branch exists, not the account, so gap #3 stands.
+
 ## 2. Where the data actually comes from
 
 The government does not publish open verification APIs for most of this. Access is either

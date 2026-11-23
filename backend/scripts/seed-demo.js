@@ -157,7 +157,7 @@ const seedClient = async () => {
     // placeOfSupply and tell intra-state from inter-state at all. Maharashtra
     // (27), same state as the demo supplier below, so the demo invoices
     // exercise the CGST+SGST path — the common case for a domestic buyer.
-    gstin: '27AAACN1234M1ZP',
+    gstin: '27AAACN1234M1ZI',
     state: 'Maharashtra',
   };
   const existing = await prisma.client.findFirst({ where: { clientId } });
@@ -179,7 +179,7 @@ const seedPeople = async () => {
       tradeName: 'Meridian Castings',
       businessType: 'Private Limited Company',
       incorporationDate: '2011-06-14',
-      gstin: '27AACCM4519R1ZK',
+      gstin: '27AACCM4519R1ZX',
       gstType: 'Regular',
       pan: 'AACCM4519R',
       cin: 'U27310MH2011PTC219884',
@@ -354,7 +354,7 @@ const seedSecondaryVendors = async (admin) => {
       tradeName: 'Bharat Precision',
       businessType: 'Partnership Firm',
       incorporationDate: '2016-03-22',
-      gstin: '24AAECB7742F1Z8',
+      gstin: '24AAECB7742F1ZU',
       gstType: 'Regular',
       pan: 'AAECB7742F',
       msmeNumber: 'UDYAM-GJ-06-0021184',
@@ -409,7 +409,7 @@ const seedSecondaryVendors = async (admin) => {
       role: ROLES.VENDOR,
       companyName: 'Shree Industrial Traders',
       businessType: 'Proprietorship',
-      gstin: '07AABFS1122K1ZQ',
+      gstin: '07AABFS1122K1ZH',
       pan: 'AABFS1122K',
       email: VENDOR3_EMAIL,
       phone: '+91 98111 22034',

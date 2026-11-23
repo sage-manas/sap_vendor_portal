@@ -149,7 +149,7 @@ async function main() {
     const vendor = await runWithTenant('CLT-0002', () =>
       prisma.vendor.create({
         data: {
-          vendorId: 'VND-X', companyName: 'X Co', gstin: '29AABCX1111N1Z0',
+          vendorId: 'VND-X', companyName: 'X Co', gstin: '29AABCX1111N1Z9',
           pan: 'AABCX1111N', email: 'x@example.com',
         },
       })

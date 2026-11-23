@@ -21,7 +21,7 @@ const fakeSocket = (token, overrides = {}) => ({
 
 describe('authenticateSocket (handshake)', () => {
   it('accepts a valid supplier token and attaches the account\'s current fields', async () => {
-    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_socket_1', email: 'socket1@example.com', gstin: '27AABCS0001A1Z1' }, { onboarded: true });
+    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_socket_1', email: 'socket1@example.com', gstin: '27AABCS0001A1ZE' }, { onboarded: true });
     const socket = fakeSocket(token);
     const next = jest.fn();
 
@@ -63,7 +63,7 @@ describe('authenticateSocket (handshake)', () => {
   });
 
   it('rejects a token issued before the account\'s password was changed', async () => {
-    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_socket_2', email: 'socket2@example.com', gstin: '27AABCS0002A1Z2' }, { onboarded: true });
+    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_socket_2', email: 'socket2@example.com', gstin: '27AABCS0002A1ZD' }, { onboarded: true });
     await asTenant(() => prisma.vendor.update({ where: { pk: vendor.pk }, data: { passwordChangedAt: new Date(Date.now() + 5000) } }));
 
     const socket = fakeSocket(token);
@@ -86,7 +86,7 @@ describe('authenticateSocket (handshake)', () => {
 
 describe('recheckSocket (already-connected sockets)', () => {
   it('leaves a still-valid session alone', async () => {
-    const { token } = await registerVendor(app, { vendorId: 'vendor_socket_3', email: 'socket3@example.com', gstin: '27AABCS0003A1Z3' }, { onboarded: true });
+    const { token } = await registerVendor(app, { vendorId: 'vendor_socket_3', email: 'socket3@example.com', gstin: '27AABCS0003A1ZC' }, { onboarded: true });
     const socket = fakeSocket(token);
 
     const ok = await recheckSocket(socket);
@@ -98,7 +98,7 @@ describe('recheckSocket (already-connected sockets)', () => {
   // The issue's own reproduction: open a socket, then suspend the account —
   // the socket must not survive the next recheck.
   it('disconnects a socket whose account was suspended after it connected', async () => {
-    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_socket_4', email: 'socket4@example.com', gstin: '27AABCS0004A1Z4' }, { onboarded: true });
+    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_socket_4', email: 'socket4@example.com', gstin: '27AABCS0004A1ZB' }, { onboarded: true });
     const socket = fakeSocket(token);
     expect(await recheckSocket(socket)).toBe(true); // valid when it first connected
 
@@ -111,7 +111,7 @@ describe('recheckSocket (already-connected sockets)', () => {
   });
 
   it('disconnects a socket whose account changed its password after it connected', async () => {
-    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_socket_5', email: 'socket5@example.com', gstin: '27AABCS0005A1Z5' }, { onboarded: true });
+    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_socket_5', email: 'socket5@example.com', gstin: '27AABCS0005A1ZA' }, { onboarded: true });
     const socket = fakeSocket(token);
 
     await asTenant(() => prisma.vendor.update({ where: { pk: vendor.pk }, data: { passwordChangedAt: new Date(Date.now() + 5000) } }));
@@ -125,8 +125,8 @@ describe('recheckSocket (already-connected sockets)', () => {
 
 describe('recheckAllSockets (the periodic sweep)', () => {
   it('disconnects only the sockets that no longer pass, leaving the rest connected', async () => {
-    const good = await registerVendor(app, { vendorId: 'vendor_socket_6', email: 'socket6@example.com', gstin: '27AABCS0006A1Z6' }, { onboarded: true });
-    const bad = await registerVendor(app, { vendorId: 'vendor_socket_7', email: 'socket7@example.com', gstin: '27AABCS0007A1Z7' }, { onboarded: true });
+    const good = await registerVendor(app, { vendorId: 'vendor_socket_6', email: 'socket6@example.com', gstin: '27AABCS0006A1Z9' }, { onboarded: true });
+    const bad = await registerVendor(app, { vendorId: 'vendor_socket_7', email: 'socket7@example.com', gstin: '27AABCS0007A1Z8' }, { onboarded: true });
     await asTenant(() => prisma.vendor.update({ where: { pk: bad.vendor.pk }, data: { status: 'Rejected' } }));
 
     const goodSocket = fakeSocket(good.token);

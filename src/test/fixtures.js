@@ -46,7 +46,7 @@ export const VENDOR_PROFILE = {
   phone: '9876543210',
   status: 'Approved',
   sapVendorCode: 'VND-51204',
-  gstin: '27AABCB1234F1Z5',
+  gstin: '27AABCB1234F3Z6',
   pan: 'AABCB1234F',
   address: '12 MG Road',
   city: 'Pune',

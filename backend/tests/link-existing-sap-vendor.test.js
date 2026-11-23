@@ -22,7 +22,7 @@ const SAP_VENDOR = '1120250081';
 
 const supplier = {
   companyName: 'Kaveri Forge & Fittings',
-  gstin: '27AAECK4821M1Z6',
+  gstin: '27AAECK4821M1ZA',
   pan: 'AAECK4821M',
   email: 'accounts@kaveriforge.example.com',
   phone: '+91 9823456710',
@@ -118,7 +118,7 @@ describe('linking a supplier to an existing SAP vendor', () => {
       ...supplier,
       companyName: 'Kaveri Duplicate',
       email: 'dup@kaveriforge.example.com',
-      gstin: '27AAECK4822M1Z5',
+      gstin: '27AAECK4822M1Z9',
       pan: 'AAECK4822M',
       sapVendorCode: SAP_VENDOR,
     });

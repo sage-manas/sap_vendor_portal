@@ -428,7 +428,7 @@ describe('cross-tenant isolation over the API answers 404, not 403', () => {
   beforeEach(async () => {
     const vendorA = await runWithTenant(A.clientId, () => prisma.vendor.create({ data: {
       vendorId: 'VND-A', companyName: 'Tenant A Supplies',
-      gstin: '27AABCA2222F1Z5', pan: 'AABCA2222F', email: 'a@example.com',
+      gstin: '27AABCA2222F1ZB', pan: 'AABCA2222F', email: 'a@example.com',
       // Onboarded: this suite is about tenancy, and the transacting modules are
       // shut to a supplier who has not submitted (middleware/requireOnboarded).
       status: 'Approved',
@@ -473,7 +473,7 @@ describe('cross-tenant isolation over the API answers 404, not 403', () => {
     const vendorB = await runWithTenant(B.clientId, async () => {
       const created = await prisma.vendor.create({ data: {
         vendorId: 'VND-B2', companyName: 'Tenant B Supplies',
-        gstin: '29AABCB3333F1Z5', pan: 'AABCB3333F', email: 'b2@example.com',
+        gstin: '29AABCB3333F1Z0', pan: 'AABCB3333F', email: 'b2@example.com',
         status: 'Approved',
       } });
       // Invited to its own tenant's RFQ, so "sees exactly one" is a statement

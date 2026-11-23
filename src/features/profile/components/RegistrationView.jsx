@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { validateField } from '../validation';
+import { useIfscLookup } from '../hooks/useIfscLookup';
 import { profileService } from '../services/profileService';
 import {
   Clock,
@@ -328,7 +329,6 @@ export default function RegistrationView({
   const [showSaveToast, setShowSaveToast] = useState(false);
   const [passVisible, setPassVisible] = useState(false);
   const [blockedStepAlert, setBlockedStepAlert] = useState('');
-  const [ifscLookup, setIfscLookup] = useState({ status: 'idle', error: '' });
   const [pincodeLookup, setPincodeLookup] = useState({ status: 'idle', error: '' });
 
   // VENDOR_CR rejects free text for region and payment terms — they're SAP
@@ -386,7 +386,7 @@ export default function RegistrationView({
 
     config.sections.forEach(sec => {
       sec.fields.forEach(field => {
-        const error = validateField(field, companyForm[field]);
+        const error = validateField(field, companyForm[field], companyForm);
         if (error) {
           stepErrors[field] = error;
           stepValid = false;
@@ -407,7 +407,7 @@ export default function RegistrationView({
     const items = [];
     config.sections.forEach(sec => {
       sec.fields.forEach(field => {
-        const error = validateField(field, companyForm[field]);
+        const error = validateField(field, companyForm[field], companyForm);
         if (error) items.push(error);
       });
     });
@@ -416,46 +416,15 @@ export default function RegistrationView({
   }, []);
   const outstandingCount = outstandingByStep.reduce((n, g) => n + g.items.length, 0);
 
-  // Bank name and branch are filled from the IFSC lookup and locked while it is
-  // pending or has answered; if it failed, the supplier types them instead.
-  const bankFieldsLocked = ifscLookup.status === 'loading' || ifscLookup.status === 'success';
-
-  // Auto-fetch bank name/branch whenever a valid IFSC code is entered
-  useEffect(() => {
-    const code = (companyForm.ifscCode || '').toUpperCase();
-    if (!/^[A-Z]{4}0[A-Z\d]{6}$/.test(code)) {
-      return;
-    }
-
-    let cancelled = false;
-
-    Promise.resolve()
-      .then(() => {
-        if (cancelled) return null;
-        setIfscLookup({ status: 'loading', error: '' });
-        return fetch(`https://ifsc.razorpay.com/${code}`);
-      })
-      .then(res => {
-        if (cancelled || !res) return null;
-        if (!res.ok) throw new Error('No bank found for this IFSC code');
-        return res.json();
-      })
-      .then(data => {
-        if (cancelled || !data) return;
-        setCompanyForm(prev => ({ ...prev, bankName: data.BANK || '', bankBranch: data.BRANCH || '' }));
-        setIfscLookup({ status: 'success', error: '' });
-      })
-      .catch(() => {
-        if (cancelled) return;
-        // The lookup is a convenience on a third-party service the portal does
-        // not control; being offline or behind a firewall must not stop a
-        // supplier registering. What they have typed is kept, and the two
-        // fields become editable (see `bankFieldsLocked` below).
-        setIfscLookup({ status: 'error', error: 'Could not look up this IFSC code. Enter the bank name and branch yourself.' });
-      });
-
-    return () => { cancelled = true; };
-  }, [companyForm.ifscCode, setCompanyForm]);
+  // Bank name and branch are filled from the IFSC directory and locked while it
+  // is asked or once it has found the branch. If it has no such branch, or
+  // cannot be reached, the supplier types them instead: the lookup is a
+  // convenience on a third-party service the portal does not control, and
+  // being offline or behind a firewall must not stop a supplier registering.
+  const ifscLookup = useIfscLookup(companyForm.ifscCode, ({ bank, branch }) => {
+    setCompanyForm(prev => ({ ...prev, bankName: bank, bankBranch: branch }));
+  });
+  const bankFieldsLocked = ifscLookup.status === 'loading' || ifscLookup.status === 'found';
 
   // Auto-fill city/state and default the phone country code whenever a valid
   // 6-digit PIN code is entered. City/state/phone stay normal editable inputs
@@ -912,7 +881,7 @@ export default function RegistrationView({
                       maxLength={15}
                       value={companyForm.gstin}
                       onChange={e => handleFieldChange('gstin', e.target.value.toUpperCase())}
-                      placeholder="27AABCB1234F1Z5"
+                      placeholder="27AABCB1234F1Z8"
                       className="mono uppercase w-[19ch] max-w-full"
                     />
                   </FieldCard>
@@ -1027,7 +996,7 @@ export default function RegistrationView({
                   <FieldCard
                     label="IFSC code"
                     required
-                    error={validationErrors[3]?.ifscCode}
+                    error={validationErrors[3]?.ifscCode || (ifscLookup.status === 'not_found' ? ifscLookup.message : '')}
                   >
                     <input
                       type="text"
@@ -1042,7 +1011,7 @@ export default function RegistrationView({
                   <FieldCard
                     label="Bank name (auto-fetched)"
                     required
-                    error={validationErrors[3]?.bankName || (ifscLookup.status === 'error' ? ifscLookup.error : '')}
+                    error={validationErrors[3]?.bankName || (ifscLookup.status === 'unavailable' ? ifscLookup.message : '')}
                   >
                     <div className="relative w-[64ch] max-w-full">
                       <input
