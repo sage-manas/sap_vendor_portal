@@ -333,6 +333,13 @@ const MODEL_CASES = [
     update: { shippedQuantity: 1 },
   },
   {
+    name: 'AsnDraft',
+    adapter: adapterFor('asnDraft'),
+    create: (t) => prisma.asnDraft.create({ data: { vendorId: `VND-${t}`, poId: `PO-${t}` } }),
+    find: (t) => ({ vendorId: `VND-${t}` }),
+    update: { step: 2 },
+  },
+  {
     name: 'GrnItem',
     adapter: adapterFor('grnItem'),
     create: async (t) => {

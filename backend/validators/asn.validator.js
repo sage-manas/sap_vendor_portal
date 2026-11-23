@@ -48,7 +48,45 @@ const asnCancelSchema = z.strictObject({
   reason: z.string().trim().min(1, 'Say why the shipment is cancelled').max(500),
 });
 
+// A draft keeps what the supplier typed, half-finished or not, so it checks
+// shape and size only — no formats, no required fields. The same keys as
+// asnCreateSchema and no others, so a draft can only ever hold a form that
+// submit would read; every real rule runs on submit.
+const text = (max) => z.string().max(max).optional();
+const asnDraftPayloadSchema = z.strictObject({
+  carrierName: text(100),
+  trackingNumber: text(100),
+  vehicleNumber: text(30),
+  invoiceReference: text(30),
+  invoiceDate: text(30),
+  invoiceValue: z.union([z.number(), z.string().max(30)]).optional(),
+  ewayBillNo: text(30),
+  shipDate: text(30),
+  estimatedDeliveryDate: text(30),
+  items: z.array(z.strictObject({
+    line: z.coerce.number().int().positive(),
+    shippedQuantity: z.union([z.number(), z.string().max(30)]).optional(),
+  })).max(500).optional(),
+  documentIds: z.array(z.string().uuid()).max(10).optional(),
+  // The files the form shows, by slot, so a resumed draft shows them again.
+  // Submit turns these into documentIds.
+  attachments: z.strictObject(Object.fromEntries(
+    ['packingList', 'invoiceCopy', 'transportDoc', 'ewayBill', 'certificate'].map((slot) => [slot, z.strictObject({
+      documentId: z.string().uuid(),
+      originalName: z.string().max(255).optional(),
+      size: z.number().nonnegative().optional(),
+    }).nullable().optional()]),
+  )).optional(),
+});
+
+const asnDraftSchema = z.strictObject({
+  poId: z.string().min(1).max(40).nullable().optional(),
+  step: z.coerce.number().int().min(1).max(4).optional(),
+  payload: asnDraftPayloadSchema.optional(),
+});
+
 module.exports = {
   asnCreateSchema,
   asnCancelSchema,
+  asnDraftSchema,
 };

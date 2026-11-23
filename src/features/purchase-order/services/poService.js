@@ -40,6 +40,21 @@ export const poService = {
     return apiClient.post(`/pos/${poId}/asn/${asnId}/cancel`, { reason });
   },
 
+  // Shipment notice drafts: the supplier's own, with no ASN number until
+  // submitted. `pk` is the draft's id.
+  async listAsnDrafts() {
+    return apiClient.get('/asn-drafts');
+  },
+  async saveAsnDraft(pk, draft) {
+    return pk ? apiClient.put(`/asn-drafts/${pk}`, draft) : apiClient.post('/asn-drafts', draft);
+  },
+  async deleteAsnDraft(pk) {
+    return apiClient.delete(`/asn-drafts/${pk}`);
+  },
+  async submitAsnDraft(pk) {
+    return apiClient.post(`/asn-drafts/${pk}/submit`, {});
+  },
+
   // Answers `{ asns, pagination }` as of finding 4.1. It used to be a bare
   // array of every row — the only list endpoint shaped that way, which
   // src/test/fixtures.js noted in a comment, and one of those issue #186
