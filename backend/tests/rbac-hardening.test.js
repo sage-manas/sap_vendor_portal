@@ -98,7 +98,7 @@ describe('a supplier cannot bid on an RFQ they were not invited to', () => {
     const outsider = await registerVendor(app, {
       vendorId: 'VND-OUTSIDER',
       email: 'outsider@example.com',
-      gstin: '27AABCO9999F1Z5',
+      gstin: '27AABCO9999F1ZR',
       pan: 'AABCO9999F',
     });
     await setStatus(outsider.vendor.vendorId, VENDOR_STATUS.APPROVED);

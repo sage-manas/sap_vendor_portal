@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { Landmark, ShieldCheck, Clock, AlertTriangle } from 'lucide-react';
 import { validateFields } from '../validation';
+import { useIfscLookup } from '../hooks/useIfscLookup';
 // Owns the label/control association, so this form cannot forget it — see the
 // header on that file for why it exists.
 import FieldCard from '@/components/ui/FieldCard';
@@ -78,6 +79,16 @@ export function BankChangeRequest({ profile, onSubmit }) {
     // others' messages while they are still wrong.
     setErrors((prev) => ({ ...prev, [field]: '' }));
   };
+
+  // The payout account is the fraud path (#53), so the bank and branch come
+  // from the IFSC directory where it knows the code, and are locked to what it
+  // says — a request cannot pair one bank's IFSC with another bank's name.
+  // Asked only while the form is open: reading the profile costs no lookup.
+  const ifscLookup = useIfscLookup(open ? form.ifscCode : '', ({ bank, branch }) => {
+    setForm((prev) => ({ ...prev, bankName: bank, bankBranch: branch }));
+    setErrors((prev) => ({ ...prev, bankName: '', bankBranch: '' }));
+  });
+  const bankFieldsLocked = ifscLookup.status === 'loading' || ifscLookup.status === 'found';
 
   const submit = async (event) => {
     event.preventDefault();
@@ -213,7 +224,11 @@ export function BankChangeRequest({ profile, onSubmit }) {
             />
           </FieldCard>
 
-          <FieldCard label={LABELS.ifscCode} required error={errors.ifscCode}>
+          <FieldCard
+            label={LABELS.ifscCode}
+            required
+            error={errors.ifscCode || (ifscLookup.status === 'not_found' ? ifscLookup.message : '')}
+          >
             <input
               type="text"
               maxLength={11}
@@ -223,13 +238,20 @@ export function BankChangeRequest({ profile, onSubmit }) {
             />
           </FieldCard>
 
-          <FieldCard label={LABELS.bankName} required error={errors.bankName}>
+          <FieldCard
+            label={LABELS.bankName}
+            required
+            error={errors.bankName || (ifscLookup.status === 'unavailable' ? ifscLookup.message : '')}
+            hint={ifscLookup.status === 'found' ? 'From the IFSC directory.' : undefined}
+          >
             <input
               type="text"
               maxLength={60}
               value={form.bankName}
+              readOnly={bankFieldsLocked}
               onChange={(e) => change('bankName', e.target.value)}
-              className="w-full"
+              placeholder={ifscLookup.status === 'loading' ? 'Looking up the IFSC code…' : undefined}
+              className={`${bankFieldsLocked ? 'bg-subtle! text-fg-muted' : ''} w-full`}
             />
           </FieldCard>
 
@@ -238,8 +260,9 @@ export function BankChangeRequest({ profile, onSubmit }) {
               type="text"
               maxLength={60}
               value={form.bankBranch}
+              readOnly={bankFieldsLocked}
               onChange={(e) => change('bankBranch', e.target.value)}
-              className="w-full"
+              className={`${bankFieldsLocked ? 'bg-subtle! text-fg-muted' : ''} w-full`}
             />
           </FieldCard>
 

@@ -26,7 +26,7 @@ const until = async (probe, what, attempts = 50) => {
 
 describe('quantity fields survive the Float → Decimal migration', () => {
   it('an RFQ award response carries plain quantity numbers, not Decimal strings', async () => {
-    const supplier = await registerVendor(app, { vendorId: 'vendor_qty_1', gstin: '27AAAAA4001A1Z1' }, { onboarded: true });
+    const supplier = await registerVendor(app, { vendorId: 'vendor_qty_1', gstin: '27AAAAA4001A1ZT' }, { onboarded: true });
     const buyer = await createAdminUser({ email: 'qty-buyer-1@example.com' });
     const asSupplier = auth(supplier.token);
     const asBuyer = auth(buyer.token);
@@ -57,7 +57,7 @@ describe('quantity fields survive the Float → Decimal migration', () => {
   });
 
   it('a GRN read back carries plain quantity numbers and correct totals', async () => {
-    const supplier = await registerVendor(app, { vendorId: 'vendor_qty_2', gstin: '27AAAAA4002A1Z1' }, { onboarded: true });
+    const supplier = await registerVendor(app, { vendorId: 'vendor_qty_2', gstin: '27AAAAA4002A1ZS' }, { onboarded: true });
     const buyer = await createAdminUser({ email: 'qty-buyer-2@example.com' });
     const asSupplier = auth(supplier.token);
     const asBuyer = auth(buyer.token);
@@ -120,7 +120,7 @@ describe('quantity fields survive the Float → Decimal migration', () => {
     }));
 
     const vendorId = 'vendor_qty_3';
-    await registerVendor(app, { vendorId, gstin: '27AAAAA4003A1Z1' }, { onboarded: true });
+    await registerVendor(app, { vendorId, gstin: '27AAAAA4003A1ZR' }, { onboarded: true });
     const buyer = await createAdminUser({ email: 'qty-buyer-3@example.com' });
     const asBuyer = auth(buyer.token);
 

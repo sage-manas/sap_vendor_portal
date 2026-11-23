@@ -19,11 +19,11 @@ const app = buildTestApp();
 // One supplier per status, so the group filter has something to leave out as
 // well as something to find.
 const SEEDED = [
-  ['vendor_sg_review_1', '27AAAAA7001A1Z1', VENDOR_STATUS.UNDER_REVIEW],
-  ['vendor_sg_review_2', '27AAAAA7002A1Z1', VENDOR_STATUS.UNDER_REVIEW],
-  ['vendor_sg_pending_1', '27AAAAA7003A1Z1', VENDOR_STATUS.PENDING_APPROVAL],
-  ['vendor_sg_approved_1', '27AAAAA7004A1Z1', VENDOR_STATUS.APPROVED],
-  ['vendor_sg_rejected_1', '27AAAAA7005A1Z1', VENDOR_STATUS.REJECTED],
+  ['vendor_sg_review_1', '27AAAAA7001A1ZN', VENDOR_STATUS.UNDER_REVIEW],
+  ['vendor_sg_review_2', '27AAAAA7002A1ZM', VENDOR_STATUS.UNDER_REVIEW],
+  ['vendor_sg_pending_1', '27AAAAA7003A1ZL', VENDOR_STATUS.PENDING_APPROVAL],
+  ['vendor_sg_approved_1', '27AAAAA7004A1ZK', VENDOR_STATUS.APPROVED],
+  ['vendor_sg_rejected_1', '27AAAAA7005A1ZJ', VENDOR_STATUS.REJECTED],
 ];
 
 describe('GET /api/vendors?status=<group>', () => {

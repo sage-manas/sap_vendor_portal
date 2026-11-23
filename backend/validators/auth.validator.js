@@ -1,6 +1,6 @@
 const { z } = require('zod');
+const { gstinField } = require('./common.validator');
 
-const gstinRegex = /^[0-9]{2}[A-Z0-9]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/i;
 const panRegex = /^[A-Z0-9]{5}[0-9]{4}[A-Z]{1}$/i;
 const phoneRegex = /^[6-9]\d{9}$/;
 
@@ -26,7 +26,7 @@ const registerSchema = z.strictObject({
   vendorId: z.string().min(3).max(50).optional(),
   password: passwordField,
   companyName: z.string().min(3).max(100),
-  gstin: z.string().regex(gstinRegex, { message: "Invalid GSTIN format" }),
+  gstin: gstinField,
   pan: z.string().regex(panRegex, { message: "Invalid PAN format" }),
   email: z.string().email({ message: "Invalid email format" }),
   phone: z.string().regex(phoneRegex, { message: "Invalid phone number format" }).optional().or(z.literal('')),

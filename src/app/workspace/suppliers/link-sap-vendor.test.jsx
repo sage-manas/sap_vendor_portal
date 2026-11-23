@@ -13,7 +13,7 @@ const KAVERI = {
   'Legal entity name': 'Kaveri Forge & Fittings',
   'Contact email': 'accounts@kaveriforge.example.com',
   'Mobile / phone': '+91 9823456710',
-  GSTIN: '27AAECK4821M1Z6',
+  GSTIN: '27AAECK4821M1ZA',
   PAN: 'AAECK4821M',
   'Street address': 'Plot 14, MIDC Bhosari',
   City: 'Pune',

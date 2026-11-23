@@ -68,7 +68,7 @@ describe('vendor bank-account change (issue #53)', () => {
 
   it('a supplier not yet approved can still set bank details directly, as part of registration', async () => {
     const draft = await registerVendor(app, {
-      vendorId: 'vendor_test_003', companyName: 'Gamma Traders', gstin: '27AABCB1234F1Z7',
+      vendorId: 'vendor_test_003', companyName: 'Gamma Traders', gstin: '27AABCB1234F5Z4',
       pan: 'AABCB1236F', email: 'gamma@example.com',
     }, { onboarded: false });
 

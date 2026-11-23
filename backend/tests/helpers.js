@@ -8,12 +8,18 @@ const totp = require('../utils/totp');
 const { ROLES } = require('../config/roles');
 const mailer = require('../utils/mailer');
 const { drainBackground } = require('../utils/background');
+const { gstinCheckCharacter } = require('../utils/gstin');
+
+// A valid GSTIN from its first fourteen characters, for a test that builds
+// distinct ones in a loop: every write refuses a wrong check character
+// (utils/gstin.js), so one cannot simply be made up.
+const gstinFor = (first14) => `${first14}${gstinCheckCharacter(first14)}`;
 
 const baseVendor = {
   vendorId: 'vendor_test_001',
   password: 'Secret12345',
   companyName: 'Acme Industries Pvt Ltd',
-  gstin: '27AABCB1234F1Z5',
+  gstin: '27AABCB1234F3Z6',
   pan: 'AABCB1234F',
   email: 'acme@example.com',
   phone: '9876543210',
@@ -222,6 +228,7 @@ module.exports = {
   PROFILE_WRITABLE_FIELDS,
   profileFormPayload,
   baseVendor,
+  gstinFor,
   registerVendor,
   completeProfile,
   VENDOR_CREATE_FIELDS,

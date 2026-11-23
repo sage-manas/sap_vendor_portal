@@ -50,7 +50,7 @@ describe('supplier legal identity after approval', () => {
     const res = await request(app)
       .put('/api/vendors/profile')
       .set('Authorization', `Bearer ${supplier.token}`)
-      .send({ gstin: '29ZZZZZ9999Z1Z9', companyName: 'Someone Else Pvt Ltd' });
+      .send({ gstin: '29ZZZZZ9999Z1Z4', companyName: 'Someone Else Pvt Ltd' });
 
     expect(res.status).toBe(409);
     expect(res.body.reason).toBe('identity_locked');
@@ -82,7 +82,7 @@ describe('supplier legal identity after approval', () => {
     const res = await request(app)
       .put('/api/vendors/profile')
       .set('Authorization', `Bearer ${supplier.token}`)
-      .send({ gstin: '29ZZZZZ9999Z1Z9' });
+      .send({ gstin: '29ZZZZZ9999Z1Z4' });
 
     expect(res.status).toBe(200);
     const after = await liveVendor(supplier.vendor.vendorId);

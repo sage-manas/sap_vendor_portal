@@ -27,9 +27,9 @@ const app = buildTestApp();
 const bearer = (token) => ({ Authorization: `Bearer ${token}` });
 
 // 27 is Maharashtra's GST state code, so this GSTIN and 'Maharashtra' agree.
-const MH_GSTIN = '27AABCU9603R1ZM';
+const MH_GSTIN = '27AABCU9603R1ZN';
 // 29 is Karnataka's.
-const KA_GSTIN = '29AABCU9603R1ZX';
+const KA_GSTIN = '29AABCU9603R1ZJ';
 
 const readClient = (clientId) => withoutTenantScope(
   () => rawPrisma.client.findFirst({ where: { clientId } }),
@@ -202,6 +202,13 @@ describe('the GSTIN itself is shape-checked', () => {
     for (const gstin of ['27AABCU9603R1Z', 'not-a-gstin', '27AABCU9603R1ZMX', '270ABCU9603R1ZM1']) {
       expect([gstin, (await patch(token, { gstin })).status]).toEqual([gstin, 400]);
     }
+  });
+
+  it('refuses a GSTIN of the right shape whose check character is wrong', async () => {
+    const { token } = await createOperatorSession();
+    const typo = `${MH_GSTIN.slice(0, 14)}${MH_GSTIN[14] === '0' ? '1' : '0'}`;
+
+    expect((await patch(token, { gstin: typo })).status).toBe(400);
   });
 
   it('refuses a key the schema does not know, rather than ignoring it', async () => {

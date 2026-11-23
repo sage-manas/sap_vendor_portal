@@ -51,7 +51,7 @@ describe('GET /api/invoices, filtered for the workspace list', () => {
   let vendorId;
 
   beforeEach(async () => {
-    const { vendor } = await registerVendor(app, { vendorId: 'vendor_f1', gstin: '27AAAAA9111A1Z1' }, { onboarded: true });
+    const { vendor } = await registerVendor(app, { vendorId: 'vendor_f1', gstin: '27AAAAA9111A1ZG' }, { onboarded: true });
     vendorId = vendor.vendorId;
     await seedInvoicePerStatus(vendorId);
     token = (await createTenantUser({ role: ROLES.FINANCE })).token;
@@ -122,7 +122,7 @@ describe('GET /api/invoices, filtered for the workspace list', () => {
   it('cannot widen a supplier past their own invoices', async () => {
     const other = await registerVendor(
       app,
-      { vendorId: 'vendor_f2', gstin: '27AAAAA9112A1Z1', email: 'f2@example.com' },
+      { vendorId: 'vendor_f2', gstin: '27AAAAA9112A1ZF', email: 'f2@example.com' },
       { onboarded: true },
     );
 
@@ -140,7 +140,7 @@ describe('GET /api/invoices, filtered for the workspace list', () => {
 
 describe('GET /api/pos, filtered for the workspace list', () => {
   it('?view=open returns exactly the statuses the overview counts as open', async () => {
-    const { vendor } = await registerVendor(app, { vendorId: 'vendor_p1', gstin: '27AAAAA9113A1Z1' }, { onboarded: true });
+    const { vendor } = await registerVendor(app, { vendorId: 'vendor_p1', gstin: '27AAAAA9113A1ZE' }, { onboarded: true });
     await asTenant(async () => {
       let n = 0;
       for (const status of ['Open', 'Acknowledged', 'Dispatched', 'Delivered', 'Invoiced', 'Paid']) {
@@ -175,7 +175,7 @@ describe('GET /api/rfqs, filtered for the workspace list', () => {
   });
 
   it('a status filter does not let a supplier see an RFQ they were not invited to', async () => {
-    const { token } = await registerVendor(app, { vendorId: 'vendor_r1', gstin: '27AAAAA9114A1Z1' }, { onboarded: true });
+    const { token } = await registerVendor(app, { vendorId: 'vendor_r1', gstin: '27AAAAA9114A1ZD' }, { onboarded: true });
     await asTenant(async () => {
       await prisma.rFQ.create({ data: { id: 'RFQ-2026-R9', description: 'Not theirs', status: 'Bidding Open', deadlineDate: soon() } });
     });
@@ -189,7 +189,7 @@ describe('GET /api/rfqs, filtered for the workspace list', () => {
 
 describe('GET /api/payments, filtered for the workspace list', () => {
   it('?from/?to narrow by payment date, and the total follows', async () => {
-    const { vendor } = await registerVendor(app, { vendorId: 'vendor_y1', gstin: '27AAAAA9115A1Z1' }, { onboarded: true });
+    const { vendor } = await registerVendor(app, { vendorId: 'vendor_y1', gstin: '27AAAAA9115A1ZC' }, { onboarded: true });
     await asTenant(async () => {
       for (const [suffix, month] of [['Y1', 1], ['Y2', 5], ['Y3', 9]]) {
         await prisma.payment.create({
@@ -215,7 +215,7 @@ describe('GET /api/payments, filtered for the workspace list', () => {
 
 describe('a page past the first is reachable, and the total stays the true total', () => {
   it('serves page 2 of a set larger than the page size', async () => {
-    const { vendor } = await registerVendor(app, { vendorId: 'vendor_g1', gstin: '27AAAAA9116A1Z1' }, { onboarded: true });
+    const { vendor } = await registerVendor(app, { vendorId: 'vendor_g1', gstin: '27AAAAA9116A1ZB' }, { onboarded: true });
     await asTenant(async () => {
       for (let n = 1; n <= 7; n += 1) {
         await prisma.purchaseOrder.create({ data: { id: `PO-2026-G${n}`, vendorId: vendor.vendorId } });

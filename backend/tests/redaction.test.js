@@ -18,7 +18,7 @@ const { seedClient } = require('./helpers');
 const ACCOUNT = '501002345678901';
 const IFSC = 'HDFC0001234';
 const PAN = 'AAAPL1234C';
-const GSTIN = '27AAAPL1234C1ZV';
+const GSTIN = '27AAAPL1234C1ZE';
 const UTR = 'HDFCR52026091812345';
 
 describe('redactDeep', () => {
@@ -27,7 +27,7 @@ describe('redactDeep', () => {
       accountNumber: ACCOUNT, ifscCode: IFSC, pan: PAN, gstin: GSTIN, utrCode: UTR, deducteePan: PAN,
     });
     expect(out).toEqual({
-      accountNumber: '****8901', ifscCode: '****1234', pan: '****234C', gstin: '****C1ZV', utrCode: '****2345', deducteePan: '****234C',
+      accountNumber: '****8901', ifscCode: '****1234', pan: '****234C', gstin: '****C1ZE', utrCode: '****2345', deducteePan: '****234C',
     });
   });
 
@@ -88,7 +88,7 @@ describe('redactString', () => {
     expect(out).not.toContain(GSTIN);
     expect(out).not.toContain(PAN);
     expect(out).not.toContain(IFSC);
-    expect(out).toContain('****C1ZV');
+    expect(out).toContain('****C1ZE');
   });
 
   it('masks a sensitive field inside JSON text', () => {
@@ -100,7 +100,7 @@ describe('redactString', () => {
 
   it('masks a sensitive query parameter in a URL', () => {
     const out = redactString(`/api/vendors?gstin=${GSTIN}&status=Approved&accountNumber=${ACCOUNT}`);
-    expect(out).toBe('/api/vendors?gstin=****C1ZV&status=Approved&accountNumber=****8901');
+    expect(out).toBe('/api/vendors?gstin=****C1ZE&status=Approved&accountNumber=****8901');
   });
 
   // #248: no route should put a credential in the path (the invitation lookup
@@ -189,7 +189,7 @@ describe('the SAP communication log', () => {
 
     const row = await stored();
     [ACCOUNT, IFSC, GSTIN].forEach((value) => expect(row.payload).not.toContain(value));
-    expect(row.payload).toContain('****C1ZV');
+    expect(row.payload).toContain('****C1ZE');
     expect(row.payload).toContain('Acme Pvt Ltd');
   });
 

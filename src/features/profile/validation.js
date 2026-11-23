@@ -1,3 +1,5 @@
+import { hasValidCheckCharacter, panOfGstin } from '@/lib/gstin';
+
 // Field-level validation for the vendor registration form.
 // Extracted from RegistrationView so it can be unit-tested; returns '' when valid.
 //
@@ -6,7 +8,15 @@
 // tenant's form asks for the identifying half only (the supplier still owns
 // their banking details and documents), so that half is named once, here, and
 // read by whoever renders it.
-export const validateField = (field, value) => {
+//
+// `values` is the whole form, for the one rule that spans two fields: the PAN
+// must be the one inside the GSTIN. The API checks that too, but only when the
+// registration is verified on submit — here the supplier hears it while typing.
+
+const GSTIN_PATTERN = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[A-Z\d]$/i;
+export const IFSC_PATTERN = /^[A-Z]{4}0[A-Z\d]{6}$/i;
+
+export const validateField = (field, value, values = {}) => {
   switch (field) {
     case 'companyName':
       if (!value || !value.trim()) return 'Legal Entity Name is required';
@@ -47,10 +57,16 @@ export const validateField = (field, value) => {
     case 'pan':
       if (!value || !value.trim()) return 'PAN Number is required';
       if (!/^[A-Z]{5}\d{4}[A-Z]$/i.test(value)) return 'PAN must follow standard format (e.g. ABCDE1234F)';
+      // Only against a GSTIN that is itself valid: a mistyped GSTIN gets its
+      // own message, not a second one blaming the PAN.
+      if (values.gstin && !validateField('gstin', values.gstin) && panOfGstin(values.gstin) !== value.toUpperCase()) {
+        return 'PAN does not match your GSTIN (characters 3 to 12 of a GSTIN are the PAN)';
+      }
       return '';
     case 'gstin':
       if (!value || !value.trim()) return 'GSTIN is required';
-      if (!/^\d{2}[A-Z]{5}\d{4}[A-Z]\d[Z][A-Z\d]$/i.test(value)) return 'GSTIN must follow standard format (e.g. 27AABCB1234F1Z5)';
+      if (!GSTIN_PATTERN.test(value)) return 'GSTIN must follow standard format (e.g. 27AABCB1234F1Z8)';
+      if (!hasValidCheckCharacter(value)) return 'This GSTIN is not valid: its last character does not match the rest. Check it for a typo.';
       return '';
     case 'gstType':
       if (!value) return 'GST Registration Type is required';
@@ -87,7 +103,7 @@ export const validateField = (field, value) => {
       return '';
     case 'ifscCode':
       if (!value || !value.trim()) return 'IFSC Code is required';
-      if (!/^[A-Z]{4}0[A-Z\d]{6}$/i.test(value)) return 'IFSC Code must follow standard format (e.g. HDFC0000060)';
+      if (!IFSC_PATTERN.test(value)) return 'IFSC Code must follow standard format (e.g. HDFC0000060)';
       return '';
     case 'bankName':
       if (!value || !value.trim()) return 'Bank Name is required';
@@ -131,6 +147,6 @@ export const SUPPLIER_IDENTITY_FIELDS = [
 export const validateFields = (fields, values = {}) =>
   fields.reduce((errors, field) => {
     const name = typeof field === 'string' ? field : field.name;
-    const message = validateField(name, values[name]);
+    const message = validateField(name, values[name], values);
     return message ? { ...errors, [name]: message } : errors;
   }, {});

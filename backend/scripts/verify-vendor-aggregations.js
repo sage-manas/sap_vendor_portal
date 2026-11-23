@@ -58,10 +58,10 @@ async function main() {
   }));
 
   const vendor = await runWithTenant('CLT-0001', () => prisma.vendor.create({
-    data: { vendorId: 'VND-AAAAA', companyName: 'Vendor A', gstin: '27AABCB1234F1Z5', pan: 'AABCB1234F', email: 'a@example.com' },
+    data: { vendorId: 'VND-AAAAA', companyName: 'Vendor A', gstin: '27AABCB1234F3Z6', pan: 'AABCB1234F', email: 'a@example.com' },
   }));
   await runWithTenant('CLT-0002', () => prisma.vendor.create({
-    data: { vendorId: 'VND-AAAAA-OTHER', companyName: 'Same vendorId elsewhere', gstin: '27AABCB1234F1Z9', pan: 'AABCB1234H', email: 'other@example.com' },
+    data: { vendorId: 'VND-AAAAA-OTHER', companyName: 'Same vendorId elsewhere', gstin: '27AABCB1234F6Z3', pan: 'AABCB1234H', email: 'other@example.com' },
   }));
 
   // PO #1: Open, 2 line items totalling 1500.

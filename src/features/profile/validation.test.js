@@ -90,11 +90,31 @@ describe('validateField — format rules', () => {
     expect(validateField('pan', 'ABCDE12345')).toMatch(/standard format/);
   });
 
-  it('GSTIN format 27AABCB1234F1Z5', () => {
-    expect(validateField('gstin', '27AABCB1234F1Z5')).toBe('');
-    expect(validateField('gstin', '27aabcb1234f1z5')).toBe('');
+  it('GSTIN format 27AABCB1234F1Z8', () => {
+    expect(validateField('gstin', '27AABCB1234F1Z8')).toBe('');
+    expect(validateField('gstin', '27aabcb1234f1z8')).toBe('');
     expect(validateField('gstin', '27AABCB1234F1X5')).toMatch(/standard format/); // Z slot wrong
     expect(validateField('gstin', 'AABCB1234F')).toMatch(/standard format/);
+  });
+
+  it('GSTIN check character: the last character must follow from the rest', () => {
+    expect(validateField('gstin', '27AABCB1234F1Z5')).toMatch(/last character does not match/);
+    // Two digits typed the wrong way round: 1234 → 1243.
+    expect(validateField('gstin', '27AABCB1243F1Z8')).toMatch(/last character does not match/);
+    // The same examples the API's own copy is pinned to (backend/tests/gstin.test.js).
+    expect(validateField('gstin', '27AAPFU0939F1ZV')).toBe('');
+    expect(validateField('gstin', '27AAPFU0939F1Z1')).toMatch(/last character does not match/);
+  });
+
+  it('PAN must be the one inside the GSTIN', () => {
+    expect(validateField('pan', 'AABCB1234F', { gstin: '27AABCB1234F1Z8' })).toBe('');
+    expect(validateField('pan', 'aabcb1234f', { gstin: '27AABCB1234F1Z8' })).toBe('');
+    expect(validateField('pan', 'AABCB1234G', { gstin: '27AABCB1234F1Z8' })).toMatch(/does not match your GSTIN/);
+  });
+
+  it('does not blame the PAN for a GSTIN that is itself wrong', () => {
+    expect(validateField('pan', 'AABCB1234G', { gstin: '27AABCB1234F1Z5' })).toBe('');
+    expect(validateField('pan', 'AABCB1234G', {})).toBe('');
   });
 
   it('account number must be 9-18 digits', () => {

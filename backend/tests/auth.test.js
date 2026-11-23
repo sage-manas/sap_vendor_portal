@@ -10,7 +10,7 @@ const validRegistration = {
   vendorId: 'vendor_test_001',
   password: 'Secret12345',
   companyName: 'Acme Industries Pvt Ltd',
-  gstin: '27AABCB1234F1Z5',
+  gstin: '27AABCB1234F3Z6',
   pan: 'AABCB1234F',
   email: 'acme@example.com',
   phone: '9876543210',
@@ -75,6 +75,14 @@ describe('POST /api/auth/register', () => {
     });
   });
 
+  it('refuses a GSTIN of the right shape whose check character is wrong', async () => {
+    // One character off the valid fixture: the last one.
+    const res = await request(app).post('/api/auth/register').send({ ...validRegistration, gstin: '27AABCB1234F3Z7' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.errors.gstin).toMatch(/last character does not match/);
+  });
+
   // Issue #167: a supplier account holds bank details, GSTIN, PAN and KYC
   // documents behind a password alone (no MFA, unlike the platform console).
   // 6 characters with no complexity requirement was judged too weak to ship —
@@ -128,7 +136,7 @@ describe('POST /api/auth/register — vendorId assignment', () => {
     const second = await request(app).post('/api/auth/register').send({
       ...withoutVendorId,
       email: 'second-vendor@example.com',
-      gstin: '29AABCS1234F1Z8'
+      gstin: '29AABCS1234F1ZN'
     });
     expect(second.status).toBe(202);
 

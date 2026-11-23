@@ -38,7 +38,7 @@ describe('protect middleware', () => {
   it('accepts a supplier JWT and scopes the request to that supplier', async () => {
     const { token } = await registerVendor(
       app,
-      { vendorId: 'vendor_scope_1', email: 'scope@example.com', gstin: '27AABCB1234F1Z6' },
+      { vendorId: 'vendor_scope_1', email: 'scope@example.com', gstin: '27AABCB1234F4Z5' },
       { onboarded: true },
     );
     const res = await request(app).get('/api/rfqs').set('Authorization', `Bearer ${token}`);
@@ -98,7 +98,7 @@ describe('protect middleware', () => {
   it('still accepts a token issued after the account\'s last password change', async () => {
     const { token, vendor } = await registerVendor(
       app,
-      { vendorId: 'vendor_pwchange_2', email: 'pwchange2@example.com', gstin: '27AABCB1234F1Z9' },
+      { vendorId: 'vendor_pwchange_2', email: 'pwchange2@example.com', gstin: '27AABCB1234F6Z3' },
       { onboarded: true },
     );
     const { asTenant } = require('./helpers');
@@ -122,7 +122,7 @@ describe('protect middleware', () => {
   it('POST /auth/change-password returns a token that keeps working, even though the old one no longer does', async () => {
     const { token } = await registerVendor(
       app,
-      { vendorId: 'vendor_pwchange_3', email: 'pwchange3@example.com', gstin: '27AABCB1234F2Z1' },
+      { vendorId: 'vendor_pwchange_3', email: 'pwchange3@example.com', gstin: '27AABCB1234F2Z7' },
       { onboarded: true },
     );
 

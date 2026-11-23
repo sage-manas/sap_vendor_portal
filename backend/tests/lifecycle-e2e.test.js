@@ -1,6 +1,6 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
-const { registerVendor, createTenantUser, seedClient, baseVendor, runDueJobs } = require('./helpers');
+const { registerVendor, createTenantUser, seedClient, baseVendor, runDueJobs, gstinFor } = require('./helpers');
 const { prisma } = require('../db/prisma');
 const { runWithTenant } = require('../utils/tenantContext');
 const { enqueue } = require('../jobs/queue');
@@ -51,7 +51,7 @@ const setUpTenant = async ({ clientId, slug, companyName }, seq) => {
     email: `supplier@${slug}.example.com`,
     // Business identifiers are unique per tenant now, but these two accounts
     // are different companies, so they carry different ones anyway.
-    gstin: `2${seq}AABCB1234F1Z5`,
+    gstin: gstinFor(`2${seq}AABCB1234F1Z`),
     companyName: `${companyName} Supplier`,
     // The cycle this suite walks starts after onboarding: a supplier still in
     // Draft cannot reach any of it (middleware/requireOnboarded.js).

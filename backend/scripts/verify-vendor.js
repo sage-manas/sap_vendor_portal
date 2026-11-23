@@ -52,7 +52,7 @@ async function main() {
   // The supplier the next steps act on. There is no create-profile endpoint any
   // more (registration is /auth/register), so it is seeded directly.
   await withoutTenantScope(() => rawPrisma.vendor.create({
-    data: { clientId: 'CLT-0001', vendorId: 'VND-11111', companyName: 'Profile Co', gstin: '27AABCB1234F1Z5', pan: 'AABCB1234F', email: 'profile@example.com', status: 'Draft' },
+    data: { clientId: 'CLT-0001', vendorId: 'VND-11111', companyName: 'Profile Co', gstin: '27AABCB1234F3Z6', pan: 'AABCB1234F', email: 'profile@example.com', status: 'Draft' },
   }));
 
   await test('updateProfile updates fields and re-hashes a password if one is sent', async () => {
@@ -72,7 +72,7 @@ async function main() {
   await test('createVendor (tenant-directory path) creates a Draft vendor with a reset token, no known password', async () => {
     const req = fakeReq({
       auth: { id: 'admin-pk', email: 'admin@legacy.test', role: 'client_admin', plane: 'tenant' },
-      client, body: { companyName: 'Directory Co', gstin: '27AABCB1234F1Z6', pan: 'AABCB1234G', email: 'directory@example.com' },
+      client, body: { companyName: 'Directory Co', gstin: '27AABCB1234F4Z5', pan: 'AABCB1234G', email: 'directory@example.com' },
     });
     const res = fakeRes();
     await runWithTenant('CLT-0001', () => createVendor(req, res, capturedNext()));

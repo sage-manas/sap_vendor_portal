@@ -12,7 +12,7 @@ const awaitPaymentRun = require('../jobs/handlers/awaitPaymentRun');
 const seedVendor = (clientId, vendorId) => runWithTenant(clientId, () => prisma.vendor.create({
   data: {
     vendorId, sapVendorCode: 'VENCONSOL', companyName: `${vendorId} Pvt Ltd`,
-    gstin: '27AAAAA9000A1Z9', pan: 'AAAAA9000A', email: `${vendorId}@example.com`,
+    gstin: '27AAAAA9000A1ZK', pan: 'AAAAA9000A', email: `${vendorId}@example.com`,
   },
 }));
 

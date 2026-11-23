@@ -190,7 +190,7 @@ describe('GET /api/dashboard/summary over more documents than fit in a page', ()
   let db;
 
   beforeEach(async () => {
-    supplier = await registerVendor(app, { vendorId: VENDOR, gstin: '27AAAAA9280A1Z1' }, { onboarded: true });
+    supplier = await registerVendor(app, { vendorId: VENDOR, gstin: '27AAAAA9280A1Z2' }, { onboarded: true });
     await seed();
     db = await expected();
   });
@@ -374,7 +374,7 @@ describe('the supplier report exports cover every row', () => {
   let supplier;
 
   beforeEach(async () => {
-    supplier = await registerVendor(app, { vendorId: VENDOR, gstin: '27AAAAA9280A1Z1' }, { onboarded: true });
+    supplier = await registerVendor(app, { vendorId: VENDOR, gstin: '27AAAAA9280A1Z2' }, { onboarded: true });
     await seed();
   });
 
@@ -459,7 +459,7 @@ describe('the supplier report exports cover every row', () => {
 
   it('does not hand another supplier\'s rows to a supplier who asks', async () => {
     const other = await registerVendor(app, {
-      vendorId: 'vendor_summary_3', gstin: '27AAAAA9282A1Z1',
+      vendorId: 'vendor_summary_3', gstin: '27AAAAA9282A1Z0',
       email: 'summary3@example.com', pan: 'AAAAA9282B',
     }, { onboarded: true });
 

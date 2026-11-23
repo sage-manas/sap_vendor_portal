@@ -3,6 +3,7 @@ const { PLATFORM_ROLES } = require('../config/roles');
 const { DRIVER_KEYS } = require('../sap/drivers');
 const { ENVIRONMENTS } = require('../db/sapConnectionHelpers');
 const { isKnownStateName, gstinMatchesState } = require('../config/indianStates');
+const { gstinField } = require('./common.validator');
 
 // Request shapes for the platform console. Roles come from the registry, so a
 // seventh role is still a one-file change.
@@ -42,17 +43,16 @@ const brandingSchema = z.strictObject({
   primaryColor: z.string().regex(/^#[0-9a-f]{6}$/i, { message: 'Primary colour must be a hex value like #059669' }).optional(),
 });
 
-// The tenant's own GST registration (finding 4.4). Same expression
-// validators/vendor.validator.js applies to a supplier's GSTIN — one legal
-// identifier, one shape, whichever side of the trade holds it.
-const gstinRegex = /^[0-9]{2}[A-Z0-9]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/i;
-
+// The tenant's own GST registration (finding 4.4). The same rule a supplier's
+// GSTIN is held to (common.validator.js) — one legal identifier, one rule,
+// whichever side of the trade holds it.
+//
 // Both are clearable: an operator who entered the wrong registration needs to
 // be able to take it back out, and null is a state gst.service.js already
 // handles honestly ("place of supply unknown", never "same state"). '' is
 // accepted and stored as null rather than refused, because that is what an
 // emptied form field sends.
-const gstinField = z.union([z.string().regex(gstinRegex, { message: 'Invalid GSTIN format' }), z.literal('')]);
+const tenantGstinField = z.union([z.literal(''), gstinField]);
 
 // Not free text. `isIntraState` compares this against the supplier's own
 // state as a string, so a value outside the registry the supplier chose from
@@ -86,7 +86,7 @@ const createTenantSchema = z.strictObject({
   // have the customer's GST registration in front of them yet, and a tenant
   // with no registration is a real, workable state (it just cannot derive a
   // place of supply until one is set).
-  gstin: gstinField.optional(),
+  gstin: tenantGstinField.optional(),
   state: stateField.optional(),
   // The first client_admin. Not optional: a tenant nobody can sign in to is
   // not a tenant, and this is the flow the phase exists for.
@@ -103,7 +103,7 @@ const updateTenantSchema = z.strictObject({
   limits: limitsUpdateSchema.optional(),
   branding: brandingSchema.optional(),
   featureFlags: z.record(z.string(), z.boolean()).optional(),
-  gstin: gstinField.optional(),
+  gstin: tenantGstinField.optional(),
   state: stateField.optional(),
 })
   .refine((body) => Object.keys(body).length > 0, { message: 'Nothing to update' })

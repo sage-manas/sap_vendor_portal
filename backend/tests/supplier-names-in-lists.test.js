@@ -1,7 +1,7 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
 const { prisma } = require('../db/prisma');
-const { registerVendor, createTenantUser, asTenant } = require('./helpers');
+const { registerVendor, createTenantUser, asTenant, gstinFor } = require('./helpers');
 const { ROLES } = require('../config/roles');
 
 // Finding 4.3. The workspace PO and invoice lists are the tenant-wide,
@@ -41,8 +41,8 @@ const seedTradeFor = (vendorId, suffix) => asTenant(async () => {
   });
 });
 
-const ACME = { vendorId: 'vendor_name_a', companyName: 'Acme Industries Pvt Ltd', gstin: '27AAAAA2221A1Z1' };
-const BETA = { vendorId: 'vendor_name_b', companyName: 'Beta Supplies Pvt Ltd', gstin: '27AAAAA2222A1Z1', email: 'beta-names@example.com' };
+const ACME = { vendorId: 'vendor_name_a', companyName: 'Acme Industries Pvt Ltd', gstin: '27AAAAA2221A1ZR' };
+const BETA = { vendorId: 'vendor_name_b', companyName: 'Beta Supplies Pvt Ltd', gstin: '27AAAAA2222A1ZQ', email: 'beta-names@example.com' };
 
 const seedTwoSuppliers = async () => {
   const a = await registerVendor(app, ACME, { onboarded: true });
@@ -96,7 +96,7 @@ describe('two suppliers in one list are each named', () => {
       await registerVendor(app, {
         vendorId,
         companyName,
-        gstin: `27AAAAA33${index}1A1Z1`,
+        gstin: gstinFor(`27AAAAA33${index}1A1Z`),
         pan: `AAAAA33${index}1A`,
         email: `fanout${index}@example.com`,
       }, { onboarded: true });

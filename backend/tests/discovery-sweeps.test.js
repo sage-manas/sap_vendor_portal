@@ -178,16 +178,16 @@ describe('sweepPurchaseOrders discovery', () => {
     });
 
     it('refuses an order whose buyer GSTIN is another legal entity\'s', async () => {
-      await setTenantGstin('27AABCN1234F1Z5');
+      await setTenantGstin('27AABCN1234F1ZW');
       await seedVendor('CLT-0001', 'vendor_party_3', 'VENP003');
-      await runSweep('CLT-0001', { po: [discoveryPo('4500098203', { buyerGstin: '27AAACX9999K1Z2' })] });
+      await runSweep('CLT-0001', { po: [discoveryPo('4500098203', { buyerGstin: '27AAACX9999K1Z8' })] });
       expect(await found('4500098203')).toBeNull();
     });
 
     it('accepts the tenant\'s own registration in another state (same PAN)', async () => {
-      await setTenantGstin('27AABCN1234F1Z5');
+      await setTenantGstin('27AABCN1234F1ZW');
       await seedVendor('CLT-0001', 'vendor_party_4', 'VENP004');
-      await runSweep('CLT-0001', { po: [discoveryPo('4500098204', { buyerGstin: '29AABCN1234F1Z7' })] });
+      await runSweep('CLT-0001', { po: [discoveryPo('4500098204', { buyerGstin: '29AABCN1234F1ZS' })] });
       expect(await found('4500098204')).toBeTruthy();
     });
 
@@ -429,7 +429,7 @@ describe('sweepQuotations discovery — RFQs raised directly in SAP', () => {
   // bid on it — the same submitBid a portal-created RFQ always accepted,
   // unmodified, including a null deadline never blocking the submission.
   it('a supplier can bid on an RFQ that reached the portal only through discovery', async () => {
-    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_rfq_bid_1', gstin: '27AAAAA9010A1Z1' }, { onboarded: true });
+    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_rfq_bid_1', gstin: '27AAAAA9010A1ZI' }, { onboarded: true });
     await runWithTenant('CLT-0001', () => prisma.vendor.updateMany({ where: { vendorId: vendor.vendorId }, data: { sapVendorCode: 'VENRFQBID1' } }));
 
     await runQuotationSweep('CLT-0001', { rfq: [discoveryRfq('6000000910')] });

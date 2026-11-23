@@ -56,7 +56,7 @@ describe('plan enforcement — vendors', () => {
       .set(bearer(token))
       .send({
         companyName: 'Over Limit Co',
-        gstin: '27AABCO1234F1Z5',
+        gstin: '27AABCO1234F1ZV',
         pan: 'AABCO1234F',
         email: 'overlimit@example.com',
       });

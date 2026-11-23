@@ -48,7 +48,7 @@ const deleteDoc = (token, documentId) =>
 
 describe('storage plan limit', () => {
   it('usageAgainstLimits reports storage used against the plan, in MB', async () => {
-    const { token: vendorToken, vendor } = await registerVendor(app, { vendorId: 'storage_1', gstin: '27AAAAA3001A1Z1' });
+    const { token: vendorToken, vendor } = await registerVendor(app, { vendorId: 'storage_1', gstin: '27AAAAA3001A1ZV' });
     const { token: adminToken } = await createAdminUser({ email: 'storage-admin-1@example.com' });
     await setStorageLimit(1024);
 
@@ -69,7 +69,7 @@ describe('storage plan limit', () => {
   });
 
   it('refuses an upload that would push the tenant over its storage limit', async () => {
-    const { token: vendorToken, vendor } = await registerVendor(app, { vendorId: 'storage_2', gstin: '27AAAAA3002A1Z1' });
+    const { token: vendorToken, vendor } = await registerVendor(app, { vendorId: 'storage_2', gstin: '27AAAAA3002A1ZU' });
     // A limit smaller than the file about to be sent — 0.5MB cap, 1MB file.
     await setStorageLimit(0.5);
 
@@ -91,7 +91,7 @@ describe('storage plan limit', () => {
   });
 
   it('allows an upload that fits within the limit', async () => {
-    const { token: vendorToken } = await registerVendor(app, { vendorId: 'storage_3', gstin: '27AAAAA3003A1Z1' });
+    const { token: vendorToken } = await registerVendor(app, { vendorId: 'storage_3', gstin: '27AAAAA3003A1ZT' });
     const { token: adminToken } = await createAdminUser({ email: 'storage-admin-3@example.com' });
     await setStorageLimit(10);
 
@@ -102,7 +102,7 @@ describe('storage plan limit', () => {
   });
 
   it('frees the allowance when a document is deleted, letting the next upload through', async () => {
-    const { token: vendorToken } = await registerVendor(app, { vendorId: 'storage_4', gstin: '27AAAAA3004A1Z1' });
+    const { token: vendorToken } = await registerVendor(app, { vendorId: 'storage_4', gstin: '27AAAAA3004A1ZS' });
     const { token: adminToken } = await createAdminUser({ email: 'storage-admin-4@example.com' });
     // Room for exactly one 1MB file at a time.
     await setStorageLimit(1);
@@ -122,7 +122,7 @@ describe('storage plan limit', () => {
   });
 
   it('treats an unset limit as unlimited', async () => {
-    const { token: vendorToken } = await registerVendor(app, { vendorId: 'storage_5', gstin: '27AAAAA3005A1Z1' });
+    const { token: vendorToken } = await registerVendor(app, { vendorId: 'storage_5', gstin: '27AAAAA3005A1ZR' });
     const { token: adminToken } = await createAdminUser({ email: 'storage-admin-5@example.com' });
     await setStorageLimit(null);
 
@@ -133,7 +133,7 @@ describe('storage plan limit', () => {
   });
 
   it('enforces a limit of exactly 0 rather than reading it as unlimited', async () => {
-    const { token: vendorToken } = await registerVendor(app, { vendorId: 'storage_6', gstin: '27AAAAA3006A1Z1' });
+    const { token: vendorToken } = await registerVendor(app, { vendorId: 'storage_6', gstin: '27AAAAA3006A1ZQ' });
     await setStorageLimit(0);
 
     const res = await upload(vendorToken, { bytes: 1024 });

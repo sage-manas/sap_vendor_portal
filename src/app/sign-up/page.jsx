@@ -56,7 +56,7 @@ export default function SignUpPage() {
     const panRegex = /^[A-Z0-9]{5}[0-9]{4}[A-Z]{1}$/i;
 
     if (!gstinRegex.test(gstin)) {
-      setError('Invalid GSTIN format. Example: 27AAAAA1111A1Z1');
+      setError('Invalid GSTIN format. Example: 27AAAAA1111A1ZW');
       return;
     }
     if (!panRegex.test(pan)) {
@@ -236,7 +236,7 @@ export default function SignUpPage() {
                 type="text"
                 required
                 disabled={loading}
-                placeholder="27AAAAA1111A1Z1"
+                placeholder="27AAAAA1111A1ZW"
                 value={gstin}
                 onChange={(e) => setGstin(e.target.value)}
                 className="uppercase"

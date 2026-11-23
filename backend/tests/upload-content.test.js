@@ -37,7 +37,7 @@ describe('what an upload is is decided from its content', () => {
   let before;
 
   beforeEach(async () => {
-    supplier = await registerVendor(app, { vendorId: 'upl_content_1', gstin: '27AAAAA4001A1Z1' });
+    supplier = await registerVendor(app, { vendorId: 'upl_content_1', gstin: '27AAAAA4001A1ZT' });
     before = filesFor(supplier.vendor.vendorId);
   });
 
@@ -215,7 +215,7 @@ describe('optional ClamAV scan', () => {
   });
 
   beforeEach(async () => {
-    supplier = await registerVendor(app, { vendorId: 'upl_scan_1', gstin: '27AAAAA4003A1Z1' });
+    supplier = await registerVendor(app, { vendorId: 'upl_scan_1', gstin: '27AAAAA4003A1ZR' });
   });
 
   afterEach(async () => {

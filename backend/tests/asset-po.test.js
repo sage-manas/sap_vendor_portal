@@ -58,7 +58,7 @@ const create = (token, body) =>
 
 describe('POST /api/pos/asset', () => {
   it('creates the order in SAP and records it with the number SAP returned', async () => {
-    const vendor = await approvedVendor('vendor_asset_1', '27AAAAA2001A1Z1');
+    const vendor = await approvedVendor('vendor_asset_1', '27AAAAA2001A1ZX');
     const { token } = await createAdminUser({ email: 'asset-admin-1@example.com' });
 
     const res = await create(token, { ...VALID, vendorId: vendor.vendorId });
@@ -108,7 +108,7 @@ describe('POST /api/pos/asset', () => {
     // always null, silently, for every asset PO ever created. A name distinct
     // from the helper's default, so this fails if the fix is ever undone by a
     // change to that default rather than to the controller.
-    const vendor = await approvedVendor('vendor_asset_16', '27AAAAA2016A1Z1');
+    const vendor = await approvedVendor('vendor_asset_16', '27AAAAA2016A1ZQ');
     const { token } = await createAdminUser({ email: 'buyer-name-16@example.com', name: 'Priya Raghavan' });
 
     const res = await create(token, { ...VALID, vendorId: vendor.vendorId });
@@ -121,7 +121,7 @@ describe('POST /api/pos/asset', () => {
   });
 
   it('records who chose the asset number, since nothing else can verify it', async () => {
-    const vendor = await approvedVendor('vendor_asset_2', '27AAAAA2002A1Z1');
+    const vendor = await approvedVendor('vendor_asset_2', '27AAAAA2002A1ZW');
     const { token } = await createAdminUser({ email: 'asset-admin-2@example.com' });
 
     const res = await create(token, { ...VALID, vendorId: vendor.vendorId });
@@ -138,7 +138,7 @@ describe('POST /api/pos/asset', () => {
   });
 
   it('refuses a supplier outright — raising capex is never the vendor\'s call', async () => {
-    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_asset_3', gstin: '27AAAAA2003A1Z1' }, { onboarded: true });
+    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_asset_3', gstin: '27AAAAA2003A1ZV' }, { onboarded: true });
 
     const res = await create(token, { ...VALID, vendorId: vendor.vendorId });
 
@@ -148,7 +148,7 @@ describe('POST /api/pos/asset', () => {
   });
 
   it('refuses a vendor with no SAP vendor master rather than letting SAP reject it', async () => {
-    const { vendor } = await registerVendor(app, { vendorId: 'vendor_asset_4', gstin: '27AAAAA2004A1Z1' }, { onboarded: true });
+    const { vendor } = await registerVendor(app, { vendorId: 'vendor_asset_4', gstin: '27AAAAA2004A1ZU' }, { onboarded: true });
     await runWithTenant('CLT-0001', () => prisma.vendor.update({
       where: { pk: vendor.pk }, data: { status: 'Approved', sapVendorCode: null },
     }));
@@ -161,7 +161,7 @@ describe('POST /api/pos/asset', () => {
   });
 
   it('refuses a supplier who is not approved yet', async () => {
-    const { vendor } = await registerVendor(app, { vendorId: 'vendor_asset_5', gstin: '27AAAAA2005A1Z1' });
+    const { vendor } = await registerVendor(app, { vendorId: 'vendor_asset_5', gstin: '27AAAAA2005A1ZT' });
     await runWithTenant('CLT-0001', () => prisma.vendor.update({
       where: { pk: vendor.pk }, data: { status: 'Under Review', sapVendorCode: '1120250010' },
     }));
@@ -174,7 +174,7 @@ describe('POST /api/pos/asset', () => {
   });
 
   it('rejects a line with no asset number', async () => {
-    const vendor = await approvedVendor('vendor_asset_6', '27AAAAA2006A1Z1');
+    const vendor = await approvedVendor('vendor_asset_6', '27AAAAA2006A1ZS');
     const { token } = await createAdminUser({ email: 'asset-admin-6@example.com' });
 
     const res = await create(token, {
@@ -187,7 +187,7 @@ describe('POST /api/pos/asset', () => {
   });
 
   it('rejects a non-numeric asset number rather than passing a typo to SAP', async () => {
-    const vendor = await approvedVendor('vendor_asset_7', '27AAAAA2007A1Z1');
+    const vendor = await approvedVendor('vendor_asset_7', '27AAAAA2007A1ZR');
     const { token } = await createAdminUser({ email: 'asset-admin-7@example.com' });
 
     const res = await create(token, {
@@ -200,7 +200,7 @@ describe('POST /api/pos/asset', () => {
   });
 
   it('rejects a description SAP would silently truncate at 40 characters', async () => {
-    const vendor = await approvedVendor('vendor_asset_8', '27AAAAA2008A1Z1');
+    const vendor = await approvedVendor('vendor_asset_8', '27AAAAA2008A1ZQ');
     const { token } = await createAdminUser({ email: 'asset-admin-8@example.com' });
 
     const res = await create(token, {
@@ -216,7 +216,7 @@ describe('POST /api/pos/asset', () => {
     // Issue #62: a value on a purchase order means a real one was supplied,
     // never that '1000' was assumed. An asset PO has no awarding RFQ to carry
     // these from.
-    const vendor = await approvedVendor('vendor_asset_9', '27AAAAA2009A1Z1');
+    const vendor = await approvedVendor('vendor_asset_9', '27AAAAA2009A1ZP');
     const { token } = await createAdminUser({ email: 'asset-admin-9@example.com' });
 
     for (const field of ['companyCode', 'purchasingOrg', 'purchasingGroup']) {
@@ -231,7 +231,7 @@ describe('POST /api/pos/asset', () => {
     // The whole reason this calls SAP before persisting. A local order claiming
     // an SAP document that was never created is the state §5.6 spent a phase
     // removing — it must not come back through this door.
-    const vendor = await approvedVendor('vendor_asset_10', '27AAAAA2010A1Z1');
+    const vendor = await approvedVendor('vendor_asset_10', '27AAAAA2010A1ZW');
     const { token } = await createAdminUser({ email: 'asset-admin-10@example.com' });
 
     // Driven through a real refusing driver rather than a stubbed module: the
@@ -256,7 +256,7 @@ describe('POST /api/pos/asset', () => {
   });
 
   it('defaults the asset sub-number to 0000 (the main asset), not to blank', async () => {
-    const vendor = await approvedVendor('vendor_asset_11', '27AAAAA2011A1Z1');
+    const vendor = await approvedVendor('vendor_asset_11', '27AAAAA2011A1ZV');
     const { token } = await createAdminUser({ email: 'asset-admin-11@example.com' });
 
     const body = { ...VALID, vendorId: vendor.vendorId, items: [{ ...VALID.items[0] }] };
@@ -273,7 +273,7 @@ describe('POST /api/pos/asset', () => {
     // 10,000 per 100 is a 20,000 line, not a 2,000,000 one. Every other case in
     // this file pins `priceUnit: 1`, which is exactly what let the missing
     // divisor ship — this is the case that fails without it.
-    const vendor = await approvedVendor('vendor_asset_13', '27AAAAA2013A1Z1');
+    const vendor = await approvedVendor('vendor_asset_13', '27AAAAA2013A1ZT');
     const { token } = await createAdminUser({ email: 'asset-admin-13@example.com' });
 
     const res = await create(token, {
@@ -297,7 +297,7 @@ describe('POST /api/pos/asset', () => {
   });
 
   it('defaults the price unit to 1 when the caller does not state one', async () => {
-    const vendor = await approvedVendor('vendor_asset_14', '27AAAAA2014A1Z1');
+    const vendor = await approvedVendor('vendor_asset_14', '27AAAAA2014A1ZS');
     const { token } = await createAdminUser({ email: 'asset-admin-14@example.com' });
 
     const body = { ...VALID, vendorId: vendor.vendorId, items: [{ ...VALID.items[0] }] };
@@ -315,7 +315,7 @@ describe('POST /api/pos/asset', () => {
   });
 
   it('records the audited total value with the price unit applied', async () => {
-    const vendor = await approvedVendor('vendor_asset_15', '27AAAAA2015A1Z1');
+    const vendor = await approvedVendor('vendor_asset_15', '27AAAAA2015A1ZR');
     const { token } = await createAdminUser({ email: 'asset-admin-15@example.com' });
 
     const res = await create(token, {
@@ -332,7 +332,7 @@ describe('POST /api/pos/asset', () => {
   });
 
   it('numbers lines 10, 20, 30 the way every other document in this app does', async () => {
-    const vendor = await approvedVendor('vendor_asset_12', '27AAAAA2012A1Z1');
+    const vendor = await approvedVendor('vendor_asset_12', '27AAAAA2012A1ZU');
     const { token } = await createAdminUser({ email: 'asset-admin-12@example.com' });
 
     const res = await create(token, {

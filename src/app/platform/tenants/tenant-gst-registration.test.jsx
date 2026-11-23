@@ -77,9 +77,9 @@ const openEditor = async () => {
 
 describe('the tenant detail page shows the GST registration', () => {
   it('reads out a configured GSTIN and state', async () => {
-    renderPage(apiFor({ gstin: '27AABCU9603R1ZM', state: 'Maharashtra' }));
+    renderPage(apiFor({ gstin: '27AABCU9603R1ZN', state: 'Maharashtra' }));
 
-    expect(await screen.findByText('27AABCU9603R1ZM')).toBeInTheDocument();
+    expect(await screen.findByText('27AABCU9603R1ZN')).toBeInTheDocument();
     expect(screen.getByText('Maharashtra')).toBeInTheDocument();
   });
 
@@ -98,13 +98,13 @@ describe('an operator sets the GST registration', () => {
     const { apiMock } = renderPage(apiFor());
     await openEditor();
 
-    await userEvent.type(screen.getByLabelText('GSTIN'), '27AABCU9603R1ZM');
+    await userEvent.type(screen.getByLabelText('GSTIN'), '27AABCU9603R1ZN');
     await userEvent.selectOptions(screen.getByLabelText('State (place of supply)'), 'Maharashtra');
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(apiMock.callsTo('PUT', '/platform/tenants/CLT-0001')).toHaveLength(1));
     expect(apiMock.lastBody('PUT', '/platform/tenants/CLT-0001')).toMatchObject({
-      gstin: '27AABCU9603R1ZM',
+      gstin: '27AABCU9603R1ZN',
       state: 'Maharashtra',
     });
   });
@@ -113,25 +113,25 @@ describe('an operator sets the GST registration', () => {
     const { apiMock } = renderPage(apiFor());
     await openEditor();
 
-    await userEvent.type(screen.getByLabelText('GSTIN'), '27aabcu9603r1zm');
+    await userEvent.type(screen.getByLabelText('GSTIN'), '27aabcu9603r1zn');
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(apiMock.callsTo('PUT', '/platform/tenants/CLT-0001')).toHaveLength(1));
     // A GSTIN is uppercase. The server's regex is case-insensitive, so this is
     // about what gets stored and displayed, not about passing validation.
-    expect(apiMock.lastBody('PUT', '/platform/tenants/CLT-0001').gstin).toBe('27AABCU9603R1ZM');
+    expect(apiMock.lastBody('PUT', '/platform/tenants/CLT-0001').gstin).toBe('27AABCU9603R1ZN');
   });
 
   it('pre-fills the editor with what is already stored', async () => {
-    renderPage(apiFor({ gstin: '29AABCU9603R1ZX', state: 'Karnataka' }));
+    renderPage(apiFor({ gstin: '29AABCU9603R1ZJ', state: 'Karnataka' }));
     await openEditor();
 
-    expect(screen.getByLabelText('GSTIN')).toHaveValue('29AABCU9603R1ZX');
+    expect(screen.getByLabelText('GSTIN')).toHaveValue('29AABCU9603R1ZJ');
     expect(screen.getByLabelText('State (place of supply)')).toHaveValue('Karnataka');
   });
 
   it('can clear a registration that was entered in error', async () => {
-    const { apiMock } = renderPage(apiFor({ gstin: '27AABCU9603R1ZM', state: 'Maharashtra' }));
+    const { apiMock } = renderPage(apiFor({ gstin: '27AABCU9603R1ZN', state: 'Maharashtra' }));
     await openEditor();
 
     await userEvent.clear(screen.getByLabelText('GSTIN'));

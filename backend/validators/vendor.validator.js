@@ -1,7 +1,9 @@
 const { z } = require('zod');
+const { gstinField } = require('./common.validator');
 
-// Regex adjusted to allow digits in alphabetic slots for testing (as explained in implementation plan)
-const gstinRegex = /^[0-9]{2}[A-Z0-9]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/i;
+// Allows digits in the PAN's alphabetic slots (gap #8 of
+// docs/03-verification-layer-design.md). The GSTIN's rule lives in
+// common.validator.js.
 const panRegex = /^[A-Z0-9]{5}[0-9]{4}[A-Z]{1}$/i;
 // Matches the registration form's own check (src/features/profile/validation.js):
 // an optional leading '+', then digits/spaces/hyphens, 10-15 characters — the
@@ -64,7 +66,7 @@ const optionalFlag = z.boolean().nullish().transform((value) => value ?? undefin
 const profileCreateSchema = z.strictObject({
   vendorId: z.string(),
   companyName: z.string().min(3).max(100),
-  gstin: z.string().regex(gstinRegex, { message: "Invalid GSTIN format" }),
+  gstin: gstinField,
   pan: z.string().regex(panRegex, { message: "Invalid PAN format" }),
   email: z.string().email({ message: "Invalid email format" }),
   phone: z.string().regex(phoneRegex, { message: "Invalid phone number format" }).optional().or(z.literal('')),

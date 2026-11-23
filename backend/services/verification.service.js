@@ -4,18 +4,22 @@
 // a vendor's GSTIN/PAN are considered verified — controllers must not set
 // gstinVerified/panVerified any other way.
 
-const GSTIN_REGEX = /^[0-9]{2}[A-Z0-9]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/i;
+const { hasValidCheckCharacter, panOfGstin } = require('../utils/gstin');
+
 const PAN_REGEX = /^[A-Z0-9]{5}[0-9]{4}[A-Z]{1}$/i;
 
 const isMockMode = () => process.env.GSTIN_PAN_VERIFY_MOCK_MODE !== 'false';
 
-// Mock check: validates format and confirms the PAN is embedded in the GSTIN
-// (GSTIN characters 3-12 are always the taxpayer's PAN), the same
-// cross-check a real verification provider would perform.
+// Mock check: the offline arithmetic only (utils/gstin.js). The GSTIN must
+// have the right shape and check character, and the PAN must be the one
+// embedded in it (GSTIN characters 3-12 are always the taxpayer's PAN), the
+// same cross-check a real verification provider would perform. The validators
+// refuse a bad check character on write; checking it again here covers a row
+// written before they did.
 const verifyMock = async (gstin, pan) => {
-  const gstinValid = GSTIN_REGEX.test(gstin || '');
+  const gstinValid = hasValidCheckCharacter(gstin);
   const panValid = PAN_REGEX.test(pan || '');
-  const panMatchesGstin = gstinValid && panValid && gstin.slice(2, 12).toUpperCase() === pan.toUpperCase();
+  const panMatchesGstin = gstinValid && panValid && panOfGstin(gstin) === pan.toUpperCase();
 
   return {
     provider: 'MOCK',

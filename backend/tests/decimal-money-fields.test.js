@@ -30,7 +30,7 @@ const futureDate = (days = 7) => new Date(Date.now() + days * 24 * 60 * 60 * 100
 
 describe('money fields survive the Float → Decimal migration', () => {
   it('an RFQ award response carries plain numbers, not Decimal strings', async () => {
-    const supplier = await registerVendor(app, { vendorId: 'vendor_decimal_1', gstin: '27AAAAA3001A1Z1' }, { onboarded: true });
+    const supplier = await registerVendor(app, { vendorId: 'vendor_decimal_1', gstin: '27AAAAA3001A1ZV' }, { onboarded: true });
     const buyer = await createAdminUser({ email: 'decimal-buyer-1@example.com' });
     const asSupplier = auth(supplier.token);
     const asBuyer = auth(buyer.token);
@@ -70,7 +70,7 @@ describe('money fields survive the Float → Decimal migration', () => {
   });
 
   it('an invoice and its eventual payment carry plain numbers throughout', async () => {
-    const supplier = await registerVendor(app, { vendorId: 'vendor_decimal_2', gstin: '27AAAAA3002A1Z1' }, { onboarded: true });
+    const supplier = await registerVendor(app, { vendorId: 'vendor_decimal_2', gstin: '27AAAAA3002A1ZU' }, { onboarded: true });
     const asSupplier = auth(supplier.token);
 
     const po = await runWithTenant('CLT-0001', () => prisma.purchaseOrder.create({
@@ -232,7 +232,7 @@ describe('money fields survive the Float → Decimal migration', () => {
     // a Decimal — the same trap one step further in. (It read findMany and
     // reduced with `+` until issue #280 moved the aggregation into SQL; the
     // conversion has to be explicit either way.)
-    const supplier = await registerVendor(app, { vendorId: 'vendor_decimal_5', gstin: '27AAAAA3005A1Z1' }, { onboarded: true });
+    const supplier = await registerVendor(app, { vendorId: 'vendor_decimal_5', gstin: '27AAAAA3005A1ZR' }, { onboarded: true });
     const asSupplier = auth(supplier.token);
 
     const po = await runWithTenant('CLT-0001', () => prisma.purchaseOrder.create({

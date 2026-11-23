@@ -27,7 +27,7 @@ const seedPO = (vendorId, overrides = {}) =>
 
 describe('GET /api/vendors/:id', () => {
   it('returns the profile, live trading figures and recent orders', async () => {
-    const { vendor } = await registerVendor(app, { vendorId: 'vendor_detail_1', gstin: '27AAAAA3001A1Z1' }, { onboarded: true });
+    const { vendor } = await registerVendor(app, { vendorId: 'vendor_detail_1', gstin: '27AAAAA3001A1ZV' }, { onboarded: true });
     const { token } = await createAdminUser({ email: 'detail-admin-1@example.com' });
     await runWithTenant('CLT-0001', () => prisma.vendor.update({ where: { pk: vendor.pk }, data: { region: '13' } }));
     await seedPO(vendor.vendorId, { id: 'PO-VD-1' });
@@ -50,7 +50,7 @@ describe('GET /api/vendors/:id', () => {
   });
 
   it('is addressable by the supplier id as well as the document id', async () => {
-    const { vendor } = await registerVendor(app, { vendorId: 'vendor_detail_2', gstin: '27AAAAA3002A1Z1' }, { onboarded: true });
+    const { vendor } = await registerVendor(app, { vendorId: 'vendor_detail_2', gstin: '27AAAAA3002A1ZU' }, { onboarded: true });
     const { token } = await createAdminUser({ email: 'detail-admin-2@example.com' });
 
     const res = await request(app).get(`/api/vendors/${vendor.vendorId}`).set('Authorization', `Bearer ${token}`);
@@ -60,7 +60,7 @@ describe('GET /api/vendors/:id', () => {
   });
 
   it('reports whether this supplier is a decision waiting to happen', async () => {
-    const { vendor } = await registerVendor(app, { vendorId: 'vendor_detail_3', gstin: '27AAAAA3003A1Z1' });
+    const { vendor } = await registerVendor(app, { vendorId: 'vendor_detail_3', gstin: '27AAAAA3003A1ZT' });
     const { token } = await createAdminUser({ email: 'detail-admin-3@example.com' });
 
     const asDraft = await request(app).get(`/api/vendors/${vendor.vendorId}`).set('Authorization', `Bearer ${token}`);
@@ -74,9 +74,9 @@ describe('GET /api/vendors/:id', () => {
   });
 
   it('does not let a supplier read another supplier — or themselves — through it', async () => {
-    const { token: supplierToken } = await registerVendor(app, { vendorId: 'vendor_detail_4', gstin: '27AAAAA3004A1Z1' }, { onboarded: true });
+    const { token: supplierToken } = await registerVendor(app, { vendorId: 'vendor_detail_4', gstin: '27AAAAA3004A1ZS' }, { onboarded: true });
     const { vendor: other } = await registerVendor(app, {
-      vendorId: 'vendor_detail_5', gstin: '27AAAAA3005A1Z1', email: 'other-detail@example.com',
+      vendorId: 'vendor_detail_5', gstin: '27AAAAA3005A1ZR', email: 'other-detail@example.com',
     }, { onboarded: true });
 
     const res = await request(app).get(`/api/vendors/${other.vendorId}`).set('Authorization', `Bearer ${supplierToken}`);
@@ -90,7 +90,7 @@ describe('GET /api/vendors/:id', () => {
   });
 
   it('still routes the static supplier endpoints that sit above it', async () => {
-    const { token } = await registerVendor(app, { vendorId: 'vendor_detail_7', gstin: '27AAAAA3007A1Z1' }, { onboarded: true });
+    const { token } = await registerVendor(app, { vendorId: 'vendor_detail_7', gstin: '27AAAAA3007A1ZP' }, { onboarded: true });
 
     // '/:id' is registered last precisely so these are not swallowed.
     const profile = await request(app).get('/api/vendors/profile').set('Authorization', `Bearer ${token}`);

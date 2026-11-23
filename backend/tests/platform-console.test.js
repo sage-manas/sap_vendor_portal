@@ -458,8 +458,8 @@ describe('platform console — health', () => {
     await request(app).put('/api/platform/tenants/CLT-0002').set(bearer(token)).send({ limits: { vendors: 1 } });
 
     await runWithTenant('CLT-0002', async () => {
-      await prisma.vendor.create({ data: { vendorId: 'VND-N1', companyName: 'One Ltd', gstin: '27AABCN1111F1Z5', pan: 'AABCN1111F', email: 'one@northwind.example.com' } });
-      await prisma.vendor.create({ data: { vendorId: 'VND-N2', companyName: 'Two Ltd', gstin: '27AABCN2222F1Z5', pan: 'AABCN2222F', email: 'two@northwind.example.com' } });
+      await prisma.vendor.create({ data: { vendorId: 'VND-N1', companyName: 'One Ltd', gstin: '27AABCN1111F1Z4', pan: 'AABCN1111F', email: 'one@northwind.example.com' } });
+      await prisma.vendor.create({ data: { vendorId: 'VND-N2', companyName: 'Two Ltd', gstin: '27AABCN2222F1ZY', pan: 'AABCN2222F', email: 'two@northwind.example.com' } });
     });
 
     const res = await request(app).get('/api/platform/health').set(bearer(token));

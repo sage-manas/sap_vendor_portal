@@ -41,7 +41,7 @@ beforeEach(() => invalidateSapAdapter());
 
 describe('GET /api/invoices/sap-status pagination (issue #71)', () => {
   it('defaults to 10 invoices per page, matching GET /api/invoices', async () => {
-    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_sapstatus_1', gstin: '27AAAAA0011A1Z1' }, { onboarded: true });
+    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_sapstatus_1', gstin: '27AAAAA0011A1ZZ' }, { onboarded: true });
     const po = await seedPo('PO-2026-9101', vendor.vendorId);
     await Promise.all(Array.from({ length: 15 }, (_, i) => seedInvoice(i, { vendorId: vendor.vendorId, poId: po.id })));
 
@@ -53,7 +53,7 @@ describe('GET /api/invoices/sap-status pagination (issue #71)', () => {
   });
 
   it('honours an explicit page/limit', async () => {
-    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_sapstatus_2', gstin: '27AAAAA0012A1Z1' }, { onboarded: true });
+    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_sapstatus_2', gstin: '27AAAAA0012A1ZY' }, { onboarded: true });
     const po = await seedPo('PO-2026-9102', vendor.vendorId);
     await Promise.all(Array.from({ length: 15 }, (_, i) => seedInvoice(i, { vendorId: vendor.vendorId, poId: po.id })));
 
@@ -65,7 +65,7 @@ describe('GET /api/invoices/sap-status pagination (issue #71)', () => {
   });
 
   it('caps an absurd limit rather than letting it re-open the unbounded fan-out', async () => {
-    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_sapstatus_3', gstin: '27AAAAA0013A1Z1' }, { onboarded: true });
+    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_sapstatus_3', gstin: '27AAAAA0013A1ZX' }, { onboarded: true });
     const po = await seedPo('PO-2026-9103', vendor.vendorId);
     await Promise.all(Array.from({ length: 5 }, (_, i) => seedInvoice(i, { vendorId: vendor.vendorId, poId: po.id })));
 
@@ -78,7 +78,7 @@ describe('GET /api/invoices/sap-status pagination (issue #71)', () => {
 
 describe('GET /api/invoices/sap-status payment-detail reuse (issue #71)', () => {
   it('reads a cleared invoice\'s payment detail from the local Payment record, not from SAP again', async () => {
-    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_sapstatus_4', gstin: '27AAAAA0014A1Z1' }, { onboarded: true });
+    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_sapstatus_4', gstin: '27AAAAA0014A1ZW' }, { onboarded: true });
     const po = await seedPo('PO-2026-9104', vendor.vendorId);
 
     // The mock echoes back whatever sapMiroDoc the invoice already carries
@@ -126,7 +126,7 @@ describe('GET /api/invoices/sap-status payment-detail reuse (issue #71)', () => 
   });
 
   it('bounds concurrent invoicePaymentDetail calls to SAP_DETAIL_CONCURRENCY', async () => {
-    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_sapstatus_5', gstin: '27AAAAA0015A1Z1' }, { onboarded: true });
+    const { token, vendor } = await registerVendor(app, { vendorId: 'vendor_sapstatus_5', gstin: '27AAAAA0015A1ZV' }, { onboarded: true });
     const po = await seedPo('PO-2026-9105', vendor.vendorId);
     // Eight invoices, none locally cleared, each its own amount so
     // matchInvoiceDocument doesn't see same-PO/same-date/same-amount
