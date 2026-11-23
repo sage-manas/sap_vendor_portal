@@ -342,10 +342,8 @@ const submitASN = asyncHandler(async (req, res, next) => {
           invoiceDate: new Date(invoiceDate),
           invoiceValue,
           ewayBillNo,
-          // The portal does not create an inbound delivery in SAP — the dispatch
-          // notice is recorded here, and the goods receipt is discovered by polling
-          // SAP's own PO/GRN ledger on the purchase order number (awaitGoodsReceipt),
-          // which never referenced a delivery document anyway.
+          // Filled by jobs/handlers/createInboundDelivery.js once SAP has
+          // created the delivery (ADR-0049) — never here, and never invented.
           sapInboundDelivery: null,
           items: { create: shippedItems.map((item) => ({ clientId, ...item })) },
         },
@@ -385,6 +383,16 @@ const submitASN = asyncHandler(async (req, res, next) => {
   // this watch begins.
   await markPending('awaitGoodsReceipt', { asnId: asn.id });
 
+  // The inbound delivery (ADR-0049), as a job rather than inline: a slow or
+  // unreachable SAP must not stop a supplier recording that goods left. On a
+  // connection with no delivery endpoint configured the job does nothing.
+  await enqueue({
+    clientId,
+    kind: 'createInboundDelivery',
+    dedupeKey: `createInboundDelivery:${clientId}:${asn.id}`,
+    args: { asnId: asn.id },
+  });
+
   res.status(201).json({ message: 'Shipment details submitted successfully. Your buyer will confirm the delivery once the goods arrive.', asn: formatAsn(asn) });
 });
 
@@ -400,6 +408,12 @@ const submitASN = asyncHandler(async (req, res, next) => {
 // Received is final. SAP has posted a goods receipt against it by then, and
 // reversing that is a MIGO cancellation on the buyer's side, not something a
 // supplier can do from here.
+//
+// A shipment SAP already holds an inbound delivery for (ADR-0049) is deleted
+// in SAP first, and cancelled here only once that worked. The other order
+// would leave the warehouse expecting a truck the portal says is not coming.
+// The SAP call is made before the row lock is taken, not under it: a lock held
+// across a slow HTTP call would stall every other shipment on the order.
 const cancelASN = asyncHandler(async (req, res, next) => {
   const vendorId = requireVendorScope(req);
   const { reason } = req.body;
@@ -411,14 +425,7 @@ const cancelASN = asyncHandler(async (req, res, next) => {
 
   const { clientId } = req;
 
-  const asn = await prisma.$transaction(async (tx) => {
-    // Same lock submitASN takes, so a cancel and a submit on one order see
-    // each other's result, and so does a cancel racing the goods-receipt job
-    // (it locks nothing, but re-reads the ASN status inside its own
-    // transaction and does nothing to a Cancelled one).
-    await tx.$queryRaw`SELECT pk FROM "purchase_orders" WHERE pk = ${po.pk}::uuid AND "clientId" = ${clientId} FOR UPDATE`;
-
-    const current = await tx.aSN.findFirst({ where: { id: req.params.asnId, poId: po.id, vendorId } });
+  const assertCancellable = (current) => {
     if (!current) {
       throw ApiError.notFound('Shipment not found');
     }
@@ -428,10 +435,48 @@ const cancelASN = asyncHandler(async (req, res, next) => {
     if (!ASN_OPEN.includes(current.status)) {
       throw ApiError.badRequest(`A shipment that is '${current.status}' cannot be cancelled.`);
     }
+  };
+
+  const before = await prisma.aSN.findFirst({ where: { id: req.params.asnId, poId: po.id, vendorId } });
+  assertCancellable(before);
+
+  let deliveryDeleted = false;
+  if (before.sapInboundDelivery) {
+    const sap = await getSapAdapterForClient(clientId);
+    let result;
+    try {
+      result = await sap.inboundDeliveryCancel({ asn: before, vendorId });
+    } catch {
+      // SAP's own reason is in the SAP log; what reaches the supplier is what
+      // they can act on.
+      throw new ApiError(502, `SAP did not delete inbound delivery ${before.sapInboundDelivery}, so the shipment has not been cancelled. Try again, or ask your buyer to check the delivery in SAP.`);
+    }
+    if (!result?.cancelled) {
+      throw ApiError.conflict(`SAP holds inbound delivery ${before.sapInboundDelivery} for this shipment, and this portal cannot delete it on your buyer's SAP connection. Ask your buyer to remove it, then cancel here.`);
+    }
+    deliveryDeleted = true;
+  }
+
+  const asn = await prisma.$transaction(async (tx) => {
+    // Same lock submitASN takes, so a cancel and a submit on one order see
+    // each other's result, and so does a cancel racing the goods-receipt job
+    // (it locks nothing, but re-reads the ASN status inside its own
+    // transaction and does nothing to a Cancelled one).
+    await tx.$queryRaw`SELECT pk FROM "purchase_orders" WHERE pk = ${po.pk}::uuid AND "clientId" = ${clientId} FOR UPDATE`;
+
+    const current = await tx.aSN.findFirst({ where: { id: req.params.asnId, poId: po.id, vendorId } });
+    assertCancellable(current);
 
     const updated = await tx.aSN.update({
       where: { pk: current.pk },
-      data: { status: ASN_STATUS.CANCELLED, cancelledAt: new Date(), cancelReason: reason },
+      data: {
+        status: ASN_STATUS.CANCELLED,
+        cancelledAt: new Date(),
+        cancelReason: reason,
+        // The delivery SAP holds now — none, once it is deleted. The SAP log
+        // keeps the number.
+        ...(deliveryDeleted ? { sapInboundDelivery: null } : {}),
+      },
       include: ASN_INCLUDE,
     });
 
@@ -439,14 +484,17 @@ const cancelASN = asyncHandler(async (req, res, next) => {
     return updated;
   });
 
-  // Nothing is left to receive against it.
+  // Nothing is left to receive against it, or to announce. A delivery job
+  // already running is not stopped here; it re-reads the ASN and deletes
+  // what it created (jobs/handlers/createInboundDelivery.js).
   await cancelByDedupeKey(`awaitGoodsReceipt:${clientId}:${asn.id}`);
+  await cancelByDedupeKey(`createInboundDelivery:${clientId}:${asn.id}`);
 
   await recordAudit({
     action: AUDIT_ACTIONS.ASN_CANCELLED,
     req,
     target: { type: 'ASN', id: asn.id, label: `${asn.id} on ${po.id}` },
-    meta: { poId: po.id, reason },
+    meta: { poId: po.id, reason, ...(deliveryDeleted ? { sapInboundDeliveryDeleted: before.sapInboundDelivery } : {}) },
   });
 
   emitToProcurement(req.app.get('io'), clientId, EVENTS.ASN_CANCELLED, { asnId: asn.id, poId: po.id, vendorId });

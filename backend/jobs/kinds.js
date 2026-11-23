@@ -14,6 +14,16 @@ const SAP_JOB_KINDS = {
     defaultMaxAttempts: 1440, // 24h at 60s
     recurring: false,
   },
+  // ADR-0049. Not a poll: one write, retried with backoff on an error. It
+  // waits (done: false) only while the order has no SAP number yet — a
+  // delivery has nothing to reference until it does — so the budget is the
+  // goods-receipt watch's, after which there is no shipment left to announce.
+  createInboundDelivery: {
+    label: 'Create inbound delivery',
+    defaultIntervalMs: 30_000,
+    defaultMaxAttempts: 240, // 2h at 30s
+    recurring: false,
+  },
 
   // Discovery sweeps (Phase 4) — find documents SAP created on its own,
   // without portal involvement. `recurring: true` marks a different shape

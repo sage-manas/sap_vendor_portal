@@ -82,6 +82,17 @@ describe('cancelling a shipment from the order', () => {
     await waitFor(() => expect(apiMock.lastBody('POST', '/pos/PO-2026-0001/asn/ASN-100001/cancel')).toEqual({ reason: 'Vehicle did not leave' }));
   });
 
+  it('shows the inbound delivery SAP created, and a dash where it made none', async () => {
+    const user = userEvent.setup();
+    renderLedger([po()], [asn({ sapInboundDelivery: '0180000123' }), asn({ id: 'ASN-100002' })]);
+
+    await user.click(await row('PO-2026-0001'));
+    await user.click(await screen.findByRole('tab', { name: 'Delivery status' }));
+
+    expect(within(await row('ASN-100001')).getByText('0180000123')).toBeInTheDocument();
+    expect(within(await row('ASN-100002')).getByTitle('SAP has no inbound delivery for this shipment')).toBeInTheDocument();
+  });
+
   it('offers no cancel on a shipment SAP has received', async () => {
     const user = userEvent.setup();
     renderLedger([po()], [asn({ status: 'Received', items: [{ line: 10, shippedQuantity: 40, receivedQuantity: 38, receiptVariance: -2 }] })]);
