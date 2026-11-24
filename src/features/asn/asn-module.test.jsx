@@ -262,3 +262,44 @@ describe('approval by the buyer', () => {
     expect(screen.queryByRole('button', { name: 'Cancel shipment' })).not.toBeInTheDocument();
   });
 });
+
+describe('the ASN slip', () => {
+  it('opens from the shipment', async () => {
+    const user = userEvent.setup();
+    const { navigation } = render('/asn?id=ASN-100001', { asns: [asn({ sapInboundDelivery: '0180000123' })] });
+
+    await user.click(await screen.findByRole('button', { name: 'Print ASN slip' }));
+
+    expect(navigation.push).toHaveBeenCalledWith('/asn?slip=ASN-100001');
+  });
+
+  it('carries what the gate needs, and prints', async () => {
+    const user = userEvent.setup();
+    const print = vi.spyOn(window, 'print').mockImplementation(() => {});
+    render('/asn?slip=ASN-100001', { asns: [asn({ sapInboundDelivery: '0180000123', trackingNumber: 'LR778812' })] });
+
+    const slip = await screen.findByRole('article', { name: 'ASN slip ASN-100001' });
+    expect(within(slip).getByRole('heading', { level: 1, name: 'ASN-100001' })).toBeInTheDocument();
+    expect(within(slip).getAllByText('0180000123').length).toBeGreaterThan(0);
+    expect(within(slip).getByText('HR55AB1234')).toBeInTheDocument();
+    expect(within(slip).getByText('LR778812')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Print' }));
+
+    expect(print).toHaveBeenCalled();
+    print.mockRestore();
+  });
+
+  it('says plainly when the buyer has not approved it yet', async () => {
+    render('/asn?slip=ASN-100001', { asns: [asn({ status: 'Pending Approval' })] });
+
+    expect(await screen.findByText(/Do not dispatch on this slip until it is approved/)).toBeInTheDocument();
+    expect(screen.getByText('not created yet')).toBeInTheDocument();
+  });
+
+  it('is not offered for a cancelled shipment', async () => {
+    render('/asn?id=ASN-100001', { asns: [asn({ status: 'Cancelled' })] });
+
+    await screen.findByRole('heading', { level: 1, name: 'ASN-100001' });
+    expect(screen.queryByRole('button', { name: 'Print ASN slip' })).not.toBeInTheDocument();
+  });
+});

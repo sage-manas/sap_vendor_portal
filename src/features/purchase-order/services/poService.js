@@ -52,6 +52,14 @@ export const poService = {
   async rejectShipment(asnId, reason) {
     return apiClient.post(`/asns/${asnId}/reject`, { reason });
   },
+  // The workspace's ASN monitor (ASN design B1). `query` is a ready query
+  // string: plant and date.
+  async getAsnMonitor(query = '') {
+    return apiClient.get(`/asns/monitor${query ? `?${query}` : ''}`);
+  },
+  async retryShipmentSap(asnId) {
+    return apiClient.post(`/asns/${asnId}/retry`, {});
+  },
 
   // Shipment notice drafts: the supplier's own, with no ASN number until
   // submitted. `pk` is the draft's id.

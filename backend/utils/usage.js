@@ -73,6 +73,14 @@ const startOfMonth = (timeZone = DEFAULT_TIMEZONE, now = new Date()) => {
   return new Date(wallClock - offsetAt(firstPass, zone));
 };
 
+// Today's calendar date in the tenant's own timezone, as 'YYYY-MM-DD' — for
+// a screen that asks what is due today (the ASN monitor), where 'today' is the
+// plant's, not the server's.
+const todayIn = (timeZone = DEFAULT_TIMEZONE, now = new Date()) => {
+  const here = zonedParts(now, known(timeZone) ? timeZone : DEFAULT_TIMEZONE);
+  return `${here.year}-${String(here.month).padStart(2, '0')}-${String(here.day).padStart(2, '0')}`;
+};
+
 // null limit means unlimited: "no limit" and "no room left" must render —
 // and enforce — differently, never as the same zero.
 const against = (used, limit) => ({
@@ -163,4 +171,4 @@ const assertCanCreate = (client, metricName, amount = 1) => runWithTenant(client
   }
 });
 
-module.exports = { usageAgainstLimits, assertCanCreate, against, startOfMonth };
+module.exports = { usageAgainstLimits, assertCanCreate, against, startOfMonth, todayIn, tenantTimezone };

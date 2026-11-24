@@ -19,7 +19,7 @@ import { ASN_STATUS_TONE } from './AsnDashboard';
 
 const money = (value) => (value == null ? '—' : `₹${Number(value).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
 
-export default function AsnDetail({ asn, asnId, cancelShipment, onChange, onBack }) {
+export default function AsnDetail({ asn, asnId, cancelShipment, onChange, onPrint, onBack }) {
   const [cancelling, setCancelling] = useState(false);
 
   if (!asn) {
@@ -76,6 +76,8 @@ export default function AsnDetail({ asn, asnId, cancelShipment, onChange, onBack
   ];
 
   const cancellable = ['Pending Approval', 'Submitted', 'In Transit'].includes(asn.status);
+  // The slip travels with the goods; a withdrawn shipment has none.
+  const printable = !['Cancelled', 'Rejected'].includes(asn.status);
   // ASN design D6: anything not yet received, and a rejected one to resend.
   const changeable = ['Pending Approval', 'Rejected', 'Submitted', 'In Transit'].includes(asn.status);
 
@@ -86,8 +88,9 @@ export default function AsnDetail({ asn, asnId, cancelShipment, onChange, onBack
         title={asn.id}
         caption={(asn.status === 'Cancelled' && asn.cancelReason ? `Cancelled: ${asn.cancelReason}` : undefined)
           || (asn.status === 'Rejected' ? `Rejected by your buyer: ${asn.rejectionReason || 'no reason given'}. Change it and send it again.` : undefined)}
-        primary={(changeable || cancellable) ? (
+        primary={(changeable || cancellable || printable) ? (
           <span className="flex gap-2">
+            {printable && <Button variant="secondary" onClick={onPrint}>Print ASN slip</Button>}
             {changeable && <Button variant="secondary" onClick={onChange}>Change</Button>}
             {cancellable && <Button variant="secondary" onClick={() => setCancelling(true)}>Cancel shipment</Button>}
           </span>
