@@ -37,6 +37,9 @@ const NOT_A_LIST = new Set([
   // A supplier's own shipment drafts: capped at MAX_DRAFTS_PER_SUPPLIER (50)
   // when created, so the list is bounded without a page.
   'GET /asn-drafts', 'GET /asn-drafts/:pk',
+  // The ASN monitor: four sections, each capped at SECTION_LIMIT (100) in
+  // controllers/asnMonitor.controller.js — a working view of today, not a list.
+  'GET /asns/monitor',
   'GET /grns/:id', 'GET /invoices/:id', 'GET /payments/:id', 'GET /payments/tds-summary',
   'GET /uploads/:id', 'GET /uploads/:id/link', 'GET /uploads/signed/:id', 'GET /reports/statement', 'GET /reports/invoice/:id', 'GET /reports/metrics',
   // Generated files, not collections (issue #280). A supplier's report export
