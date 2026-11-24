@@ -54,6 +54,8 @@ const shipment = (items, overrides = {}) => ({
   invoiceValue: 1180,
   shipDate: new Date().toISOString(),
   estimatedDeliveryDate: new Date(Date.now() + 3 * 86400000).toISOString(),
+  carrierName: 'Safexpress',
+  vehicleNumber: 'HR55AB1234',
   items,
   ...overrides,
 });

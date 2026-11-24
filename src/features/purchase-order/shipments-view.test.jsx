@@ -104,43 +104,14 @@ describe('cancelling a shipment from the order', () => {
   });
 });
 
-describe('shipment drafts', () => {
-  it('saves the form as it stands, with no ASN number asked for', async () => {
+describe('sending a shipment from an order', () => {
+  it('opens the ASN wizard on that order', async () => {
     const user = userEvent.setup();
-    const { apiMock } = renderLedger([po()], [], {
-      'GET /asn-drafts': { drafts: [] },
-      'POST /asn-drafts': { pk: '11111111-1111-4111-8111-111111111111', poId: 'PO-2026-0001', step: 1, payload: {}, updatedAt: '2026-11-21T06:54:00.000Z' },
-    });
+    const { navigation } = renderLedger([po()]);
 
-    await user.click(await row('PO-2026-0001'));
-    await user.click(await screen.findByRole('tab', { name: 'Send shipment' }));
-    await user.type(screen.getByLabelText(/^Carrier/), 'Safexpress');
-    await user.type(screen.getByLabelText(/^Invoice number/), 'INV/26/9');
-    await user.click(screen.getByRole('button', { name: 'Save draft' }));
+    await user.click(within(await row('PO-2026-0001')).getByRole('button', { name: 'Send shipment' }));
 
-    await waitFor(() => expect(apiMock.callsTo('POST', '/asn-drafts')).toHaveLength(1));
-    const body = apiMock.lastBody('POST', '/asn-drafts');
-    expect(body.poId).toBe('PO-2026-0001');
-    expect(body.payload).toMatchObject({ carrierName: 'Safexpress', invoiceReference: 'INV/26/9', items: [{ line: 10, shippedQuantity: '60' }] });
-    expect(await screen.findByText(/^Draft saved/)).toBeInTheDocument();
-  });
-
-  it('resumes a saved draft into the form', async () => {
-    const user = userEvent.setup();
-    renderLedger([po()], [], {
-      'GET /asn-drafts': { drafts: [{
-        pk: '22222222-2222-4222-8222-222222222222', poId: 'PO-2026-0001', step: 1, updatedAt: '2026-11-20T10:00:00.000Z',
-        payload: { carrierName: 'Blue Dart', invoiceReference: 'INV/26/7', items: [{ line: 10, shippedQuantity: '12' }] },
-      }] },
-    });
-
-    await user.click(await row('PO-2026-0001'));
-    await user.click(await screen.findByRole('tab', { name: 'Send shipment' }));
-    await user.click(within(await screen.findByRole('region', { name: 'Drafts for this order' })).getByRole('button', { name: 'Resume' }));
-
-    expect(screen.getByLabelText(/^Carrier/)).toHaveValue('Blue Dart');
-    expect(screen.getByLabelText(/^Invoice number/)).toHaveValue('INV/26/7');
-    expect(screen.getByLabelText('Quantity to dispatch for line 10')).toHaveValue(12);
+    expect(navigation.push).toHaveBeenCalledWith('/asn?new=1&po=PO-2026-0001');
   });
 });
 

@@ -27,17 +27,19 @@ export const poService = {
     return apiClient.post('/pos/asset', payload);
   },
 
-  async submitASN(poId, asnData) {
-    // The order is named by the URL; the body refuses keys the API does not
-    // declare, and callers hand over the same object that carries `poId`.
-    const { poId: _named, ...body } = asnData;
-    return apiClient.post(`/pos/${poId}/asn`, body);
-  },
 
   // Withdraws a shipment notice that has not been received. The reason is
   // required — the buyer may already have planned a receipt around it.
   async cancelASN(poId, asnId, reason) {
     return apiClient.post(`/pos/${poId}/asn/${asnId}/cancel`, { reason });
+  },
+
+  // A shipment across one or more orders: every line names its poId.
+  async submitShipment(body) {
+    return apiClient.post('/asns', body);
+  },
+  async cancelShipment(asnId, reason) {
+    return apiClient.post(`/asns/${asnId}/cancel`, { reason });
   },
 
   // Shipment notice drafts: the supplier's own, with no ASN number until

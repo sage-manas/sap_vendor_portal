@@ -236,7 +236,8 @@ const createAsn = async (req, defaultPoId, body, { inTransaction } = {}) => {
   const vendorId = requireVendorScope(req);
   const {
     carrierName, trackingNumber, vehicleNumber, invoiceReference, invoiceDate, invoiceValue,
-    ewayBillNo, shipDate, estimatedDeliveryDate, items, documentIds = [],
+    ewayBillNo, ewayBillDate, shipDate, estimatedDeliveryDate, items, documentIds = [],
+    taxableValue, arrivalTime, vehicleType, driverMobile, transporterGstin, packages, grossWeightKg,
   } = body;
 
   // A line names its order, or falls back to the one in the URL. A shipment
@@ -388,6 +389,14 @@ const createAsn = async (req, defaultPoId, body, { inTransaction } = {}) => {
           vehicleNumber,
           invoiceReference,
           invoiceDate: new Date(invoiceDate),
+          taxableValue,
+          ewayBillDate: ewayBillDate ? new Date(ewayBillDate) : null,
+          arrivalTime,
+          vehicleType,
+          driverMobile,
+          transporterGstin,
+          packages,
+          grossWeightKg,
           invoiceValue,
           ewayBillNo,
           // Filled by jobs/handlers/createInboundDelivery.js once SAP has

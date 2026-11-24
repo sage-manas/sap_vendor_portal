@@ -118,10 +118,12 @@ const ASN_INCLUDE = {
 };
 
 const formatAsn = (asn) => {
-  const { items, documents, invoiceValue, ...rest } = asn;
+  const { items, documents, invoiceValue, taxableValue, grossWeightKg, ...rest } = asn;
   return {
     ...rest,
     invoiceValue: invoiceValue == null ? null : toMoney(invoiceValue),
+    taxableValue: taxableValue == null ? null : toMoney(taxableValue),
+    grossWeightKg: grossWeightKg == null ? null : toQty(grossWeightKg),
     items: (items || []).map(({ pk, clientId, asnPk, shippedQuantity, receivedQuantity, ...item }) => {
       const received = receivedQuantity == null ? null : toQty(receivedQuantity);
       return {

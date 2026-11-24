@@ -42,6 +42,7 @@ const complete = (overrides = {}) => ({
   shipDate: new Date().toISOString(),
   estimatedDeliveryDate: new Date(Date.now() + 3 * 86400000).toISOString(),
   carrierName: 'Blue Dart',
+  trackingNumber: 'LR-0001',
   items: [{ line: 10, shippedQuantity: 40 }],
   ...overrides,
 });

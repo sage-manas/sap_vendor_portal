@@ -764,7 +764,20 @@ model ASN {
   invoiceReference      String?
   invoiceDate           DateTime?
   invoiceValue          Decimal? @db.Decimal(14, 2)
+  // Taxable value (before GST); never more than invoiceValue.
+  taxableValue          Decimal? @db.Decimal(14, 2)
   ewayBillNo            String?
+  ewayBillDate          DateTime?
+  // The rest of the shipment details screen (ASN design, screen V4), all
+  // optional. `arrivalTime` is local 'HH:MM' on estimatedDeliveryDate —
+  // LIKP-LFUHR. `driverMobile` is personal data: shown to the supplier who
+  // entered it and the buying organisation, nobody else.
+  arrivalTime           String?
+  vehicleType           String?
+  driverMobile          String?
+  transporterGstin      String?
+  packages              Int?
+  grossWeightKg         Decimal? @db.Decimal(13, 3)
   sapInboundDelivery    String?
   submittedAt           DateTime @default(now())
 

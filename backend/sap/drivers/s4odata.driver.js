@@ -1768,11 +1768,22 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
         INVOICE_NO: asn.invoiceReference || '',
         INVOICE_DATE: isoToSapDay(asn.invoiceDate),
         DELIVERY_DATE: isoToSapDay(asn.estimatedDeliveryDate),
+        // LIKP-LFUHR, HHMMSS; blank when the supplier gave no time.
+        ARRIVAL_TIME: asn.arrivalTime ? `${asn.arrivalTime.replace(':', '')}00` : '',
         SHIP_DATE: isoToSapDay(asn.shipDate),
         BILL_OF_LADING: asn.trackingNumber || '',
         MEANS_OF_TRANSPORT_ID: asn.vehicleNumber || '',
+        VEHICLE_TYPE: asn.vehicleType || '',
         CARRIER: asn.carrierName || '',
+        TRANSPORTER_GSTIN: asn.transporterGstin || '',
+        DRIVER_MOBILE: asn.driverMobile || '',
         EWAY_BILL: asn.ewayBillNo || '',
+        EWAY_BILL_DATE: isoToSapDay(asn.ewayBillDate),
+        PACKAGES: asn.packages == null ? '' : String(asn.packages),
+        GROSS_WEIGHT: asn.grossWeightKg == null ? '' : Number(asn.grossWeightKg).toFixed(3),
+        WEIGHT_UNIT: asn.grossWeightKg == null ? '' : 'KG',
+        TAXABLE_VALUE: asn.taxableValue == null ? '' : sapAmount(asn.taxableValue),
+        INVOICE_VALUE: asn.invoiceValue == null ? '' : sapAmount(asn.invoiceValue),
         ITEMS: asn.items.map((item) => ({
           // Per line: one delivery may carry lines of several orders.
           // PO_NUMBER above is the first order, for a single-order endpoint.
