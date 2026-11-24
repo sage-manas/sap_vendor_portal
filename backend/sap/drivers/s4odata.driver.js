@@ -1735,7 +1735,10 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
     // portal record and the goods receipt is matched by PO, as it always was.
     // Throwing not_implemented instead would write a FAILED call into the
     // buyer's SAP log for every shipment, for a request that was never made.
-    inboundDeliveryCreate: async ({ asn, po, vendor } = {}) => {
+    // `pos` lists every order the lines belong to (a shipment can carry
+    // several — ASN design V2); `po` is the first, and is all a caller of
+    // the single-order shape passes.
+    inboundDeliveryCreate: async ({ asn, po, pos, vendor } = {}) => {
       const path = config.inboundDeliveryCreatePath;
       if (!path) return { data: { created: false, reason: 'not_configured' } };
 
@@ -1743,6 +1746,11 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
       if (!asn?.id || !asn.items?.length) throw new Error('inboundDeliveryCreate: an ASN with at least one line is required');
       if (!po?.sapPoNumber) throw new Error('inboundDeliveryCreate: po.sapPoNumber is required — a delivery has to reference the order SAP holds');
       if (!vendor?.sapVendorCode) throw new Error('inboundDeliveryCreate: vendor.sapVendorCode is required');
+      const sapNumberOf = new Map((pos || [po]).map((order) => [order.id, order.sapPoNumber]));
+      const lineSapPo = (item) => (item.poId ? sapNumberOf.get(item.poId) : po.sapPoNumber);
+      if (asn.items.some((item) => !lineSapPo(item))) {
+        throw new Error('inboundDeliveryCreate: every line\'s order needs its SAP number — a delivery has to reference the orders SAP holds');
+      }
 
       const base = String(config.baseUrl || '').replace(/\/$/, '');
       const url = `${base}${path}${config.sapClient ? `?sap-client=${encodeURIComponent(config.sapClient)}` : ''}`;
@@ -1766,6 +1774,9 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
         CARRIER: asn.carrierName || '',
         EWAY_BILL: asn.ewayBillNo || '',
         ITEMS: asn.items.map((item) => ({
+          // Per line: one delivery may carry lines of several orders.
+          // PO_NUMBER above is the first order, for a single-order endpoint.
+          PO_NUMBER: lineSapPo(item),
           PO_ITEM: String(item.line).padStart(5, '0'),
           // MENGE, three places — see poAssetCreate.
           QUANTITY: Number(item.shippedQuantity).toFixed(3),

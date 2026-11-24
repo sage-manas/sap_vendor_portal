@@ -143,3 +143,26 @@ describe('shipment drafts', () => {
     expect(screen.getByLabelText('Quantity to dispatch for line 10')).toHaveValue(12);
   });
 });
+
+describe('a shipment across several orders', () => {
+  it('shows on each of its orders, naming the other order\'s lines', async () => {
+    const user = userEvent.setup();
+    renderLedger([po({ id: 'PO-2026-0002' })], [asn({
+      poId: 'PO-2026-0001',
+      status: 'Partially Received',
+      items: [
+        { poId: 'PO-2026-0001', line: 10, shippedQuantity: 40, receivedQuantity: 40, receiptVariance: 0 },
+        { poId: 'PO-2026-0002', line: 10, shippedQuantity: 12, receivedQuantity: null, receiptVariance: null },
+      ],
+    })]);
+
+    await user.click(await row('PO-2026-0002'));
+    await user.click(await screen.findByRole('tab', { name: 'Delivery status' }));
+
+    const shipmentRow = await row('ASN-100001');
+    expect(within(shipmentRow).getByText('PO-2026-0001/10: 40 · 10: 12')).toBeInTheDocument();
+    expect(within(shipmentRow).getByText('Partially Received')).toBeInTheDocument();
+    // Something is received, so it can no longer be withdrawn.
+    expect(within(shipmentRow).queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+  });
+});

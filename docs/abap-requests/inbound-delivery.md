@@ -56,7 +56,8 @@ Request:
   "CARRIER": "Blue Dart",
   "EWAY_BILL": "123456789012",
   "ITEMS": [
-    { "PO_ITEM": "00010", "QUANTITY": "40.500", "UNIT": "EA" }
+    { "PO_NUMBER": "4500022828", "PO_ITEM": "00010", "QUANTITY": "40.500", "UNIT": "EA" },
+    { "PO_NUMBER": "4500022835", "PO_ITEM": "00020", "QUANTITY": "12.000", "UNIT": "EA" }
   ]
 }
 ```
@@ -83,6 +84,7 @@ Request:
 | `EWAY_BILL_DATE` | May be blank | ZVP_ASN_HDR |
 | `TRANSPORTER_GSTIN` | May be blank | ZVP_ASN_HDR |
 | `DRIVER_MOBILE` | May be blank; personal data, keep access narrow | ZVP_ASN_HDR |
+| `ITEMS[].PO_NUMBER` | The order this line is for. **A delivery can carry lines of several orders** for one plant (ASN design V2); the header `PO_NUMBER` is the first of them | LIPS-VGBEL |
 | `ITEMS[].PO_ITEM` | PO line, 5 digits | LIPS-VGPOS |
 | `ITEMS[].QUANTITY` | Quantity shipped | LIPS-LFIMG |
 | `ITEMS[].UNIT` | Unit as on the PO line | LIPS-VRKME |
@@ -124,8 +126,8 @@ messages, for a "Validate with SAP" button. The portal does not send it yet.
   "BILL_OF_LADING": "BD-2",
   "MEANS_OF_TRANSPORT_ID": "MH12AB9999",
   "ITEMS": [
-    { "PO_ITEM": "00010", "QUANTITY": "35.000", "UNIT": "EA" },
-    { "PO_ITEM": "00020", "DELETE": "X" }
+    { "PO_NUMBER": "4500022828", "PO_ITEM": "00010", "QUANTITY": "35.000", "UNIT": "EA" },
+    { "PO_NUMBER": "4500022835", "PO_ITEM": "00020", "DELETE": "X" }
   ]
 }
 ```
@@ -166,7 +168,7 @@ open shipments (decision D4), in batches.
 { "TYPE": "S", "RESULTS": [
   { "DELIVERY": "0180000123", "PORTAL_ASN": "ASN-482913",
     "GATE_IN_AT": "20261123101500", "GM_STATUS": "B", "DELETED": "",
-    "ITEMS": [ { "PO_ITEM": "00010", "DELIVERY_QTY": "40.500", "GR_QTY": "38.000" } ] }
+    "ITEMS": [ { "PO_NUMBER": "4500022828", "PO_ITEM": "00010", "DELIVERY_QTY": "40.500", "GR_QTY": "38.000" } ] }
 ] }
 ```
 

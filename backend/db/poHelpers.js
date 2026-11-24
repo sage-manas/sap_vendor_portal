@@ -178,7 +178,9 @@ const syncPoStatus = async (client, poPk, { shipmentWithdrawn = false } = {}) =>
 
   const [asnCount, invoices] = await Promise.all([
     // A cancelled shipment notice is history, not a shipment.
-    client.aSN.count({ where: { poId: po.id, status: { not: ASN_STATUS.CANCELLED } } }),
+    // Any shipment with a line on this order — not only those whose first
+    // order it is (a shipment can carry several).
+    client.aSN.count({ where: { items: { some: { poId: po.id } }, status: { not: ASN_STATUS.CANCELLED } } }),
     client.invoice.findMany({ where: { poId: po.id }, include: { items: true } }),
   ]);
 

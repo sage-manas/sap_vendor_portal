@@ -46,16 +46,25 @@ module.exports = async ({ job, adapter }) => {
   // goods before this ran — nothing left to announce.
   if (asn.sapInboundDelivery || asn.status !== ASN_STATUS.SUBMITTED) return { done: true };
 
-  const po = await prisma.purchaseOrder.findFirst({ where: { id: asn.poId }, include: PO_INCLUDE });
-  if (!po) return { done: true };
-  // A delivery references the order SAP holds. A portal-awarded order has no
+  // Every order the shipment's lines belong to: one delivery can carry lines
+  // of several (ASN design V2), each line naming its own order.
+  const poIds = [...new Set(asn.items.map((item) => item.poId))];
+  const pos = await prisma.purchaseOrder.findMany({ where: { id: { in: poIds } }, include: PO_INCLUDE });
+  if (pos.length !== poIds.length) return { done: true };
+  // A delivery references the orders SAP holds. A portal-awarded order has no
   // SAP number until the sweep correlates it — wait for that rather than fail.
-  if (!po.sapPoNumber) return { done: false };
+  if (pos.some((po) => !po.sapPoNumber)) return { done: false };
 
   const vendor = await prisma.vendor.findFirst({ where: { vendorId: asn.vendorId } });
   if (!vendor?.sapVendorCode) return { done: false };
 
-  const result = await adapter.inboundDeliveryCreate({ asn, po: formatPo(po), vendor });
+  const formatted = pos.map(formatPo);
+  const result = await adapter.inboundDeliveryCreate({
+    asn,
+    po: formatted.find((po) => po.id === asn.poId) || formatted[0],
+    pos: formatted,
+    vendor,
+  });
   if (!result?.created) return { done: true };
 
   // Recorded whatever happened to the ASN meanwhile: SAP holds this delivery

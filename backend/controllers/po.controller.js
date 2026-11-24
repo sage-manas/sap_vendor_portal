@@ -26,7 +26,7 @@ const { toNumber } = require('../utils/money');
 const { toNumber: toQty } = require('../utils/quantity');
 const { enqueue, cancelByDedupeKey } = require('../jobs/queue');
 const { markPending } = require('../jobs/syncState');
-const { ASN_STATUS, ASN_OPEN, PO_STATUS } = require('../config/statuses');
+const { ASN_STATUS, ASN_CANCELLABLE, PO_STATUS } = require('../config/statuses');
 const {
   ASN_INCLUDE,
   formatAsn,
@@ -219,60 +219,95 @@ const acknowledgePO = asyncHandler(async (req, res, next) => {
 });
 
 // @desc    Submit ASN (Advanced Shipping Notification)
-// @route   POST /api/pos/:id/asn
+// @route   POST /api/pos/:id/asn, POST /api/asns
 // @access  Public
 //
 // An order can ship in several parts, so a second ASN against a Dispatched
 // order is normal. What each line can still take is its ordered quantity less
 // what SAP has received and less what is already on an open ASN
 // (services/asn.service.js's shippableByLine). That check and the create run
-// under a row lock on the PO: two notices submitted at once would otherwise
-// each see the same open quantity and together ship it twice.
-// Shared by POST /pos/:id/asn and POST /asn-drafts/:pk/submit. Throws an
+// under a row lock on every order involved: two notices submitted at once
+// would otherwise each see the same open quantity and together ship it twice.
+// Shared by POST /pos/:id/asn, POST /asns and POST /asn-drafts/:pk/submit. Throws an
 // ApiError rather than calling next(). `inTransaction(tx, asn)` runs inside the
 // create's own transaction — the draft submit deletes its draft there, so a
 // double-click cannot turn one draft into two shipments.
-const createAsn = async (req, poId, body, { inTransaction } = {}) => {
+const createAsn = async (req, defaultPoId, body, { inTransaction } = {}) => {
   const vendorId = requireVendorScope(req);
   const {
     carrierName, trackingNumber, vehicleNumber, invoiceReference, invoiceDate, invoiceValue,
     ewayBillNo, shipDate, estimatedDeliveryDate, items, documentIds = [],
   } = body;
 
-  const po = await prisma.purchaseOrder.findFirst({ where: scopedWhere(req, { id: poId }), include: PO_INCLUDE });
-  if (!po) {
-    throw ApiError.notFound('Purchase Order not found');
+  // A line names its order, or falls back to the one in the URL. A shipment
+  // may carry lines from several of this supplier's orders (ASN design V2).
+  const lines = items.map((item) => ({ ...item, poId: item.poId || defaultPoId }));
+  if (lines.some((line) => !line.poId)) {
+    throw ApiError.badRequest('Say which purchase order each line is for.');
+  }
+  const keys = lines.map((line) => `${line.poId}:${line.line}`);
+  if (new Set(keys).size !== keys.length) {
+    throw ApiError.badRequest('Each purchase order line can appear only once on a shipment');
   }
 
-  if (po.sapDeletedAt) {
-    throw ApiError.badRequest('This order has been deleted in SAP. Nothing can be shipped against it.');
-  }
-  if (!SHIPPABLE_PO_STATUSES.includes(po.status)) {
-    throw ApiError.badRequest(po.status === PO_STATUS.OPEN
-      ? 'Acknowledge the order before you send shipment details.'
-      : `Cannot send shipment details for an order with status '${po.status}'.`);
+  const poIds = [...new Set(lines.map((line) => line.poId))];
+  // Messages name the order when the URL does not, or when there are several.
+  const nameOrders = !defaultPoId || poIds.length > 1;
+  const pos = await prisma.purchaseOrder.findMany({ where: scopedWhere(req, { id: { in: poIds } }), include: PO_INCLUDE });
+  const poById = new Map(pos.map((po) => [po.id, po]));
+  for (const poId of poIds) {
+    const po = poById.get(poId);
+    // Another supplier's order reads as not found, the same as a missing one.
+    if (!po) throw ApiError.notFound(nameOrders ? `Purchase Order ${poId} not found` : 'Purchase Order not found');
+    if (po.sapDeletedAt) {
+      throw ApiError.badRequest(`Order ${po.id} has been deleted in SAP. Nothing can be shipped against it.`);
+    }
+    if (!SHIPPABLE_PO_STATUSES.includes(po.status)) {
+      throw ApiError.badRequest(po.status === PO_STATUS.OPEN
+        ? `Acknowledge order ${po.id} before you send shipment details.`
+        : `Cannot send shipment details for order ${po.id} with status '${po.status}'.`);
+    }
   }
 
-  // Line existence and service lines need nothing but the PO, so they are
-  // refused before the lock is taken.
-  const shippedItems = items.map((asnItem) => {
+  // Line existence and service lines need nothing but the orders, so they are
+  // refused before any lock is taken.
+  const shippedItems = lines.map((asnItem) => {
+    const po = poById.get(asnItem.poId);
     const poItem = po.items.find((pItem) => pItem.line === asnItem.line);
+    const where = nameOrders ? ` on ${po.id}` : '';
     if (!poItem) {
-      throw ApiError.badRequest(`Item with line number ${asnItem.line} does not exist on this Purchase Order`);
+      throw ApiError.badRequest(`Item with line number ${asnItem.line} does not exist on ${nameOrders ? po.id : 'this Purchase Order'}`);
     }
     if (isServiceLine(poItem)) {
-      throw ApiError.badRequest(`Line ${asnItem.line} is a service line. Services are confirmed by a service entry sheet in SAP, not shipped.`);
+      throw ApiError.badRequest(`Line ${asnItem.line}${where} is a service line. Services are confirmed by a service entry sheet in SAP, not shipped.`);
     }
     return {
+      poId: po.id,
       line: asnItem.line,
       materialCode: poItem.materialCode,
       description: poItem.description,
       shippedQuantity: Number(asnItem.shippedQuantity),
       uom: poItem.uom || 'EA',
+      plant: poItem.plant || null,
     };
   });
 
-  if (!ewayBillNo && ewayBillRequired(po, invoiceValue)) {
+  // One shipment arrives at one plant, as one invoice in one currency (V2):
+  // the warehouse receiving it, and SAP's inbound delivery, are per plant.
+  // A line with no plant does not match one that has one — the portal cannot
+  // tell that they go to the same place.
+  const plants = new Set(shippedItems.map((item) => item.plant));
+  if (plants.size > 1) {
+    throw ApiError.badRequest(`These lines go to different plants (${[...plants].map((p) => p || 'not stated').join(', ')}). Split this shipment by plant.`);
+  }
+  const currencies = new Set(pos.map((po) => po.currency || 'INR'));
+  if (currencies.size > 1) {
+    throw ApiError.badRequest('These orders are in different currencies. One shipment carries one invoice, so split it by currency.');
+  }
+  const [plant] = plants;
+  const firstPo = poById.get(shippedItems[0].poId);
+
+  if (!ewayBillNo && ewayBillRequired(firstPo, invoiceValue)) {
     throw ApiError.badRequest(
       `This invoice is worth more than ₹${EWAY_BILL_THRESHOLD_INR.toLocaleString('en-IN')}. Enter its e-way bill number.`,
     );
@@ -292,6 +327,9 @@ const createAsn = async (req, poId, body, { inTransaction } = {}) => {
   }
 
   const { clientId } = req;
+  // Locked in pk order, so two shipments over the same orders cannot each
+  // hold one lock and wait for the other's.
+  const lockOrder = [...pos].sort((a, b) => a.pk.localeCompare(b.pk));
 
   // ASN.id is the only unique constraint this create can hit — see
   // createWithUniqueId's header — so retrying it blindly on a fresh id is safe.
@@ -300,10 +338,12 @@ const createAsn = async (req, poId, body, { inTransaction } = {}) => {
   const asn = await createWithUniqueId({
     genId: genAsnId,
     create: (asnId) => prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pk FROM "purchase_orders" WHERE pk = ${po.pk}::uuid AND "clientId" = ${clientId} FOR UPDATE`;
+      for (const po of lockOrder) {
+        await tx.$queryRaw`SELECT pk FROM "purchase_orders" WHERE pk = ${po.pk}::uuid AND "clientId" = ${clientId} FOR UPDATE`;
+      }
 
       // An invoice number is unique per supplier per financial year (ASN
-      // design V5) — across all of their orders, so the PO lock above does
+      // design V5) — across all of their orders, so the PO locks above do
       // not cover it. This advisory lock serialises the supplier's own
       // submissions for as long as this transaction runs.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`asn-invoice:${clientId}:${vendorId}`}))`;
@@ -321,20 +361,24 @@ const createAsn = async (req, poId, body, { inTransaction } = {}) => {
         throw ApiError.badRequest(`Invoice number ${invoiceReference} is already used on ${reused.id}.`);
       }
 
-      const shippable = await shippableByLine(tx, po);
-      for (const item of shippedItems) {
-        const { open } = shippable.get(item.line);
-        if (milli(item.shippedQuantity) > milli(open)) {
-          throw ApiError.badRequest(
-            `Shipped quantity (${item.shippedQuantity}) exceeds the quantity still open to ship (${open}) for line ${item.line}`,
-          );
+      for (const po of pos) {
+        const shippable = await shippableByLine(tx, po);
+        for (const item of shippedItems.filter((i) => i.poId === po.id)) {
+          const { open } = shippable.get(item.line);
+          if (milli(item.shippedQuantity) > milli(open)) {
+            const where = nameOrders ? ` of ${po.id}` : '';
+            throw ApiError.badRequest(
+              `Shipped quantity (${item.shippedQuantity}) exceeds the quantity still open to ship (${open}) for line ${item.line}${where}`,
+            );
+          }
         }
       }
 
       const created = await tx.aSN.create({
         data: {
           id: asnId,
-          poId: po.id,
+          poId: firstPo.id,
+          plant: plant || null,
           vendorId,
           status: ASN_STATUS.SUBMITTED,
           shipDate: shipDate ? new Date(shipDate) : new Date(),
@@ -349,7 +393,7 @@ const createAsn = async (req, poId, body, { inTransaction } = {}) => {
           // Filled by jobs/handlers/createInboundDelivery.js once SAP has
           // created the delivery (ADR-0049) — never here, and never invented.
           sapInboundDelivery: null,
-          items: { create: shippedItems.map((item) => ({ clientId, ...item })) },
+          items: { create: shippedItems.map(({ plant: _plant, ...item }) => ({ clientId, ...item })) },
         },
       });
 
@@ -365,9 +409,11 @@ const createAsn = async (req, poId, body, { inTransaction } = {}) => {
         }
       }
 
-      // Derive PO status from the shipment that now exists (issue #60),
-      // rather than declaring it Dispatched outright.
-      await syncPoStatus(tx, po.pk);
+      // Derive each order's status from the shipment that now exists (issue
+      // #60), rather than declaring it Dispatched outright.
+      for (const po of pos) {
+        await syncPoStatus(tx, po.pk);
+      }
 
       if (inTransaction) await inTransaction(tx, created);
 
@@ -375,15 +421,16 @@ const createAsn = async (req, poId, body, { inTransaction } = {}) => {
     }),
   });
 
-  // The goods receipt arrives when SAP says it does. jobs/handlers/awaitGoodsReceipt.js
-  // does the actual work (this used to run inline here as a closure passed to
-  // `sap.awaitGoodsReceipt` — see docs/04-sap-runtime-engineering-plan.md
-  // Phase 1.6 for why that moved to the durable job runtime).
+  // The goods receipt arrives when SAP says it does, per order.
+  // jobs/handlers/awaitGoodsReceipt.js does the actual work (this used to run
+  // inline here as a closure passed to `sap.awaitGoodsReceipt` — see
+  // docs/04-sap-runtime-engineering-plan.md Phase 1.6 for why that moved to
+  // the durable job runtime).
   await enqueue({
     clientId,
     kind: 'awaitGoodsReceipt',
     dedupeKey: `awaitGoodsReceipt:${clientId}:${asn.id}`,
-    args: { asnId: asn.id, poId: po.id, vendorId },
+    args: { asnId: asn.id, vendorId },
   });
   // Dual identity / sync state (Phase 3): the ASN starts life `local` until
   // this watch begins.
@@ -411,7 +458,7 @@ const submitASN = asyncHandler(async (req, res) => {
 
 
 // @desc    Cancel an ASN the supplier submitted
-// @route   POST /api/pos/:id/asn/:asnId/cancel
+// @route   POST /api/asns/:asnId/cancel, POST /api/pos/:id/asn/:asnId/cancel
 // @access  Supplier (asn:create)
 //
 // A shipment notice that has not been received can be withdrawn — the truck
@@ -419,25 +466,25 @@ const submitASN = asyncHandler(async (req, res) => {
 // no edit: cancelling and sending a corrected notice keeps both versions in
 // the order's history, which an in-place edit would not.
 //
-// Received is final. SAP has posted a goods receipt against it by then, and
+// Anything received is final. SAP has posted a goods receipt by then, and
 // reversing that is a MIGO cancellation on the buyer's side, not something a
-// supplier can do from here.
+// supplier can do from here — so a shipment across several orders that is
+// received for some of them cannot be cancelled either.
 //
 // A shipment SAP already holds an inbound delivery for (ADR-0049) is deleted
 // in SAP first, and cancelled here only once that worked. The other order
 // would leave the warehouse expecting a truck the portal says is not coming.
-// The SAP call is made before the row lock is taken, not under it: a lock held
-// across a slow HTTP call would stall every other shipment on the order.
-const cancelASN = asyncHandler(async (req, res, next) => {
+// The SAP call is made before the row locks are taken, not under them: a lock
+// held across a slow HTTP call would stall every other shipment on the orders.
+//
+// `poId` is set by the per-order route: the shipment must then have a line on
+// that order, so the URL cannot name one order and cancel another's shipment.
+const cancelAsnFor = async (req, asnId, { poId } = {}) => {
   const vendorId = requireVendorScope(req);
   const { reason } = req.body;
-
-  const po = await prisma.purchaseOrder.findFirst({ where: scopedWhere(req, { id: req.params.id }) });
-  if (!po) {
-    return next(ApiError.notFound('Purchase Order not found'));
-  }
-
   const { clientId } = req;
+
+  const where = { id: asnId, vendorId, ...(poId ? { items: { some: { poId } } } : {}) };
 
   const assertCancellable = (current) => {
     if (!current) {
@@ -446,12 +493,12 @@ const cancelASN = asyncHandler(async (req, res, next) => {
     if (current.status === ASN_STATUS.CANCELLED) {
       throw ApiError.badRequest('This shipment is already cancelled.');
     }
-    if (!ASN_OPEN.includes(current.status)) {
+    if (!ASN_CANCELLABLE.includes(current.status)) {
       throw ApiError.badRequest(`A shipment that is '${current.status}' cannot be cancelled.`);
     }
   };
 
-  const before = await prisma.aSN.findFirst({ where: { id: req.params.asnId, poId: po.id, vendorId } });
+  const before = await prisma.aSN.findFirst({ where, include: { items: { select: { poId: true } } } });
   assertCancellable(before);
 
   let deliveryDeleted = false;
@@ -471,14 +518,20 @@ const cancelASN = asyncHandler(async (req, res, next) => {
     deliveryDeleted = true;
   }
 
-  const asn = await prisma.$transaction(async (tx) => {
-    // Same lock submitASN takes, so a cancel and a submit on one order see
-    // each other's result, and so does a cancel racing the goods-receipt job
-    // (it locks nothing, but re-reads the ASN status inside its own
-    // transaction and does nothing to a Cancelled one).
-    await tx.$queryRaw`SELECT pk FROM "purchase_orders" WHERE pk = ${po.pk}::uuid AND "clientId" = ${clientId} FOR UPDATE`;
+  const poIds = [...new Set(before.items.map((item) => item.poId))];
+  const pos = await prisma.purchaseOrder.findMany({ where: { id: { in: poIds } }, select: { pk: true, id: true } });
+  const lockOrder = [...pos].sort((a, b) => a.pk.localeCompare(b.pk));
 
-    const current = await tx.aSN.findFirst({ where: { id: req.params.asnId, poId: po.id, vendorId } });
+  const asn = await prisma.$transaction(async (tx) => {
+    // The same locks createAsn takes, in the same order, so a cancel and a
+    // submit on one order see each other's result, and so does a cancel
+    // racing the goods-receipt job (it locks nothing, but re-reads the ASN
+    // inside its own transaction and does nothing to a Cancelled one).
+    for (const po of lockOrder) {
+      await tx.$queryRaw`SELECT pk FROM "purchase_orders" WHERE pk = ${po.pk}::uuid AND "clientId" = ${clientId} FOR UPDATE`;
+    }
+
+    const current = await tx.aSN.findFirst({ where });
     assertCancellable(current);
 
     const updated = await tx.aSN.update({
@@ -494,7 +547,9 @@ const cancelASN = asyncHandler(async (req, res, next) => {
       include: ASN_INCLUDE,
     });
 
-    await syncPoStatus(tx, po.pk, { shipmentWithdrawn: true });
+    for (const po of pos) {
+      await syncPoStatus(tx, po.pk, { shipmentWithdrawn: true });
+    }
     return updated;
   });
 
@@ -504,16 +559,40 @@ const cancelASN = asyncHandler(async (req, res, next) => {
   await cancelByDedupeKey(`awaitGoodsReceipt:${clientId}:${asn.id}`);
   await cancelByDedupeKey(`createInboundDelivery:${clientId}:${asn.id}`);
 
+  const orders = pos.map((po) => po.id).sort();
   await recordAudit({
     action: AUDIT_ACTIONS.ASN_CANCELLED,
     req,
-    target: { type: 'ASN', id: asn.id, label: `${asn.id} on ${po.id}` },
-    meta: { poId: po.id, reason, ...(deliveryDeleted ? { sapInboundDeliveryDeleted: before.sapInboundDelivery } : {}) },
+    target: { type: 'ASN', id: asn.id, label: `${asn.id} on ${orders.join(', ')}` },
+    meta: {
+      poId: asn.poId,
+      poIds: orders,
+      reason,
+      ...(deliveryDeleted ? { sapInboundDeliveryDeleted: before.sapInboundDelivery } : {}),
+    },
   });
 
-  emitToProcurement(req.app.get('io'), clientId, EVENTS.ASN_CANCELLED, { asnId: asn.id, poId: po.id, vendorId });
+  emitToProcurement(req.app.get('io'), clientId, EVENTS.ASN_CANCELLED, { asnId: asn.id, poId: asn.poId, poIds: orders, vendorId });
 
+  return asn;
+};
+
+const cancelASN = asyncHandler(async (req, res) => {
+  const asn = await cancelAsnFor(req, req.params.asnId, { poId: req.params.id });
   res.json({ message: 'Shipment cancelled.', asn: formatAsn(asn) });
+});
+
+const cancelAsnById = asyncHandler(async (req, res) => {
+  const asn = await cancelAsnFor(req, req.params.asnId);
+  res.json({ message: 'Shipment cancelled.', asn: formatAsn(asn) });
+});
+
+// @desc    Submit an ASN across one or more of the supplier's orders
+// @route   POST /api/asns
+// @access  Supplier (asn:create)
+const submitAsnMulti = asyncHandler(async (req, res) => {
+  const asn = await createAsn(req, null, req.body);
+  res.status(201).json({ message: ASN_SUBMITTED_MESSAGE, asn: formatAsn(asn) });
 });
 
 // @desc    Get ASN for PO
@@ -528,7 +607,9 @@ const getASNForPO = asyncHandler(async (req, res, next) => {
     return next(ApiError.notFound('Purchase Order not found'));
   }
 
-  const asns = await prisma.aSN.findMany({ where: { poId: req.params.id }, include: ASN_INCLUDE, orderBy: { createdAt: 'desc' } });
+  // Every shipment with a line on this order, including one shared with
+  // the supplier's other orders.
+  const asns = await prisma.aSN.findMany({ where: { items: { some: { poId: req.params.id } } }, include: ASN_INCLUDE, orderBy: { createdAt: 'desc' } });
   res.json(asns.map(formatAsn));
 });
 
@@ -1179,6 +1260,8 @@ module.exports = {
   createAsn,
   ASN_SUBMITTED_MESSAGE,
   cancelASN,
+  cancelAsnById,
+  submitAsnMulti,
   getASNForPO,
   getASNs,
   getSapPoStatus,

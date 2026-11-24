@@ -2,6 +2,9 @@ const { z } = require('zod');
 const { SAP_FIELDS } = require('../sap/mappings/fields');
 
 const asnItemSchema = z.strictObject({
+  // The order this line is for. Optional on POST /pos/:id/asn, where the URL
+  // names it; required on POST /asns, which can carry several orders.
+  poId: z.string().min(1).max(40).optional(),
   line: z.coerce.number().int().positive(),
   shippedQuantity: z.coerce.number().positive(),
   materialCode: z.string().max(SAP_FIELDS.MATNR.max).optional(),
@@ -38,7 +41,7 @@ const asnCreateSchema = z.strictObject({
   // One entry per PO line. The open-quantity check runs per entry, so the
   // same line listed twice would pass it twice and ship more than is open.
   items: z.array(asnItemSchema).min(1).refine(
-    (items) => new Set(items.map((item) => item.line)).size === items.length,
+    (items) => new Set(items.map((item) => `${item.poId || ''}:${item.line}`)).size === items.length,
     { message: 'Each purchase order line can appear only once on a shipment' },
   ),
   documentIds: z.array(z.string().uuid()).max(10).optional()
@@ -64,6 +67,7 @@ const asnDraftPayloadSchema = z.strictObject({
   shipDate: text(30),
   estimatedDeliveryDate: text(30),
   items: z.array(z.strictObject({
+    poId: z.string().max(40).optional(),
     line: z.coerce.number().int().positive(),
     shippedQuantity: z.union([z.number(), z.string().max(30)]).optional(),
   })).max(500).optional(),
@@ -85,8 +89,17 @@ const asnDraftSchema = z.strictObject({
   payload: asnDraftPayloadSchema.optional(),
 });
 
+// POST /asns: no order in the URL, so every line names its own.
+const asnCreateMultiSchema = asnCreateSchema.extend({
+  items: asnCreateSchema.shape.items.refine(
+    (items) => items.every((item) => item.poId),
+    { message: 'Say which purchase order each line is for' },
+  ),
+});
+
 module.exports = {
   asnCreateSchema,
+  asnCreateMultiSchema,
   asnCancelSchema,
   asnDraftSchema,
 };

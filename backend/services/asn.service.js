@@ -41,10 +41,13 @@ const isServiceLine = (item) => item.accountAssignmentCategory === 'D'
  * @returns {Promise<Map<number, {ordered:number, received:number, inTransit:number, open:number}>>}
  */
 const shippableByLine = async (client, po, { excludeAsnId } = {}) => {
+  // By the line's own order (a shipment can carry several), and only lines
+  // not yet received: a received line's quantity is in grnQuantity already.
   const inTransit = await client.asnItem.findMany({
     where: {
+      poId: po.id,
+      receivedQuantity: null,
       asn: {
-        poId: po.id,
         status: { in: ASN_OPEN },
         ...(excludeAsnId ? { id: { not: excludeAsnId } } : {}),
       },
@@ -82,12 +85,12 @@ const withShippableQuantities = async (client, pos) => {
   if (!pos.length) return pos;
 
   const rows = await client.asnItem.findMany({
-    where: { asn: { poId: { in: pos.map((po) => po.id) }, status: { in: ASN_OPEN } } },
-    select: { line: true, shippedQuantity: true, asn: { select: { poId: true } } },
+    where: { poId: { in: pos.map((po) => po.id) }, receivedQuantity: null, asn: { status: { in: ASN_OPEN } } },
+    select: { poId: true, line: true, shippedQuantity: true },
   });
   const inTransit = new Map();
   for (const row of rows) {
-    const key = `${row.asn.poId}:${row.line}`;
+    const key = `${row.poId}:${row.line}`;
     inTransit.set(key, (inTransit.get(key) || 0) + milli(row.shippedQuantity));
   }
 
@@ -110,7 +113,7 @@ const withShippableQuantities = async (client, pos) => {
 // was shipped: negative is a short delivery, positive an excess, null not
 // received yet.
 const ASN_INCLUDE = {
-  items: { orderBy: { line: 'asc' } },
+  items: { orderBy: [{ poId: 'asc' }, { line: 'asc' }] },
   documents: { select: { pk: true, originalName: true, mimeType: true, size: true, createdAt: true } },
 };
 

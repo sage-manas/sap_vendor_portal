@@ -159,16 +159,23 @@ const PO_CLOSED = [PO_STATUS.INVOICED, PO_STATUS.PAID];
 const ASN_STATUS = {
   SUBMITTED: 'Submitted',
   IN_TRANSIT: 'In Transit',
+  // A shipment across several orders whose goods SAP has received for some
+  // orders and not yet for others — each order is received separately.
+  PARTIALLY_RECEIVED: 'Partially Received',
   RECEIVED: 'Received',
   CANCELLED: 'Cancelled',
 };
 
 const ASN_STATUSES = Object.values(ASN_STATUS);
 
-// Shipped and not yet received. Their quantity is committed against the PO
-// line: a second ASN cannot ship it again. A Received ASN's quantity is in
-// the line's grnQuantity instead, and a Cancelled one counts for nothing.
-const ASN_OPEN = [ASN_STATUS.SUBMITTED, ASN_STATUS.IN_TRANSIT];
+// Shipped and not yet fully received. The quantity on a line not yet received
+// (AsnItem.receivedQuantity null) is committed against its PO line: a second
+// ASN cannot ship it again. A received line's quantity is in the PO line's
+// grnQuantity instead, and a Cancelled ASN counts for nothing.
+const ASN_OPEN = [ASN_STATUS.SUBMITTED, ASN_STATUS.IN_TRANSIT, ASN_STATUS.PARTIALLY_RECEIVED];
+
+// What a supplier may still withdraw: nothing of it received yet.
+const ASN_CANCELLABLE = [ASN_STATUS.SUBMITTED, ASN_STATUS.IN_TRANSIT];
 
 // --- RFQ --------------------------------------------------------------------
 //
@@ -256,6 +263,7 @@ module.exports = {
   ASN_STATUS,
   ASN_STATUSES,
   ASN_OPEN,
+  ASN_CANCELLABLE,
   RFQ_STATUS,
   SAP_SYNC_STATE,
   SAP_SYNC_STATES,
