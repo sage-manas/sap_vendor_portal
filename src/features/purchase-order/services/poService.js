@@ -38,6 +38,10 @@ export const poService = {
   async submitShipment(body) {
     return apiClient.post('/asns', body);
   },
+  // The whole shipment again, as submitShipment takes it (ASN design D6).
+  async updateShipment(asnId, body) {
+    return apiClient.put(`/asns/${asnId}`, body);
+  },
   async cancelShipment(asnId, reason) {
     return apiClient.post(`/asns/${asnId}/cancel`, { reason });
   },

@@ -258,7 +258,7 @@ describe('approval by the buyer', () => {
   it('shows why a shipment was rejected, and what to do', async () => {
     render('/asn?id=ASN-100001', { asns: [asn({ status: 'Rejected', rejectionReason: 'Wrong plant' })] });
 
-    expect(await screen.findByText(/Rejected by your buyer: Wrong plant\. Create a new ASN with the corrections\./)).toBeInTheDocument();
+    expect(await screen.findByText(/Rejected by your buyer: Wrong plant\. Change it and send it again\./)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Cancel shipment' })).not.toBeInTheDocument();
   });
 });

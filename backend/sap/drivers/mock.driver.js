@@ -758,6 +758,16 @@ const createMockDriver = ({ config = {} } = {}) => {
       };
     },
 
+    inboundDeliveryChange: async ({ asn, previous }) => ({
+      data: { changed: true, delivery: previous.sapInboundDelivery },
+      log: {
+        vendorId: asn.vendorId,
+        payload: { DELIVERY: previous.sapInboundDelivery, PORTAL_ASN: previous.id, ITEMS: (asn.items || []).length },
+        status: 'SUCCESS',
+        documentRef: previous.sapInboundDelivery,
+      },
+    }),
+
     inboundDeliveryCancel: async ({ asn, vendorId }) => {
       mockDeliveries.delete(deliveryKey(asn));
       return {

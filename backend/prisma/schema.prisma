@@ -779,6 +779,11 @@ model ASN {
   packages              Int?
   grossWeightKg         Decimal? @db.Decimal(13, 3)
   sapInboundDelivery    String?
+  // The lines SAP's inbound delivery was last given — [{ poId, line,
+  // shippedQuantity, uom }] — written when it is created and after each SAP
+  // change. A change waiting for the tenant admin is held here, not in SAP;
+  // approving it changes SAP from these lines to the ASN's own.
+  sapLines              Json?
   submittedAt           DateTime @default(now())
 
   // A supplier can withdraw a shipment notice until its goods are received

@@ -15,11 +15,13 @@ import AsnDetail from './AsnDetail';
 //                            starting from one order's lines
 //   /asn?draft=<pk>          the wizard, resuming a saved draft
 //   /asn?id=ASN-…            one shipment, with its tracking (V6)
+//   /asn?edit=ASN-…          the wizard, changing a sent shipment (D6)
 //
 // The view lives in state, read from the URL on arrival and when the URL
 // changes (back/forward), and pushed to it on every move so a view can be
 // bookmarked or shared.
 const viewFrom = (params) => {
+  if (params?.get('edit')) return { name: 'wizard', editId: params.get('edit') };
   if (params?.get('id')) return { name: 'detail', id: params.get('id') };
   if (params?.get('draft')) return { name: 'wizard', draftPk: params.get('draft') };
   if (params?.get('new')) return { name: 'wizard', poId: params.get('po') || null };
@@ -28,6 +30,7 @@ const viewFrom = (params) => {
 
 const urlFor = (view) => {
   if (view.name === 'detail') return `/asn?id=${encodeURIComponent(view.id)}`;
+  if (view.name === 'wizard' && view.editId) return `/asn?edit=${encodeURIComponent(view.editId)}`;
   if (view.name === 'wizard' && view.draftPk) return `/asn?draft=${encodeURIComponent(view.draftPk)}`;
   if (view.name === 'wizard') return `/asn?new=1${view.poId ? `&po=${encodeURIComponent(view.poId)}` : ''}`;
   return '/asn';
@@ -54,6 +57,22 @@ export default function AsnView() {
     router.push(urlFor(next));
   };
 
+  if (view.name === 'wizard' && view.editId) {
+    const editAsn = (state.asns || []).find((asn) => asn.id === view.editId);
+    // The form starts from the shipment, so it waits for the list to load.
+    if (!editAsn) return <p className="text-sm text-fg-muted">Loading {view.editId}…</p>;
+    return (
+      <AsnWizard
+        key={`edit-${view.editId}`}
+        pos={state.pos || []}
+        editAsn={editAsn}
+        updateShipment={poHook.updateShipment}
+        onCancel={() => go({ name: 'detail', id: view.editId })}
+        onSubmitted={(asn) => go({ name: 'detail', id: asn.id })}
+      />
+    );
+  }
+
   if (view.name === 'wizard') {
     return (
       <AsnWizard
@@ -75,6 +94,7 @@ export default function AsnView() {
         asn={(state.asns || []).find((asn) => asn.id === view.id)}
         asnId={view.id}
         cancelShipment={poHook.cancelShipment}
+        onChange={() => go({ name: 'wizard', editId: view.id })}
         onBack={() => go({ name: 'list' })}
       />
     );

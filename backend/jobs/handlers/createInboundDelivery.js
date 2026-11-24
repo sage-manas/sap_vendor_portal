@@ -1,6 +1,7 @@
 const { prisma } = require('../../db/prisma');
 const { PO_INCLUDE, formatPo } = require('../../db/poHelpers');
 const { ASN_STATUS } = require('../../config/statuses');
+const { sapLinesOf } = require('../../services/asn.service');
 const logger = require('../../utils/logger');
 
 // Turns a submitted shipment notice into an inbound delivery in SAP —
@@ -71,7 +72,8 @@ module.exports = async ({ job, adapter }) => {
   // now, and the portal saying otherwise would hide it.
   await prisma.aSN.updateMany({
     where: { pk: asn.pk, sapInboundDelivery: null },
-    data: { sapInboundDelivery: result.delivery },
+    // What SAP was given, so a change awaiting approval can be sent later.
+    data: { sapInboundDelivery: result.delivery, sapLines: sapLinesOf(asn.items) },
   });
 
   // cancelASN found no delivery to remove while this was in flight, so it is

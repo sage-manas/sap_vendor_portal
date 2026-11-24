@@ -78,6 +78,9 @@ const AUDIT_ACTIONS = {
   // The tenant admin's decision on a shipment notice before it reaches SAP.
   ASN_APPROVED: 'asn.approved',
   ASN_REJECTED: 'asn.rejected',
+  // A supplier changing a shipment notice after sending it (ASN design D6).
+  // `meta` keeps the lines before and after.
+  ASN_CHANGED: 'asn.changed',
 
   // SAP job runtime (Phase 1 of docs/04-sap-runtime-engineering-plan.md)
   JOB_RETRIED: 'job.retried',

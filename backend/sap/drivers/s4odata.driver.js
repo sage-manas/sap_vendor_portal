@@ -1833,6 +1833,72 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
       };
     },
 
+    // Changes the delivery when the supplier changes the shipment (ASN design
+    // D6; docs/abap-requests/inbound-delivery.md section 2). Same
+    // not-configured answer as create: updateAsn then refuses the change
+    // rather than leave SAP holding a delivery that no longer matches. Lines
+    // on `previous` and not on `asn` are deleted; updateAsn has already
+    // refused any line SAP's delivery does not have.
+    inboundDeliveryChange: async ({ asn, previous, pos, vendor } = {}) => {
+      const path = config.inboundDeliveryChangePath;
+      if (!path) return { data: { changed: false, reason: 'not_configured' } };
+      if (!previous?.sapInboundDelivery) throw new Error('inboundDeliveryChange: previous.sapInboundDelivery is required');
+
+      const sapNumberOf = new Map((pos || []).map((order) => [order.id, order.sapPoNumber]));
+      const lineKey = (item) => `${item.poId}:${item.line}`;
+      const kept = new Set(asn.items.map(lineKey));
+      const itemRow = (item, extra) => ({
+        PO_NUMBER: sapNumberOf.get(item.poId) || '',
+        PO_ITEM: String(item.line).padStart(5, '0'),
+        ...extra,
+      });
+
+      const base = String(config.baseUrl || '').replace(/\/$/, '');
+      const url = `${base}${path}${config.sapClient ? `?sap-client=${encodeURIComponent(config.sapClient)}` : ''}`;
+      const headers = { ...baseHeaders(config, secrets), 'Content-Type': 'application/json' };
+      const payload = {
+        PORTAL_ASN: previous.id,
+        DELIVERY: previous.sapInboundDelivery,
+        INVOICE_NO: asn.invoiceReference || '',
+        DELIVERY_DATE: isoToSapDay(asn.estimatedDeliveryDate),
+        ARRIVAL_TIME: asn.arrivalTime ? `${asn.arrivalTime.replace(':', '')}00` : '',
+        BILL_OF_LADING: asn.trackingNumber || '',
+        MEANS_OF_TRANSPORT_ID: asn.vehicleNumber || '',
+        VEHICLE_TYPE: asn.vehicleType || '',
+        EWAY_BILL: asn.ewayBillNo || '',
+        EWAY_BILL_DATE: isoToSapDay(asn.ewayBillDate),
+        ITEMS: [
+          ...asn.items.map((item) => itemRow(item, {
+            QUANTITY: Number(item.shippedQuantity).toFixed(3),
+            UNIT: String(item.uom || 'EA').trim().toUpperCase(),
+          })),
+          ...(previous.items || []).filter((item) => !kept.has(lineKey(item))).map((item) => itemRow(item, { DELETE: 'X' })),
+        ],
+      };
+
+      const response = await abortableFetch(url, { method: 'POST', headers, body: JSON.stringify(payload) }, timeoutFor('inboundDeliveryChange', config));
+      const text = await response.text();
+      let json = {};
+      try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text }; }
+
+      const { failed, message: failure, results } = bulkWriteFailure(json);
+      if (!response.ok || failed) {
+        const error = new Error(`SAP inbound delivery change POST ${path} failed for ${previous.sapInboundDelivery}: ${failure || json.raw || `${response.status} ${response.statusText}`}`);
+        error.status = response.status;
+        throw error;
+      }
+
+      return {
+        data: { changed: true, delivery: previous.sapInboundDelivery },
+        log: {
+          vendorId: vendor?.vendorId || previous.vendorId,
+          payload: { request: payload, response: { TYPE: json.TYPE, MESSAGE: json.MESSAGE, RESULTS: results } },
+          status: 'SUCCESS',
+          documentRef: previous.sapInboundDelivery,
+        },
+      };
+    },
+
     // Deletes the delivery when the supplier withdraws the shipment. Same
     // not-configured answer as above; cancelASN refuses to cancel a shipment
     // whose delivery it cannot remove, rather than leave SAP expecting goods
@@ -2126,6 +2192,7 @@ module.exports = {
     // the endpoints in docs/abap-requests/inbound-delivery.md exist and have
     // been checked against this system.
     { name: 'inboundDeliveryCreatePath', label: 'Inbound delivery create path (custom Z REST, VL31N) — blank keeps shipments portal-only', type: 'text' },
+    { name: 'inboundDeliveryChangePath', label: 'Inbound delivery change path (custom Z REST, VL32N) — needed to change a shipment SAP already has a delivery for', type: 'text' },
     { name: 'inboundDeliveryCancelPath', label: 'Inbound delivery delete path (custom Z REST, VL32N) — needed to cancel a shipment SAP already has a delivery for', type: 'text' },
     { name: 'invoicePlanPath', label: 'Invoicing plan display path (custom Z REST, FPLA/FPLT — confirmed live)', type: 'text', default: '/zinv_milestone/plan' },
     { name: 'invoicePlanUpdatePath', label: 'Invoicing plan update path (custom Z REST, FPLA/FPLT — confirmed live)', type: 'text', default: '/zinv_plan/update' },

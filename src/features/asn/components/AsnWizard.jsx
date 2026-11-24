@@ -73,22 +73,36 @@ function Card({ title, children }) {
   );
 }
 
-export default function AsnWizard({ pos, draftPk: initialDraftPk, startPoId, submitShipment, submitAsnDraft, onCancel, onSubmitted }) {
+// The form's values from a shipment being changed (ASN design D6).
+const formFromAsn = (asn) => Object.fromEntries(FORM_FIELDS
+  .filter((field) => asn[field] !== null && asn[field] !== undefined)
+  .map((field) => [field, /Date$/.test(field) ? String(asn[field]).slice(0, 10) : String(asn[field])]));
+const ownLines = (asn) => (asn?.items || []).map((item) => ({ key: lineKey(item.poId || asn.poId, item.line), qty: item.shippedQuantity }));
+
+export default function AsnWizard({
+  pos, draftPk: initialDraftPk, startPoId, editAsn, submitShipment, submitAsnDraft, updateShipment, onCancel, onSubmitted,
+}) {
   const [step, setStep] = useState(1);
   const [draftPk, setDraftPk] = useState(initialDraftPk || null);
   const [savedAt, setSavedAt] = useState(null);
   const [plant, setPlant] = useState(null);
-  const [selected, setSelected] = useState([]);
-  const [quantities, setQuantities] = useState({});
-  const [form, setForm] = useState({ shipDate: today(), estimatedDeliveryDate: inDays(3) });
+  const [selected, setSelected] = useState(() => ownLines(editAsn).map(({ key }) => key));
+  const [quantities, setQuantities] = useState(() => Object.fromEntries(ownLines(editAsn).map(({ key, qty }) => [key, String(qty)])));
+  const [form, setForm] = useState(() => (editAsn ? formFromAsn(editAsn) : { shipDate: today(), estimatedDeliveryDate: inDays(3) }));
   const [docs, setDocs] = useState({});
+  // A changed shipment's documents already on it; kept unless removed.
+  const [keptDocs, setKeptDocs] = useState(() => editAsn?.documents || []);
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   // Read once: the clock is not something a render may depend on.
   const [todayStr] = useState(today);
 
-  const lines = useMemo(() => shippableLines(pos), [pos]);
+  // What a shipment being changed holds is still open to it (lines.js).
+  const own = useMemo(() => Object.fromEntries(ownLines(editAsn).map(({ key, qty }) => [key, qty])), [editAsn]);
+  const lines = useMemo(() => shippableLines(pos, { own }), [pos, own]);
+  // SAP's inbound delivery can take new quantities but not new lines.
+  const lockedToDelivery = Boolean(editAsn?.sapInboundDelivery);
   const plants = useMemo(() => [...new Set(lines.map(({ item }) => plantOf(item)))].sort(), [lines]);
   const byKey = useMemo(() => new Map(lines.map((line) => [line.key, line])), [lines]);
 
@@ -141,7 +155,7 @@ export default function AsnWizard({ pos, draftPk: initialDraftPk, startPoId, sub
   }
   const loadingDraft = !setUp.draft;
 
-  const plantLines = plant === null ? [] : lines.filter((line) => plantOf(line.item) === plant);
+  const plantLines = plant === null ? [] : lines.filter((line) => plantOf(line.item) === plant && (!lockedToDelivery || line.key in own));
   const chosen = selected.map((key) => byKey.get(key)).filter(Boolean);
   const currencies = [...new Set(chosen.map(({ po }) => po.currency || 'INR'))];
   const currency = currencies[0] || 'INR';
@@ -186,7 +200,16 @@ export default function AsnWizard({ pos, draftPk: initialDraftPk, startPoId, sub
     setNotice('');
     try {
       let res;
-      if (draftPk) {
+      if (editAsn) {
+        res = await updateShipment(editAsn.id, {
+          ...formPayload(),
+          items: items().map((item) => ({ ...item, shippedQuantity: Number(item.shippedQuantity) })),
+          documentIds: [
+            ...keptDocs.map((doc) => doc.documentId),
+            ...Object.values(docs).filter((doc) => doc?.documentId).map((doc) => doc.documentId),
+          ],
+        });
+      } else if (draftPk) {
         // Through the draft, so the server deletes it in the same transaction
         // that creates the shipment; saved first, so what is submitted is
         // what is on screen.
@@ -218,7 +241,7 @@ export default function AsnWizard({ pos, draftPk: initialDraftPk, startPoId, sub
     if (n === 3) {
       return shipmentErrors(form, {
         currency,
-        invoiceCopyAttached: Boolean(docs.invoiceCopy?.documentId),
+        invoiceCopyAttached: Boolean(docs.invoiceCopy?.documentId) || keptDocs.length > 0,
         ewayBillAttached: Boolean(docs.ewayBill?.documentId),
       });
     }
@@ -305,8 +328,12 @@ export default function AsnWizard({ pos, draftPk: initialDraftPk, startPoId, sub
     <div>
       <PageHeader
         breadcrumb={<button type="button" className="text-accent-text hover:underline" onClick={onCancel}>ASN</button>}
-        title="Create ASN"
-        caption={savedAt ? `Draft saved ${new Date(savedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : 'Not saved yet. It gets an ASN number when you submit it.'}
+        title={editAsn ? `Change ${editAsn.id}` : 'Create ASN'}
+        caption={editAsn
+          ? (lockedToDelivery
+            ? `SAP holds inbound delivery ${editAsn.sapInboundDelivery} for it: quantities and details can change, but new lines go on a new ASN. If your buyer approves shipments, SAP is changed once they approve.`
+            : 'Your changes replace what was sent. A shipment your buyer approved goes back to them for approval.')
+          : savedAt ? `Draft saved ${new Date(savedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : 'Not saved yet. It gets an ASN number when you submit it.'}
       />
 
       <ol aria-label="Steps" className="card mb-6 flex flex-wrap gap-x-6 gap-y-2 p-4">
@@ -452,6 +479,16 @@ export default function AsnWizard({ pos, draftPk: initialDraftPk, startPoId, sub
           </div>
 
           <Card title="Documents">
+            {keptDocs.length > 0 && (
+              <ul aria-label="Already attached" className="space-y-1 text-sm">
+                {keptDocs.map((doc) => (
+                  <li key={doc.documentId} className="flex items-center gap-3">
+                    <span className="flex-1">{doc.originalName}</span>
+                    <Button size="sm" variant="ghost" onClick={() => setKeptDocs((prev) => prev.filter((d) => d.documentId !== doc.documentId))}>Remove</Button>
+                  </li>
+                ))}
+              </ul>
+            )}
             <div className="grid gap-4 md:grid-cols-2">
               {DOC_SLOTS.map(({ slot, label, optional }) => {
                 const required = slot === 'invoiceCopy' || (slot === 'ewayBill' && needsEway);
@@ -512,11 +549,11 @@ export default function AsnWizard({ pos, draftPk: initialDraftPk, startPoId, sub
         </p>
         <Button variant="ghost" onClick={onCancel} disabled={busy}>Close</Button>
         {step > 1 && <Button variant="secondary" onClick={back} disabled={busy}>Back</Button>}
-        <Button variant="secondary" onClick={saveDraft} disabled={busy || !chosen.length}>Save draft</Button>
+        {!editAsn && <Button variant="secondary" onClick={saveDraft} disabled={busy || !chosen.length}>Save draft</Button>}
         {step < 4 && <Button onClick={next} disabled={busy}>Next: {STEPS[step].toLowerCase()}</Button>}
         {step === 4 && (
           <Button onClick={submit} disabled={busy}>
-            {busy ? <><Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />Submitting…</> : 'Submit ASN'}
+            {busy ? <><Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />Submitting…</> : editAsn ? 'Save changes' : 'Submit ASN'}
           </Button>
         )}
       </div>
