@@ -2,7 +2,7 @@ const request = require('supertest');
 const buildTestApp = require('./testApp');
 const { prisma, rawPrisma } = require('../db/prisma');
 const { withoutTenantScope } = require('../utils/tenantContext');
-const { registerVendor, createOperatorSession, asTenant } = require('./helpers');
+const { registerVendor, createOperatorSession, asTenant, gstinFor } = require('./helpers');
 const { markFailed } = require('../jobs/syncState');
 const awaitGoodsReceiptHandler = require('../jobs/handlers/awaitGoodsReceipt');
 
@@ -46,7 +46,7 @@ const shipment = (items, overrides = {}) => ({
 const supplier = async (suffix = 'a') => registerVendor(app, {
   vendorId: `vendor_asn_${suffix}`,
   companyName: `Asn Supplier ${suffix.toUpperCase()} Pvt Ltd`,
-  gstin: suffix === 'a' ? '27AAAAA5551A1Z1' : '27AAAAA5552A1Z1',
+  gstin: gstinFor(suffix === 'a' ? '27AAAAA5551A1Z' : '27AAAAA5552A1Z'),
   pan: suffix === 'a' ? 'AAAAA5551A' : 'AAAAA5552A',
   email: `asn-${suffix}@example.com`,
 }, { onboarded: true });
