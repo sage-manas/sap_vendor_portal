@@ -42,6 +42,9 @@ const P = {
   PO_INVOICE_PLAN_PROPOSE: 'po:invoice-plan:propose',
   ASN_READ: 'asn:read',
   ASN_CREATE: 'asn:create',
+  // Approving or rejecting a supplier's shipment notice before it goes to
+  // SAP (ASN design: the tenant admin approves, for every supplier).
+  ASN_APPROVE: 'asn:approve',
   GRN_READ: 'grn:read',
 
   // Finance
@@ -130,6 +133,7 @@ const CLIENT_ADMIN = [
     ...BUYER,
     ...FINANCE,
     P.VENDOR_APPROVE,
+    P.ASN_APPROVE,
     P.VENDOR_INVITE,
     P.VENDOR_CREATE,
     P.DOCUMENT_DELETE,

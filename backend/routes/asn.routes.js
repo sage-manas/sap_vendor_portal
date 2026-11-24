@@ -1,5 +1,8 @@
 const router = require('express').Router();
-const { getASNs, submitAsnMulti, cancelAsnById } = require('../controllers/po.controller');
+const {
+  getASNs, submitAsnMulti, cancelAsnById, approveAsn, rejectAsn,
+} = require('../controllers/po.controller');
+const { noBody } = require('../validators/common.validator');
 const { requirePermission } = require('../middleware/auth');
 const validate = require('../middleware/validate');
 const validateQuery = require('../middleware/validateQuery');
@@ -17,5 +20,11 @@ router.get('/', requirePermission(PERMISSIONS.ASN_READ), validateQuery(paginatio
 // design V2). POST /pos/:id/asn stays for a shipment against one order.
 router.post('/', requirePermission(PERMISSIONS.ASN_CREATE), validate(asnCreateMultiSchema), submitAsnMulti);
 router.post('/:asnId/cancel', requirePermission(PERMISSIONS.ASN_CREATE), validate(asnCancelSchema), cancelAsnById);
+
+// The tenant admin's decision, when the workspace requires one
+// (shipments.asnApprovalRequired). A reason is required to reject, the same
+// shape as a cancel's.
+router.post('/:asnId/approve', requirePermission(PERMISSIONS.ASN_APPROVE), validate(noBody), approveAsn);
+router.post('/:asnId/reject', requirePermission(PERMISSIONS.ASN_APPROVE), validate(asnCancelSchema), rejectAsn);
 
 module.exports = router;

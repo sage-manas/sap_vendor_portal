@@ -1,7 +1,7 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
 const { prisma } = require('../db/prisma');
-const { registerVendor, createTenantUser, asTenant } = require('./helpers');
+const { registerVendor, createTenantUser, asTenant, withoutAsnApproval } = require('./helpers');
 const { ROLES } = require('../config/roles');
 
 // Finding 4.1. `getASNs` opened with `requireVendorScope(req)`, which throws
@@ -31,6 +31,10 @@ const { ROLES } = require('../config/roles');
 // not exercise.
 
 const app = buildTestApp();
+
+// Shipments here go straight to SAP: the workspace's approval step
+// (tests/asn-approval.test.js) is a precondition this suite does not test.
+beforeEach(() => withoutAsnApproval());
 const auth = (token) => ({ Authorization: `Bearer ${token}` });
 
 const seedPoFor = (vendorId, poId) => asTenant(() => prisma.purchaseOrder.create({

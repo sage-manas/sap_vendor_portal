@@ -164,6 +164,17 @@ export function PortalProvider({ children }) {
       addToast('warning', `Purchase Order ${po.id} was removed in SAP by your buyer.`);
     });
 
+    // The workspace admin's decision on a shipment notice.
+    socket.on('asn:approved', ({ asnId }) => {
+      poHook.refreshASNs();
+      addToast('success', `Shipment ${asnId} approved by your buyer. It is on its way to SAP.`);
+    });
+    socket.on('asn:rejected', ({ asnId, reason }) => {
+      poHook.refreshASNs();
+      poHook.refreshPOs();
+      addToast('warning', `Shipment ${asnId} was rejected by your buyer: ${reason}`);
+    });
+
     socket.on('grn:received', (grn) => {
       poHook.refreshGRNs();
       poHook.refreshPOs();

@@ -75,6 +75,9 @@ const AUDIT_ACTIONS = {
   // the ASN row itself is that record. A cancellation changes a row the buyer
   // may already have planned a receipt around, so who did it and why is kept.
   ASN_CANCELLED: 'asn.cancelled',
+  // The tenant admin's decision on a shipment notice before it reaches SAP.
+  ASN_APPROVED: 'asn.approved',
+  ASN_REJECTED: 'asn.rejected',
 
   // SAP job runtime (Phase 1 of docs/04-sap-runtime-engineering-plan.md)
   JOB_RETRIED: 'job.retried',

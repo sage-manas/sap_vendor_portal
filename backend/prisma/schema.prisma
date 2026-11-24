@@ -788,6 +788,15 @@ model ASN {
   cancelledAt  DateTime?
   cancelReason String?
 
+  // The tenant admin's decision on a shipment notice, when the workspace
+  // requires one (shipments.asnApprovalRequired). `approvedBy`/`rejectedBy`
+  // are the deciding user's email, as the audit log records it.
+  approvedAt      DateTime?
+  approvedBy      String?
+  rejectedAt      DateTime?
+  rejectedBy      String?
+  rejectionReason String?
+
   // Dual identity / sync state — see the note on RFQ above. jobs/syncState.js
   // sets this to `pending` when the goods-receipt watch is enqueued
   // (jobs/handlers/awaitGoodsReceipt.js), `synced` (with the MIGO doc number)

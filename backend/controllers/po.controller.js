@@ -26,7 +26,8 @@ const { toNumber } = require('../utils/money');
 const { toNumber: toQty } = require('../utils/quantity');
 const { enqueue, cancelByDedupeKey } = require('../jobs/queue');
 const { markPending } = require('../jobs/syncState');
-const { ASN_STATUS, ASN_CANCELLABLE, PO_STATUS } = require('../config/statuses');
+const { ASN_STATUS, ASN_CANCELLABLE, ASN_WITHDRAWN, PO_STATUS } = require('../config/statuses');
+const { settingValue } = require('../config/tenantSettings');
 const {
   ASN_INCLUDE,
   formatAsn,
@@ -218,6 +219,37 @@ const acknowledgePO = asyncHandler(async (req, res, next) => {
   res.json({ message: 'Purchase Order acknowledged successfully', po: formatPo(updated) });
 });
 
+// What happens once a shipment notice is accepted — on submit, or on the
+// tenant admin's approval when the workspace requires one: watch SAP for its
+// goods receipt, and ask SAP for its inbound delivery.
+const startSapWork = async (clientId, asn) => {
+  const vendorId = asn.vendorId;
+  // The goods receipt arrives when SAP says it does, per order.
+  // jobs/handlers/awaitGoodsReceipt.js does the actual work (this used to run
+  // inline here as a closure passed to `sap.awaitGoodsReceipt` — see
+  // docs/04-sap-runtime-engineering-plan.md Phase 1.6 for why that moved to
+  // the durable job runtime).
+  await enqueue({
+    clientId,
+    kind: 'awaitGoodsReceipt',
+    dedupeKey: `awaitGoodsReceipt:${clientId}:${asn.id}`,
+    args: { asnId: asn.id, vendorId },
+  });
+  // Dual identity / sync state (Phase 3): the ASN starts life `local` until
+  // this watch begins.
+  await markPending('awaitGoodsReceipt', { asnId: asn.id });
+
+  // The inbound delivery (ADR-0049), as a job rather than inline: a slow or
+  // unreachable SAP must not stop a supplier recording that goods left. On a
+  // connection with no delivery endpoint configured the job does nothing.
+  await enqueue({
+    clientId,
+    kind: 'createInboundDelivery',
+    dedupeKey: `createInboundDelivery:${clientId}:${asn.id}`,
+    args: { asnId: asn.id },
+  });
+};
+
 // @desc    Submit ASN (Advanced Shipping Notification)
 // @route   POST /api/pos/:id/asn, POST /api/asns
 // @access  Public
@@ -328,6 +360,7 @@ const createAsn = async (req, defaultPoId, body, { inTransaction } = {}) => {
   }
 
   const { clientId } = req;
+  const approvalRequired = settingValue(req.client, 'shipments.asnApprovalRequired');
   // Locked in pk order, so two shipments over the same orders cannot each
   // hold one lock and wait for the other's.
   const lockOrder = [...pos].sort((a, b) => a.pk.localeCompare(b.pk));
@@ -354,7 +387,8 @@ const createAsn = async (req, defaultPoId, body, { inTransaction } = {}) => {
           vendorId,
           invoiceReference: { equals: invoiceReference, mode: 'insensitive' },
           invoiceDate: { gte: year.start, lt: year.end },
-          status: { not: ASN_STATUS.CANCELLED },
+          // A cancelled or rejected notice no longer holds its number.
+          status: { notIn: ASN_WITHDRAWN },
         },
         select: { id: true },
       });
@@ -381,7 +415,9 @@ const createAsn = async (req, defaultPoId, body, { inTransaction } = {}) => {
           poId: firstPo.id,
           plant: plant || null,
           vendorId,
-          status: ASN_STATUS.SUBMITTED,
+          // Held for the tenant admin when the workspace requires it; SAP
+          // hears of it only once approved (approveAsn).
+          status: approvalRequired ? ASN_STATUS.PENDING_APPROVAL : ASN_STATUS.SUBMITTED,
           shipDate: shipDate ? new Date(shipDate) : new Date(),
           estimatedDeliveryDate: estimatedDeliveryDate ? new Date(estimatedDeliveryDate) : new Date(Date.now() + 86400000 * 2),
           carrierName,
@@ -430,39 +466,20 @@ const createAsn = async (req, defaultPoId, body, { inTransaction } = {}) => {
     }),
   });
 
-  // The goods receipt arrives when SAP says it does, per order.
-  // jobs/handlers/awaitGoodsReceipt.js does the actual work (this used to run
-  // inline here as a closure passed to `sap.awaitGoodsReceipt` — see
-  // docs/04-sap-runtime-engineering-plan.md Phase 1.6 for why that moved to
-  // the durable job runtime).
-  await enqueue({
-    clientId,
-    kind: 'awaitGoodsReceipt',
-    dedupeKey: `awaitGoodsReceipt:${clientId}:${asn.id}`,
-    args: { asnId: asn.id, vendorId },
-  });
-  // Dual identity / sync state (Phase 3): the ASN starts life `local` until
-  // this watch begins.
-  await markPending('awaitGoodsReceipt', { asnId: asn.id });
-
-  // The inbound delivery (ADR-0049), as a job rather than inline: a slow or
-  // unreachable SAP must not stop a supplier recording that goods left. On a
-  // connection with no delivery endpoint configured the job does nothing.
-  await enqueue({
-    clientId,
-    kind: 'createInboundDelivery',
-    dedupeKey: `createInboundDelivery:${clientId}:${asn.id}`,
-    args: { asnId: asn.id },
-  });
+  if (!approvalRequired) await startSapWork(clientId, asn);
 
   return asn;
 };
 
-const ASN_SUBMITTED_MESSAGE = 'Shipment details submitted successfully. Your buyer will confirm the delivery once the goods arrive.';
+// What the supplier is told on submit: either SAP is being told now, or the
+// tenant admin has it first.
+const asnSubmittedMessage = (asn) => (asn.status === ASN_STATUS.PENDING_APPROVAL
+  ? 'Shipment notice sent to your buyer for approval. It goes to SAP once they approve it.'
+  : 'Shipment details submitted successfully. Your buyer will confirm the delivery once the goods arrive.');
 
 const submitASN = asyncHandler(async (req, res) => {
   const asn = await createAsn(req, req.params.id, req.body);
-  res.status(201).json({ message: ASN_SUBMITTED_MESSAGE, asn: formatAsn(asn) });
+  res.status(201).json({ message: asnSubmittedMessage(asn), asn: formatAsn(asn) });
 });
 
 
@@ -601,7 +618,89 @@ const cancelAsnById = asyncHandler(async (req, res) => {
 // @access  Supplier (asn:create)
 const submitAsnMulti = asyncHandler(async (req, res) => {
   const asn = await createAsn(req, null, req.body);
-  res.status(201).json({ message: ASN_SUBMITTED_MESSAGE, asn: formatAsn(asn) });
+  res.status(201).json({ message: asnSubmittedMessage(asn), asn: formatAsn(asn) });
+});
+
+// @desc    Approve a shipment notice waiting for the tenant admin
+// @route   POST /api/asns/:asnId/approve
+// @access  Tenant admin (asn:approve)
+//
+// Approval is what sends it to SAP: the goods-receipt watch and the inbound
+// delivery start here, exactly as they would have on submit in a workspace
+// that does not require approval. The status moves with a conditional
+// update, so two admins approving at once (or an approval racing the
+// supplier's cancel) settle on one outcome and start SAP's work once.
+const approveAsn = asyncHandler(async (req, res) => {
+  const { clientId } = req;
+  const asn = await prisma.aSN.findFirst({ where: { id: req.params.asnId } });
+  if (!asn) throw ApiError.notFound('Shipment not found');
+
+  const { count } = await prisma.aSN.updateMany({
+    where: { pk: asn.pk, status: ASN_STATUS.PENDING_APPROVAL },
+    data: { status: ASN_STATUS.SUBMITTED, approvedAt: new Date(), approvedBy: req.auth?.email || null },
+  });
+  if (!count) {
+    throw ApiError.badRequest(`Only a shipment waiting for approval can be approved; this one is '${asn.status}'.`);
+  }
+
+  const approved = await prisma.aSN.findFirst({ where: { pk: asn.pk }, include: ASN_INCLUDE });
+  await startSapWork(clientId, approved);
+
+  await recordAudit({
+    action: AUDIT_ACTIONS.ASN_APPROVED,
+    req,
+    target: { type: 'ASN', id: asn.id, label: `${asn.id} from ${asn.vendorId}` },
+    meta: { vendorId: asn.vendorId, poIds: [...new Set(approved.items.map((item) => item.poId))].sort() },
+  });
+  emitToVendor(req.app.get('io'), clientId, asn.vendorId, EVENTS.ASN_APPROVED, { asnId: asn.id });
+
+  res.json({ message: 'Shipment approved. It is on its way to SAP.', asn: formatAsn(approved) });
+});
+
+// @desc    Reject a shipment notice waiting for the tenant admin
+// @route   POST /api/asns/:asnId/reject
+// @access  Tenant admin (asn:approve)
+//
+// A rejected notice holds nothing: its quantity is open to ship again, its
+// invoice number is free, and its orders step back from Dispatched if it was
+// their only shipment. The reason goes to the supplier. Locked like a cancel,
+// because it frees the same quantities a concurrent submit is counting.
+const rejectAsn = asyncHandler(async (req, res) => {
+  const { clientId } = req;
+  const { reason } = req.body;
+
+  const before = await prisma.aSN.findFirst({ where: { id: req.params.asnId }, include: { items: { select: { poId: true } } } });
+  if (!before) throw ApiError.notFound('Shipment not found');
+  const poIds = [...new Set(before.items.map((item) => item.poId))];
+  const pos = await prisma.purchaseOrder.findMany({ where: { id: { in: poIds } }, select: { pk: true, id: true } });
+  const lockOrder = [...pos].sort((a, b) => a.pk.localeCompare(b.pk));
+
+  const rejected = await prisma.$transaction(async (tx) => {
+    for (const po of lockOrder) {
+      await tx.$queryRaw`SELECT pk FROM "purchase_orders" WHERE pk = ${po.pk}::uuid AND "clientId" = ${clientId} FOR UPDATE`;
+    }
+    const { count } = await tx.aSN.updateMany({
+      where: { pk: before.pk, status: ASN_STATUS.PENDING_APPROVAL },
+      data: { status: ASN_STATUS.REJECTED, rejectedAt: new Date(), rejectedBy: req.auth?.email || null, rejectionReason: reason },
+    });
+    if (!count) {
+      throw ApiError.badRequest(`Only a shipment waiting for approval can be rejected; this one is '${before.status}'.`);
+    }
+    for (const po of pos) {
+      await syncPoStatus(tx, po.pk, { shipmentWithdrawn: true });
+    }
+    return tx.aSN.findFirst({ where: { pk: before.pk }, include: ASN_INCLUDE });
+  });
+
+  await recordAudit({
+    action: AUDIT_ACTIONS.ASN_REJECTED,
+    req,
+    target: { type: 'ASN', id: before.id, label: `${before.id} from ${before.vendorId}` },
+    meta: { vendorId: before.vendorId, poIds: poIds.sort(), reason },
+  });
+  emitToVendor(req.app.get('io'), clientId, before.vendorId, EVENTS.ASN_REJECTED, { asnId: before.id, reason });
+
+  res.json({ message: 'Shipment rejected. The supplier sees your reason.', asn: formatAsn(rejected) });
 });
 
 // @desc    Get ASN for PO
@@ -1267,7 +1366,9 @@ module.exports = {
   acknowledgePO,
   submitASN,
   createAsn,
-  ASN_SUBMITTED_MESSAGE,
+  asnSubmittedMessage,
+  approveAsn,
+  rejectAsn,
   cancelASN,
   cancelAsnById,
   submitAsnMulti,

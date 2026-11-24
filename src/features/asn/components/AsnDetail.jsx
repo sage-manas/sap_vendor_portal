@@ -32,8 +32,14 @@ export default function AsnDetail({ asn, asnId, cancelShipment, onBack }) {
   }
 
   const received = ['Partially Received', 'Received'].includes(asn.status);
+  // The approval step shows when the workspace requires one: while waiting,
+  // or once given.
+  const approval = asn.status === 'Pending Approval' || asn.approvedAt
+    ? [{ label: asn.approvedAt ? 'Approved by your buyer' : "Waiting for your buyer's approval", done: Boolean(asn.approvedAt), when: asn.approvedAt ? displayDate(asn.approvedAt) : null }]
+    : [];
   const steps = [
     { label: 'Submitted', done: true, when: displayDate(asn.submittedAt || asn.createdAt) },
+    ...approval,
     { label: asn.sapInboundDelivery ? `Inbound delivery ${asn.sapInboundDelivery} in SAP` : 'Inbound delivery in SAP', done: Boolean(asn.sapInboundDelivery) },
     { label: asn.status === 'Partially Received' ? 'Partly received' : 'Received', done: received, partial: asn.status === 'Partially Received' },
   ];
@@ -69,20 +75,21 @@ export default function AsnDetail({ asn, asnId, cancelShipment, onBack }) {
     ['Packages', [asn.packages, asn.grossWeightKg != null && `${asn.grossWeightKg} kg`].filter(Boolean).join(' · ') || '—'],
   ];
 
-  const cancellable = ['Submitted', 'In Transit'].includes(asn.status);
+  const cancellable = ['Pending Approval', 'Submitted', 'In Transit'].includes(asn.status);
 
   return (
     <div className="space-y-6">
       <PageHeader
         breadcrumb={<button type="button" className="text-accent-text hover:underline" onClick={onBack}>ASN</button>}
         title={asn.id}
-        caption={asn.status === 'Cancelled' && asn.cancelReason ? `Cancelled: ${asn.cancelReason}` : undefined}
+        caption={(asn.status === 'Cancelled' && asn.cancelReason ? `Cancelled: ${asn.cancelReason}` : undefined)
+          || (asn.status === 'Rejected' ? `Rejected by your buyer: ${asn.rejectionReason || 'no reason given'}. Create a new ASN with the corrections.` : undefined)}
         primary={cancellable ? <Button variant="secondary" onClick={() => setCancelling(true)}>Cancel shipment</Button> : undefined}
         className="mb-0!"
       />
       <StatusBadge label={asn.status} tone={ASN_STATUS_TONE[asn.status]} />
 
-      {asn.status !== 'Cancelled' && (
+      {!['Cancelled', 'Rejected'].includes(asn.status) && (
         <ol aria-label="Progress" className="card flex flex-wrap gap-x-8 gap-y-3 p-4 text-sm">
           {steps.map((step) => (
             <li key={step.label} className={`flex items-center gap-2 ${step.done ? 'text-fg' : 'text-fg-muted'}`}>

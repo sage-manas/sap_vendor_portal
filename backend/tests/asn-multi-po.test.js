@@ -1,7 +1,7 @@
 const request = require('supertest');
 const buildTestApp = require('./testApp');
 const { prisma } = require('../db/prisma');
-const { registerVendor, asTenant } = require('./helpers');
+const { registerVendor, asTenant, withoutAsnApproval } = require('./helpers');
 const awaitGoodsReceiptHandler = require('../jobs/handlers/awaitGoodsReceipt');
 const createInboundDelivery = require('../jobs/handlers/createInboundDelivery');
 
@@ -14,6 +14,10 @@ const createInboundDelivery = require('../jobs/handlers/createInboundDelivery');
 // handlers.
 
 const app = buildTestApp();
+
+// Shipments here go straight to SAP: the workspace's approval step
+// (tests/asn-approval.test.js) is a precondition this suite does not test.
+beforeEach(() => withoutAsnApproval());
 const auth = (token) => ({ Authorization: `Bearer ${token}` });
 
 const supplier = (suffix) => registerVendor(app, {

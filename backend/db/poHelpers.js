@@ -2,7 +2,7 @@ const { prisma } = require('./prisma');
 const { toNumber } = require('../utils/money');
 const { toNumber: toQty } = require('../utils/quantity');
 const { statusRank, derivePoStatus } = require('../services/poStatus.service');
-const { ASN_STATUS, PO_STATUS } = require('../config/statuses');
+const { ASN_WITHDRAWN, PO_STATUS } = require('../config/statuses');
 
 // Shared between po.controller.js and invoice.controller.js: both need a
 // PurchaseOrder reshaped with its items' invoicePlan back into the plain-
@@ -177,10 +177,10 @@ const syncPoStatus = async (client, poPk, { shipmentWithdrawn = false } = {}) =>
   if (!po) return null;
 
   const [asnCount, invoices] = await Promise.all([
-    // A cancelled shipment notice is history, not a shipment.
+    // A cancelled or rejected shipment notice is history, not a shipment.
     // Any shipment with a line on this order — not only those whose first
     // order it is (a shipment can carry several).
-    client.aSN.count({ where: { items: { some: { poId: po.id } }, status: { not: ASN_STATUS.CANCELLED } } }),
+    client.aSN.count({ where: { items: { some: { poId: po.id } }, status: { notIn: ASN_WITHDRAWN } } }),
     client.invoice.findMany({ where: { poId: po.id }, include: { items: true } }),
   ]);
 

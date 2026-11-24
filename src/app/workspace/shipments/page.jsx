@@ -1,9 +1,12 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { poService } from '@/features/purchase-order/services/poService';
 import { PageHeader, Notice, Status, Table, Loading, useResource, formatDate } from '@/components/console/primitives';
+import { Button } from '@/components/ui/button';
+import { useWorkspaceSession } from '@/lib/workspace-session';
+import RejectShipmentDialog from '@/features/asn/components/RejectShipmentDialog';
 
 // Every shipment a supplier has dispatched against this workspace's orders —
 // the buyer/finance/client_admin tenant-wide view (finding 4.1).
@@ -15,12 +18,11 @@ import { PageHeader, Notice, Status, Table, Loading, useResource, formatDate } f
 // already held `asn:read` (backend/config/permissions.js, TENANT_READ_ONLY) —
 // the permission was never the problem.
 //
-// Read-only, like the orders and invoices lists either side of it. An ASN is
-// the supplier's own declaration of what they dispatched; the buyer's counter-
-// record is the goods receipt SAP posts in MIGO (PROJECT_CONTEXT.md §5.6),
-// which this portal reads and does not write. So nothing here is actionable —
-// a row is something to expect, and to reconcile against the GRN when it
-// lands.
+// An ASN is the supplier's own declaration of what they dispatched; the
+// buyer's counter-record is the goods receipt SAP posts in MIGO
+// (PROJECT_CONTEXT.md §5.6), which this portal reads and does not write. The
+// one decision taken here is the tenant admin's (asn:approve): whether a
+// shipment notice waiting for approval goes to SAP at all.
 
 const dueTone = (asn) => {
   if (!asn.estimatedDeliveryDate) return null;
@@ -35,8 +37,24 @@ const dueTone = (asn) => {
 
 export default function WorkspaceShipmentsPage() {
   const router = useRouter();
-  const { data, error, loading } = useResource(() => poService.getASNs({ limit: 200 }));
+  const { data, error, loading, reload, setError } = useResource(() => poService.getASNs({ limit: 200 }));
   const asns = data?.asns || [];
+  const { can } = useWorkspaceSession();
+  const canDecide = can('asn:approve');
+  const [rejecting, setRejecting] = useState(null);
+  const [busy, setBusy] = useState(null);
+
+  const approve = async (asn) => {
+    setBusy(asn.id);
+    try {
+      await poService.approveShipment(asn.id);
+      reload();
+    } catch (err) {
+      setError(err?.message || 'The shipment could not be approved.');
+    } finally {
+      setBusy(null);
+    }
+  };
 
   return (
     <>
@@ -86,6 +104,16 @@ export default function WorkspaceShipmentsPage() {
               render: (row) => <span className="mono">{row.sapInboundDelivery || '—'}</span>,
             },
             { key: 'status', header: 'Status', render: (row) => <Status value={row.status} /> },
+            ...(canDecide ? [{
+              key: 'decide',
+              // Header-less: a row action, stopped from opening the supplier.
+              render: (row) => (row.status === 'Pending Approval' ? (
+                <span className="flex gap-2" onClick={(e) => e.stopPropagation()} role="presentation">
+                  <Button size="sm" onClick={() => approve(row)} disabled={busy === row.id}>Approve</Button>
+                  <Button size="sm" variant="secondary" onClick={() => setRejecting(row)} disabled={busy === row.id}>Reject</Button>
+                </span>
+              ) : null),
+            }] : []),
           ]}
           rows={asns.map((asn) => ({ ...asn, key: asn.id }))}
           // Through to the supplier, same as the invoices list — that is where
@@ -93,6 +121,13 @@ export default function WorkspaceShipmentsPage() {
           rowLabel={(row) => `supplier ${row.vendorName || row.vendorId}`}
           onRowClick={(row) => router.push(`/workspace/suppliers/${row.vendorId}`)}
           empty="No shipments dispatched yet."
+        />
+      )}
+      {rejecting && (
+        <RejectShipmentDialog
+          asn={rejecting}
+          onClose={() => setRejecting(null)}
+          onReject={async (reason) => { await poService.rejectShipment(rejecting.id, reason); reload(); }}
         />
       )}
     </>

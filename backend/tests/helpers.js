@@ -8,6 +8,7 @@ const totp = require('../utils/totp');
 const { ROLES } = require('../config/roles');
 const mailer = require('../utils/mailer');
 const { drainBackground } = require('../utils/background');
+const { applySettings } = require('../config/tenantSettings');
 
 const baseVendor = {
   vendorId: 'vendor_test_001',
@@ -217,7 +218,26 @@ const PROFILE_WRITABLE_FIELDS = (() => {
 const profileFormPayload = (profile) =>
   Object.fromEntries(PROFILE_WRITABLE_FIELDS.filter((field) => field in profile).map((field) => [field, profile[field]]));
 
+// A tenant's settings, applied through the same validation the settings API
+// uses. For a suite whose subject is not the setting itself — the tenant's
+// configuration is a precondition there, like the tenant existing.
+const setTenantSettings = (patch, clientId = 'CLT-0001') => withoutTenantScope(async () => {
+  const client = await seedClient({ clientId });
+  applySettings(client, patch);
+  return rawPrisma.client.update({
+    where: { pk: client.pk },
+    data: { settings: client.settings, featureFlags: client.featureFlags },
+  });
+});
+
+// Most ASN suites test what happens once a shipment has reached SAP; they say
+// so by turning the workspace's approval step off. tests/asn-approval.test.js
+// is the suite about the step itself.
+const withoutAsnApproval = (clientId) => setTenantSettings({ 'shipments.asnApprovalRequired': false }, clientId);
+
 module.exports = {
+  setTenantSettings,
+  withoutAsnApproval,
   confirmationTokenFor,
   PROFILE_WRITABLE_FIELDS,
   profileFormPayload,

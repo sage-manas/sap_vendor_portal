@@ -7,10 +7,14 @@ const request = require('supertest');
 const buildTestApp = require('./testApp');
 const { prisma, rawPrisma } = require('../db/prisma');
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
-const { registerVendor, createAdminUser, runDueJobs } = require('./helpers');
+const { registerVendor, createAdminUser, runDueJobs, withoutAsnApproval } = require('./helpers');
 const { enqueue } = require('../jobs/queue');
 
 const app = buildTestApp();
+
+// Shipments here go straight to SAP: the workspace's approval step
+// (tests/asn-approval.test.js) is a precondition this suite does not test.
+beforeEach(() => withoutAsnApproval());
 const auth = (token) => (req) => req.set('Authorization', `Bearer ${token}`);
 const futureDate = (days = 7) => new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
 

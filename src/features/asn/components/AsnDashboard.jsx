@@ -16,14 +16,15 @@ import { shippableLines } from '../lines';
 // ASN design screen V1: the supplier's shipment notices and drafts.
 
 export const ASN_STATUS_TONE = {
-  Submitted: 'progress', 'In Transit': 'progress', 'Partially Received': 'progress', Received: 'done', Cancelled: 'neutral',
+  'Pending Approval': 'action', Rejected: 'danger', Submitted: 'progress', 'In Transit': 'progress', 'Partially Received': 'progress', Received: 'done', Cancelled: 'neutral',
 };
-const IN_TRANSIT = ['Submitted', 'In Transit', 'Partially Received'];
+const IN_TRANSIT = ['Pending Approval', 'Submitted', 'In Transit', 'Partially Received'];
 const STATUS_FILTERS = [
   { value: 'all', label: 'All', match: () => true },
-  { value: 'transit', label: 'On the way', match: (s) => IN_TRANSIT.includes(s) },
+  { value: 'approval', label: 'Waiting for approval', match: (s) => s === 'Pending Approval' },
+  { value: 'transit', label: 'On the way', match: (s) => IN_TRANSIT.includes(s) && s !== 'Pending Approval' },
   { value: 'received', label: 'Received', match: (s) => s === 'Received' },
-  { value: 'cancelled', label: 'Cancelled', match: (s) => s === 'Cancelled' },
+  { value: 'closed', label: 'Rejected or cancelled', match: (s) => s === 'Rejected' || s === 'Cancelled' },
 ];
 
 const ordersOf = (asn) => [...new Set([asn.poId, ...(asn.items || []).map((item) => item.poId)].filter(Boolean))];
