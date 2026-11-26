@@ -492,7 +492,6 @@ const createMockDriver = ({ config = {} } = {}) => {
                 description: item.description || null,
                 quantity: item.quantity || 0,
                 uom: item.uom || 'EA',
-                targetPrice: item.targetPrice > 0 ? item.targetPrice : null,
                 plant: item.plant || null,
               })),
             })),

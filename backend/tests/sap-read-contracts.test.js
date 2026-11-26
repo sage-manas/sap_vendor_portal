@@ -149,21 +149,21 @@ describe('ZME43/ME43 — the live contract', () => {
     expect(data.documents).toEqual([
       {
         sapRfqNumber: '6000000072', date: '20260923', currency: null, purchasingOrg: 'SSDN',
-        items: [{ line: 10, materialCode: '000000000000000032', description: 'NEW MATERIAL SAGE TESTING', quantity: 10, uom: 'KG', targetPrice: null, plant: 'SSDN' }],
+        items: [{ line: 10, materialCode: '000000000000000032', description: 'NEW MATERIAL SAGE TESTING', quantity: 10, uom: 'KG', plant: 'SSDN' }],
       },
       {
         sapRfqNumber: '6000000073', date: '20260923', currency: null, purchasingOrg: 'SSDN',
         items: [
-          { line: 10, materialCode: '000000000000000032', description: 'NEW MATERIAL SAGE TESTING', quantity: 10, uom: 'KG', targetPrice: null, plant: 'SSDN' },
-          { line: 20, materialCode: '000000000000000033', description: 'NEW MAT TESTING SERILISED PROCREMENT', quantity: 5, uom: 'PC', targetPrice: null, plant: 'SSDN' },
+          { line: 10, materialCode: '000000000000000032', description: 'NEW MATERIAL SAGE TESTING', quantity: 10, uom: 'KG', plant: 'SSDN' },
+          { line: 20, materialCode: '000000000000000033', description: 'NEW MAT TESTING SERILISED PROCREMENT', quantity: 5, uom: 'PC', plant: 'SSDN' },
         ],
       },
       {
         sapRfqNumber: '6000000074', date: '20260923', currency: null, purchasingOrg: 'SSDN',
         items: [
-          { line: 10, materialCode: '000000000000000032', description: 'NEW MATERIAL SAGE TESTING', quantity: 10, uom: 'KG', targetPrice: null, plant: 'SSDN' },
-          { line: 20, materialCode: '000000000000000033', description: 'NEW MAT TESTING SERILISED PROCREMENT', quantity: 5, uom: 'PC', targetPrice: null, plant: 'SSDN' },
-          { line: 30, materialCode: '000000000000000034', description: 'NEW MATERIAL SAGE TESTING 2', quantity: 10, uom: 'KG', targetPrice: null, plant: 'SSDN' },
+          { line: 10, materialCode: '000000000000000032', description: 'NEW MATERIAL SAGE TESTING', quantity: 10, uom: 'KG', plant: 'SSDN' },
+          { line: 20, materialCode: '000000000000000033', description: 'NEW MAT TESTING SERILISED PROCREMENT', quantity: 5, uom: 'PC', plant: 'SSDN' },
+          { line: 30, materialCode: '000000000000000034', description: 'NEW MATERIAL SAGE TESTING 2', quantity: 10, uom: 'KG', plant: 'SSDN' },
         ],
       },
     ]);
@@ -201,7 +201,9 @@ describe('ZME43/ME43 — the live contract', () => {
     expect(data.documents).toHaveLength(3);
   });
 
-  it('reports a target price only when SAP has quoted a real one, never a bare 0', async () => {
+  // netPrice on an RFQ is this vendor's own quote (ME47, written by submitBid),
+  // not a buyer's target — showing it back as one was issue #347.
+  it('never reports a quoted net price as the target price', async () => {
     const driver = driverFor({
       ...LIVE_ME43,
       data: [{
@@ -215,8 +217,9 @@ describe('ZME43/ME43 — the live contract', () => {
 
     const { data } = await driver.vendorRfqDisplay({ vendor: { sapVendorCode: '1120250081' } });
 
-    expect(data.documents[0].items[0].targetPrice).toBe(125.5);
-    expect(data.documents[0].items[1].targetPrice).toBeNull();
+    for (const item of data.documents[0].items) {
+      expect(item.targetPrice).toBeUndefined();
+    }
   });
 });
 
