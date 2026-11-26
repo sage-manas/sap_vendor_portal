@@ -129,7 +129,7 @@
     <p class="standfirst">Two Node processes behind one Nginx domain, plus MongoDB. Everything below is what you need to stand it up; nothing else in the repo is required at runtime.</p>
     <div class="facts">
       <span><b>Stack</b> Next.js 16 · Express 5 · Socket.io · MongoDB 7</span>
-      <span><b>Runtime</b> Node 22 · PM2</span>
+      <span><b>Runtime</b> Node 24 · PM2</span>
       <span><b>Target OS</b> Ubuntu 22.04 / 24.04</span>
     </div>
   </header>
@@ -266,7 +266,7 @@
       <li>
         <div class="step-body">
           <h3>Bootstrap the box</h3>
-          <p>The script installs Node 22, PM2, Nginx, Certbot and MongoDB 7, and locks the firewall to SSH/80/443. Run it as a sudo-capable user, not root.</p>
+          <p>The script installs Node 24, PM2, Nginx, Certbot and MongoDB 7, and locks the firewall to SSH/80/443. Run it as a sudo-capable user, not root.</p>
           <pre>bash deploy/setup-server.sh</pre>
         </div>
       </li>
