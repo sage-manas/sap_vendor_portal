@@ -10,7 +10,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
-    "test": "cross-env NODE_ENV=test JWT_SECRET=test-secret jest --runInBand --forceExit",
+    "test": "cross-env NODE_ENV=test JWT_SECRET=test-secret NODE_OPTIONS=--experimental-vm-modules jest --runInBand --forceExit",
     "seed:platform-admin": "node scripts/seed-platform-admin.js",
     "bootstrap:production": "node scripts/bootstrap-production.js",
     "backup:drill": "node scripts/backup-restore-drill.js",
