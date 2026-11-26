@@ -50,7 +50,27 @@ const watch = (page) => {
   return problems;
 };
 
-const inspect = async (page, route, problems, label) => {
+/**
+ * Answers the registration screen's IFSC and PIN-code lookups with what the
+ * live services return for the seeded supplier (seed-demo.js).
+ *
+ * They are browser calls to third parties, and when one has an outage its
+ * error page carries no CORS header, so the console error that follows failed
+ * this sweep on PRs that changed nothing near it. Aborting them, as
+ * demo-flows.spec.mjs does, logs net::ERR_FAILED, which this sweep would
+ * count too.
+ */
+const stubLookups = async (page) => {
+  await page.route('https://ifsc.razorpay.com/**', (route) =>
+    route.fulfill({ json: { BANK: 'HDFC Bank Ltd', BRANCH: 'Andheri East, Mumbai' }, headers: { 'Access-Control-Allow-Origin': '*' } }));
+  await page.route('https://api.postalpincode.in/**', (route) =>
+    route.fulfill({
+      json: [{ Status: 'Success', PostOffice: [{ District: 'Mumbai', State: 'Maharashtra' }] }],
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    }));
+};
+
+const inspect =async (page, route, problems, label) => {
   const start = problems.length;
   await page.goto(route);
   await page.waitForLoadState('networkidle');
@@ -78,6 +98,7 @@ test.describe('demo sweep: every screen renders cleanly', () => {
 
   test('supplier portal (approved supplier)', async ({ page }) => {
     const problems = watch(page);
+    await stubLookups(page);
     await signIn(page, ACCOUNTS.supplierA);
     for (const route of SUPPLIER_ROUTES) await inspect(page, route, problems, 'supplier');
   });
