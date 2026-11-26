@@ -16,8 +16,8 @@ sudo ufw allow 443/tcp
 sudo ufw --force enable
 sudo systemctl enable --now fail2ban
 
-echo "== Node.js 22.x (via NodeSource) =="
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+echo "== Node.js 24.x (via NodeSource) =="
+curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
 sudo apt -y install nodejs
 node -v
 
