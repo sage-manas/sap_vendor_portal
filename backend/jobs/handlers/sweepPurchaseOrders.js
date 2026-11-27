@@ -58,13 +58,21 @@ const panOf = (gstin) => {
 
 // Why an order SAP returned for this vendor is not this tenant's business with
 // this vendor, or null when nothing says so (issue #315). Only a field SAP
-// actually reported can fail: an absent vendor code or buyer GSTIN is no
-// evidence either way, and zpo_grn_vendor/Detail omits both today. The
-// company-code check that already guards the buyer side lives in the driver
-// (declaredCompanyCodes, issue #62).
+// actually reported can fail: an absent vendor code or GSTIN is no evidence
+// either way. zpo_grn_vendor/Detail reports all three (VENDOR_ID,
+// VENDOR_GSTIN, BUYER_GSTIN — issue #350). The company-code check that
+// already guards the buyer side lives in the driver (declaredCompanyCodes,
+// issue #62).
 const partyMismatch = (order, vendor, tenantGstin) => {
   if (order.vendorCode && vendor.sapVendorCode && !sameVendorCode(order.vendorCode, vendor.sapVendorCode)) {
     return `seller ${order.vendorCode} is not vendor ${vendor.sapVendorCode}`;
+  }
+  // Same PAN rule as the buyer below: a supplier registered in several states
+  // holds several GSTINs, and SAP may print any of them on the order.
+  const sellerPan = panOf(order.vendorGstin);
+  const vendorPan = panOf(vendor.gstin);
+  if (sellerPan && vendorPan && sellerPan !== vendorPan) {
+    return `seller GSTIN ${order.vendorGstin} belongs to a different legal entity than vendor ${vendor.vendorId} (${vendor.gstin})`;
   }
   const buyerPan = panOf(order.buyerGstin);
   const tenantPan = panOf(tenantGstin);

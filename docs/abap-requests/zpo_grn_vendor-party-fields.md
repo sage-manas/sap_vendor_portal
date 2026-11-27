@@ -1,8 +1,10 @@
 # ABAP ask: name the parties on each `zpo_grn_vendor/Detail` row
 
-**Raised:** issue #315 (order legitimacy). **Status:** written up, not yet sent. No ABAP
-contact or change-request channel is available from this repo. Whoever owns that
-relationship should file this and update this status once it is.
+**Raised:** issue #315 (order legitimacy). **Status:** already delivered, so nothing needs
+to be sent (issue #350). A read-only capture on 2026-11-27 (vendor 1120250081) shows every
+row already carrying `VENDOR_ID`, `VENDOR_NAME`, `VENDOR_GSTIN` and `BUYER_GSTIN`. The
+seller field is named `VENDOR_ID`, not the `VENDOR` asked for below, which is why the
+portal never read it until #350. The rest of this page records the original ask.
 
 ## What the endpoint does today
 

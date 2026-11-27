@@ -177,6 +177,22 @@ describe('sweepPurchaseOrders discovery', () => {
       expect(await found('4500098202')).toBeTruthy();
     });
 
+    // Issue #350: SAP reports the seller's GSTIN on every row. Same PAN rule as
+    // the buyer — characters 3-12 identify the legal entity.
+    it('refuses an order whose seller GSTIN is another legal entity\'s', async () => {
+      const vendor = await seedVendor('CLT-0001', 'vendor_party_7', 'VENP007');
+      expect(vendor.gstin).not.toContain('AAACX9999K');
+      await runSweep('CLT-0001', { po: [discoveryPo('4500098207', { vendorGstin: '27AAACX9999K1Z8' })] });
+      expect(await found('4500098207')).toBeNull();
+    });
+
+    it('accepts the vendor\'s own registration in another state (same PAN)', async () => {
+      const vendor = await seedVendor('CLT-0001', 'vendor_party_8', 'VENP008');
+      const otherState = `29${vendor.gstin.slice(2)}`;
+      await runSweep('CLT-0001', { po: [discoveryPo('4500098208', { vendorGstin: otherState })] });
+      expect(await found('4500098208')).toBeTruthy();
+    });
+
     it('refuses an order whose buyer GSTIN is another legal entity\'s', async () => {
       await setTenantGstin('27AABCN1234F1ZW');
       await seedVendor('CLT-0001', 'vendor_party_3', 'VENP003');
