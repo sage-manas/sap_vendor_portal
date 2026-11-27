@@ -4,6 +4,8 @@ const { flattenPaymentItems, recordPaymentItem } = require('../../db/paymentHelp
 const { EVENTS } = require('../../utils/socketEmitter');
 const { notifyVendor } = require('../notify');
 const { dueVendors, recordSweepTick } = require('../sweepHelpers');
+const { AMOUNT_TOLERANCE } = require('../../sap/mappings/invoice-match');
+const { parseSapDate } = require('../../sap/mappings/dates');
 const logger = require('../../utils/logger');
 
 const FEED = 'payment';
@@ -50,26 +52,63 @@ async function sweepOneVendor({ clientId, vendor, adapter }) {
   }
 }
 
-async function settleIfOpen({ clientId, vendor, row }) {
-  if (!row.poNumber || row.grossAmount == null) return;
+// Which portal invoice this clearing pays (issue #349). It used to be "the
+// first open invoice on the PO", whatever SAP document the row named — so on
+// a PO with two open invoices, a payment for one could clear the other, and
+// then stamp the other with this row's MIRO number.
+//
+//   1. The invoice already carrying this row's MIRO document. This is the
+//      ordinary case: sweepInvoices records every invoice with its sapMiroDoc.
+//   2. Failing that, an invoice not yet tied to any MIRO document, on the
+//      row's PO, for the same gross amount — the same PO + amount rule as
+//      sap/mappings/invoice-match.js, and only when exactly one fits.
+//
+// Nothing else. A row that fits no invoice, or more than one, is left alone.
+async function invoiceForRow({ vendor, row }) {
+  if (row.miroDoc) {
+    const byDocument = await prisma.invoice.findFirst({ where: { vendorId: vendor.vendorId, sapMiroDoc: row.miroDoc } });
+    if (byDocument) return byDocument;
+  }
 
   // Correlate to a PO SAP has already confirmed — an unmatched poNumber (a
   // PO the portal has no record of) has no invoice to settle here; that is
   // sweepPurchaseOrders' job to discover first, not this sweep's to guess.
+  if (!row.poNumber) return null;
   const po = await prisma.purchaseOrder.findFirst({
     where: { OR: [{ sapPoNumber: row.poNumber }, { sapDocNumber: row.poNumber }] },
-    include: PO_INCLUDE,
   });
-  if (!po) return;
+  if (!po) return null;
 
+  const candidates = (await prisma.invoice.findMany({
+    where: { poId: po.id, status: { not: 'Cleared' }, sapMiroDoc: null },
+  })).filter((candidate) => Math.abs(Number(candidate.totalAmount) - Number(row.grossAmount)) <= AMOUNT_TOLERANCE);
+
+  if (candidates.length > 1) {
+    logger.warn(`[jobs] sweepPayments: ${candidates.length} unmatched invoices on PO ${po.id} fit SAP ${row.miroDoc || 'payment'} — leaving it for the targeted watch`);
+    return null;
+  }
+  return candidates[0] || null;
+}
+
+async function settleIfOpen({ clientId, vendor, row }) {
+  if (row.grossAmount == null) return;
+
+  const invoice = await invoiceForRow({ vendor, row });
   // Prisma's Json-field filters don't accept a plain `null` for "column IS
   // NULL" the way a scalar field does, so the invoicePlanRef exclusion is
   // applied in JS after the fetch rather than in the query itself.
-  const openInvoices = await prisma.invoice.findMany({
-    where: { poId: po.id, status: { not: 'Cleared' } },
-  });
-  const invoice = openInvoices.find((candidate) => !candidate.invoicePlanRef);
-  if (!invoice) return;
+  if (!invoice || invoice.status === 'Cleared' || invoice.invoicePlanRef) return;
+
+  // Cleared on a day this cannot read: not recorded rather than recorded as
+  // paid today (issue #349). The next tick tries again.
+  const paymentDate = parseSapDate(row.clearingDate);
+  if (!paymentDate) {
+    logger.warn(`[jobs] sweepPayments: SAP ${row.miroDoc || row.clearingDocument} is cleared but its clearing date ${JSON.stringify(row.clearingDate)} is unreadable — not recorded yet`);
+    return;
+  }
+
+  const po = await prisma.purchaseOrder.findFirst({ where: { id: invoice.poId }, include: PO_INCLUDE });
+  if (!po) return;
 
   // Same idempotency guard as awaitPaymentRun.js's transaction — a retried
   // sweep tick over the same already-cleared invoice must not pay it twice.
@@ -78,7 +117,6 @@ async function settleIfOpen({ clientId, vendor, row }) {
     if (!latestInvoice || latestInvoice.status === 'Cleared') return null;
 
     const sapMiroDoc = row.miroDoc || latestInvoice.sapMiroDoc;
-    const paymentDate = row.clearingDate ? new Date(row.clearingDate) : new Date();
 
     // One Payment per SAP clearing document, not per invoice (issue #63) —
     // see recordPaymentItem's own header comment. A second invoice this same

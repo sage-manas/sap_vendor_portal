@@ -10,12 +10,12 @@
 // drivers/s4odata.driver.js and the reconciliation view in
 // controllers/invoice.controller.js — so it lives here once.
 //
-// The match keys are the purchase order and the gross amount. Deliberately not
-// the supplier's invoice number: zmiro_display/MIRO returns REFERENCE in the
-// header, and whether that field carries the PO or the supplier's own invoice
-// number is a per-configuration choice in SAP (XBLNR conventionally holds the
-// supplier reference, but this sandbox's mapping is unconfirmed). The line
-// items carry PO_NO unambiguously, so the PO is read from there first.
+// The match keys are the purchase order and the gross amount. Not the
+// supplier's invoice number: zmiro_display/MIRO's header REFERENCE is XBLNR,
+// the supplier's reference (confirmed live — "TESTING" on MIRO 5105609771,
+// issue #349), but AP types it by hand, so it is a label, not a key. The PO
+// comes from the line items' PO_NO; the driver's header poNumber is that same
+// value.
 //
 // PO + amount alone is not enough once a periodic invoicing plan is involved
 // (issue #64): a monthly plan bills the same amount against the same PO every

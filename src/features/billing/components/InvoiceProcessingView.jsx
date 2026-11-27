@@ -58,21 +58,22 @@ export default function InvoiceProcessingView({ state }) {
     .filter(document => document.miroDoc && !trackedMiroDocs.has(document.miroDoc))
     .map((document) => {
       // sweepInvoices.js's own mapping, so a row does not change shape under
-      // the supplier at the moment it is finally recorded.
-      const subTotal = Number(document.taxableAmount) || 0;
-      const totalAmount = Number(document.grossAmount) || 0;
+      // the supplier at the moment it is finally recorded: the supplier's own
+      // reference as the number, and net/tax from the lines — not
+      // taxableAmount, which is not the subtotal (issue #349).
       return {
         id: document.miroDoc,
         sapOnly: true,
-        invoiceNumber: document.miroDoc,
-        // displayDate already reads SAP's YYYYMMDD, so it is passed through
-        // rather than converted to a timestamp it never was.
+        invoiceNumber: document.supplierReference || document.miroDoc,
+        supplierReference: document.supplierReference || null,
+        // An ISO day from the driver; displayDate renders it as a date, not
+        // a moment.
         invoiceDate: document.docDate || null,
         sapMiroDoc: document.miroDoc,
         poId: poNumberOf(document) || '—',
-        subTotal,
-        taxAmount: Math.max(totalAmount - subTotal, 0),
-        totalAmount,
+        subTotal: Number(document.netAmount) || 0,
+        taxAmount: Number(document.taxAmount) || 0,
+        totalAmount: Number(document.grossAmount) || 0,
         currency: document.currency || 'INR',
         // Deliberately not 'Submitted': this supplier submitted nothing, AP
         // posted it. The status column renders sapOnly rows on its own.
@@ -87,19 +88,23 @@ export default function InvoiceProcessingView({ state }) {
       key: 'invoice',
       header: 'Your invoice',
       primary: true,
-      // A sapOnly row has no invoice of the supplier's own — the document is
-      // the buyer's, and it appears under their reference in the next column.
-      // Repeating the MIRO number here would dress it up as something this
-      // supplier raised.
+      // A sapOnly row has no portal record of the supplier's own — the
+      // document is the buyer's, and its MIRO number appears under their
+      // reference in the next column. What AP typed as the supplier's
+      // reference (XBLNR) is the supplier's own number, so that one is shown
+      // here when AP gave one (issue #349); the MIRO number never is.
       render: (inv) => (
         <div className="leading-tight">
           {inv.sapOnly ? (
-            <span
-              className="text-fg-muted"
-              title="Your buyer's finance team has posted this invoice. It is not recorded in this portal yet, so there is nothing here to act on."
-            >
-              Not recorded here yet
-            </span>
+            <>
+              {inv.supplierReference && <span className="mono block text-fg">{inv.supplierReference}</span>}
+              <span
+                className="text-fg-muted"
+                title="Your buyer's finance team has posted this invoice. It is not recorded in this portal yet, so there is nothing here to act on."
+              >
+                Not recorded here yet
+              </span>
+            </>
           ) : (
             <span className="mono text-fg">{inv.invoiceNumber}</span>
           )}

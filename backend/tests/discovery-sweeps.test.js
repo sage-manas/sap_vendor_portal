@@ -286,6 +286,62 @@ describe('sweepPayments discovery', () => {
     expect(reloadedPo.status).toBe('Paid');
   });
 
+  // Issue #349: the sweep used to settle "the first open invoice on the PO",
+  // whichever SAP document the cleared row named — and then stamp that
+  // invoice with the other one's MIRO number.
+  it('settles the invoice the cleared SAP document names, not another open one on the same PO', async () => {
+    await seedVendor('CLT-0001', 'vendor_pay_4', 'VENPAY4');
+    const po = await runWithTenant('CLT-0001', () => prisma.purchaseOrder.create({
+      data: { id: 'PO-PAYSWEEP-4', vendorId: 'vendor_pay_4', status: 'Open', sapPoNumber: '4500097004', sapDocNumber: '4500097004', sapSyncState: 'synced' },
+    }));
+    const openInvoice = (id, sapMiroDoc) => runWithTenant('CLT-0001', () => prisma.invoice.create({
+      data: {
+        id, poId: po.id, vendorId: 'vendor_pay_4', invoiceNumber: id, sapMiroDoc,
+        invoiceDate: new Date(), status: 'Submitted', subTotal: 500, taxAmount: 90, totalAmount: 590,
+      },
+    }));
+    const invoiceA = await openInvoice('INV-PAYSWEEP-4A', 'MIRO-SWEEP-4A');
+    const invoiceB = await openInvoice('INV-PAYSWEEP-4B', 'MIRO-SWEEP-4B');
+
+    await runPaymentSweep('CLT-0001', {
+      payment: [{
+        poId: po.sapPoNumber, sapMiroDoc: 'MIRO-SWEEP-4B', grossAmount: 590, netAmount: 590,
+        paymentDate: new Date(), sapPaymentDoc: 'PAY-SWEEP-4', utrCode: 'UTR-SWEEP-4',
+      }],
+    });
+
+    const [a, b] = await runWithTenant('CLT-0001', () => Promise.all([
+      prisma.invoice.findFirst({ where: { pk: invoiceA.pk } }),
+      prisma.invoice.findFirst({ where: { pk: invoiceB.pk } }),
+    ]));
+    expect(b.status).toBe('Cleared');
+    expect(a.status).not.toBe('Cleared');
+    expect(a.sapMiroDoc).toBe('MIRO-SWEEP-4A');
+  });
+
+  it('leaves a payment alone when more than one unmatched invoice on the PO could be it', async () => {
+    await seedVendor('CLT-0001', 'vendor_pay_5', 'VENPAY5');
+    const po = await runWithTenant('CLT-0001', () => prisma.purchaseOrder.create({
+      data: { id: 'PO-PAYSWEEP-5', vendorId: 'vendor_pay_5', status: 'Open', sapPoNumber: '4500097005', sapDocNumber: '4500097005', sapSyncState: 'synced' },
+    }));
+    for (const id of ['INV-PAYSWEEP-5A', 'INV-PAYSWEEP-5B']) {
+      // eslint-disable-next-line no-await-in-loop
+      await runWithTenant('CLT-0001', () => prisma.invoice.create({
+        data: {
+          id, poId: po.id, vendorId: 'vendor_pay_5', invoiceNumber: id,
+          invoiceDate: new Date(), status: 'Submitted', subTotal: 500, taxAmount: 90, totalAmount: 590,
+        },
+      }));
+    }
+
+    await runPaymentSweep('CLT-0001', {
+      payment: [{ poId: po.sapPoNumber, sapMiroDoc: 'MIRO-SWEEP-5', grossAmount: 590, netAmount: 590, paymentDate: new Date(), sapPaymentDoc: 'PAY-SWEEP-5' }],
+    });
+
+    const cleared = await runWithTenant('CLT-0001', () => prisma.invoice.count({ where: { poId: po.id, status: 'Cleared' } }));
+    expect(cleared).toBe(0);
+  });
+
   it('never touches a plan-based invoice (invoicePlanRef set)', async () => {
     await seedVendor('CLT-0001', 'vendor_pay_2', 'VENPAY2');
     const po = await runWithTenant('CLT-0001', () => prisma.purchaseOrder.create({

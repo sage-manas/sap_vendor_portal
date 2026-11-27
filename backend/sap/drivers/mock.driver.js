@@ -1,5 +1,6 @@
 const { assertImplements } = require('../contract');
 const { toNumber: toQty } = require('../../utils/quantity');
+const { sapDateToIso } = require('../mappings/dates');
 
 // The mock SAP system.
 //
@@ -612,6 +613,7 @@ const createMockDriver = ({ config = {} } = {}) => {
           miroDoc: payment.sapMiroDoc || null,
           fiscalYear: payment.fiscalYear ? String(payment.fiscalYear) : String(new Date(payment.paymentDate).getFullYear()),
           poNumber: payment.poId,
+          supplierReference: payment.invoiceNumber || null,
           companyCode: behaviour.companyCode,
           currency: 'INR',
           status: 'CLEARED',
@@ -645,17 +647,19 @@ const createMockDriver = ({ config = {} } = {}) => {
           miroDoc: invoice.sapMiroDoc || mockMiroDoc(invoice),
           fiscalYear: String(new Date(invoice.invoiceDate).getFullYear()),
           docType: 'RD',
-          docDate: invoice.invoiceDate,
-          postingDate: invoice.invoiceDate,
+          // ISO days, as the s4odata driver returns them (issue #349).
+          docDate: sapDateToIso(invoice.invoiceDate),
+          postingDate: sapDateToIso(invoice.invoiceDate),
+          supplierReference: invoice.invoiceNumber || null,
           poNumber: invoice.poId,
           companyCode: behaviour.companyCode,
           currency: invoice.currency,
           grossAmount: invoice.totalAmount,
-          // SAP's TAXABLE_AMOUNT is the pre-tax base (this driver's own
-          // s4odata sibling reads it the same way) — the portal's subTotal,
-          // not taxAmount. sweepInvoices.js (issue #72's follow-up) is the
-          // first caller that actually reads this field back off a document.
-          taxableAmount: invoice.subTotal,
+          // Same meaning as the s4odata driver's: net is the sum of the lines,
+          // tax is gross less net. Not TAXABLE_AMOUNT, which is not the
+          // subtotal on the live system (issue #349).
+          netAmount: invoice.subTotal,
+          taxAmount: Math.max(Number(invoice.totalAmount) - Number(invoice.subTotal), 0),
           taxCode: invoice.taxCode,
           paymentTerm: '',
           items: (invoice.items || []).map((item) => ({

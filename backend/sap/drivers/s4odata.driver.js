@@ -4,6 +4,7 @@ const { buildVendorCreatePayload } = require('../mappings/vendor-create.map');
 const { matchInvoiceDocument } = require('../mappings/invoice-match');
 const { pickGoodsReceiptForAsn, receiptId } = require('../mappings/goods-receipt-match');
 const { decodeFromSap } = require('../mappings/fields');
+const { parseSapDate, sapDateToIso } = require('../mappings/dates');
 const { requireProductionCredentials } = require('./requireProductionCredentials');
 const { assertSafeTarget, literalTargetProblem } = require('../networkGuard');
 const { timeoutFor, timeoutConfigFields } = require('../timeouts');
@@ -125,14 +126,6 @@ const getWithBody = async (url, { headers = {}, body, timeoutMs = 10000 } = {}) 
     if (payload !== undefined) req.write(payload);
     req.end();
   });
-};
-
-// The Z REST endpoints return dates as bare YYYYMMDD numbers/strings
-// (GR_DATE, CLEARING_DATE, ...), not ISO strings.
-const parseSapYyyymmdd = (value) => {
-  const s = String(value ?? '');
-  if (!/^\d{8}$/.test(s)) return null;
-  return new Date(`${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`);
 };
 
 const setCookiesOf = (response) => {
@@ -466,29 +459,46 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
 
     return {
       data: {
-        documents: rows.map((row) => ({
-          miroDoc: row.INV_DOC_NO,
-          fiscalYear: row.FISCAL_YEAR,
-          docType: row.DOC_TYPE,
-          docDate: row.DOC_DATE,
-          postingDate: row.POST_DATE,
-          poNumber: row.REFERENCE,
-          companyCode: row.COM_CODE,
-          currency: row.CURRENCY,
-          grossAmount: Number(row.GROSS_AMOUNT),
-          taxableAmount: Number(row.TAXABLE_AMOUNT),
-          taxCode: row.TAX_CODE,
-          paymentTerm: row.PAYMENT_TERM,
-          items: (row.ITEM || []).map((item) => ({
-            poNumber: item.PO_NO,
+        documents: rows.map((row) => {
+          const items = (row.ITEM || []).map((item) => ({
+            poNumber: String(item.PO_NO || '').trim() || null,
             poItem: item.PO_ITEM,
             materialCode: item.MATERIAL,
             amount: Number(item.AMOUNT),
             quantity: Number(item.QUANTITY),
             uom: item.UNIT,
             totalValue: Number(item.TOT_VALUE),
-          })),
-        })),
+          }));
+          const grossAmount = Number(row.GROSS_AMOUNT);
+          // The net amount is the sum of the lines, not TAXABLE_AMOUNT (issue
+          // #349): on the live V0 invoice 5105609771 that field is 0.00 against
+          // a 25000.00 gross, so it is not the pre-tax subtotal — what it is
+          // (WMWST1, a tax base) is an open ABAP question. Kept raw, unused.
+          const netAmount = items.reduce((sum, item) => sum + (item.amount || 0), 0);
+
+          return {
+            miroDoc: row.INV_DOC_NO,
+            fiscalYear: row.FISCAL_YEAR,
+            docType: row.DOC_TYPE,
+            // "20261001" on the wire; ISO here so no caller has to know.
+            docDate: sapDateToIso(row.DOC_DATE),
+            postingDate: sapDateToIso(row.POST_DATE),
+            // RBKP-XBLNR, the supplier's own invoice reference ("TESTING" on
+            // the live document) — never a PO number, which is what this was
+            // read as until issue #349. The PO is on the lines.
+            supplierReference: String(row.REFERENCE || '').trim() || null,
+            poNumber: items.map((item) => item.poNumber).find(Boolean) || null,
+            companyCode: row.COM_CODE,
+            currency: row.CURRENCY,
+            grossAmount,
+            netAmount,
+            taxAmount: Math.max(grossAmount - netAmount, 0),
+            taxableAmount: Number(row.TAXABLE_AMOUNT),
+            taxCode: row.TAX_CODE,
+            paymentTerm: row.PAYMENT_TERM,
+            items,
+          };
+        }),
       },
     };
   };
@@ -891,7 +901,11 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
             payments: rows.map((row) => ({
               miroDoc: row.INV_DOC_NO || null,
               fiscalYear: row.FISCAL_YEAR || null,
-              poNumber: row.REFERENCE || null,
+              // REFERENCE is XBLNR, the supplier's reference, not a PO (issue
+              // #349). This ledger endpoint does not exist yet; PO_NO is the
+              // name zmiro_display/MIRO uses for the PO, so it is asked for.
+              poNumber: row.PO_NO || null,
+              supplierReference: row.REFERENCE || null,
               companyCode: row.COM_CODE || null,
               currency: row.CURRENCY || null,
               status: row.STATUS || 'CLEARED',
@@ -923,6 +937,7 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
           miroDoc: doc.miroDoc,
           fiscalYear: doc.fiscalYear,
           poNumber: doc.poNumber,
+          supplierReference: doc.supplierReference,
           companyCode: doc.companyCode,
           currency: doc.currency,
           status: detail.status,
@@ -1872,6 +1887,16 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
       })).data;
       if (!detail.found || detail.status !== 'CLEARED') return false;
 
+      // Cleared, but on a day this cannot read: not recorded rather than
+      // recorded as paid today (issue #349). CLEARING_DATE's format on a
+      // cleared document is an open ABAP question — parseSapDate reads every
+      // spelling these endpoints have used, so this is a retry, not a guess.
+      const paymentDate = parseSapDate(detail.clearingDate);
+      if (!paymentDate) {
+        logger.warn(`[sap:s4_odata] awaitPaymentRun: MIRO ${found.miroDoc}/${found.fiscalYear} is cleared but its clearing date ${JSON.stringify(detail.clearingDate)} is unreadable — not recorded yet`);
+        return false;
+      }
+
       await handler({
         data: {
           paymentId: `PMT-${found.miroDoc}`,
@@ -1882,7 +1907,7 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
           sapPaymentDoc: detail.clearingDocument,
           runId: null, // not carried by this endpoint
           utrCode: detail.utrReference,
-          paymentDate: parseSapYyyymmdd(detail.clearingDate) || new Date(),
+          paymentDate,
           paymentMethod: detail.paymentMethod,
           bankName: null, // still needs the house bank / payment medium API
           grossAmount: detail.grossAmount,
