@@ -295,6 +295,7 @@ const createMockDriver = ({ config = {} } = {}) => {
             // Issue #315: the parties are echoed only when a test's discovery
             // names them, the same way the real endpoint omits them today.
             vendorCode: po.vendorCode || null,
+            vendorGstin: po.vendorGstin || null,
             buyerGstin: po.buyerGstin || null,
             buyerName: po.buyerName,
             shipToCity: null,

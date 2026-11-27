@@ -1083,3 +1083,43 @@ describe('zasset_po/create — the live contract (asset PO creation)', () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 });
+
+// The live zpo_grn_vendor/Detail header for one order, captured read-only on
+// 2026-11-27 from
+//   GET /zpo_grn_vendor/Detail?sap-client=800  { "vendor": "1120250081" }
+// Trimmed to the header fields plus one verbatim line item. Issue #350: every
+// row names its parties, and the seller field is VENDOR_ID, which the driver
+// did not read, so the #315 seller check never ran.
+const LIVE_PO_GRN_ROW = {
+  REGION: 'India', PO_NUMBER: '4500022828', PO_DATE: '21.09.2026', PO_CREATOR: 'SAGEMM',
+  BUYER_ID: 'SSDN', BUYER_NAME: 'SSDN Technologies Pvt. Ltd.', BUYER_GSTIN: '07AAACC1206D2ZJ',
+  SHIP_TO_CITY: 'Gurgaon', SHIP_TO_STATE: 'Haryana',
+  VENDOR_ID: '1120250081', VENDOR_NAME: 'Kaveri Forge & Fittings', VENDOR_GSTIN: '27AAECK4821M1Z6',
+  CURRENCY: 'INR', NET_AMOUNT: '0.00 ', GROSS_AMOUNT: '1000.00 ', COM_CODE: 'SSDN',
+  PO_LINE_ITEMS: [{
+    REGION: 'India', PO_NUMBER: '4500022828', ITEM_NUMBER: '00010', TYPE: 'NB', MATERIAL_CODE: 'ZSRO202500000001',
+    DESCRIPTION: 'Testing Material 1', ORDERED_QUANTITY: '10.000 ', GR_EXPECTED: 'Open', RECEIVED_QUANTITY: '0.000',
+    INVOICED_QUANTITY: '0.000', UOM: 'EA', UNIT_PRICE: '100.00 ', NET_AMOUNT: '1000.00 ', TAX_CODE: '',
+    GROSS_AMOUNT: '1000.00 ', PLANT: 'SSDN', ACC_ASSIGNMNT_CAT: '', INV_PLANNO: '',
+  }],
+};
+
+describe('zpo_grn_vendor/Detail — the live contract (order parties)', () => {
+  it('reads the seller and both GSTINs SAP reports on every row', async () => {
+    const { restore } = mockHttpRequest(JSON.stringify([LIVE_PO_GRN_ROW]));
+    let result;
+    try {
+      result = await createS4ODataDriver({
+        config: { baseUrl: 'http://103.206.131.27:8081', sapClient: '800', companyCode: 'SSDN' },
+        secrets: {},
+      }).vendorPoGrnDisplay({ vendor: { sapVendorCode: '1120250081' } });
+    } finally { restore(); }
+
+    expect(result.data.orders[0]).toMatchObject({
+      poNumber: '4500022828',
+      vendorCode: '1120250081',
+      vendorGstin: '27AAECK4821M1Z6',
+      buyerGstin: '07AAACC1206D2ZJ',
+    });
+  });
+});
