@@ -88,9 +88,11 @@ module.exports = async ({ job, adapter }) => {
               // poItem.grnQuantity is Decimal-typed (issue #65) — `+` on a
               // Decimal and a plain number is string concatenation, not
               // addition (utils/money.js's header comment).
+              // A receipt nobody inspected (acceptedQuantity null — every
+              // receipt read from SAP, issue #351) counts what was received.
               await tx.purchaseOrderItem.update({
                 where: { pk: poItem.pk },
-                data: { grnQuantity: toQty(poItem.grnQuantity) + toQty(gItem.acceptedQuantity) },
+                data: { grnQuantity: toQty(poItem.grnQuantity) + toQty(gItem.acceptedQuantity ?? gItem.receivedQuantity) },
               });
             }
           }

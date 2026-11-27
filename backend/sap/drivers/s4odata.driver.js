@@ -382,6 +382,23 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
   const paymentTermsCache = { rows: null, fetchedAt: 0 };
   const paymentMethodCache = { rows: null, fetchedAt: 0 };
 
+  // SAP's payment method is a T042Z code ("C" on the live sandbox), which
+  // means nothing to a supplier. Decoded through the same catalogue the
+  // registration form reads (issue #351): "C" -> "Cheque". A code the
+  // catalogue does not know — or a catalogue that cannot be read — is shown
+  // as SAP sent it, never replaced with a guess; a blank one stays null.
+  const paymentMethodLabel = async (code) => {
+    const value = String(code ?? '').trim();
+    if (!value) return null;
+    try {
+      const rows = await fetchCatalogue(config.paymentMethodPath || '/ZPAYM_METHOD/PAYM_METHOD', paymentMethodCache);
+      const hit = rows.find((row) => String(row.PAYMENT_METHOD ?? '').trim() === value);
+      return String(hit?.DESCRIPTION ?? '').trim() || value;
+    } catch {
+      return value;
+    }
+  };
+
   // Issue #69: vendorPoGrnDisplay/vendorMiroDisplay answer for one vendor's
   // *entire* history — 22-84s and roughly half a megabyte for 173 orders —
   // and awaitGoodsReceipt/awaitPaymentRun used to call it once per ASN/
@@ -853,7 +870,7 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
           clearingDocument: row.CLEARING_DOCUMENT || null,
           clearingDate: row.CLEARING_DATE || null,
           postingDate: row.POSTING_DATE || null,
-          paymentMethod: row.PAYMENT_METHOD || null,
+          paymentMethod: await paymentMethodLabel(row.PAYMENT_METHOD),
           utrReference: row.UTR_REFERENCE || null,
         },
       };
@@ -898,7 +915,7 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
 
         return {
           data: {
-            payments: rows.map((row) => ({
+            payments: await Promise.all(rows.map(async (row) => ({
               miroDoc: row.INV_DOC_NO || null,
               fiscalYear: row.FISCAL_YEAR || null,
               // REFERENCE is XBLNR, the supplier's reference, not a PO (issue
@@ -915,9 +932,9 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
               clearingDocument: row.CLEARING_DOCUMENT || null,
               clearingDate: row.CLEARING_DATE || null,
               postingDate: row.POSTING_DATE || null,
-              paymentMethod: row.PAYMENT_METHOD || null,
+              paymentMethod: await paymentMethodLabel(row.PAYMENT_METHOD),
               utrReference: row.UTR_REFERENCE || null,
-            })),
+            }))),
           },
         };
       }
@@ -1758,9 +1775,9 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
     // inbound delivery: it does not write to SAP at all). Only total received quantity is on this
     // endpoint — no rejected-quantity field exists anywhere in it, so an
     // accepted/rejected split still isn't derivable without the QM
-    // inspection-lot API; until that's available everything received is
-    // reported accepted (no false rejections, at the cost of not surfacing
-    // real ones either — flag this to MM if quality inspection matters here).
+    // inspection-lot API; until that's available both are reported as null,
+    // "not inspected" (issue #351). They used to be reported as all accepted,
+    // which put a "QC Passed" badge on every SAP receipt.
     // One-shot probe, called once per job attempt (jobs/worker.js) rather
     // than owning its own poll loop — see docs/04-sap-runtime-engineering-plan.md
     // Phase 1.6. The worker has already bound the tenant with runWithTenant()
@@ -1806,8 +1823,10 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
         return {
           line, materialCode: orderItem.materialCode, description: orderItem.description,
           // This receipt's own quantity, not the line's running total across
-          // every receipt SAP holds for it.
-          receivedQuantity: received, acceptedQuantity: received, rejectedQuantity: 0,
+          // every receipt SAP holds for it. Accepted/rejected are null — not
+          // inspected — rather than "all accepted" (issue #351): this
+          // endpoint carries no inspection result at all.
+          receivedQuantity: received, acceptedQuantity: null, rejectedQuantity: null,
           // No `|| 'EA'` default (sap/mappings/fields.js, Phase 2 of
           // docs/04-sap-runtime-engineering-plan.md): vendorPoGrnDisplay
           // already decoded this through MEINS, so it is SAP's real unit or

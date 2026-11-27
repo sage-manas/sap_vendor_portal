@@ -103,12 +103,6 @@ enum PlanLineStatus {
 // are multi-word: Submitted, 'Under Review', 'Match Warning', Approved,
 // 'Posted in SAP', Cleared.
 
-enum PaymentMethod {
-  NEFT
-  RTGS
-  IMPS
-}
-
 enum DocumentLinkType {
   ASN
   RFQ
@@ -878,8 +872,12 @@ model GrnItem {
   description      String?
   // Decimal(13,3), matching SAP's MENGE (issue #65) — see utils/quantity.js.
   receivedQuantity Decimal @db.Decimal(13, 3)
-  acceptedQuantity Decimal @db.Decimal(13, 3)
-  rejectedQuantity Decimal @default(0) @db.Decimal(13, 3)
+  // Null = not inspected, not "all accepted" (issue #351). SAP's goods-receipt
+  // read (zpo_grn_vendor/Detail) carries no inspection data — that needs the
+  // QM inspection-lot API — so a receipt recorded from SAP leaves both null
+  // rather than claiming every unit passed.
+  acceptedQuantity Decimal? @db.Decimal(13, 3)
+  rejectedQuantity Decimal? @db.Decimal(13, 3)
   rejectionReason  String?
   uom              String  @default("EA")
 
@@ -1021,8 +1019,12 @@ model Payment {
 
   vendorId      String
   paymentDate   DateTime
-  utrCode       String
-  paymentMethod PaymentMethod @default(NEFT)
+  // Both as SAP reports them, or null (issue #351). A cheque has no UTR, and
+  // SAP's payment method is its own T042Z code decoded to its description
+  // ("Cheque") — it used to be an NEFT/RTGS/IMPS enum defaulting to NEFT,
+  // which could neither hold what SAP actually sends nor say "not reported".
+  utrCode       String?
+  paymentMethod String?
   // The F110 clearing document is the real natural key for "this is the same
   // remittance" — jobs/handlers/awaitPaymentRun.js and sweepPayments.js both
   // find-or-create a Payment by (clientId, sapPaymentDoc) before adding an

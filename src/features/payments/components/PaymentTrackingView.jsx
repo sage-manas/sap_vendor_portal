@@ -146,6 +146,10 @@ export default function PaymentTrackingView({ state }) {
   });
 
   // Filter payments based on query, date range, and method
+  // The methods these payments actually carry — SAP's own descriptions
+  // ("Cheque", "Bank Transfer"), not a fixed NEFT/RTGS list (issue #351).
+  const paymentMethods = [...new Set(cleanPayments.map((payment) => payment.paymentMethod).filter(Boolean))].sort();
+
   const filteredPayments = cleanPayments.filter(payment => {
     const invoiceNo = (invoiceLabelFor(payment) || '').toLowerCase();
     const sapDoc = (miroDocLabelFor(payment) || '').toLowerCase();
@@ -230,7 +234,7 @@ export default function PaymentTrackingView({ state }) {
       tdsOf(payment),
       netOf(payment),
       payment.utrCode || '',
-      payment.paymentMethod || 'NEFT'
+      payment.paymentMethod || ''
     ]);
 
     const csvContent = [headers, ...rows]
@@ -301,7 +305,8 @@ export default function PaymentTrackingView({ state }) {
     { key: 'tds', header: 'TDS (₹)', align: 'right', render: (p) => <span className="mono text-fg-muted">{formatAmount(tdsOf(p))}</span> },
     { key: 'net', header: 'Net paid (₹)', align: 'right', render: (p) => <span className="mono font-medium">{formatAmount(netOf(p))}</span> },
     { key: 'utr', header: 'UTR', render: (p) => <span className="mono">{p.utrCode || '—'}</span> },
-    { key: 'method', header: 'Method', render: (p) => p.paymentMethod || 'NEFT' },
+    // As SAP reported it ("Cheque"), or "—" — never a guessed NEFT (issue #351).
+    { key: 'method', header: 'Method', render: (p) => p.paymentMethod || '—' },
     { key: 'status', header: 'Status', render: () => <StatusBadge label="Cleared" variant={paymentStatusVariant('Cleared')} /> },
     { key: 'confirmed', header: 'Confirmed', render: confirmedCell },
   ];
@@ -405,8 +410,7 @@ export default function PaymentTrackingView({ state }) {
                 className="w-36!"
               >
                 <option value="all">All methods</option>
-                <option value="NEFT">NEFT</option>
-                <option value="RTGS">RTGS</option>
+                {paymentMethods.map((method) => <option key={method} value={method}>{method}</option>)}
               </select>
             </div>
 
