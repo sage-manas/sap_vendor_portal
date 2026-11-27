@@ -87,12 +87,16 @@ async function settleIfOpen({ clientId, vendor, row }) {
     // the same Payment row this call either found or just created.
     const payment = await recordPaymentItem(tx, {
       clientId,
-      paymentId: `PMT-SWEEP-${(row.clearingDocument || `${Date.now()}`).replace(/[^A-Za-z0-9]/g, '')}`,
+      // Keyed on SAP's own numbers, never the clock: a timestamp id could
+      // not converge with a later sighting of the same clearing.
+      paymentId: `PMT-SWEEP-${(row.clearingDocument || sapMiroDoc || `${Date.now()}`).replace(/[^A-Za-z0-9]/g, '')}`,
       vendorId: latestInvoice.vendorId,
       remittance: {
         paymentDate,
-        utrCode: row.utrReference || `SWEEP-${Date.now()}`,
-        paymentMethod: row.paymentMethod || 'NEFT',
+        // As SAP reported them, or null (issue #351): a cheque has no UTR,
+        // and SAP reporting no method is not NEFT.
+        utrCode: row.utrReference || null,
+        paymentMethod: row.paymentMethod || null,
         sapPaymentDoc: row.clearingDocument || null,
         bankName: row.bankName || null,
         runId: row.runId || null,

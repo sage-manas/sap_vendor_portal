@@ -165,13 +165,21 @@ const purchaseOrderSummary = async (where) => {
 
 // --- Goods receipts --------------------------------------------------------
 
+// inspectedQuantity is what acceptedQuantity is a share of (issue #351):
+// received quantity on inspected lines only. A receipt read from SAP has no
+// inspection result (acceptedQuantity null), so dividing accepted by *all*
+// received would report it as rejected.
 const grnSummary = async (where) => {
-  const [total, awaitingInvoice, quantities] = await Promise.all([
+  const [total, awaitingInvoice, quantities, inspected] = await Promise.all([
     prisma.gRN.count({ where }),
     prisma.gRN.count({ where: { ...where, invoiceSubmitted: false } }),
     prisma.grnItem.aggregate({
       where: { grn: where },
       _sum: { receivedQuantity: true, acceptedQuantity: true },
+    }),
+    prisma.grnItem.aggregate({
+      where: { grn: where, acceptedQuantity: { not: null } },
+      _sum: { receivedQuantity: true },
     }),
   ]);
 
@@ -179,6 +187,7 @@ const grnSummary = async (where) => {
     total,
     awaitingInvoice,
     receivedQuantity: toQty(quantities._sum.receivedQuantity) || 0,
+    inspectedQuantity: toQty(inspected._sum.receivedQuantity) || 0,
     acceptedQuantity: toQty(quantities._sum.acceptedQuantity) || 0,
   };
 };

@@ -85,7 +85,7 @@ export const DASHBOARD_SUMMARY = {
     byPlant: [],
     avgAcknowledgementDays: null,
   },
-  grns: { total: 0, awaitingInvoice: 0, receivedQuantity: 0, acceptedQuantity: 0 },
+  grns: { total: 0, awaitingInvoice: 0, receivedQuantity: 0, inspectedQuantity: 0, acceptedQuantity: 0 },
   invoices: {
     total: 0,
     byStatus: {},

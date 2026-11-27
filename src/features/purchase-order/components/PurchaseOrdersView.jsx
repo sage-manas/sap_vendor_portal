@@ -74,6 +74,20 @@ const INVOICE_NUMBER = /^[A-Za-z0-9/-]{1,16}$/;
 
 const ASN_STATUS_TONE = { Submitted: 'progress', 'In Transit': 'progress', Received: 'done', Cancelled: 'neutral' };
 
+// A goods-receipt line with an inspection result. SAP's receipt read carries
+// none, so a receipt recorded from SAP has accepted/rejected null — "not
+// inspected", which used to render as "QC Passed" (issue #351).
+const isInspected = (item) => item?.acceptedQuantity != null;
+
+// The badge for a set of inspected lines; with none, says so in plain text
+// rather than claiming a result.
+const inspectionBadge = (inspectedLines) => {
+  if (!inspectedLines.length) return <span className="text-fg-subtle">Not inspected</span>;
+  return inspectedLines.some((item) => (item.rejectedQuantity || 0) > 0)
+    ? <StatusBadge label="QC Discrepancy" variant="suspended" />
+    : <StatusBadge label="QC Passed" variant="active" />;
+};
+
 // Withdrawing a shipment notice, with the reason the buyer will see.
 function CancelShipmentDialog({ asn, onClose, onCancel }) {
   const [reason, setReason] = useState('');
@@ -173,14 +187,13 @@ export default function PurchaseOrdersView({
 
   const cleanGrns = (Array.isArray(state?.grns) ? state.grns : [])
     .filter(Boolean)
+    // No invented defaults (issue #351): a missing posting date is not today,
+    // nobody named "Stores Manager (QC Group)" checked anything, and a missing
+    // accepted/rejected quantity is "not inspected", not 0.
     .map(grn => ({
-      postingDate: new Date().toISOString().split('T')[0],
-      receivedBy: 'Stores Manager (QC Group)',
       ...grn,
       items: (grn.items || []).filter(Boolean).map(item => ({
         receivedQuantity: 0,
-        acceptedQuantity: 0,
-        rejectedQuantity: 0,
         ...item
       }))
     }));
@@ -686,11 +699,12 @@ export default function PurchaseOrdersView({
     { key: 'line', header: 'Line', mono: true, primary: true },
     { key: 'materialCode', header: 'Item code', render: (item) => <span className="mono">{item.materialCode || '—'}</span> },
     { key: 'description', header: 'Description', wrap: true },
-    { key: 'received', header: 'Received', align: 'right', render: (item) => <span className="mono">{item.receivedQuantity || (item.acceptedQuantity + (item.rejectedQuantity || 0))}</span> },
-    { key: 'accepted', header: 'Accepted', align: 'right', render: (item) => <span className="mono">{item.acceptedQuantity}</span> },
-    { key: 'rejected', header: 'Rejected', align: 'right', render: (item) => <span className={`mono ${(item.rejectedQuantity || 0) > 0 ? 'text-danger' : 'text-fg-subtle'}`}>{item.rejectedQuantity || 0}</span> },
+    { key: 'received', header: 'Received', align: 'right', render: (item) => <span className="mono">{item.receivedQuantity || ((item.acceptedQuantity || 0) + (item.rejectedQuantity || 0))}</span> },
+    // "—", not a number, for a line nobody inspected (issue #351).
+    { key: 'accepted', header: 'Accepted', align: 'right', render: (item) => (isInspected(item) ? <span className="mono">{item.acceptedQuantity}</span> : <span className="text-fg-subtle">—</span>) },
+    { key: 'rejected', header: 'Rejected', align: 'right', render: (item) => (isInspected(item) ? <span className={`mono ${(item.rejectedQuantity || 0) > 0 ? 'text-danger' : 'text-fg-subtle'}`}>{item.rejectedQuantity || 0}</span> : <span className="text-fg-subtle">—</span>) },
     { key: 'uom', header: 'Unit', render: (item) => item.uom || 'EA' },
-    { key: 'qc', header: 'Inspection', render: (item) => ((item.rejectedQuantity || 0) > 0 ? <StatusBadge label="QC Discrepancy" variant="suspended" /> : <StatusBadge label="QC Passed" variant="active" />) },
+    { key: 'qc', header: 'Inspection', render: (item) => inspectionBadge(isInspected(item) ? [item] : []) },
     { key: 'date', header: 'Received on', render: () => displayDate(grn.postingDate) },
   ];
 
@@ -790,27 +804,34 @@ export default function PurchaseOrdersView({
     { key: 'poId', header: 'Order', mono: true },
     { key: 'postingDate', header: 'Posted', render: (grn) => displayDate(grn.postingDate) },
     { key: 'receivedBy', header: 'Checked by', render: (grn) => grn.receivedBy || '—' },
+    // Totals over inspected lines only. A receipt read from SAP has no
+    // inspection result (accepted/rejected null), and must not read as
+    // "QC Passed" or as all rejected (issue #351).
     {
       key: 'accepted',
       header: 'Accepted',
       align: 'right',
-      render: (grn) => <span className="mono">{(grn.items || []).reduce((s, i) => s + (i.acceptedQuantity || 0), 0)}</span>,
+      render: (grn) => {
+        const inspected = (grn.items || []).filter(isInspected);
+        if (!inspected.length) return <span className="text-fg-subtle">—</span>;
+        return <span className="mono">{inspected.reduce((s, i) => s + (i.acceptedQuantity || 0), 0)}</span>;
+      },
     },
     {
       key: 'rejected',
       header: 'Rejected',
       align: 'right',
       render: (grn) => {
-        const rejected = (grn.items || []).reduce((s, i) => s + (i.rejectedQuantity || 0), 0);
+        const inspected = (grn.items || []).filter(isInspected);
+        if (!inspected.length) return <span className="text-fg-subtle">—</span>;
+        const rejected = inspected.reduce((s, i) => s + (i.rejectedQuantity || 0), 0);
         return <span className={`mono ${rejected > 0 ? 'text-danger' : 'text-fg-subtle'}`}>{rejected}</span>;
       },
     },
     {
       key: 'qc',
       header: 'Inspection',
-      render: (grn) => ((grn.items || []).some(i => i.rejectedQuantity > 0)
-        ? <StatusBadge label="QC Discrepancy" variant="suspended" />
-        : <StatusBadge label="QC Passed" variant="active" />),
+      render: (grn) => inspectionBadge((grn.items || []).filter(isInspected)),
     },
   ];
 
@@ -1415,13 +1436,20 @@ export default function PurchaseOrdersView({
                       );
                     }
 
-                    const hasRejections = (grn.items || []).some(i => i.rejectedQuantity > 0);
+                    // Inspected lines only: a receipt read from SAP carries no
+                    // inspection result, and must not say it was checked and
+                    // accepted (issue #351).
+                    const inspectedLines = (grn.items || []).filter(isInspected);
                     return (
                       <section className="space-y-8">
                         <div className="flex flex-wrap items-start gap-3">
                           <div className="flex-1">
                             <h2 className="text-lg font-semibold text-fg">Delivery receipt</h2>
-                            <p className="text-sm text-fg-muted">Checked and accepted by your buyer’s receiving team.</p>
+                            <p className="text-sm text-fg-muted">
+                              {inspectedLines.length
+                                ? 'Checked by your buyer’s receiving team.'
+                                : 'Received by your buyer. No inspection result has been reported.'}
+                            </p>
                           </div>
                           <StatusBadge label={grn.invoiceSubmitted ? 'Invoiced' : 'Awaiting invoice'} tone={grn.invoiceSubmitted ? 'done' : 'progress'} />
                         </div>
@@ -1433,11 +1461,7 @@ export default function PurchaseOrdersView({
                           <SapReadOnlyField label="Purchase order" value={activePo.id} />
                           <div className="flex min-w-0 items-baseline gap-3 text-sm">
                             <dt className="w-36 shrink-0 text-fg-muted">Inspection</dt>
-                            <dd>
-                              {hasRejections
-                                ? <StatusBadge label="QC Discrepancy" variant="suspended" />
-                                : <StatusBadge label="QC Passed" variant="active" />}
-                            </dd>
+                            <dd>{inspectionBadge(inspectedLines)}</dd>
                           </div>
                         </dl>
 

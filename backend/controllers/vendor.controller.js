@@ -924,13 +924,18 @@ const getPerformance = asyncHandler(async (req, res, next) => {
   }
   const clientId = getTenantId();
 
-  // 1. Calculate Quality Acceptance from GRNs
+  // 1. Calculate Quality Acceptance from GRNs — inspected lines only (issue
+  // #351). A null acceptedQuantity is a receipt nobody inspected (every one
+  // read from SAP); counting its received quantity with nothing accepted
+  // would score it as a rejection. No inspected line at all falls to the
+  // same no-data default the other two measures use.
   const [grnStats] = await prisma.$queryRaw`
     SELECT COALESCE(SUM(gi."receivedQuantity"), 0)::float AS "totalReceived",
            COALESCE(SUM(gi."acceptedQuantity"), 0)::float AS "totalAccepted"
     FROM grn_items gi
     JOIN grns g ON g.pk = gi."grnPk"
     WHERE g."vendorId" = ${vendorId} AND g."clientId" = ${clientId}
+      AND gi."acceptedQuantity" IS NOT NULL
   `;
 
   let qualityAcceptance = 100;

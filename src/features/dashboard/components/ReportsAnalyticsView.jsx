@@ -116,7 +116,9 @@ export default function ReportsAnalyticsView({ state }) {
   const plantData = (po?.byPlant || []).map((row) => ({ label: row.plant, value: row.value }));
   const byMonth = (po?.byMonth || []).map((row) => ({ label: monthLabel(row.month), value: row.value }));
   const avgAckDays = po?.avgAcknowledgementDays ?? null;
-  const receivedQty = summary?.grns.receivedQuantity || 0;
+  // Received on inspected lines only — a receipt read from SAP carries no
+  // inspection result, and is not a rejection (issue #351).
+  const inspectedQty = summary?.grns.inspectedQuantity || 0;
   const acceptedQty = summary?.grns.acceptedQuantity || 0;
 
   const isMsme = Boolean(inv?.isMsme ?? profile.msmeNumber);
@@ -349,7 +351,7 @@ export default function ReportsAnalyticsView({ state }) {
               <KPIStrip>
                 <KPICard label="On-time in full" value={performance.deliveryOTIF == null ? '—' : `${performance.deliveryOTIF}%`} empty={performance.deliveryOTIF == null} />
                 <KPICard label="Average time to acknowledge" value={avgAckDays == null ? '—' : `${avgAckDays.toFixed(1)} days`} empty={avgAckDays == null} />
-                <KPICard label="Quantity accepted on receipt" value={percent(acceptedQty, receivedQty)} empty={!receivedQty} />
+                <KPICard label="Quantity accepted on receipt" value={percent(acceptedQty, inspectedQty)} empty={!inspectedQty} />
               </KPIStrip>
             </Section>
           </div>

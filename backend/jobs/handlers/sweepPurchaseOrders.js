@@ -217,10 +217,11 @@ async function reconcileReceipts({ clientId, vendor, orders }) {
                 materialCode: item.materialCode,
                 description: item.description,
                 receivedQuantity: quantity,
-                // The endpoint reports received quantity only — no rejection
-                // field exists in it (see the s4odata driver's awaitGoodsReceipt).
-                acceptedQuantity: quantity,
-                rejectedQuantity: 0,
+                // The endpoint reports received quantity only — no inspection
+                // result exists in it (see the s4odata driver's
+                // awaitGoodsReceipt). Null is "not inspected" (issue #351).
+                acceptedQuantity: null,
+                rejectedQuantity: null,
                 uom: item.uom,
               })),
             },

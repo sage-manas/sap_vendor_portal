@@ -22,11 +22,19 @@ const formatGrnItem = (item) => ({
 // here as the same compute-after-fetch, same formula — see the migration
 // plan's decision to keep these as an app-layer read rather than a stored or
 // generated column.
+//
+// Over inspected lines only (issue #351): a line whose acceptedQuantity is
+// null was never inspected — every receipt read from SAP — and counting it
+// as 0 accepted would turn "no inspection data" into "all rejected". A
+// receipt with no inspected line at all reports null for both.
 const withVirtuals = (grn) => {
   const items = (grn.items || []).map(formatGrnItem);
-  const totalAccepted = items.reduce((sum, item) => sum + item.acceptedQuantity, 0);
-  const totalReceived = items.reduce((sum, item) => sum + item.receivedQuantity, 0);
-  const totalRejected = items.reduce((sum, item) => sum + item.rejectedQuantity, 0);
+  const inspected = items.filter((item) => item.acceptedQuantity != null);
+  if (!inspected.length) return { ...grn, items, totalAccepted: null, rejectionRate: null };
+
+  const totalAccepted = inspected.reduce((sum, item) => sum + item.acceptedQuantity, 0);
+  const totalReceived = inspected.reduce((sum, item) => sum + item.receivedQuantity, 0);
+  const totalRejected = inspected.reduce((sum, item) => sum + (item.rejectedQuantity || 0), 0);
   const rejectionRate = totalReceived === 0 ? 0 : (totalRejected / totalReceived) * 100;
   return { ...grn, items, totalAccepted, rejectionRate };
 };
