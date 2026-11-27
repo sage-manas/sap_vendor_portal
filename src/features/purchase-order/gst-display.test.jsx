@@ -54,7 +54,9 @@ describe('what the purchase-order line-item table claims about GST', () => {
       route: '/pos',
       api: {
         ...EMPTY_SUPPLIER_API,
-        'GET /pos': { pos: [po({ item: { taxCode: null } })], pagination: { total: 1, page: 1, limit: 20, pages: 1 } },
+        // A delivery date, so the only dash left on the row is the tax one:
+        // a line with none now shows "—" there too (issue #351).
+        'GET /pos': { pos: [po({ item: { taxCode: null, deliveryDate: '2026-03-01' } })], pagination: { total: 1, page: 1, limit: 20, pages: 1 } },
       },
     });
 

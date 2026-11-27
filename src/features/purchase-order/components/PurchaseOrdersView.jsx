@@ -620,7 +620,7 @@ export default function PurchaseOrdersView({
     // carries a bid's tax code onto the PO line it creates, so null is the
     // honest, common case here, not a display gap.
     { key: 'taxCode', header: 'Tax code', render: (item) => <span className="mono">{item.taxCode || '—'}</span> },
-    { key: 'deliveryDate', header: 'Delivery', render: (item) => displayDate(item.deliveryDate || activePo?.createdDate) },
+    { key: 'deliveryDate', header: 'Delivery', render: (item) => displayDate(item.deliveryDate) },
     { key: 'netValue', header: 'Net value (₹)', align: 'right', render: (item) => <span className="mono">{money2(item.netValue)}</span> },
   ];
 
@@ -679,7 +679,7 @@ export default function PurchaseOrdersView({
     },
     { key: 'uom', header: 'Unit', render: (item) => item.uom || 'EA' },
     { key: 'unitPrice', header: 'Net price (₹)', align: 'right', render: (item) => <span className="mono">{money2(item.unitPrice)}</span> },
-    { key: 'deliveryDate', header: 'Delivery', render: (item) => displayDate(item.deliveryDate || activePo?.createdDate) },
+    { key: 'deliveryDate', header: 'Delivery', render: (item) => displayDate(item.deliveryDate) },
   ];
 
   const receivedColumns = (grn) => [

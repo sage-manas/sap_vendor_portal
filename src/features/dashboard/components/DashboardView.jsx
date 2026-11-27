@@ -212,6 +212,7 @@ export default function DashboardView({ state, setActiveTab }) {
 
     let successCount = 0;
     let failCount = 0;
+    let portalOnlyCount = 0;
 
     if (action === 'Acknowledge') {
       for (const id of selectedItemIds) {
@@ -221,12 +222,16 @@ export default function DashboardView({ state, setActiveTab }) {
           continue;
         }
         const result = await portal.poHook.acknowledgePO(id);
-        if (result?.success) successCount++;
-        else failCount++;
+        if (result?.success) {
+          successCount++;
+          if (!result.sapWritten) portalOnlyCount++;
+        } else failCount++;
       }
       portal.addToast(
-        failCount === 0 ? 'success' : (successCount === 0 ? 'error' : 'info'),
+        failCount === 0 && portalOnlyCount === 0 ? 'success' : (successCount === 0 ? 'error' : 'info'),
         `Acknowledged ${successCount} of ${selectedItemIds.length} selected purchase order(s)${failCount ? ` — ${failCount} could not be acknowledged` : ''}.`
+          // Issue #351: an acknowledgement SAP did not receive is not announced as one it did.
+          + (portalOnlyCount ? ` ${portalOnlyCount === successCount ? 'They were' : `${portalOnlyCount} were`} recorded in the portal only; your buyer's SAP system was not updated.` : '')
       );
     } else if (action === 'Download') {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';

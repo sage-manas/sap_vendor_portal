@@ -4,6 +4,7 @@ const { EVENTS } = require('../../utils/socketEmitter');
 const { notifyVendor } = require('../notify');
 const { dueVendors, recordSweepTick } = require('../sweepHelpers');
 const logger = require('../../utils/logger');
+const { parseSapDate } = require('../../sap/mappings/dates');
 
 const FEED = 'quotation';
 
@@ -94,6 +95,8 @@ async function sweepOneVendor({ clientId, vendor, adapter }) {
 
     if (existing) {
       // eslint-disable-next-line no-await-in-loop
+      await syncRaisedDate({ rfq: existing, doc });
+      // eslint-disable-next-line no-await-in-loop
       await syncStatus({ rfq: existing, isOpen });
       // eslint-disable-next-line no-await-in-loop
       await syncItems({ clientId, rfq: existing, items: openItemsByNumber.get(doc.documentNumber) });
@@ -103,6 +106,17 @@ async function sweepOneVendor({ clientId, vendor, adapter }) {
     // eslint-disable-next-line no-await-in-loop
     await discoverRfq({ clientId, vendor, doc, isOpen, adapter, knownItems: openItemsByNumber.get(doc.documentNumber) });
   }
+}
+
+// "Raised" is the day SAP raised the RFQ (ME48's bedat), not the day this
+// sweep first saw it — RFQ-2026-003 read 20 Nov for an RFQ SAP raised on
+// 23 Sep (issue #351). Compared by day; corrected silently, since a wrong
+// date was the portal's error, not news from SAP.
+async function syncRaisedDate({ rfq, doc }) {
+  const raised = parseSapDate(doc.date);
+  if (!raised) return;
+  if (raised.toISOString().slice(0, 10) === new Date(rfq.createdDate).toISOString().slice(0, 10)) return;
+  await prisma.rFQ.update({ where: { pk: rfq.pk }, data: { createdDate: raised } });
 }
 
 // Never regresses past whatever the portal itself has done with this RFQ —
@@ -203,10 +217,14 @@ async function discoverRfq({ clientId, vendor, doc, isOpen, adapter, knownItems 
   const year = new Date().getFullYear();
   const id = await nextSequentialId('rFQ', `RFQ-${year}-`, 3);
 
+  const raised = parseSapDate(doc.date);
   const created = await prisma.rFQ.create({
     data: {
       id,
       clientId,
+      // See syncRaisedDate. Only a document SAP sent no date for keeps the
+      // schema default.
+      ...(raised ? { createdDate: raised } : {}),
       description: describeFrom(items),
       // No SAP source for a bid-by date on either read this driver has —
       // null, honestly (see the RFQ.deadlineDate comment in schema.prisma),

@@ -215,6 +215,35 @@ describe('sweepPurchaseOrders discovery', () => {
     });
   });
 
+  // Issue #351: "Raised" is the day SAP raised the order, not the day this
+  // sweep first saw it.
+  describe('raised date', () => {
+    const raisedDay = async (sapPoNumber) => (await runWithTenant('CLT-0001', () => prisma.purchaseOrder.findFirst({ where: { sapPoNumber } })))
+      .createdDate.toISOString().slice(0, 10);
+
+    it('records SAP\'s PO_DATE on an order it discovers', async () => {
+      await seedVendor('CLT-0001', 'vendor_date_1', 'VENDATE1');
+      await runSweep('CLT-0001', { po: [discoveryPo('4500098301', { createdDate: '2026-09-21' })] });
+      expect(await raisedDay('4500098301')).toBe('2026-09-21');
+    });
+
+    it('corrects an order already recorded with its discovery date', async () => {
+      await seedVendor('CLT-0001', 'vendor_date_2', 'VENDATE2');
+      // Historical row: what discovery wrote before #351 — the day it ran.
+      await runWithTenant('CLT-0001', () => prisma.purchaseOrder.create({
+        data: {
+          id: 'PO-DATE-2', vendorId: 'vendor_date_2', status: 'Open', createdDate: new Date('2026-10-22T11:36:59Z'),
+          sapPoNumber: '4500098302', sapDocNumber: '4500098302', sapSyncState: 'synced',
+          items: { create: [{ clientId: 'CLT-0001', line: 10, materialCode: 'MAT-1', description: 'Widget', quantity: 10, grnQuantity: 0, unitPrice: 50, netValue: 500, uom: 'EA' }] },
+        },
+      }));
+
+      await runSweep('CLT-0001', { po: [discoveryPo('4500098302', { createdDate: '2026-09-21' })] }, { vanishedPoIds: ['PO-DATE-2'] });
+
+      expect(await raisedDay('4500098302')).toBe('2026-09-21');
+    });
+  });
+
   it('two tenants sweeping the same tick see only their own vendors', async () => {
     await seedClient({ clientId: 'CLT-SWEEP-2', slug: 'sweep-two', companyName: 'Sweep Two' });
     await seedVendor('CLT-0001', 'vendor_sweep_a', 'VEN00A');
@@ -361,6 +390,29 @@ describe('sweepQuotations discovery — RFQs raised directly in SAP', () => {
     expect(rfq.items[0].materialCode).toBe('MAT-9210');
     expect(Number(rfq.items[0].quantity)).toBe(20);
     expect(rfq.invitedVendors.map((v) => v.vendorExtId)).toEqual(['vendor_rfq_1']);
+  });
+
+  // Issue #351: RFQ-2026-003 read "Raised 20 Nov" for an RFQ SAP raised on
+  // 23 Sep (ME48's bedat, discoveryRfq's date).
+  it('records the day SAP raised the RFQ, and corrects one recorded with its discovery date', async () => {
+    await seedVendor('CLT-0001', 'vendor_rfq_date', 'VENRFQDT');
+    await runQuotationSweep('CLT-0001', { rfq: [discoveryRfq('6000000931')] });
+
+    let rfq = await runWithTenant('CLT-0001', () => prisma.rFQ.findFirst({ where: { sapDocNumber: '6000000931' } }));
+    expect(rfq.createdDate.toISOString().slice(0, 10)).toBe('2026-09-23');
+
+    // Historical row: the discovery date an older sweep wrote.
+    await runWithTenant('CLT-0001', () => prisma.rFQ.updateMany({
+      where: { sapDocNumber: '6000000931' }, data: { createdDate: new Date('2026-11-20T09:00:00Z') },
+    }));
+    await forceQuotationDue('CLT-0001', 'VENRFQDT');
+    await withoutTenantScope(() => rawPrisma.sapSyncCursor.updateMany({
+      where: { clientId: 'CLT-0001', feed: 'quotation', vendorCode: 'VENRFQDT' }, data: { fingerprint: null },
+    }));
+    await runQuotationSweep('CLT-0001', { rfq: [discoveryRfq('6000000931')] });
+
+    rfq = await runWithTenant('CLT-0001', () => prisma.rFQ.findFirst({ where: { sapDocNumber: '6000000931' } }));
+    expect(rfq.createdDate.toISOString().slice(0, 10)).toBe('2026-09-23');
   });
 
   it('discovers a document already fallen out of ME43 as Closed, not Open', async () => {
