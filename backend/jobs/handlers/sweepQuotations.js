@@ -149,7 +149,9 @@ async function syncItems({ clientId, rfq, items }) {
         description: item.description || existing.description,
         quantity: item.quantity || 0,
         uom: item.uom || existing.uom,
-        targetPrice: item.targetPrice ?? null,
+        // SAP has no target price for an RFQ; anything stored here came from
+        // the old netPrice mapping, which was the vendor's own quote (#347).
+        targetPrice: null,
         plant: item.plant || existing.plant,
       },
     });
@@ -238,7 +240,8 @@ async function discoverRfq({ clientId, vendor, doc, isOpen, adapter, knownItems 
           description: item.description || null,
           quantity: item.quantity || 0,
           uom: item.uom || 'EA',
-          targetPrice: item.targetPrice ?? null,
+          // No SAP source for a target price (#347) — see syncItems.
+          targetPrice: null,
           plant: item.plant || '1000',
         })),
       },

@@ -488,4 +488,35 @@ describe('sweepQuotations discovery — RFQs raised directly in SAP', () => {
     expect(Number(rfq.items[0].quantity)).toBe(20);
     expect(rfq.items).toHaveLength(1); // corrected in place, not duplicated
   });
+
+  // Issue #347: ME43's netPrice is this vendor's own quote (submitBid writes
+  // it via ME47), and an earlier driver stored it as the target price. SAP's
+  // RFQ has no target price, so a discovered RFQ never carries one.
+  it('never stores a target price on an RFQ discovered from SAP, and clears one left by the old mapping', async () => {
+    await seedVendor('CLT-0001', 'vendor_rfq_8', 'VENRFQ8');
+
+    // Historical row: what the old netPrice mapping left behind — the
+    // vendor's earlier quote stored as a "target price".
+    await runWithTenant('CLT-0001', () => prisma.rFQ.create({
+      data: {
+        id: 'RFQ-2026-901', clientId: 'CLT-0001', description: 'NEW MATERIAL SAGE TESTING',
+        status: 'Bidding Open', rfqType: 'AN', currency: 'INR', purchasingOrg: 'SSDN', companyCode: '1000',
+        sapDocNumber: '6000000921', sapSyncState: 'synced',
+        items: { create: [{ clientId: 'CLT-0001', line: 10, materialCode: 'MAT-9210', description: 'Flange 3" ANSI 150#', quantity: 20, uom: 'EA', plant: 'SSDN', targetPrice: 150 }] },
+        invitedVendors: { create: [{ clientId: 'CLT-0001', vendorExtId: 'vendor_rfq_8', name: 'vendor_rfq_8 Pvt Ltd', status: 'Pending' }] },
+      },
+    }));
+
+    const quoted = { line: 10, materialCode: 'MAT-9210', description: 'Flange 3" ANSI 150#', quantity: 20, uom: 'EA', plant: 'SSDN', netPrice: 150 };
+    await runQuotationSweep('CLT-0001', { rfq: [
+      discoveryRfq('6000000921', { items: [quoted] }),
+      discoveryRfq('6000000922', { items: [quoted] }),
+    ] });
+
+    const items = await runWithTenant('CLT-0001', () => prisma.rfqItem.findMany({
+      where: { rfq: { sapDocNumber: { in: ['6000000921', '6000000922'] } } },
+    }));
+    expect(items).toHaveLength(2);
+    for (const item of items) expect(item.targetPrice).toBeNull();
+  });
 });

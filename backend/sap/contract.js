@@ -144,8 +144,9 @@ const SAP_METHODS = {
   // of line items on a document SAP already holds (an `ebeln` from
   // vendorRfqDisplay/vendorQuotationDisplay's 6xxxxxxx range). It is a
   // convenience for pushing a price SAP's own buyer can see there too — it
-  // does not create or replace a portal bid, and nothing calls it from the
-  // bid-submission path.
+  // does not create or replace a portal bid. submitBid calls it best-effort
+  // after the portal bid is saved, so the net price on an RFQ document in
+  // SAP is this vendor's own quote — never a target price (#347).
   quotationUpdatePrice: { transaction: 'QUOTATION_PRICE_UPDATE' },
 
   // Purchase orders

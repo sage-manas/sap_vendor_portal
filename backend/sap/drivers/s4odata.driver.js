@@ -1001,11 +1001,11 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
                 description: item.materialDesc || null,
                 quantity: Number(item.quantity) || 0,
                 uom: decodeFromSap('MEINS', item.unitOfMeasure),
-                // 0 is SAP's "no target price entered yet" here, same as
-                // ORDERED_QUANTITY's 0 meant "not yet quantified" before this
-                // endpoint carried a real quantity — stored as null rather
-                // than a price nobody quoted.
-                targetPrice: Number(item.netPrice) > 0 ? Number(item.netPrice) : null,
+                // `netPrice` is deliberately not read (issue #347). An RFQ is
+                // one document per vendor, and its net price is empty until
+                // the quotation is maintained (ME47) — which submitBid does
+                // with this vendor's own bid. It is the vendor's quote, not a
+                // buyer's target, and SAP's RFQ carries no target price.
                 plant: item.plant || null,
               })) : [],
             })),
