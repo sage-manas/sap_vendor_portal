@@ -18,15 +18,23 @@ import InvoicesPage from '@/app/invoices/page';
 // was used only to badge rows that already existed, so such an invoice was
 // invisible to the supplier with no notice of any kind.
 
+// The live MIRO 5105609771 as the s4odata driver returns it (issue #349):
+// ISO dates, REFERENCE as supplierReference, the PO from the lines, and
+// net/tax from the line amounts. taxableAmount is SAP's raw TAXABLE_AMOUNT,
+// 0.00 on this V0 invoice — not the subtotal.
 const miro = (overrides) => ({
   miroDoc: '5105609771',
   fiscalYear: '2026',
   docType: 'RE',
-  docDate: '20261001',
-  postingDate: '20261001',
+  docDate: '2026-10-01',
+  postingDate: '2026-10-01',
+  supplierReference: 'TESTING',
+  poNumber: '4500022838',
   companyCode: 'SSDN',
   currency: 'INR',
   grossAmount: 25000,
+  netAmount: 25000,
+  taxAmount: 0,
   taxableAmount: 0,
   taxCode: 'V0',
   items: [{ poNumber: '4500022838', poItem: '00010', amount: 25000, quantity: 10 }],
@@ -80,6 +88,22 @@ describe('an invoice SAP holds that the portal has not recorded', () => {
     await screen.findByText('5105609771');
     expect(screen.getAllByText('5105609771')).toHaveLength(1);
     expect(screen.queryByText(/^Ref /)).not.toBeInTheDocument();
+  });
+
+  // Issue #349: REFERENCE is XBLNR, the number the supplier put on their own
+  // invoice — the one way they recognise it.
+  it('shows the supplier\'s own reference as their invoice', async () => {
+    renderLedger([], { 'GET /invoices/sap-status': { documents: [miro()], paymentDetails: {} } });
+
+    expect(await screen.findByText('TESTING')).toBeInTheDocument();
+  });
+
+  // Issue #349: taxableAmount (0 here) used to be read as the subtotal, which
+  // made the whole 25000 tax. A V0 invoice carries no tax.
+  it('reads net and tax from the lines, so a tax-free invoice shows 0% GST', async () => {
+    renderLedger([], { 'GET /invoices/sap-status': { documents: [miro()], paymentDetails: {} } });
+
+    expect(await screen.findByText('GST 0%')).toBeInTheDocument();
   });
 
   it('does not claim the supplier submitted it', async () => {

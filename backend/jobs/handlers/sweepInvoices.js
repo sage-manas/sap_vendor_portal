@@ -1,6 +1,7 @@
 const { prisma } = require('../../db/prisma');
 const { formatInvoice } = require('../../db/invoiceHelpers');
 const { matchInvoiceDocument, AmbiguousInvoiceMatchError } = require('../../sap/mappings/invoice-match');
+const { parseSapDate } = require('../../sap/mappings/dates');
 const { nextSequentialId } = require('../../utils/nextSequentialId');
 const { EVENTS } = require('../../utils/socketEmitter');
 const { notifyProcurement } = require('../notify');
@@ -59,11 +60,10 @@ async function sweepOneVendor({ clientId, vendor, adapter }) {
 }
 
 // SAP's own report has no field naming the portal's PurchaseOrder — the PO
-// is read from the line items first (sap/mappings/invoice-match.js's own
-// header comment explains why: the header REFERENCE field's meaning is a
-// per-configuration choice in SAP and unconfirmed against a live system;
-// PO_NO on each item is unambiguous), falling back to the header only when
-// no item carries one.
+// is read from the line items' PO_NO. The driver's header poNumber is the
+// same value (issue #349: it used to be REFERENCE, which is the supplier's
+// own invoice reference, not a PO), kept as the fallback for a driver that
+// reports no lines.
 const poNumberOf = (document) => {
   const fromItems = (document.items || []).map((item) => item.poNumber).filter(Boolean);
   return fromItems[0] || document.poNumber || null;
@@ -125,7 +125,9 @@ const buildItems = (document, clientId) => (document.items || []).map((item, ind
   return {
     clientId,
     line: Number(item.poItem) || (index + 1) * 10,
-    materialCode: item.materialCode || 'UNKNOWN',
+    // A text line has no MATNR. '' is the convention createAssetPo uses for
+    // the same case; 'UNKNOWN' read like a material code SAP had sent.
+    materialCode: item.materialCode || '',
     quantity,
     unitPrice: quantity ? amount / quantity : amount,
     amount,
@@ -157,6 +159,16 @@ const buildItems = (document, clientId) => (document.items || []).map((item, ind
 //     PO the portal shows nothing outstanding on and a human needs to look.
 //     Deferring is right; doing it silently was not, so it is logged.
 async function createDiscoveredInvoice({ clientId, vendor, po, document }) {
+  // An invoice with no date cannot be recorded honestly — "today" would be a
+  // date the supplier never wrote. Left for a later tick and said so, rather
+  // than thrown: one unreadable document must not stop the rest of the
+  // vendor's ledger (issue #349 — every live document failed here once).
+  const invoiceDate = parseSapDate(document.docDate);
+  if (!invoiceDate) {
+    logger.warn(`[jobs] sweepInvoices skipping SAP ${document.miroDoc} for vendor ${vendor.vendorId}: unreadable document date ${JSON.stringify(document.docDate)}`);
+    return;
+  }
+
   const created = await prisma.$transaction(async (tx) => {
     const candidate = await tx.gRN.findFirst({
       where: { poId: po.id, invoiceSubmitted: false },
@@ -177,11 +189,13 @@ async function createDiscoveredInvoice({ clientId, vendor, po, document }) {
       return null;
     }
 
-    const subTotal = Number(document.taxableAmount) || 0;
+    // The driver's netAmount/taxAmount, not TAXABLE_AMOUNT: on the live V0
+    // invoice that field is 0.00, which made subtotal 0 and tax the whole
+    // gross (issue #349).
     const totalAmount = Number(document.grossAmount) || 0;
-    const taxAmount = Math.max(totalAmount - subTotal, 0);
-    const year = new Date(document.docDate || Date.now()).getFullYear();
-    const id = await nextSequentialId('invoice', `INV-${year}-`, 4, tx);
+    const subTotal = Number(document.netAmount) || 0;
+    const taxAmount = Number(document.taxAmount) || 0;
+    const id = await nextSequentialId('invoice', `INV-${invoiceDate.getUTCFullYear()}-`, 4, tx);
 
     return tx.invoice.create({
       data: {
@@ -189,8 +203,11 @@ async function createDiscoveredInvoice({ clientId, vendor, po, document }) {
         ...(candidate ? { grnId: candidate.id } : {}),
         poId: po.id,
         vendorId: vendor.vendorId,
-        invoiceNumber: document.miroDoc,
-        invoiceDate: document.docDate ? new Date(document.docDate) : new Date(),
+        // The supplier's own reference (XBLNR) is their invoice number; SAP's
+        // document number stays in sapMiroDoc below. Only a document posted
+        // with no reference falls back to SAP's number.
+        invoiceNumber: document.supplierReference || document.miroDoc,
+        invoiceDate,
         subTotal, taxAmount, totalAmount,
         ...(document.taxCode ? { taxCode: document.taxCode } : {}),
         currency: document.currency || 'INR',
