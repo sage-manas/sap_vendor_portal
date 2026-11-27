@@ -142,9 +142,11 @@ export function usePOs(profile) {
   const acknowledgePO = async (poId) => {
     try {
       setPos(prev => prev.map(po => po.id === poId ? { ...po, status: 'Acknowledged', acknowledgedAt: new Date().toISOString() } : po));
-      await poService.acknowledgePO(poId);
+      const response = await poService.acknowledgePO(poId);
       refreshPOs();
-      return { success: true };
+      // false when the buyer's SAP connection has nowhere to record it — the
+      // acknowledgement then lives in the portal only (issue #351).
+      return { success: true, sapWritten: response?.sapWritten !== false };
     } catch (e) {
       console.error(e);
       refreshPOs();

@@ -1587,19 +1587,24 @@ const createS4ODataDriver = ({ config = {}, secrets = {} } = {}) => {
     // notImplementedDriver until a real endpoint is confirmed and this can
     // make one, same as every other not-yet-built method on this driver.
 
+    // Logged only when something was actually written (issue #351): with no
+    // poAcknowledgeField this used to return a log anyway, so the tenant's
+    // SAP log showed "RFC_PO_ACKNOWLEDGE · SUCCESS" for a call never made.
+    // `sapWritten` tells the caller which of the two happened.
     poAcknowledge: async ({ po }) => {
       const ackField = config.fields?.poAcknowledgeField;
-      if (ackField) {
-        await odata.call({
-          service: svc.purchaseOrder, method: 'PATCH', secrets,
-          path: `/A_PurchaseOrder('${po.sapPoNumber}')`,
-          body: { [ackField]: true },
-        });
-      } else {
+      if (!ackField) {
         logger.warn('[sap:s4_odata] poAcknowledge: no config.fields.poAcknowledgeField set — recording locally only, nothing written to SAP');
+        return { data: { sapWritten: false } };
       }
+
+      await odata.call({
+        service: svc.purchaseOrder, method: 'PATCH', secrets,
+        path: `/A_PurchaseOrder('${po.sapPoNumber}')`,
+        body: { [ackField]: true },
+      });
       return {
-        data: {},
+        data: { sapWritten: true },
         log: { vendorId: po.vendorId, payload: { poId: po.id, sapPoNumber: po.sapPoNumber, acknowledgedAt: po.acknowledgedAt }, documentRef: po.id },
       };
     },

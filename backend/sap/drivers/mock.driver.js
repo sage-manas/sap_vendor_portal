@@ -714,7 +714,8 @@ const createMockDriver = ({ config = {} } = {}) => {
     // --- Sourcing ---------------------------------------------------------
 
     poAcknowledge: async ({ po }) => ({
-      data: {},
+      // The simulator stands in for SAP, so its acknowledgement is "written".
+      data: { sapWritten: true },
       log: {
         vendorId: po.vendorId,
         payload: { poId: po.id, acknowledgedAt: po.acknowledgedAt },

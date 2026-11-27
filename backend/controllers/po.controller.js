@@ -210,12 +210,22 @@ const acknowledgePO = asyncHandler(async (req, res, next) => {
   const updated = await syncPoStatus(prisma, po.pk);
 
   const sap = await getSapAdapterForClient(req.clientId);
-  const { transaction } = await sap.poAcknowledge({ po: formatPo(updated) });
+  const { transaction, sapWritten } = await sap.poAcknowledge({ po: formatPo(updated) });
 
-  const io = req.app.get('io');
-  emitToVendor(io, req.clientId, updated.vendorId, EVENTS.LOG_NEW, { type: transaction.type, name: transaction.code });
+  // Announced only when SAP was actually written to (issue #351) — the driver
+  // logs nothing otherwise, so the live feed must not claim a call either.
+  if (sapWritten) {
+    const io = req.app.get('io');
+    emitToVendor(io, req.clientId, updated.vendorId, EVENTS.LOG_NEW, { type: transaction.type, name: transaction.code });
+  }
 
-  res.json({ message: 'Purchase Order acknowledged successfully', po: formatPo(updated) });
+  res.json({
+    message: sapWritten
+      ? 'Purchase Order acknowledged successfully'
+      : "Purchase Order acknowledged in the portal. Your buyer's SAP system was not updated.",
+    sapWritten: Boolean(sapWritten),
+    po: formatPo(updated),
+  });
 });
 
 // @desc    Submit ASN (Advanced Shipping Notification)

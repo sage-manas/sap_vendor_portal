@@ -9,6 +9,7 @@ const { toNumber: toMoney } = require('../../utils/money');
 const { toNumber: toQty } = require('../../utils/quantity');
 const logger = require('../../utils/logger');
 const { ASN_OPEN } = require('../../config/statuses');
+const { parseSapDate } = require('../../sap/mappings/dates');
 
 const FEED = 'po';
 
@@ -152,6 +153,9 @@ const serviceEntriesFor = (item) => {
 const serviceEntriesKey = (entries) => (entries || [])
   .map((entry) => `${entry.fiscalYear}|${entry.entrySheetNumber}|${Number(entry.netAmount) || 0}`)
   .join(';');
+
+// SAP's PO_DATE (already ISO from the driver), or null.
+const sapRaisedDate = (order) => parseSapDate(order.poDate);
 
 const isUniqueViolation = (err) =>
   err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
@@ -344,6 +348,14 @@ async function syncLineClassification({ clientId, existing, order }) {
 async function reconcileOrder({ clientId, vendor, existing, order }) {
   await syncLineClassification({ clientId, existing, order });
 
+  // Corrected silently: a "Raised" date that was the discovery date
+  // (issue #351) is a portal error, not news from SAP worth a toast.
+  const raised = sapRaisedDate(order);
+  // Compared by day: PO_DATE has no time, and a portal-awarded order's own
+  // timestamp on the right day is not wrong.
+  const sameDay = raised && raised.toISOString().slice(0, 10) === new Date(existing.createdDate).toISOString().slice(0, 10);
+  const dateFix = raised && !sameDay ? { createdDate: raised } : {};
+
   const headerChanges = {};
   if (order.buyerName && order.buyerName !== existing.buyerName) headerChanges.buyerName = order.buyerName;
   if (order.companyCode && order.companyCode !== existing.companyCode) headerChanges.companyCode = order.companyCode;
@@ -382,12 +394,12 @@ async function reconcileOrder({ clientId, vendor, existing, order }) {
     // freshness of correlation, not of content (schema note on the field),
     // so it still moves forward here to make a stale order's last-checked
     // time visible.
-    await prisma.purchaseOrder.update({ where: { pk: existing.pk }, data: { sapSyncedAt: new Date() } });
+    await prisma.purchaseOrder.update({ where: { pk: existing.pk }, data: { ...dateFix, sapSyncedAt: new Date() } });
     return;
   }
 
   await prisma.$transaction(async (tx) => {
-    await tx.purchaseOrder.update({ where: { pk: existing.pk }, data: { ...headerChanges, sapSyncedAt: new Date() } });
+    await tx.purchaseOrder.update({ where: { pk: existing.pk }, data: { ...headerChanges, ...dateFix, sapSyncedAt: new Date() } });
     for (const change of lineChanges) {
       // eslint-disable-next-line no-await-in-loop
       await tx.purchaseOrderItem.update({ where: { pk: change.pk }, data: change.data });
@@ -504,6 +516,11 @@ async function upsertOrder({ clientId, vendor, order, localPos }) {
   const created = await prisma.purchaseOrder.create({
     data: {
       id,
+      // The day SAP raised it (PO_DATE), not the day this sweep first saw
+      // it — every discovered order used to read "Raised" on its discovery
+      // date (issue #351). Only an order SAP sent no date for keeps the
+      // schema default.
+      ...(sapRaisedDate(order) ? { createdDate: sapRaisedDate(order) } : {}),
       sapPoNumber: order.poNumber,
       sapDocNumber: order.poNumber,
       sapSyncState: 'synced',
