@@ -18,6 +18,7 @@ const { syncPoStatus } = require('../db/poHelpers');
 
 const app = buildTestApp();
 
+
 const TENANT_A = { clientId: 'CLT-0002', slug: 'northwind', companyName: 'Northwind Traders' };
 const TENANT_B = { clientId: 'CLT-0003', slug: 'contoso', companyName: 'Contoso Supply' };
 
@@ -69,6 +70,13 @@ const setUpTenant = async ({ clientId, slug, companyName }, seq) => {
     email: `finance@${slug}.example.com`,
   });
 
+  // Approves shipment notices: every workspace requires it by default.
+  const admin = await createTenantUser({
+    role: 'client_admin',
+    clientId,
+    email: `admin@${slug}.example.com`,
+  });
+
   const sign = (token) => (req) => req.set('Authorization', `Bearer ${token}`);
 
   return {
@@ -78,13 +86,14 @@ const setUpTenant = async ({ clientId, slug, companyName }, seq) => {
     asSupplier: sign(supplier.token),
     asBuyer: sign(buyer.token),
     asFinance: sign(finance.token),
+    asAdmin: sign(admin.token),
   };
 };
 
 // The whole cycle for one tenant, returning the documents it produced so the
 // other tenant can be asked about them by id.
 const runCycle = async (tenant) => {
-  const { asBuyer, asSupplier, asFinance, vendorId } = tenant;
+  const { asBuyer, asSupplier, asFinance, asAdmin, vendorId } = tenant;
 
   // ── RFQ ──────────────────────────────────────────────────────────────
   const rfqRes = await asBuyer(request(app).post('/api/rfqs')).send({
@@ -127,6 +136,11 @@ const runCycle = async (tenant) => {
   });
   expect(asnRes.status).toBe(201);
   const asnId = asnRes.body.asn.id;
+
+  // Held for the tenant admin; SAP hears of it once approved.
+  expect(asnRes.body.asn.status).toBe('Pending Approval');
+  const approveRes = await asAdmin(request(app).post(`/api/asns/${asnId}/approve`));
+  expect(approveRes.status).toBe(200);
 
   // The mock warehouse answers on its own schedule (zero delay under test).
   const grn = await until(async () => {

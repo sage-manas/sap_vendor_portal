@@ -82,6 +82,17 @@ describe('cancelling a shipment from the order', () => {
     await waitFor(() => expect(apiMock.lastBody('POST', '/pos/PO-2026-0001/asn/ASN-100001/cancel')).toEqual({ reason: 'Vehicle did not leave' }));
   });
 
+  it('shows the inbound delivery SAP created, and a dash where it made none', async () => {
+    const user = userEvent.setup();
+    renderLedger([po()], [asn({ sapInboundDelivery: '0180000123' }), asn({ id: 'ASN-100002' })]);
+
+    await user.click(await row('PO-2026-0001'));
+    await user.click(await screen.findByRole('tab', { name: 'Delivery status' }));
+
+    expect(within(await row('ASN-100001')).getByText('0180000123')).toBeInTheDocument();
+    expect(within(await row('ASN-100002')).getByTitle('SAP has no inbound delivery for this shipment')).toBeInTheDocument();
+  });
+
   it('offers no cancel on a shipment SAP has received', async () => {
     const user = userEvent.setup();
     renderLedger([po()], [asn({ status: 'Received', items: [{ line: 10, shippedQuantity: 40, receivedQuantity: 38, receiptVariance: -2 }] })]);
@@ -90,5 +101,39 @@ describe('cancelling a shipment from the order', () => {
     await user.click(await screen.findByRole('tab', { name: 'Delivery status' }));
 
     expect(within(await row('ASN-100001')).queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+  });
+});
+
+describe('sending a shipment from an order', () => {
+  it('opens the ASN wizard on that order', async () => {
+    const user = userEvent.setup();
+    const { navigation } = renderLedger([po()]);
+
+    await user.click(within(await row('PO-2026-0001')).getByRole('button', { name: 'Send shipment' }));
+
+    expect(navigation.push).toHaveBeenCalledWith('/asn?new=1&po=PO-2026-0001');
+  });
+});
+
+describe('a shipment across several orders', () => {
+  it('shows on each of its orders, naming the other order\'s lines', async () => {
+    const user = userEvent.setup();
+    renderLedger([po({ id: 'PO-2026-0002' })], [asn({
+      poId: 'PO-2026-0001',
+      status: 'Partially Received',
+      items: [
+        { poId: 'PO-2026-0001', line: 10, shippedQuantity: 40, receivedQuantity: 40, receiptVariance: 0 },
+        { poId: 'PO-2026-0002', line: 10, shippedQuantity: 12, receivedQuantity: null, receiptVariance: null },
+      ],
+    })]);
+
+    await user.click(await row('PO-2026-0002'));
+    await user.click(await screen.findByRole('tab', { name: 'Delivery status' }));
+
+    const shipmentRow = await row('ASN-100001');
+    expect(within(shipmentRow).getByText('PO-2026-0001/10: 40 · 10: 12')).toBeInTheDocument();
+    expect(within(shipmentRow).getByText('Partially Received')).toBeInTheDocument();
+    // Something is received, so it can no longer be withdrawn.
+    expect(within(shipmentRow).queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
   });
 });

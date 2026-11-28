@@ -1,14 +1,16 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Clock, CheckCircle2, Search, Download, FileText, Check, ArrowLeft, Loader2, CalendarClock, AlertCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import FileUploadZone from '@/components/shared/FileUploadZone';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import StatusBadge from '@/components/ui/StatusBadge';
-import Modal from '@/components/ui/Modal';
+import CancelShipmentDialog from '@/features/asn/components/CancelShipmentDialog';
+import { ASN_STATUS_TONE } from '@/features/asn/components/AsnDashboard';
+import { openToShip } from '@/features/asn/rules';
 import TableSkeleton from '@/components/ui/TableSkeleton';
 import DataTable from '@/components/ui/DataTable';
 import { PageHeader } from '@/components/ui/Page';
@@ -19,6 +21,7 @@ import { describeSyncState } from '@/lib/syncState';
 import { poKind, lineKind, lineHasInvoicePlan, hasInvoicePlan as poHasInvoicePlan, hasPendingInvoicePlanChange, invoicePlanNumbers } from '@/features/purchase-order/poKind';
 import { useWhoami } from '@/lib/whoami';
 import { rfqService } from '@/features/rfq/services/rfqService';
+import { poService } from '@/features/purchase-order/services/poService';
 import InvoicePlanPanel from './InvoicePlanPanel';
 
 import { useLabelledControl } from '@/components/ui/FieldCard';
@@ -56,24 +59,6 @@ function SapInputField({ label, required, children }) {
   );
 }
 
-
-// A YYYY-MM-DD date `days` from today, for the shipment form's defaults.
-// Module-level so the clock read stays out of anything React renders.
-const isoDateInDays = (days) => new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-
-// What a line can still go on a shipment. The API reports it
-// (openToShipQuantity: ordered, less received, less what is on an open
-// shipment); an order SAP holds but the portal has not recorded has no such
-// figure, so it falls back to ordered less received.
-const openToShip = (item) => (item.openToShipQuantity ?? Math.max(0, Number(item.quantity) - Number(item.grnQuantity || 0)));
-
-// The same rule the API applies (backend/services/asn.service.js): an invoice
-// worth more than ₹50,000 with tax needs an e-way bill.
-const EWAY_BILL_THRESHOLD_INR = 50000;
-const INVOICE_NUMBER = /^[A-Za-z0-9/-]{1,16}$/;
-
-const ASN_STATUS_TONE = { Submitted: 'progress', 'In Transit': 'progress', Received: 'done', Cancelled: 'neutral' };
-
 // A goods-receipt line with an inspection result. SAP's receipt read carries
 // none, so a receipt recorded from SAP has accepted/rejected null — "not
 // inspected", which used to render as "QC Passed" (issue #351).
@@ -88,53 +73,6 @@ const inspectionBadge = (inspectedLines) => {
     : <StatusBadge label="QC Passed" variant="active" />;
 };
 
-// Withdrawing a shipment notice, with the reason the buyer will see.
-function CancelShipmentDialog({ asn, onClose, onCancel }) {
-  const [reason, setReason] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-
-  const submit = async () => {
-    if (!reason.trim()) {
-      setError('Say why — your buyer may already be planning to receive it.');
-      return;
-    }
-    setSaving(true);
-    setError('');
-    try {
-      await onCancel(reason.trim());
-      onClose();
-    } catch (err) {
-      setError(err?.message || 'The shipment could not be cancelled.');
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Modal open onClose={onClose} title={`Cancel shipment ${asn.id}`}>
-      <div className="space-y-4 pt-1">
-        <p className="text-fg-muted">
-          The quantities on it become free to ship again. To correct a shipment, cancel it and send a new one.
-        </p>
-        <textarea
-          aria-label="Reason for cancelling"
-          className="min-h-24 w-full"
-          placeholder="For example: vehicle did not leave, wrong quantity"
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-        />
-        {error && <p className="flex items-start gap-1 text-danger"><AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />{error}</p>}
-        <div className="flex items-center justify-end gap-2 pt-1">
-          <Button variant="ghost" onClick={onClose} disabled={saving}>Keep shipment</Button>
-          <Button variant="destructive" onClick={submit} disabled={saving}>
-            {saving ? <><Loader2 className="mr-2 size-4 animate-spin" /> Cancelling…</> : 'Cancel shipment'}
-          </Button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
 // Saved views over the list — groups of the same statuses the status filter
 // already knows; their counts are what the old KPI cards showed.
 const SAVED_VIEWS = [
@@ -148,13 +86,11 @@ export default function PurchaseOrdersView({
   state,
   selectedPoId,
   setSelectedPoId,
-  asnForm,
-  setAsnForm,
-  handleAsnSubmit,
   acknowledgePO,
   cancelASN,
   retrySapStatus
 }) {
+  const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -313,24 +249,11 @@ export default function PurchaseOrdersView({
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 5;
 
-  // Local state for E-Way Bill uploads and validation errors
-  const [ewayBillNo, setEwayBillNo] = useState('');
-  const [dispatchQuantities, setDispatchQuantities] = useState({});
-  const [validationErrors, setValidationErrors] = useState({});
-
-  // Local state for local uploads in ASN
-  const [asnDocs, setAsnDocs] = useState({ packingList: null, invoiceCopy: null, transportDoc: null });
-
   // Detail View Active Sub-tab ('po_detail' | 'create_asn' | 'grn_status')
   const [detailTab, setDetailTab] = useState('po_detail');
 
   // The shipment whose cancel dialog is open, or null.
   const [cancellingAsn, setCancellingAsn] = useState(null);
-
-  // Recomputed as the invoice value is typed, so the field is marked required
-  // the moment it crosses the limit rather than after a refused submit.
-  const ewayBillRequired = Boolean(activePo) && (activePo.currency || 'INR') === 'INR'
-    && Number(asnForm.invoiceValue) > EWAY_BILL_THRESHOLD_INR;
 
   // Invoice planning is a per-line setting, and the tab only exists for orders
   // that use it — an order invoiced against goods receipts should look exactly
@@ -363,47 +286,9 @@ export default function PurchaseOrdersView({
   const uniqueBuyers = Array.from(new Set(cleanPOs.map(p => p.buyerName).filter(Boolean)));
 
 
-  // Prefills the shipment form the first time an order's "Send shipment" tab is
-  // opened. This used to be an effect watching `detailTab`, which meant a render
-  // pass that painted the empty form before a second pass filled it in, and it
-  // generated tracking/e-way numbers from Math.random() and the clock — so it
-  // could not simply move into the render body either.
-  //
-  // Opening that tab is a user action, so the initialization belongs on the
-  // action. The "Send shipment" button at handleSendShipmentClick already did
-  // its own prefill; this covers the other way in, the tab header. The
-  // `isInitialized` guard keeps it idempotent, so re-entering the tab never
-  // overwrites quantities the supplier has already edited.
-  const ensureAsnPrefill = () => {
-    if (!activePo || activePo.status === 'Open') return;
-
-    const lines = (activePo.items || []).map(item => item.line);
-    const isInitialized = lines.length > 0 && lines.every(line => dispatchQuantities[line] !== undefined);
-    if (isInitialized) return;
-
-    const initialQtys = {};
-    const initialErrors = {};
-    (activePo.items || []).forEach(item => {
-      initialQtys[item.line] = openToShip(item);
-      initialErrors[item.line] = '';
-    });
-    setDispatchQuantities(initialQtys);
-    setValidationErrors(initialErrors);
-    // Only the dates get a default. Carrier, vehicle, tracking, invoice and
-    // e-way bill references are the supplier's own documents: an invented one
-    // would be submitted to the buyer as if the supplier had typed it.
-    setAsnForm(prev => ({
-      carrierName: prev.carrierName || '',
-      trackingNumber: prev.trackingNumber || '',
-      vehicleNumber: prev.vehicleNumber || '',
-      invoiceReference: prev.invoiceReference || '',
-      invoiceDate: prev.invoiceDate || '',
-      invoiceValue: prev.invoiceValue || '',
-      shipDate: prev.shipDate || new Date().toISOString().split('T')[0],
-      estimatedDeliveryDate: prev.estimatedDeliveryDate || isoDateInDays(3),
-      items: initialQtys
-    }));
-  };
+  // A shipment notice is created in the ASN module (src/features/asn), starting
+  // from this order's open lines.
+  const openAsnWizard = (po) => router.push(`/asn?new=1&po=${encodeURIComponent(po.id)}`);
 
   // Handle PO Row selection
   const handleOpenPoDetails = (po) => {
@@ -463,100 +348,6 @@ export default function PurchaseOrdersView({
   const filteredPOs = getFilteredPOs().filter((po) => SAVED_VIEWS.find((v) => v.value === savedView).match(po.status));
   const totalPages = Math.ceil(filteredPOs.length / itemsPerPage);
   const paginatedPOs = filteredPOs.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
-
-  // Initialize ASN Form
-  const handleOpenAsnForm = (po) => {
-    setActivePo(po);
-    const initialQtys = {};
-    const initialErrors = {};
-    (po.items || []).forEach(item => {
-      initialQtys[item.line] = openToShip(item);
-      initialErrors[item.line] = '';
-    });
-    setDispatchQuantities(initialQtys);
-    setValidationErrors(initialErrors);
-    setEwayBillNo('');
-    setAsnDocs({ packingList: null, invoiceCopy: null, transportDoc: null });
-    setAsnForm({
-      carrierName: '',
-      trackingNumber: '',
-      vehicleNumber: '',
-      invoiceReference: '',
-      invoiceDate: '',
-      invoiceValue: '',
-      shipDate: new Date().toISOString().split('T')[0],
-      estimatedDeliveryDate: isoDateInDays(3),
-      items: initialQtys
-    });
-    setDetailTab('create_asn');
-    setCurrentView('detail');
-  };
-
-  // Validate and submit ASN
-  const handleAsnSubmitClick = async () => {
-    let hasErrors = false;
-    const newErrors = {};
-
-    // A shipment can carry some lines and not others: blank or 0 leaves a
-    // line off it. It has to carry at least one.
-    let shippedLines = 0;
-    (activePo?.items || []).forEach(item => {
-      const raw = dispatchQuantities[item.line];
-      const qty = Number(raw);
-      const open = openToShip(item);
-
-      if (raw === '' || raw === undefined || qty === 0) {
-        newErrors[item.line] = '';
-      } else if (isNaN(qty) || qty < 0) {
-        newErrors[item.line] = 'Enter a quantity, or leave it blank to leave this line off';
-        hasErrors = true;
-      } else if (qty > open) {
-        newErrors[item.line] = `Only ${open} left to ship on this line`;
-        hasErrors = true;
-      } else {
-        newErrors[item.line] = '';
-        shippedLines += 1;
-      }
-    });
-
-    setValidationErrors(newErrors);
-
-    if (hasErrors) return;
-    if (shippedLines === 0) {
-      alert('Enter a quantity on at least one line.');
-      return;
-    }
-    if (!INVOICE_NUMBER.test(asnForm.invoiceReference || '')) {
-      alert('Enter the invoice number: up to 16 letters, digits, - or /.');
-      return;
-    }
-    if (!asnForm.invoiceDate || !(Number(asnForm.invoiceValue) > 0)) {
-      alert('Enter the invoice date and its value with tax.');
-      return;
-    }
-    if (ewayBillRequired && ewayBillNo.length !== 12) {
-      alert(`This invoice is worth more than ₹${EWAY_BILL_THRESHOLD_INR.toLocaleString('en-IN')}. Enter its 12-digit e-way bill number.`);
-      return;
-    }
-
-    try {
-      // Call store dispatch
-      // The Delivery status tab lists the new shipment once the hook's
-      // refresh lands — it reads the API's rows, not a local copy of the form.
-      await handleAsnSubmit({
-        ...activePo,
-        items: activePo?.items || [],
-        ewayBillNo,
-        documentIds: Object.values(asnDocs).filter(Boolean).map(d => d.documentId)
-      });
-
-      setDetailTab('grn_status');
-      setCurrentView('detail');
-    } catch (e) {
-      console.error(e);
-      alert('Could not send the shipment details: ' + (e.message || e));
-    }
-  };
 
   // Status Chip formatting
   const renderStatusChip = (status) => {
@@ -635,64 +426,6 @@ export default function PurchaseOrdersView({
     { key: 'taxCode', header: 'Tax code', render: (item) => <span className="mono">{item.taxCode || '—'}</span> },
     { key: 'deliveryDate', header: 'Delivery', render: (item) => displayDate(item.deliveryDate) },
     { key: 'netValue', header: 'Net value (₹)', align: 'right', render: (item) => <span className="mono">{money2(item.netValue)}</span> },
-  ];
-
-  const dispatchColumns = [
-    { key: 'line', header: 'Line', mono: true, primary: true },
-    { key: 'materialCode', header: 'Item code', render: (item) => <span className="mono">{item.materialCode || '—'}</span> },
-    { key: 'description', header: 'Description', wrap: true },
-    { key: 'quantity', header: 'Ordered', align: 'right', render: (item) => <span className="mono">{item.quantity}</span> },
-    // Ordered, less received, less what is already on an open shipment — the
-    // in-transit part is shown so the gap from "Ordered" is explained.
-    {
-      key: 'remaining',
-      header: 'Open to ship',
-      align: 'right',
-      render: (item) => (
-        <span className="mono" title={item.inTransitQuantity ? `${item.inTransitQuantity} already on an open shipment` : undefined}>
-          {openToShip(item)}
-          {item.inTransitQuantity > 0 && <span className="ml-1 text-xs text-fg-subtle">({item.inTransitQuantity} in transit)</span>}
-        </span>
-      ),
-    },
-    {
-      key: 'dispatch',
-      header: 'Dispatch now',
-      align: 'right',
-      render: (item) => {
-        const error = validationErrors[item.line];
-        // A service line is confirmed by entry sheet, and a fully shipped
-        // line has nothing left: neither takes a quantity.
-        if (openToShip(item) <= 0) {
-          return <span className="text-xs text-fg-subtle">{lineKind(item).label === 'Service' ? 'Not shipped' : 'Nothing left'}</span>;
-        }
-        return (
-          <div className="flex flex-col items-end gap-1 py-1">
-            <input
-              type="number"
-              aria-label={`Quantity to dispatch for line ${item.line}`}
-              aria-invalid={error ? true : undefined}
-              value={dispatchQuantities[item.line] || ''}
-              onChange={e => {
-                const val = e.target.value;
-                setDispatchQuantities(prev => ({ ...prev, [item.line]: val }));
-                setAsnForm(prev => ({ ...prev, items: { ...prev.items, [item.line]: val } }));
-              }}
-              className="mono w-28! min-h-8! py-1! text-right"
-              placeholder="0"
-            />
-            {error && (
-              <span className="flex max-w-48 items-start gap-1 whitespace-normal text-left text-xs text-danger">
-                <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />{error}
-              </span>
-            )}
-          </div>
-        );
-      },
-    },
-    { key: 'uom', header: 'Unit', render: (item) => item.uom || 'EA' },
-    { key: 'unitPrice', header: 'Net price (₹)', align: 'right', render: (item) => <span className="mono">{money2(item.unitPrice)}</span> },
-    { key: 'deliveryDate', header: 'Delivery', render: (item) => displayDate(item.deliveryDate) },
   ];
 
   const receivedColumns = (grn) => [
@@ -976,7 +709,7 @@ export default function PurchaseOrdersView({
                 // Shipment acts on a PurchaseOrder row, which an order SAP
                 // holds but this portal has not recorded yet does not have.
                 // The detail page opens for it either way, read-only.
-                <Button size="sm" variant="secondary" onClick={() => handleOpenAsnForm(po)}>Send shipment</Button>
+                <Button size="sm" variant="secondary" onClick={() => openAsnWizard(po)}>Send shipment</Button>
               ) : null)}
               empty={allPOs.length
                 ? 'No orders match these filters.'
@@ -1129,7 +862,6 @@ export default function PurchaseOrdersView({
               aria-label="Order sections"
               value={activeDetailTab}
               onValueChange={(tab) => {
-                if (tab === 'create_asn') ensureAsnPrefill();
                 setDetailTab(tab);
               }}
               items={activePoIsSapOnly
@@ -1189,155 +921,15 @@ export default function PurchaseOrdersView({
                       <Button variant="secondary" onClick={() => acknowledgePO(activePo.id)}>Acknowledge PO</Button>
                     </div>
                   ) : (
-                    <section className="space-y-8">
-                      <div>
-                        <h2 className="text-lg font-semibold text-fg">Shipment notice</h2>
-                        <p className="text-sm text-fg-muted">The goods you are dispatching against this order. Your buyer receives it as an inbound delivery.</p>
+                    <div className="card flex flex-col items-start gap-3 p-5 sm:flex-row sm:items-center">
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-fg">Shipment notices are created in ASN</p>
+                        <p className="text-sm text-fg-muted">
+                          Lines of this order that are still open start selected. You can add other orders&apos; lines for the same plant to the same shipment.
+                        </p>
                       </div>
-
-                      <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
-                        <SapInputField label="Purchase order">
-                          <input type="text" readOnly value={activePo.id} className="mono w-48!" />
-                        </SapInputField>
-                        <SapInputField label="Dispatch date" required>
-                          <input
-                            type="date"
-                            required
-                            value={asnForm.shipDate}
-                            onChange={e => setAsnForm({ ...asnForm, shipDate: e.target.value })}
-                            className="w-48!"
-                          />
-                        </SapInputField>
-                        <SapInputField label="Expected delivery" required>
-                          <input
-                            type="date"
-                            required
-                            value={asnForm.estimatedDeliveryDate}
-                            onChange={e => setAsnForm({ ...asnForm, estimatedDeliveryDate: e.target.value })}
-                            className="w-48!"
-                          />
-                        </SapInputField>
-                        <SapInputField label="Carrier" required>
-                          <input
-                            type="text"
-                            required
-                            maxLength={10}
-                            value={asnForm.carrierName}
-                            onChange={e => setAsnForm({ ...asnForm, carrierName: e.target.value })}
-                            placeholder="DHL Express"
-                            className="w-48!"
-                          />
-                        </SapInputField>
-                        <SapInputField label="Vehicle or tracking number">
-                          <input
-                            type="text"
-                            maxLength={20}
-                            value={asnForm.vehicleNumber}
-                            onChange={e => setAsnForm({ ...asnForm, vehicleNumber: e.target.value })}
-                            placeholder="MH-12-XY-4321"
-                            className="mono w-56! uppercase"
-                          />
-                        </SapInputField>
-                        <SapInputField label="Invoice number" required>
-                          <input
-                            type="text"
-                            required
-                            maxLength={16}
-                            value={asnForm.invoiceReference || ''}
-                            onChange={e => setAsnForm({ ...asnForm, invoiceReference: e.target.value.trim() })}
-                            placeholder="INV/2526/0871"
-                            className="mono w-48!"
-                          />
-                        </SapInputField>
-                        <SapInputField label="Invoice date" required>
-                          <input
-                            type="date"
-                            required
-                            max={new Date().toISOString().split('T')[0]}
-                            value={asnForm.invoiceDate || ''}
-                            onChange={e => setAsnForm({ ...asnForm, invoiceDate: e.target.value })}
-                            className="w-48!"
-                          />
-                        </SapInputField>
-                        <SapInputField label="Invoice value with tax (₹)" required>
-                          <input
-                            type="number"
-                            required
-                            min="0.01"
-                            step="0.01"
-                            value={asnForm.invoiceValue || ''}
-                            onChange={e => setAsnForm({ ...asnForm, invoiceValue: e.target.value })}
-                            className="mono w-48! text-right"
-                          />
-                        </SapInputField>
-                        <SapInputField label="E-way bill number" required={ewayBillRequired}>
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            maxLength={12}
-                            required={ewayBillRequired}
-                            value={ewayBillNo}
-                            onChange={e => setEwayBillNo(e.target.value.replace(/\D/g, ''))}
-                            placeholder="12 digits"
-                            className="mono w-48!"
-                          />
-                        </SapInputField>
-                      </div>
-                      <p className="-mt-4 text-xs text-fg-subtle">
-                        {ewayBillRequired
-                          ? `Required: this invoice is worth more than ₹${EWAY_BILL_THRESHOLD_INR.toLocaleString('en-IN')} with tax.`
-                          : `Needed when the invoice is worth more than ₹${EWAY_BILL_THRESHOLD_INR.toLocaleString('en-IN')} with tax.`}
-                      </p>
-
-                      <section>
-                        <h3 className="mb-3 text-base font-semibold text-fg">Documents <span className="text-sm font-normal text-fg-subtle">— optional</span></h3>
-                        <div className="grid gap-4 md:grid-cols-3">
-                          <FileUploadZone
-                            label="Packing list"
-                            value={asnDocs.packingList}
-                            onUploadComplete={result => setAsnDocs(prev => ({ ...prev, packingList: result }))}
-                            onFileRemoved={() => setAsnDocs(prev => ({ ...prev, packingList: null }))}
-                            linkedTo="ASN"
-                            accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
-                          />
-                          <FileUploadZone
-                            label="Invoice copy"
-                            value={asnDocs.invoiceCopy}
-                            onUploadComplete={result => setAsnDocs(prev => ({ ...prev, invoiceCopy: result }))}
-                            onFileRemoved={() => setAsnDocs(prev => ({ ...prev, invoiceCopy: null }))}
-                            linkedTo="ASN"
-                            accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
-                          />
-                          <FileUploadZone
-                            label="Transport bill / LR"
-                            value={asnDocs.transportDoc}
-                            onUploadComplete={result => setAsnDocs(prev => ({ ...prev, transportDoc: result }))}
-                            onFileRemoved={() => setAsnDocs(prev => ({ ...prev, transportDoc: null }))}
-                            linkedTo="ASN"
-                            accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
-                          />
-                        </div>
-                      </section>
-
-                      <section>
-                        <h3 className="mb-3 text-base font-semibold text-fg">Quantities to dispatch</h3>
-                        <DataTable
-                          caption="Quantities to dispatch"
-                          columns={dispatchColumns}
-                          rows={(activePo.items || []).filter(Boolean)}
-                          getRowId={(item, i) => item.line || i}
-                          rowLabel={(item) => `line ${item.line}`}
-                          maxHeight="560px"
-                          empty="This order has no lines."
-                        />
-                      </section>
-
-                      {/* Sticky action bar: the one primary action on this tab. */}
-                      <div className="sticky bottom-0 z-10 -mx-4 flex items-center justify-end gap-3 border-t border-border bg-canvas/95 px-4 py-3 backdrop-blur-none md:-mx-6 md:px-6">
-                        <p className="mr-auto hidden text-sm text-fg-muted sm:block">Check the quantities before sending — your buyer receives them as entered.</p>
-                        <Button onClick={handleAsnSubmitClick}>Submit Inbound Delivery</Button>
-                      </div>
-                    </section>
+                      <Button onClick={() => openAsnWizard(activePo)}>Create ASN for this order</Button>
+                    </div>
                   )}
                 </div>
               )}
@@ -1354,15 +946,30 @@ export default function PurchaseOrdersView({
                     // Every shipment sent against this order, newest first —
                     // an order can ship in parts, and a cancelled shipment
                     // stays in the list as history.
-                    const poAsns = cleanAsns.filter(a => a.poId === activePo.id);
+                    // A shipment can carry lines of several orders, so it is
+                    // this order's if any of its lines is.
+                    const onThisOrder = (a) => a.poId === activePo.id || (a.items || []).some(item => item.poId === activePo.id);
+                    const poAsns = cleanAsns.filter(onThisOrder);
                     if (!poAsns.length) return null;
+                    // A line of another order on the same shipment is named
+                    // with its order, so the quantities are not read as this one's.
                     const lineSummary = (asn, field) => (asn.items || [])
-                      .map(item => `${item.line}: ${item[field] ?? '—'}`)
+                      .map(item => `${item.poId && item.poId !== activePo.id ? `${item.poId}/` : ''}${item.line}: ${item[field] ?? '—'}`)
                       .join(' · ');
                     const shipmentColumns = [
                       { key: 'id', header: 'Shipment', mono: true, primary: true },
                       { key: 'status', header: 'Status', render: (asn) => <StatusBadge label={asn.status} tone={ASN_STATUS_TONE[asn.status]} /> },
                       { key: 'shipDate', header: 'Dispatched', render: (asn) => displayDate(asn.shipDate) },
+                      // SAP's own inbound delivery number, once SAP has made
+                      // one (ADR-0049). Blank is the honest answer on a
+                      // connection that does not create deliveries.
+                      {
+                        key: 'sapInboundDelivery',
+                        header: 'SAP delivery',
+                        render: (asn) => (asn.sapInboundDelivery
+                          ? <span className="mono">{asn.sapInboundDelivery}</span>
+                          : <span className="text-fg-subtle" title="SAP has no inbound delivery for this shipment">—</span>),
+                      },
                       { key: 'shipped', header: 'Shipped (line: qty)', render: (asn) => <span className="mono">{lineSummary(asn, 'shippedQuantity')}</span> },
                       {
                         key: 'received',

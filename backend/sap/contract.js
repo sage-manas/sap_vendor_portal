@@ -226,10 +226,37 @@ const SAP_METHODS = {
 
   // Delivery and goods receipt.
   //
-  // There is no deliveryCreate: the portal does not write an inbound delivery
-  // into SAP. A supplier's dispatch notice is recorded here and the goods
-  // receipt is discovered by polling SAP's own PO/GRN ledger, matched on the
-  // purchase order number rather than on a delivery document we issued.
+  // A supplier's shipment notice becomes an inbound delivery in SAP (VL31N),
+  // against the PO SAP already holds — ADR-0049. This used to be a written
+  // "there is no deliveryCreate", for the reason ADR-0042 gives about
+  // poProvision: a delivery number the portal invented would be a fabrication.
+  // These two do not invent anything. SAP creates the document and answers with
+  // its own VBELN; a driver that cannot do that answers `{ created: false }`
+  // and the shipment stays a portal record, exactly as before.
+  //
+  // What the delivery buys: the warehouse sees the shipment before the truck
+  // arrives, MIGO posts against the delivery rather than the bare PO, and a
+  // goods receipt carries the delivery number back — the only exact way to
+  // tell which shipment a receipt was for once an order ships in parts
+  // (sap/mappings/goods-receipt-match.js).
+  //
+  // Both are called from a job (jobs/handlers/createInboundDelivery.js) and
+  // from cancelASN, never inline on submission: a slow SAP must not hold up a
+  // supplier recording a dispatch.
+  //
+  // `createsDocument` / `deletesDocument`: never exercised by the conformance
+  // runner. One takes a number from a real delivery range; the other removes a
+  // document the warehouse may be planning a receipt around.
+  inboundDeliveryCreate: { transaction: 'INBOUND_DELIVERY_CREATE', createsDocument: true, fields: { 'po.sapPoNumber': 'EBELN', 'vendor.sapVendorCode': 'LIFNR' } },
+  inboundDeliveryCancel: { transaction: 'INBOUND_DELIVERY_CANCEL', deletesDocument: true },
+  // Changing a delivery the portal created (ASN design D6). `needsLiveDocument`:
+  // there is nothing it can be exercised against but a real delivery, and
+  // changing one the warehouse may be planning around is not a test.
+  inboundDeliveryChange: { transaction: 'INBOUND_DELIVERY_CHANGE', needsLiveDocument: true },
+
+  // The goods receipt is still discovered by polling SAP's own PO/GRN ledger.
+  // It matches on the inbound delivery where SAP reports one against the
+  // receipt, and by elimination on the purchase order where it does not.
   awaitGoodsReceipt: { transaction: 'GOODS_RECEIPT', deferred: true, fields: { 'po.sapPoNumber': 'EBELN' } },
 
   // Invoice and payment.
@@ -245,6 +272,15 @@ const SAP_METHODS = {
 
 const METHOD_NAMES = Object.keys(SAP_METHODS);
 const DEFERRED_METHODS = METHOD_NAMES.filter((name) => SAP_METHODS[name].deferred);
+
+// A write the conformance runner must never send to a real system. One
+// predicate, read by the runner and by the tests that check it: when the
+// flags were spelled out at each site, adding a third flag left two of them
+// counting the old way.
+const isUnsafeToExercise = (method) => Boolean(SAP_METHODS[method]?.createsDocument
+  || SAP_METHODS[method]?.changesMasterData
+  || SAP_METHODS[method]?.deletesDocument
+  || SAP_METHODS[method]?.needsLiveDocument);
 
 class NotImplementedError extends Error {
   constructor(driver, method) {
@@ -327,6 +363,7 @@ module.exports = {
   SAP_METHODS,
   METHOD_NAMES,
   DEFERRED_METHODS,
+  isUnsafeToExercise,
   NotImplementedError,
   SapNotFoundError,
   SapDriverError,

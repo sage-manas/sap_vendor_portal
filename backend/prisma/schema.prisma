@@ -561,6 +561,7 @@ model PurchaseOrder {
 
   items        PurchaseOrderItem[]
   asns         ASN[]
+  asnItems     AsnItem[]
   grns         GRN[]
   invoices     Invoice[]
   paymentItems PaymentItem[]
@@ -730,8 +731,16 @@ model ASN {
   clientId String
   id       String // 'ASN-826291'
 
+  // The first order on the shipment. A shipment can carry lines from several
+  // of the supplier's orders for one plant (ASN design V2); each line names
+  // its own order in AsnItem.poId, and that is what per-order logic reads.
+  // This stays for lists and links that show one order per shipment.
   poId String
   po   PurchaseOrder @relation(fields: [clientId, poId], references: [clientId, id])
+
+  // The receiving plant every line shares (V2). Null when the orders' lines
+  // carry no plant — a portal-awarded order may not know one.
+  plant String?
 
   vendorId              String
   status                String   @default("Submitted")
@@ -749,8 +758,26 @@ model ASN {
   invoiceReference      String?
   invoiceDate           DateTime?
   invoiceValue          Decimal? @db.Decimal(14, 2)
+  // Taxable value (before GST); never more than invoiceValue.
+  taxableValue          Decimal? @db.Decimal(14, 2)
   ewayBillNo            String?
+  ewayBillDate          DateTime?
+  // The rest of the shipment details screen (ASN design, screen V4), all
+  // optional. `arrivalTime` is local 'HH:MM' on estimatedDeliveryDate —
+  // LIKP-LFUHR. `driverMobile` is personal data: shown to the supplier who
+  // entered it and the buying organisation, nobody else.
+  arrivalTime           String?
+  vehicleType           String?
+  driverMobile          String?
+  transporterGstin      String?
+  packages              Int?
+  grossWeightKg         Decimal? @db.Decimal(13, 3)
   sapInboundDelivery    String?
+  // The lines SAP's inbound delivery was last given — [{ poId, line,
+  // shippedQuantity, uom }] — written when it is created and after each SAP
+  // change. A change waiting for the tenant admin is held here, not in SAP;
+  // approving it changes SAP from these lines to the ASN's own.
+  sapLines              Json?
   submittedAt           DateTime @default(now())
 
   // A supplier can withdraw a shipment notice until its goods are received
@@ -759,6 +786,15 @@ model ASN {
   // quantity and stops the goods-receipt watch.
   cancelledAt  DateTime?
   cancelReason String?
+
+  // The tenant admin's decision on a shipment notice, when the workspace
+  // requires one (shipments.asnApprovalRequired). `approvedBy`/`rejectedBy`
+  // are the deciding user's email, as the audit log records it.
+  approvedAt      DateTime?
+  approvedBy      String?
+  rejectedAt      DateTime?
+  rejectedBy      String?
+  rejectionReason String?
 
   // Dual identity / sync state — see the note on RFQ above. jobs/syncState.js
   // sets this to `pending` when the goods-receipt watch is enqueued
@@ -783,11 +819,42 @@ model ASN {
   @@map("asns")
 }
 
+// A shipment notice the supplier has started and not submitted. Deliberately
+// not an ASN row with a "Draft" status: a draft has no ASN number (the user's
+// decision — numbers are given on submit, so abandoned drafts leave no gaps),
+// reserves no open quantity and claims no invoice number. Every rule runs
+// again, against current data, when it is submitted (POST
+// /asn-drafts/:pk/submit). `payload` is the form as the supplier left it, in
+// the shape POST /pos/:id/asn accepts, every field optional; `step` is the
+// wizard step to resume at.
+model AsnDraft {
+  pk       String @id @default(uuid()) @db.Uuid
+  clientId String
+  vendorId String
+
+  // The order the draft ships against, once chosen. Plain string, no FK: a
+  // draft outlives nothing and must not block an order's lifecycle.
+  poId    String?
+  step    Int     @default(1)
+  payload Json    @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId, vendorId])
+  @@map("asn_drafts")
+}
+
 model AsnItem {
   pk       String @id @default(uuid()) @db.Uuid
   clientId String
   asnPk    String @db.Uuid
   asn      ASN    @relation(fields: [asnPk], references: [pk], onDelete: Cascade)
+
+  // The order this line ships against — the order, with `line`, names the
+  // PO line. Not always the ASN's own poId: see the note on ASN.poId.
+  poId String
+  po   PurchaseOrder @relation(fields: [clientId, poId], references: [clientId, id])
 
   line            Int?
   materialCode    String
@@ -801,6 +868,7 @@ model AsnItem {
   // difference rather than this column storing it twice.
   receivedQuantity Decimal? @db.Decimal(13, 3)
 
+  @@index([clientId, poId])
   @@map("asn_items")
 }
 

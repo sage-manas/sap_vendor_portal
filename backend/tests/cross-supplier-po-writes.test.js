@@ -65,6 +65,7 @@ describe('cross-supplier PO writes (issue #52)', () => {
       estimatedDeliveryDate: new Date(Date.now() + 86400000).toISOString(),
       items: [{ line: 10, shippedQuantity: 100 }],
       invoiceReference: 'INV/26/0001', invoiceDate: new Date().toISOString(), invoiceValue: 1180,
+      carrierName: 'Blue Dart', trackingNumber: 'LR-0001',
     }));
     expect(res.status).toBe(404);
 
@@ -96,6 +97,7 @@ describe('cross-supplier PO writes (issue #52)', () => {
       estimatedDeliveryDate: new Date(Date.now() + 86400000).toISOString(),
       items: [{ line: 10, shippedQuantity: 100 }],
       invoiceReference: 'INV/26/0001', invoiceDate: new Date().toISOString(), invoiceValue: 1180,
+      carrierName: 'Blue Dart', trackingNumber: 'LR-0001',
     }));
     expect(asn.status).toBe(201);
   });

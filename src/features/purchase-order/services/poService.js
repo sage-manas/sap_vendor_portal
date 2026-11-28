@@ -27,17 +27,53 @@ export const poService = {
     return apiClient.post('/pos/asset', payload);
   },
 
-  async submitASN(poId, asnData) {
-    // The order is named by the URL; the body refuses keys the API does not
-    // declare, and callers hand over the same object that carries `poId`.
-    const { poId: _named, ...body } = asnData;
-    return apiClient.post(`/pos/${poId}/asn`, body);
-  },
 
   // Withdraws a shipment notice that has not been received. The reason is
   // required — the buyer may already have planned a receipt around it.
   async cancelASN(poId, asnId, reason) {
     return apiClient.post(`/pos/${poId}/asn/${asnId}/cancel`, { reason });
+  },
+
+  // A shipment across one or more orders: every line names its poId.
+  async submitShipment(body) {
+    return apiClient.post('/asns', body);
+  },
+  // The whole shipment again, as submitShipment takes it (ASN design D6).
+  async updateShipment(asnId, body) {
+    return apiClient.put(`/asns/${asnId}`, body);
+  },
+  async cancelShipment(asnId, reason) {
+    return apiClient.post(`/asns/${asnId}/cancel`, { reason });
+  },
+  // The tenant admin's decision (asn:approve).
+  async approveShipment(asnId) {
+    return apiClient.post(`/asns/${asnId}/approve`, {});
+  },
+  async rejectShipment(asnId, reason) {
+    return apiClient.post(`/asns/${asnId}/reject`, { reason });
+  },
+  // The workspace's ASN monitor (ASN design B1). `query` is a ready query
+  // string: plant and date.
+  async getAsnMonitor(query = '') {
+    return apiClient.get(`/asns/monitor${query ? `?${query}` : ''}`);
+  },
+  async retryShipmentSap(asnId) {
+    return apiClient.post(`/asns/${asnId}/retry`, {});
+  },
+
+  // Shipment notice drafts: the supplier's own, with no ASN number until
+  // submitted. `pk` is the draft's id.
+  async listAsnDrafts() {
+    return apiClient.get('/asn-drafts');
+  },
+  async saveAsnDraft(pk, draft) {
+    return pk ? apiClient.put(`/asn-drafts/${pk}`, draft) : apiClient.post('/asn-drafts', draft);
+  },
+  async deleteAsnDraft(pk) {
+    return apiClient.delete(`/asn-drafts/${pk}`);
+  },
+  async submitAsnDraft(pk) {
+    return apiClient.post(`/asn-drafts/${pk}/submit`, {});
   },
 
   // Answers `{ asns, pagination }` as of finding 4.1. It used to be a bare

@@ -1,4 +1,4 @@
-const { METHOD_NAMES, SAP_METHODS } = require('../contract');
+const { METHOD_NAMES, SAP_METHODS, isUnsafeToExercise } = require('../contract');
 const { runWithTenant } = require('../../utils/tenantContext');
 const { FIXTURES } = require('./fixtures');
 
@@ -81,13 +81,17 @@ const runConformanceSuite = async ({ adapter, clientId, timeoutMs = DEFAULT_TIME
     // this report gets read is someone deciding whether a sandbox is wired up
     // correctly. `skipped` says what actually happened, and the reason travels
     // with it so nobody has to come back here to find out why.
-    if (spec.createsDocument || spec.changesMasterData) {
+    if (isUnsafeToExercise(method)) {
+      const what = (spec.createsDocument && 'creates a document or master record')
+        || (spec.deletesDocument && 'deletes a document')
+        || (spec.needsLiveDocument && 'changes a document only a live system holds')
+        || 'changes vendor master data';
       results.push({
         method,
         transaction: spec.transaction,
         status: 'skipped',
         durationMs: 0,
-        error: `${method} ${spec.createsDocument ? 'creates a document or master record' : 'changes vendor master data'} in SAP and is not safe to exercise against a live system (see sap/contract.js)`,
+        error: `${method} ${what} in SAP and is not safe to exercise against a live system (see sap/contract.js)`,
       });
       continue;
     }

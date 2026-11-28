@@ -154,7 +154,7 @@ describe('sweepPurchaseOrders reconciles an already-correlated order (issue #73)
       data: {
         id: 'ASN-RECON-5', poId: po.id, vendorId: 'vendor_recon_5',
         shipDate: new Date(), estimatedDeliveryDate: new Date(),
-        items: { create: [{ clientId: 'CLT-0001', line: 10, materialCode: 'MAT-1', shippedQuantity: 10, uom: 'EA' }] },
+        items: { create: [{ clientId: 'CLT-0001', poId: po.id, line: 10, materialCode: 'MAT-1', shippedQuantity: 10, uom: 'EA' }] },
       },
     }));
 

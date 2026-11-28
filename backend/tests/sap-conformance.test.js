@@ -10,7 +10,7 @@
 // tool `scripts/sap-conformance.js` points at a real sandbox once one exists.
 const { prisma } = require('../db/prisma');
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
-const { METHOD_NAMES, DEFERRED_METHODS, SAP_METHODS } = require('../sap/contract');
+const { METHOD_NAMES, DEFERRED_METHODS, SAP_METHODS, isUnsafeToExercise } = require('../sap/contract');
 const { buildTransientAdapter, invalidateSapAdapter } = require('../sap');
 const { runConformanceSuite } = require('../sap/conformance/runner');
 const { FIXTURES } = require('../sap/conformance/fixtures');
@@ -30,13 +30,15 @@ describe('the conformance suite', () => {
     // A method the contract marks unsafe is skipped, not run — see runner.js.
     // Today that is poAssetCreate (it would create a real purchase order),
     // vendorCreate (it would create a real vendor master and consume a number
-    // range) and vendorBankUpdate (it would repoint a real vendor's payout
-    // account). Derived from the contract rather than hardcoded so
+    // range), vendorBankUpdate (it would repoint a real vendor's payout
+    // account), and the inbound delivery pair (one takes a real delivery
+    // number, the other deletes a delivery the warehouse may be planning
+    // around — ADR-0049). Derived from the contract rather than hardcoded so
     // adding one does not quietly leave this assertion measuring the wrong
     // thing. Note this is NOT "every method without a fixture": most reads need
     // no arguments and are deliberately fixture-less but still exercised.
-    const skippable = METHOD_NAMES.filter((method) => (SAP_METHODS[method].createsDocument || SAP_METHODS[method].changesMasterData));
-    expect(skippable).toEqual(['vendorCreate', 'vendorBankUpdate', 'poAssetCreate']);
+    const skippable = METHOD_NAMES.filter(isUnsafeToExercise);
+    expect(skippable).toEqual(['vendorCreate', 'vendorBankUpdate', 'poAssetCreate', 'inboundDeliveryCreate', 'inboundDeliveryCancel', 'inboundDeliveryChange']);
 
     const notSkipped = report.results.filter((r) => r.status !== 'skipped');
     expect(notSkipped.every((r) => r.status === 'passed')).toBe(true);
@@ -87,7 +89,7 @@ describe('the conformance suite', () => {
     // so it reports 'skipped' here rather than 'not_implemented' — the runner
     // never asked ecc_rfc whether it could do it. Excluded explicitly rather
     // than loosened to "not failed", so a genuine regression still shows.
-    const skipped = METHOD_NAMES.filter((method) => (SAP_METHODS[method].createsDocument || SAP_METHODS[method].changesMasterData));
+    const skipped = METHOD_NAMES.filter(isUnsafeToExercise);
     const rest = report.results.filter((r) =>
       !['testConnection', 'health'].includes(r.method) && !skipped.includes(r.method));
     expect(rest.every((r) => r.status === 'not_implemented')).toBe(true);
@@ -188,7 +190,7 @@ describe('the conformance suite', () => {
     // A createsDocument (or changesMasterData) method is skipped, so it writes nothing — it would
     // otherwise be counted here as a logged method that never ran.
     const loggedMethods = METHOD_NAMES.filter((method) =>
-      SAP_METHODS[method].logged !== false && !(SAP_METHODS[method].createsDocument || SAP_METHODS[method].changesMasterData));
+      SAP_METHODS[method].logged !== false && !isUnsafeToExercise(method));
     expect(logged).toBeGreaterThanOrEqual(loggedMethods.length);
   });
 

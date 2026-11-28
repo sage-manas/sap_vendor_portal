@@ -5,6 +5,74 @@ Each entry: the call, why, and what it costs.
 
 ---
 
+## ADR-0049 — A shipment notice becomes an inbound delivery in SAP, through an endpoint switched off until it exists
+
+**SAP integration · 2026-11-20 · Accepted**
+
+**Context.** `sap/contract.js` said, as a rule: *"There is no deliveryCreate: the portal
+does not write an inbound delivery into SAP."* An ASN was a portal record, and the goods
+receipt was found by polling SAP's PO/GRN ledger on the purchase-order number. That was
+workable while an order could take one shipment. Once orders ship in parts (the ASN
+lifecycle change), a receipt on a line no longer says which shipment it was for, and the
+portal can only guess by date and elimination. Separately, the warehouse has no advance
+notice: SAP learns of the goods when they arrive. The user confirmed on 2026-11-20 that the
+SAP team can expose the endpoints needed.
+
+**Decision.** Create the delivery in SAP, and do it the way ADR-0042 allowed asset POs:
+SAP issues the number, and the portal never invents one.
+
+- Two contract methods, `inboundDeliveryCreate` (`createsDocument`) and
+  `inboundDeliveryCancel` (a new `deletesDocument` flag), against custom Z endpoints whose
+  contract is written up in `docs/abap-requests/inbound-delivery.md`. The conformance
+  runner skips both. The three skip flags are now read through one predicate,
+  `isUnsafeToExercise`, because spelling them out at each site is exactly how two tests
+  ended up counting the old two flags when a third arrived.
+- **Off until configured.** The S/4 driver has no default path for either endpoint. With
+  none set, it sends nothing, logs nothing, and answers `{ created: false }`, so the
+  shipment stays a portal record exactly as before. Throwing `not_implemented` was the
+  alternative, and it was rejected: the adapter writes every thrown call into the tenant's
+  SAP log as FAILED, so every shipment would have shown a failed SAP call that was never
+  made.
+- **Asynchronous create, synchronous delete.** `submitASN` enqueues `createInboundDelivery`,
+  because a slow SAP must not stop a supplier recording a dispatch. `cancelASN` calls
+  delete *before* cancelling, and refuses (502, or 409 when the connection cannot delete)
+  rather than leave SAP expecting a truck the portal says is not coming. The SAP call is
+  made before the PO row lock is taken, never under it.
+- **Idempotent on the ASN id.** The create request carries the portal ASN id
+  (`PORTAL_ASN`), which the endpoint keeps in its Z-table ZVP_ASN_HDR and answers a repeat
+  of with the existing delivery. That is what makes a retried job safe, and it is what lets
+  the job undo a delivery it created while the supplier was cancelling. LIKP-LIFEX carries
+  the supplier's invoice number instead, as the ASN design doc sets it (decision D1): MIGO
+  shows LIFEX as the delivery note, and that is the number stores staff match the paper to.
+- **`ASN.sapInboundDelivery` is the delivery SAP holds now.** It is cleared when the
+  delivery is deleted. The number survives in the SAP log and the `asn.cancelled` audit
+  entry.
+- **Receipts match on the delivery where SAP reports one.** The ABAP ask adds `INB_DELIVERY`
+  (MSEG-VBELN_IM) to each receipt row. Where present, a receipt naming a delivery is only
+  ever that delivery's shipment's, and the sweep links a second MIGO posting against the
+  same delivery to its ASN instead of leaving it unlinked. Where absent, the elimination rule
+  stands.
+- The ASN's `sapSyncState` still tracks the goods receipt, not the delivery. A delivery that
+  fails to create shows on the jobs board. The goods-receipt watch carries on regardless.
+
+**Consequences.**
+
+1. **A third document-creating write.** It follows the asset-PO precedent (SAP's number,
+   SAP-first, never conformance-run), and does not widen it to material POs.
+2. **Nothing is live until the ABAP work lands and someone sets the two connection paths.**
+   Until then this is code that does nothing on a real tenant. That is deliberate, and it
+   is also untested against a real system: the contract tests pin the shape we *asked
+   for*, not one SAP has answered with. Expect a fix-up when the real responses arrive, as
+   with ADR-0041.
+3. **Delete has a window.** If SAP deletes the delivery and the cancel transaction then
+   fails, the delivery is gone while the ASN stays open. Retrying the cancel is safe,
+   because delete is idempotent. Running the SAP call inside the lock would close the
+   window at the cost of holding a row lock across HTTP.
+4. **The mock driver now issues delivery numbers**, the same way it already issues MIGO
+   numbers. Only a tenant that selected the `mock` driver ever sees one.
+
+---
+
 ## ADR-0048 — A KPI is labelled after its status group, not after the word "open"
 
 **Integrity · 2026-10-21 · Accepted**

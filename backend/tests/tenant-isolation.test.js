@@ -326,11 +326,18 @@ const MODEL_CASES = [
     create: async (t) => {
       const asn = await seedAsnRow();
       return prisma.asnItem.create({ data: {
-        asnPk: asn.pk, line: 10, materialCode: `MAT-${t}`, shippedQuantity: 5,
+        asnPk: asn.pk, poId: asn.poId, line: 10, materialCode: `MAT-${t}`, shippedQuantity: 5,
       } });
     },
     find: (t) => ({ materialCode: `MAT-${t}` }),
     update: { shippedQuantity: 1 },
+  },
+  {
+    name: 'AsnDraft',
+    adapter: adapterFor('asnDraft'),
+    create: (t) => prisma.asnDraft.create({ data: { vendorId: `VND-${t}`, poId: `PO-${t}` } }),
+    find: (t) => ({ vendorId: `VND-${t}` }),
+    update: { step: 2 },
   },
   {
     name: 'GrnItem',
