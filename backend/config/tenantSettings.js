@@ -57,6 +57,7 @@ const TYPES = {
 const GROUPS = [
   { key: 'branding', label: 'Branding', caption: 'What suppliers see when they sign in to this workspace.' },
   { key: 'features', label: 'Features', caption: 'Modules this workspace offers. Turning one off closes its API, not just its screen.' },
+  { key: 'shipments', label: 'Shipments', caption: 'How suppliers\' shipment notices reach SAP.' },
   { key: 'thresholds', label: 'Thresholds', caption: 'The numbers the workspace overview measures against.' },
   { key: 'notifications', label: 'Notifications', caption: 'Which decisions send the supplier an email.' },
   {
@@ -114,6 +115,17 @@ const SETTINGS = [
     label: 'Supplier self-registration',
     hint: 'When off, suppliers can only join by invitation or by being created from the directory.',
     readBy: 'POST /api/auth/register, POST /api/vendors/profile',
+  },
+  {
+    key: 'shipments.asnApprovalRequired',
+    path: 'settings.shipments.asnApprovalRequired',
+    group: 'shipments',
+    type: 'boolean',
+    // On: the user's decision was that every supplier's ASN is approved.
+    default: true,
+    label: 'Approve shipment notices',
+    hint: 'When on, a supplier\'s ASN waits for a workspace admin before its inbound delivery is created in SAP.',
+    readBy: 'POST /api/asns, POST /api/pos/:id/asn, POST /api/asn-drafts/:pk/submit',
   },
   {
     key: 'thresholds.invoiceReviewAmount',

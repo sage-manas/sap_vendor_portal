@@ -2,7 +2,7 @@ const request = require('supertest');
 const buildTestApp = require('./testApp');
 const { prisma, rawPrisma } = require('../db/prisma');
 const { withoutTenantScope } = require('../utils/tenantContext');
-const { registerVendor, createOperatorSession, asTenant, gstinFor } = require('./helpers');
+const { registerVendor, createOperatorSession, asTenant, gstinFor, withoutAsnApproval } = require('./helpers');
 const { markFailed } = require('../jobs/syncState');
 const awaitGoodsReceiptHandler = require('../jobs/handlers/awaitGoodsReceipt');
 
@@ -17,6 +17,10 @@ const awaitGoodsReceiptHandler = require('../jobs/handlers/awaitGoodsReceipt');
 // handler.
 
 const app = buildTestApp();
+
+// Shipments here go straight to SAP: the workspace's approval step
+// (tests/asn-approval.test.js) is a precondition this suite does not test.
+beforeEach(() => withoutAsnApproval());
 const auth = (token) => ({ Authorization: `Bearer ${token}` });
 
 const seedPo = (vendorId, poId, items) => asTenant(() => prisma.purchaseOrder.create({
@@ -39,6 +43,7 @@ const shipment = (items, overrides = {}) => ({
   shipDate: new Date().toISOString(),
   estimatedDeliveryDate: new Date(Date.now() + 5 * 86400000).toISOString(),
   carrierName: 'Blue Dart Express',
+  trackingNumber: 'LR-0001',
   items,
   ...overrides,
 });
@@ -199,7 +204,7 @@ describe('e-way bill', () => {
     const bad = await submit(a.token, 'PO-2026-ASN1', shipment([{ line: 10, shippedQuantity: 100 }], { invoiceValue: 70800, ewayBillNo: '12345' }));
     expect(bad.status).toBe(400);
 
-    const good = await submit(a.token, 'PO-2026-ASN1', shipment([{ line: 10, shippedQuantity: 100 }], { invoiceValue: 70800, ewayBillNo: '1234 5678 9012' }));
+    const good = await submit(a.token, 'PO-2026-ASN1', shipment([{ line: 10, shippedQuantity: 100 }], { invoiceValue: 70800, ewayBillNo: '1234 5678 9012', ewayBillDate: new Date().toISOString() }));
     expect(good.status).toBe(201);
     expect(good.body.asn.ewayBillNo).toBe('123456789012');
   });
@@ -396,5 +401,57 @@ describe('the goods receipt', () => {
     const stillWaiting = await asTenant(() => prisma.aSN.findFirst({ where: { id: second.body.asn.id } }));
     expect(stillWaiting.status).toBe('Submitted');
     expect(stillWaiting.sapSyncState).toBe('pending');
+  });
+});
+
+describe('shipment details (screen V4 rules)', () => {
+  it('needs the transporter, and an LR / docket number or a vehicle number', async () => {
+    const a = await acknowledgedOrder();
+    const base = shipment([{ line: 10, shippedQuantity: 1 }]);
+
+    const noTransporter = await submit(a.token, 'PO-2026-ASN1', { ...base, carrierName: undefined });
+    const noReference = await submit(a.token, 'PO-2026-ASN1', { ...base, trackingNumber: undefined });
+    const vehicleOnly = await submit(a.token, 'PO-2026-ASN1', { ...base, trackingNumber: undefined, vehicleNumber: 'hr 55 ab 1234' });
+
+    expect(noTransporter.status).toBe(400);
+    expect(noReference.status).toBe(400);
+    expect(vehicleOnly.status).toBe(201);
+    expect(vehicleOnly.body.asn.vehicleNumber).toBe('HR55AB1234');
+  });
+
+  it('accepts a Bharat-series vehicle and refuses one that is not a registration', async () => {
+    const a = await acknowledgedOrder();
+
+    expect((await submit(a.token, 'PO-2026-ASN1', shipment([{ line: 10, shippedQuantity: 1 }], { vehicleNumber: '22BH1234AB' }))).status).toBe(201);
+    expect((await submit(a.token, 'PO-2026-ASN1', shipment([{ line: 10, shippedQuantity: 1 }], { vehicleNumber: 'TRUCK1' }))).status).toBe(400);
+  });
+
+  it('checks dates against dispatch, and taxable value against the total', async () => {
+    const a = await acknowledgedOrder();
+    const line = [{ line: 10, shippedQuantity: 1 }];
+    const ship = '2026-11-20T00:00:00.000Z';
+
+    const late = await submit(a.token, 'PO-2026-ASN1', shipment(line, { shipDate: ship, invoiceDate: '2026-11-21T00:00:00.000Z' }));
+    const arrivesFirst = await submit(a.token, 'PO-2026-ASN1', shipment(line, { shipDate: ship, invoiceDate: ship, estimatedDeliveryDate: '2026-11-19T00:00:00.000Z' }));
+    const taxable = await submit(a.token, 'PO-2026-ASN1', shipment(line, { invoiceValue: 100, taxableValue: 120 }));
+
+    expect(late.body.errors).toHaveProperty('invoiceDate');
+    expect(arrivesFirst.body.errors).toHaveProperty('estimatedDeliveryDate');
+    expect(taxable.body.errors).toHaveProperty('taxableValue');
+  });
+
+  it('keeps the rest of the details screen', async () => {
+    const a = await acknowledgedOrder();
+
+    const res = await submit(a.token, 'PO-2026-ASN1', shipment([{ line: 10, shippedQuantity: 1 }], {
+      invoiceValue: 1180, taxableValue: 1000, arrivalTime: '10:30', vehicleType: 'Truck - closed body',
+      driverMobile: '+91 98765 43210', transporterGstin: '27abcde1234f1z5', packages: 4, grossWeightKg: 120.5,
+    }));
+
+    expect(res.status).toBe(201);
+    expect(res.body.asn).toMatchObject({
+      taxableValue: 1000, arrivalTime: '10:30', vehicleType: 'Truck - closed body',
+      driverMobile: '+919876543210', transporterGstin: '27ABCDE1234F1Z5', packages: 4, grossWeightKg: 120.5,
+    });
   });
 });

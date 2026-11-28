@@ -19,18 +19,31 @@
 //   - of what is left, the earliest document that touches any shipped line is
 //     this shipment's receipt, and only its own quantities are counted.
 //
-// The rule is a best guess where SAP gives no key, and it is wrong when the
+// That rule is a best guess where SAP gives no key, and it is wrong when the
 // warehouse splits one truck across two MIGO postings: the second posting is
-// left for the sweep to record without an ASN. The exact answer needs a
-// delivery reference on the receipt, which needs an inbound delivery in SAP.
+// left for the sweep to record without an ASN.
+//
+// Where SAP does give a key it wins (ADR-0049). Once the portal has created
+// an inbound delivery for the ASN and the receipt feed reports the delivery
+// each receipt was posted against (MSEG-VBELN_IM, `inboundDelivery`):
+//
+//   - only receipts against this ASN's delivery are candidates;
+//   - a receipt against some other delivery is never a candidate for any
+//     ASN, with or without one of its own — it belongs to that delivery.
+//
+// The date and already-recorded rules still apply on top.
 
 const DAY_MS = 86400000;
 
 const receiptId = (year, grNumber) => `GRN-${year}-${grNumber}`;
 
+// VBELN is ten characters with leading zeros in SAP and is not always echoed
+// back padded the same way.
+const sameDelivery = (a, b) => Boolean(a && b) && String(a).replace(/^0+/, '') === String(b).replace(/^0+/, '');
+
 /**
  * @param {object} args
- * @param {object} args.asn - { submittedAt, items: [{ line }] }
+ * @param {object} args.asn - { submittedAt, sapInboundDelivery?, items: [{ line }] }
  * @param {object} args.order - one order from vendorPoGrnDisplay: { items: [{ itemNumber, grns: [...] }] }
  * @param {Set<string>} args.recordedIds - GRN ids the portal already holds
  * @returns {null | { id, grNumber, year, date, quantityByLine: Map<number, number> }}
@@ -51,6 +64,9 @@ const pickGoodsReceiptForAsn = ({ asn, order, recordedIds }) => {
       const id = receiptId(gr.grYear, gr.grNumber);
       if (recordedIds.has(id)) continue;
       if (notBefore && gr.grDate && gr.grDate < notBefore) continue;
+      // Posted against a delivery: it is that delivery's receipt, so it is a
+      // candidate only for the ASN that delivery was created for.
+      if (gr.inboundDelivery && !sameDelivery(gr.inboundDelivery, asn.sapInboundDelivery)) continue;
 
       const doc = docs.get(id) || {
         id, grNumber: gr.grNumber, year: gr.grYear, date: gr.grDate || null, quantityByLine: new Map(),
@@ -68,4 +84,4 @@ const pickGoodsReceiptForAsn = ({ asn, order, recordedIds }) => {
     || String(a.grNumber).localeCompare(String(b.grNumber)))[0];
 };
 
-module.exports = { pickGoodsReceiptForAsn, receiptId };
+module.exports = { pickGoodsReceiptForAsn, receiptId, sameDelivery };

@@ -34,6 +34,12 @@ const SAP_TRANSACTIONS = {
   // the net price on line items of a quotation document SAP already holds.
   QUOTATION_PRICE_UPDATE: { code: 'ZQUOT_NETPR_UPDPR',     type: 'OData', direction: 'OUTBOUND', label: 'Update quotation net price' },
 
+  // Inbound delivery (VL31N / VL32N) — ADR-0049. The supplier's shipment
+  // notice as a delivery document SAP issues the number for.
+  INBOUND_DELIVERY_CREATE: { code: 'ZINB_DELIVERY_CREATE', type: 'OData', direction: 'OUTBOUND', label: 'Create inbound delivery' },
+  INBOUND_DELIVERY_CHANGE: { code: 'ZINB_DELIVERY_CHANGE', type: 'OData', direction: 'OUTBOUND', label: 'Change inbound delivery' },
+  INBOUND_DELIVERY_CANCEL: { code: 'ZINB_DELIVERY_CANCEL', type: 'OData', direction: 'OUTBOUND', label: 'Delete inbound delivery' },
+
   // Goods receipt (MIGO). Discovered in SAP, never posted by the portal.
   GOODS_RECEIPT:      { code: 'BAPI_GOODSMVT_CREATE',      type: 'BAPI',  direction: 'INBOUND',  label: 'Post goods receipt' },
   GOODS_RECEIPT_READ: { code: 'BAPI_GOODSMVT_GETDETAIL',   type: 'RFC',   direction: 'INBOUND',  label: 'Read goods receipt detail' },

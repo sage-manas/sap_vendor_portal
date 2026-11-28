@@ -12,6 +12,7 @@
 const HANDLERS = {
   awaitGoodsReceipt: require('./awaitGoodsReceipt'),
   awaitPaymentRun: require('./awaitPaymentRun'),
+  createInboundDelivery: require('./createInboundDelivery'),
   // Discovery sweeps (Phase 4) — recurring; see the note on `recurring` in
   // jobs/kinds.js for how their job-runtime lifecycle differs from the two
   // targeted watches above.

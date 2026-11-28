@@ -153,7 +153,12 @@ const seedPoAsn = async (clientId, suffix) => {
     data: { id: `PO-FY-${suffix}`, vendorId: `vendor_fy_${suffix}`, status: 'Acknowledged', sapPoNumber: `450009${suffix}`, sapDocNumber: `450009${suffix}`, sapSyncState: 'synced' },
   });
   const asn = await prisma.aSN.create({
-    data: { id: `ASN-FY-${suffix}`, poId: po.id, vendorId: `vendor_fy_${suffix}`, status: 'Submitted', shipDate: new Date(), estimatedDeliveryDate: new Date() },
+    data: {
+      id: `ASN-FY-${suffix}`, poId: po.id, vendorId: `vendor_fy_${suffix}`, status: 'Submitted', shipDate: new Date(), estimatedDeliveryDate: new Date(),
+      // Every shipment the API makes has at least one line; the receipt job
+      // asks SAP about the lines' orders.
+      items: { create: [{ clientId, poId: po.id, line: 10, materialCode: 'MAT-1', shippedQuantity: 1 }] },
+    },
   });
   return { po, asn };
 };

@@ -66,12 +66,13 @@ describe('the purchase-order detail view', () => {
     await walkTabs(await openDetail(po({ status: 'Open' })));
   });
 
-  it("nests the shipment form's sub-sections one level under it", async () => {
+  // The shipment form moved to the ASN module (/asn), which has its own
+  // outline test; the tab is now a way in, with no headings of its own.
+  it('has no skipped level on the shipment tab, which leads to the ASN module', async () => {
     const user = await openDetail(po({ status: 'Acknowledged' }));
     await user.click(screen.getByRole('tab', { name: 'Send shipment' }));
 
-    expect(await screen.findByRole('heading', { level: 2, name: 'Shipment notice' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 3, name: 'Quantities to dispatch' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Create ASN for this order' })).toBeInTheDocument();
     await walkTabs(user);
   });
 

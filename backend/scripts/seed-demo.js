@@ -816,7 +816,7 @@ const seedDeliveries = async (pos) => {
         submittedAt: day(s.ship),
         items: {
           create: order.items.map((item) => ({
-            clientId, line: item.line, materialCode: item.materialCode,
+            clientId, poId: s.poId, line: item.line, materialCode: item.materialCode,
             description: item.description, shippedQuantity: item.quantity, uom: item.uom,
           })),
         },

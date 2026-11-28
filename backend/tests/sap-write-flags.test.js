@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { METHOD_NAMES, SAP_METHODS } = require('../sap/contract');
+const { METHOD_NAMES, isUnsafeToExercise } = require('../sap/contract');
 
 // Every driver method that issues a mutating HTTP request to SAP has to be
 // classified, and this is what refuses to let a new one through unclassified.
@@ -80,8 +80,7 @@ const scanDrivers = () => {
   return found.filter(({ method }) => METHOD_NAMES.includes(method));
 };
 
-const isSkipped = (method) =>
-  Boolean(SAP_METHODS[method].createsDocument || SAP_METHODS[method].changesMasterData);
+const isSkipped = isUnsafeToExercise;
 
 describe('SAP driver write methods are classified for the conformance runner', () => {
   // Guards the scanner itself. If DECLARATION stops matching -- a reformat, a

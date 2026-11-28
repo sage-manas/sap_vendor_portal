@@ -41,10 +41,13 @@ const isServiceLine = (item) => item.accountAssignmentCategory === 'D'
  * @returns {Promise<Map<number, {ordered:number, received:number, inTransit:number, open:number}>>}
  */
 const shippableByLine = async (client, po, { excludeAsnId } = {}) => {
+  // By the line's own order (a shipment can carry several), and only lines
+  // not yet received: a received line's quantity is in grnQuantity already.
   const inTransit = await client.asnItem.findMany({
     where: {
+      poId: po.id,
+      receivedQuantity: null,
       asn: {
-        poId: po.id,
         status: { in: ASN_OPEN },
         ...(excludeAsnId ? { id: { not: excludeAsnId } } : {}),
       },
@@ -82,12 +85,12 @@ const withShippableQuantities = async (client, pos) => {
   if (!pos.length) return pos;
 
   const rows = await client.asnItem.findMany({
-    where: { asn: { poId: { in: pos.map((po) => po.id) }, status: { in: ASN_OPEN } } },
-    select: { line: true, shippedQuantity: true, asn: { select: { poId: true } } },
+    where: { poId: { in: pos.map((po) => po.id) }, receivedQuantity: null, asn: { status: { in: ASN_OPEN } } },
+    select: { poId: true, line: true, shippedQuantity: true },
   });
   const inTransit = new Map();
   for (const row of rows) {
-    const key = `${row.asn.poId}:${row.line}`;
+    const key = `${row.poId}:${row.line}`;
     inTransit.set(key, (inTransit.get(key) || 0) + milli(row.shippedQuantity));
   }
 
@@ -110,15 +113,17 @@ const withShippableQuantities = async (client, pos) => {
 // was shipped: negative is a short delivery, positive an excess, null not
 // received yet.
 const ASN_INCLUDE = {
-  items: { orderBy: { line: 'asc' } },
+  items: { orderBy: [{ poId: 'asc' }, { line: 'asc' }] },
   documents: { select: { pk: true, originalName: true, mimeType: true, size: true, createdAt: true } },
 };
 
 const formatAsn = (asn) => {
-  const { items, documents, invoiceValue, ...rest } = asn;
+  const { items, documents, invoiceValue, taxableValue, grossWeightKg, ...rest } = asn;
   return {
     ...rest,
     invoiceValue: invoiceValue == null ? null : toMoney(invoiceValue),
+    taxableValue: taxableValue == null ? null : toMoney(taxableValue),
+    grossWeightKg: grossWeightKg == null ? null : toQty(grossWeightKg),
     items: (items || []).map(({ pk, clientId, asnPk, shippedQuantity, receivedQuantity, ...item }) => {
       const received = receivedQuantity == null ? null : toQty(receivedQuantity);
       return {
@@ -144,7 +149,16 @@ const financialYearOf = (value) => {
   return { start: new Date(Date.UTC(startYear, 3, 1)), end: new Date(Date.UTC(startYear + 1, 3, 1)) };
 };
 
+// The lines as SAP's inbound delivery is given them (ASN.sapLines), and
+// whether a shipment's lines still match what SAP was last given.
+const sapLinesOf = (items) => (items || [])
+  .map((item) => ({ poId: item.poId, line: item.line, shippedQuantity: toQty(item.shippedQuantity), uom: item.uom || 'EA' }))
+  .sort((a, b) => `${a.poId}:${a.line}`.localeCompare(`${b.poId}:${b.line}`));
+const sameSapLines = (a, b) => JSON.stringify(a || []) === JSON.stringify(b || []);
+
 module.exports = {
+  sapLinesOf,
+  sameSapLines,
   ASN_INCLUDE,
   formatAsn,
   EWAY_BILL_THRESHOLD_INR,

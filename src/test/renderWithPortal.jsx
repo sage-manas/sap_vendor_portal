@@ -72,7 +72,9 @@ export const mockApi = (routes = {}) => {
   const fetchStub = vi.fn(async (url, options = {}) => {
     const method = (options.method || 'GET').toUpperCase();
     const path = normalisePath(url);
-    const body = options.body ? JSON.parse(options.body) : undefined;
+    // A file upload sends FormData, not JSON; it is recorded as sent.
+    const body = !options.body ? undefined
+      : options.body instanceof FormData ? options.body : JSON.parse(options.body);
     calls.push({ method, path, body, url: String(url), headers: options.headers || {} });
 
     const route = routes[routeKey(method, path)];

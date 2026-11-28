@@ -223,6 +223,11 @@ export const EMPTY_WORKSPACE_API = {
   'GET /invoices': emptyList('invoices'),
   'GET /payments': emptyList('payments'),
   'GET /asns': emptyList('asns'),
+  // The shipments page's monitor (ASN design B1), with nothing in any section.
+  'GET /asns/monitor': {
+    date: '2026-11-22', today: '2026-11-22', plant: null, plants: [],
+    expected: [], pendingApproval: [], sapErrors: [], overdue: [],
+  },
   'GET /users': { users: [] },
   'GET /users/roles': { roles: [] },
   'GET /users/invitations': { invitations: [] },

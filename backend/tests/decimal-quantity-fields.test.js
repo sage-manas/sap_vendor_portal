@@ -7,10 +7,14 @@ const request = require('supertest');
 const buildTestApp = require('./testApp');
 const { prisma, rawPrisma } = require('../db/prisma');
 const { runWithTenant, withoutTenantScope } = require('../utils/tenantContext');
-const { registerVendor, createAdminUser, runDueJobs } = require('./helpers');
+const { registerVendor, createAdminUser, runDueJobs, withoutAsnApproval } = require('./helpers');
 const { enqueue } = require('../jobs/queue');
 
 const app = buildTestApp();
+
+// Shipments here go straight to SAP: the workspace's approval step
+// (tests/asn-approval.test.js) is a precondition this suite does not test.
+beforeEach(() => withoutAsnApproval());
 const auth = (token) => (req) => req.set('Authorization', `Bearer ${token}`);
 const futureDate = (days = 7) => new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
 
@@ -80,6 +84,7 @@ describe('quantity fields survive the Float → Decimal migration', () => {
       shipDate: new Date().toISOString(), estimatedDeliveryDate: futureDate(2),
       items: [{ line: 10, shippedQuantity: 10 }],
       invoiceReference: 'INV/26/0001', invoiceDate: new Date().toISOString(), invoiceValue: 1180,
+      carrierName: 'Blue Dart', trackingNumber: 'LR-0001',
     });
 
     const grn = await until(async () => {
@@ -138,7 +143,7 @@ describe('quantity fields survive the Float → Decimal migration', () => {
         data: {
           id: `ASN-QTY-PARTIAL-${i}`, poId: created.id, vendorId, status: 'Submitted', sapSyncState: 'pending',
           shipDate: new Date(), estimatedDeliveryDate: new Date(),
-          items: { create: [{ clientId: 'CLT-0001', line: 10, materialCode: 'MAT-1', description: 'Widget', shippedQuantity, uom: 'EA' }] },
+          items: { create: [{ clientId: 'CLT-0001', poId: created.id, line: 10, materialCode: 'MAT-1', description: 'Widget', shippedQuantity, uom: 'EA' }] },
         },
       })));
 

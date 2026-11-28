@@ -154,20 +154,6 @@ export function usePOs(profile) {
     }
   };
 
-  const submitASN = async (asnData) => {
-    try {
-      setPos(prev => prev.map(po => po.id === asnData.poId ? { ...po, status: 'Dispatched' } : po));
-      const res = await poService.submitASN(asnData.poId, asnData);
-      refreshPOs();
-      refreshASNs();
-      return res;
-    } catch (e) {
-      console.error(e);
-      refreshPOs();
-      refreshASNs();
-      throw e;
-    }
-  };
 
   // No optimistic status change: whether the order goes back to Acknowledged
   // depends on whether another shipment is still open, which only the API
@@ -181,16 +167,56 @@ export function usePOs(profile) {
     }
   };
 
+  // Submitting a draft makes a shipment, so the lists that show one refresh.
+  const submitAsnDraft = async (pk) => {
+    try {
+      return await poService.submitAsnDraft(pk);
+    } finally {
+      refreshPOs();
+      refreshASNs();
+    }
+  };
+
+  // The ASN module's own submit and cancel (src/features/asn). Each refreshes
+  // the lists a shipment changes: its orders' open quantities, and shipments.
+  const submitShipment = async (body) => {
+    try {
+      return await poService.submitShipment(body);
+    } finally {
+      refreshPOs();
+      refreshASNs();
+    }
+  };
+  const updateShipment = async (asnId, body) => {
+    try {
+      return await poService.updateShipment(asnId, body);
+    } finally {
+      refreshPOs();
+      refreshASNs();
+    }
+  };
+  const cancelShipment = async (asnId, reason) => {
+    try {
+      return await poService.cancelShipment(asnId, reason);
+    } finally {
+      refreshPOs();
+      refreshASNs();
+    }
+  };
+
   return {
     pos,
     posLoaded,
+    submitAsnDraft,
+    submitShipment,
+    updateShipment,
+    cancelShipment,
     asns,
     grns,
     sapPoOrders,
     sapPoStatus,
     addPO,
     acknowledgePO,
-    submitASN,
     cancelASN,
     refreshPOs,
     refreshGRNs,

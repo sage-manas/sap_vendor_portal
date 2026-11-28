@@ -7,6 +7,7 @@ import { expectHeadingOutline } from '@/test/outline';
 import DashboardPage from '@/app/page';
 import RfqsPage from '@/app/rfqs/page';
 import PurchaseOrdersPage from '@/app/pos/page';
+import AsnPage from '@/app/asn/page';
 import InvoicesPage from '@/app/invoices/page';
 import PaymentsPage from '@/app/payments/page';
 import PerformancePage from '@/app/performance/page';
@@ -25,6 +26,7 @@ const ROUTES = [
   ['/', DashboardPage, 'Overview'],
   ['/rfqs', RfqsPage, 'RFQs'],
   ['/pos', PurchaseOrdersPage, 'Purchase orders'],
+  ['/asn', AsnPage, 'ASN'],
   ['/invoices', InvoicesPage, /^Invoices$/i],
   ['/payments', PaymentsPage, 'Payments'],
   ['/performance', PerformancePage, 'Performance'],
